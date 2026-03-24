@@ -1,0 +1,15 @@
+{
+  "name": "agentify",
+  "version": "0.1.0",
+  "description": "Auto-agentify any repo with deterministic scans, docs, metadata, and validation.",
+  "type": "module",
+  "bin": {
+    "agentify": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
