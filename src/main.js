@@ -55,7 +55,8 @@ Commands:
   validate   Validate freshness, schemas, and safety rules
 
 Flags:
-  --provider codex|local       Provider to use for doc generation
+  --provider local|codex|claude|gemini|opencode
+                               Provider to use for doc generation
   --mode branch|pr|patch       Output mode (default: branch)
   --strict true|false          Fail closed on validation issues (default: true)
   --languages auto|ts|python|dotnet

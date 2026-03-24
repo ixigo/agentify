@@ -124,6 +124,121 @@ export function parseCodexJsonl(text) {
   return usage;
 }
 
+export function parseClaudeJson(text) {
+  const payload = JSON.parse(text.trim());
+  const usage = payload.usage || {};
+  return {
+    output: payload.structured_output,
+    usage: {
+      input_tokens: usage.input_tokens || 0,
+      output_tokens: usage.output_tokens || 0,
+      total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0)
+    }
+  };
+}
+
+export function parseGeminiJson(text) {
+  const trimmed = text.trim();
+  const startIndex = trimmed.indexOf("{");
+  if (startIndex === -1) {
+    throw new Error("gemini output did not contain JSON");
+  }
+  const payload = JSON.parse(trimmed.slice(startIndex));
+  const responseText = payload.response;
+  const output = typeof responseText === "string" ? JSON.parse(responseText) : responseText;
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  const models = payload.stats?.models || {};
+  for (const modelStats of Object.values(models)) {
+    inputTokens += modelStats?.tokens?.input || 0;
+    outputTokens += modelStats?.tokens?.candidates || 0;
+    totalTokens += modelStats?.tokens?.total || 0;
+  }
+
+  return {
+    output,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      total_tokens: totalTokens || inputTokens + outputTokens
+    }
+  };
+}
+
+export function parseOpenCodeJsonl(text) {
+  let output = null;
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0
+  };
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("{")) {
+      continue;
+    }
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "text" && typeof event.part?.text === "string") {
+        output = JSON.parse(event.part.text);
+      }
+      if (event.type === "step_finish" && event.part?.tokens) {
+        usage.input_tokens = event.part.tokens.input || 0;
+        usage.output_tokens = event.part.tokens.output || 0;
+        usage.total_tokens = event.part.tokens.total || usage.input_tokens + usage.output_tokens;
+      }
+    } catch {
+      // Ignore malformed lines.
+    }
+  }
+
+  if (!output) {
+    throw new Error("opencode output did not contain JSON text payload");
+  }
+
+  return { output, usage };
+}
+
+async function runChild(command, args, { cwd, env = {} } = {}) {
+  const stdoutChunks = [];
+  const stderrChunks = [];
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: {
+        ...process.env,
+        ...env
+      }
+    });
+
+    child.stdout.on("data", (chunk) => {
+      stdoutChunks.push(String(chunk));
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderrChunks.push(String(chunk));
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${command} failed with code ${code}: ${stderrChunks.join("") || stdoutChunks.join("")}`));
+    });
+  });
+
+  return {
+    stdout: stdoutChunks.join(""),
+    stderr: stderrChunks.join("")
+  };
+}
+
 async function runCodexExec({ root, prompt, schema, model }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   const schemaPath = path.join(tempDir, "schema.json");
@@ -150,33 +265,72 @@ async function runCodexExec({ root, prompt, schema, model }) {
 
   args.push(prompt);
 
-  const stdoutChunks = [];
-  const stderrChunks = [];
-
-  await new Promise((resolve, reject) => {
-    const child = spawn("codex", args, { cwd: root });
-
-    child.stdout.on("data", (chunk) => {
-      stdoutChunks.push(String(chunk));
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderrChunks.push(String(chunk));
-    });
-
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`codex exec failed with code ${code}: ${stderrChunks.join("") || stdoutChunks.join("")}`));
-    });
-  });
+  const { stdout } = await runChild("codex", args, { cwd: root });
 
   const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
-  const usage = parseCodexJsonl(stdoutChunks.join(""));
+  const usage = parseCodexJsonl(stdout);
   return { output, usage };
+}
+
+async function runClaudeExec({ root, prompt, schema, model }) {
+  const args = [
+    "-p",
+    "--output-format",
+    "json",
+    "--permission-mode",
+    "plan",
+    "--json-schema",
+    JSON.stringify(schema)
+  ];
+
+  if (model) {
+    args.push("--model", model);
+  }
+
+  args.push(prompt);
+
+  const { stdout } = await runChild("claude", args, { cwd: root });
+  return parseClaudeJson(stdout);
+}
+
+async function runGeminiExec({ root, prompt, model }) {
+  const args = [
+    "-p",
+    prompt,
+    "--output-format",
+    "json"
+  ];
+
+  if (model) {
+    args.push("--model", model);
+  }
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-gemini-home-"));
+  const { stdout } = await runChild("gemini", args, {
+    cwd: root,
+    env: {
+      HOME: home
+    }
+  });
+  return parseGeminiJson(stdout);
+}
+
+async function runOpenCodeExec({ root, prompt, model }) {
+  const args = [
+    "run",
+    prompt,
+    "--format",
+    "json",
+    "--dir",
+    root
+  ];
+
+  if (model) {
+    args.push("--model", model);
+  }
+
+  const { stdout } = await runChild("opencode", args, { cwd: root });
+  return parseOpenCodeJsonl(stdout);
 }
 
 function buildMetadataFromCodex(moduleInfo, context, response) {
@@ -239,13 +393,13 @@ function createLocalProvider() {
   };
 }
 
-function createCodexProvider(config) {
+function createExternalProvider(config, options) {
   return {
-    name: "codex",
-    providerModel: config.model || "codex-default",
+    name: options.name,
+    providerModel: config.model || options.defaultModel,
     async buildManagerPlan(repoContext) {
       try {
-        const result = await runCodexExec({
+        const result = await options.run({
           root: repoContext.root,
           prompt: buildManagerPrompt(repoContext),
           schema: buildManagerSchema(),
@@ -279,7 +433,7 @@ function createCodexProvider(config) {
 
       try {
         const prompt = buildModulePrompt(moduleInfo, context);
-        const result = await runCodexExec({
+        const result = await options.run({
           root: context.root,
           prompt,
           schema: buildModuleSchema(),
@@ -318,7 +472,32 @@ export function createProvider(name, config = {}) {
     return createLocalProvider();
   }
   if (name === "codex") {
-    return createCodexProvider(config);
+    return createExternalProvider(config, {
+      name: "codex",
+      defaultModel: "codex-default",
+      run: runCodexExec
+    });
+  }
+  if (name === "claude") {
+    return createExternalProvider(config, {
+      name: "claude",
+      defaultModel: "claude-default",
+      run: runClaudeExec
+    });
+  }
+  if (name === "gemini") {
+    return createExternalProvider(config, {
+      name: "gemini",
+      defaultModel: "gemini-default",
+      run: async ({ root, prompt, model }) => runGeminiExec({ root, prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`, model })
+    });
+  }
+  if (name === "opencode") {
+    return createExternalProvider(config, {
+      name: "opencode",
+      defaultModel: "opencode-default",
+      run: async ({ root, prompt, model }) => runOpenCodeExec({ root, prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`, model })
+    });
   }
   throw new Error(`unsupported provider "${name}"`);
 }

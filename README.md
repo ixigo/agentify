@@ -21,6 +21,9 @@ Implemented commands:
 Provider support:
 - `local`: deterministic local artifact generation
 - `codex`: repo-manager plus per-module Codex sub-agent orchestration via `codex exec`
+- `claude`: repo-manager plus per-module Claude Code orchestration via `claude -p`
+- `gemini`: repo-manager plus per-module Gemini CLI orchestration via `gemini -p`
+- `opencode`: repo-manager plus per-module OpenCode orchestration via `opencode run`
 
 ## Features
 
@@ -53,6 +56,9 @@ Required:
 Optional but recommended:
 - Git, if you want freshness validation against `HEAD`
 - Codex CLI installed and authenticated, if using `--provider codex`
+- Claude Code installed and authenticated, if using `--provider claude`
+- Gemini CLI installed and authenticated, if using `--provider gemini`
+- OpenCode installed and authenticated, if using `--provider opencode`
 
 Examples:
 - `node -v`
@@ -179,7 +185,7 @@ agentify validate
 
 ## Common Flags
 
-- `--provider local|codex`
+- `--provider local|codex|claude|gemini|opencode`
 - `--mode branch|pr|patch`
 - `--strict true|false`
 - `--languages auto|ts|python|dotnet`
@@ -247,12 +253,80 @@ Example:
 agentify update --provider codex --module-concurrency 4
 ```
 
+### `claude`
+
+Use `claude` when:
+- Claude Code is already part of your workflow
+- you want structured output enforced with Claude's JSON schema support
+- you want token/cost accounting from Claude's non-interactive result payload
+
+Behavior:
+- uses `claude -p`
+- requests JSON output with schema validation
+- runs manager plus per-module prompts
+- captures input/output token usage from Claude's result JSON
+
+Tradeoffs:
+- depends on Claude Code CLI availability and auth
+- slower than `local`
+
+Example:
+
+```bash
+agentify update --provider claude --module-concurrency 4
+```
+
+### `gemini`
+
+Use `gemini` when:
+- Gemini CLI is available in your environment
+- you want Gemini-based summaries while keeping the same Agentify safety layer
+
+Behavior:
+- uses `gemini -p --output-format json`
+- parses provider JSON stats for token accounting
+- enforces structure through Agentify prompt contract plus response sanitization
+
+Tradeoffs:
+- no native schema enforcement in the current adapter path
+- provider output is sanitized after parsing rather than schema-constrained at source
+
+Example:
+
+```bash
+agentify update --provider gemini --module-concurrency 4
+```
+
+### `opencode`
+
+Use `opencode` when:
+- OpenCode is the CLI already installed in your environment
+- you want a headless JSON event stream provider path
+
+Behavior:
+- uses `opencode run --format json`
+- extracts JSON payload from text events
+- captures token usage from `step_finish` event tokens
+
+Tradeoffs:
+- no native schema enforcement in the current adapter path
+- output quality depends on prompt compliance plus Agentify sanitization
+
+Example:
+
+```bash
+agentify update --provider opencode --module-concurrency 4
+```
+
 ### Summary
 
 | Provider | Best for | Speed | Quality | Network/Auth | Token Usage |
 |---|---|---:|---:|---|---|
 | `local` | offline runs, CI fallback, deterministic scaffolding | fast | moderate | not required | none |
 | `codex` | richer summaries, agent-oriented docs, repo interpretation | slower | higher | required | recorded when available |
+| `claude` | schema-constrained structured generation | slower | higher | required | recorded when available |
+| `gemini` | Gemini-based generation with JSON stats | slower | higher | required | recorded when available |
+| `opencode` | OpenCode event-stream based generation | slower | higher | required | recorded when available |
 
 ## Progress UX
 
