@@ -49,3 +49,58 @@ test("detectModules identifies Python package modules", async () => {
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "python");
   assert.equal(modules[0].rootPath, "src/demo");
 });
+
+test("detectStacks identifies Kotlin Android repo", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "settings.gradle.kts"), "include(\":app\")\n");
+    await fs.writeFile(path.join(dir, "build.gradle.kts"), "plugins {}\n");
+    await fs.mkdir(path.join(dir, "app", "src", "main", "kotlin", "com", "demo"), { recursive: true });
+    await fs.writeFile(path.join(dir, "app", "src", "main", "kotlin", "com", "demo", "MainActivity.kt"), "class MainActivity\n");
+  });
+
+  const stacks = await detectStacks(root, { languages: "auto" });
+  assert.equal(stacks[0].name, "kotlin");
+});
+
+test("detectModules identifies Gradle modules for Kotlin repos", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "settings.gradle.kts"), "include(\":app\", \":feature:payments\")\n");
+    await fs.mkdir(path.join(dir, "app"), { recursive: true });
+    await fs.mkdir(path.join(dir, "feature", "payments"), { recursive: true });
+    await fs.writeFile(path.join(dir, "app", "build.gradle.kts"), "plugins {}\n");
+    await fs.writeFile(path.join(dir, "feature", "payments", "build.gradle.kts"), "plugins {}\n");
+  });
+
+  const modules = await detectModules(root, { moduleStrategy: "auto" }, "kotlin");
+  assert.deepEqual(
+    modules.map((item) => item.rootPath).sort(),
+    ["app", "feature/payments"]
+  );
+});
+
+test("detectStacks identifies Swift repo", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "Package.swift"), "// swift-tools-version: 5.9\n");
+    await fs.mkdir(path.join(dir, "Sources", "App"), { recursive: true });
+    await fs.writeFile(path.join(dir, "Sources", "App", "main.swift"), "print(\"hi\")\n");
+  });
+
+  const stacks = await detectStacks(root, { languages: "auto" });
+  assert.equal(stacks[0].name, "swift");
+});
+
+test("detectModules identifies Swift package modules", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "Package.swift"), "// swift-tools-version: 5.9\n");
+    await fs.mkdir(path.join(dir, "Sources", "Core"), { recursive: true });
+    await fs.mkdir(path.join(dir, "Sources", "UI"), { recursive: true });
+    await fs.writeFile(path.join(dir, "Sources", "Core", "App.swift"), "struct App {}\n");
+    await fs.writeFile(path.join(dir, "Sources", "UI", "Screen.swift"), "struct Screen {}\n");
+  });
+
+  const modules = await detectModules(root, { moduleStrategy: "auto" }, "swift");
+  assert.deepEqual(
+    modules.map((item) => item.rootPath).sort(),
+    ["Sources/Core", "Sources/UI"]
+  );
+});

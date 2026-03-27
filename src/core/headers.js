@@ -9,7 +9,13 @@ function detectCommentSyntax(filePath) {
   if (filePath.endsWith(".py")) {
     return "python";
   }
-  if (filePath.endsWith(".cs")) {
+  if (
+    filePath.endsWith(".cs")
+    || filePath.endsWith(".java")
+    || filePath.endsWith(".kt")
+    || filePath.endsWith(".kts")
+    || filePath.endsWith(".swift")
+  ) {
     return "csharp";
   }
   return "jsdoc";
@@ -89,6 +95,11 @@ export function applyHeaderToSource(source, header) {
   const existingHeader = body.match(/^\/\*\*\s*@agentify[\s\S]*?\*\/\n\n?/);
   if (existingHeader) {
     return `${shebang}${header}${body.slice(existingHeader[0].length)}`;
+  }
+
+  const existingBlockHeader = body.match(/^\/\*\s*@agentify[\s\S]*?\*\/\n\n?/);
+  if (existingBlockHeader) {
+    return `${shebang}${header}${body.slice(existingBlockHeader[0].length)}`;
   }
 
   const existingPyHeader = body.match(/^"""@agentify[\s\S]*?"""\n\n?/);

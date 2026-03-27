@@ -12,7 +12,7 @@ function summarizeModule(moduleInfo, files) {
 
 function inferPublicApi(files) {
   return files
-    .filter((file) => /(index|public|exports)\.(ts|tsx|js|jsx|py|cs)$/.test(file))
+    .filter((file) => /(index|public|exports|main|appdelegate|scenedelegate|application|mainactivity)\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/i.test(file))
     .slice(0, 8)
     .map((file) => ({
       symbol: file.split("/").pop(),

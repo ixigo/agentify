@@ -5,9 +5,10 @@ import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 
 const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^output\.txt$/, /^agentify-report\.html$/, /^docs\//, /^\.agents\//];
+const ALLOWED_CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/;
 
 function isAllowedPath(filePath) {
-  return ALLOWED_DOC_PATHS.some((pattern) => pattern.test(filePath)) || /\.(ts|tsx|js|jsx|py|cs)$/.test(filePath);
+  return ALLOWED_DOC_PATHS.some((pattern) => pattern.test(filePath)) || ALLOWED_CODE_EXTENSIONS.test(filePath);
 }
 
 function classifyCommentLine(line, filePath) {
@@ -18,7 +19,7 @@ function classifyCommentLine(line, filePath) {
   if (filePath.endsWith(".py")) {
     return trimmed.startsWith("#") || trimmed.startsWith('"""') || trimmed.endsWith('"""') || trimmed === "";
   }
-  if (filePath.endsWith(".cs")) {
+  if (/\.(cs|java|kt|kts|swift)$/.test(filePath)) {
     return trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.endsWith("*/") || trimmed.startsWith("///") || trimmed === "";
   }
   return false;
@@ -28,7 +29,7 @@ function stripTopAgentifyHeader(source, filePath, headerWindow) {
   const lines = source.split(/\r?\n/);
   const windowText = lines.slice(0, headerWindow).join("\n");
 
-  if (/\.(ts|tsx|js|jsx|cs)$/.test(filePath)) {
+  if (/\.(ts|tsx|js|jsx|cs|java|kt|kts|swift)$/.test(filePath)) {
     const match = windowText.match(/^(#!.*\n)?(?:\/\*[\s\S]*?@agentify[\s\S]*?\*\/\n\n?)/);
     if (match) {
       return source.slice(match[0].length);
@@ -90,7 +91,7 @@ async function validateChangedFiles(root, config, failures) {
       failures.push(`unsafe changed path: ${relPath}`);
       continue;
     }
-    if (!/\.(ts|tsx|js|jsx|py|cs)$/.test(relPath)) {
+    if (!ALLOWED_CODE_EXTENSIONS.test(relPath)) {
       continue;
     }
 

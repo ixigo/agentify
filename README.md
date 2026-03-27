@@ -10,6 +10,9 @@ Implemented stacks:
 - TypeScript / JavaScript
 - Python
 - .NET / C#
+- Java / Android
+- Kotlin / Android
+- Swift / iOS
 
 Implemented commands:
 - `agentify init`
@@ -66,9 +69,11 @@ Examples:
 
 ## Installation
 
-From this repo:
+Clone this repo, install dependencies, and make the CLI executable:
 
 ```bash
+git clone <repo-url> agentify
+cd agentify
 npm install
 chmod +x src/cli.js
 ```
@@ -86,6 +91,18 @@ npm link
 agentify --help
 ```
 
+Update any repo by passing its absolute path:
+
+```bash
+agentify update --provider local --root "/absolute/path/to/your/repo"
+```
+
+If you are already inside the repo you want to scan, use:
+
+```bash
+agentify update --provider local --root "$(pwd)"
+```
+
 ## Quickstart
 
 Minimal end-to-end flow:
@@ -94,6 +111,12 @@ Minimal end-to-end flow:
 agentify init
 agentify update --provider codex
 agentify validate
+```
+
+Example for another local repo:
+
+```bash
+agentify update --provider local --root "$(pwd)"
 ```
 
 Typical progress output:
@@ -191,6 +214,12 @@ Run the full flow:
 agentify update --provider codex
 ```
 
+Run the full flow for a repo path you paste in:
+
+```bash
+agentify update --provider local --root "/paste/the/output/of/pwd/here"
+```
+
 Validate generated artifacts and safety rules:
 
 ```bash
@@ -202,7 +231,7 @@ agentify validate
 - `--provider local|codex|claude|gemini|opencode`
 - `--mode branch|pr|patch`
 - `--strict true|false`
-- `--languages auto|ts|python|dotnet`
+- `--languages auto|ts|python|dotnet|java|kotlin|swift`
 - `--module-strategy auto|workspace|src-folder|namespace`
 - `--dry-run`
 - `--max-files-per-module N`
@@ -214,6 +243,14 @@ Example:
 
 ```bash
 agentify doc --provider codex --module-concurrency 6 --max-files-per-module 12
+```
+
+Examples:
+
+```bash
+agentify scan --root "/absolute/path/to/repo"
+agentify update --provider local --root "/absolute/path/to/repo"
+agentify update --provider codex --root "$(pwd)"
 ```
 
 ## Provider Comparison

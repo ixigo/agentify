@@ -32,6 +32,12 @@ function getAllowedExtensions(stack) {
       return [".py"];
     case "dotnet":
       return [".cs"];
+    case "java":
+      return [".java"];
+    case "kotlin":
+      return [".kt", ".kts"];
+    case "swift":
+      return [".swift"];
     case "ts":
     default:
       return [".ts", ".tsx", ".js", ".jsx"];
@@ -44,6 +50,12 @@ function selectEntrypoints(files, stack) {
       ? [/__main__\.py$/, /main\.py$/]
       : stack === "dotnet"
         ? [/Program\.cs$/]
+        : stack === "java"
+          ? [/Main\.java$/, /Application\.java$/, /MainActivity\.java$/]
+          : stack === "kotlin"
+            ? [/Main\.kt$/, /Application\.kt$/, /MainActivity\.kt$/]
+            : stack === "swift"
+              ? [/main\.swift$/, /AppDelegate\.swift$/, /SceneDelegate\.swift$/, /.+App\.swift$/]
         : [/src\/index\.(ts|tsx|js|jsx)$/, /src\/main\.(ts|tsx|js|jsx)$/, /app\.(ts|tsx|js|jsx)$/, /server\.(ts|tsx|js|jsx)$/];
 
   return files.filter((file) => patterns.some((pattern) => pattern.test(file))).slice(0, 10);
@@ -727,7 +739,7 @@ export async function runDoc(root, config, options = {}) {
         rootPath: moduleInfo.root_path,
         slug: path.basename(moduleInfo.doc_path, ".md"),
         hash: path.basename(moduleInfo.metadata_path, ".json"),
-        stack: index.repo.default_stack,
+        stack: moduleInfo.tags?.[0] || index.repo.default_stack,
         entryFiles: moduleInfo.entry_files,
         keyFiles: moduleInfo.key_files,
         files: moduleInfo.key_files

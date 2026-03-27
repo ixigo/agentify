@@ -41,3 +41,39 @@ test("validateHeaderOnlyChange fails for code change", () => {
   const result = validateHeaderOnlyChange(before, after, "src/demo.ts", 80);
   assert.equal(result.passed, false);
 });
+
+test("validateHeaderOnlyChange passes for Kotlin header insert", () => {
+  const before = "class MainActivity\n";
+  const after = `/* @agentify
+ * module: app
+ * path: app/src/main/kotlin/MainActivity.kt
+ * summary: Android entrypoint
+ */
+
+class MainActivity
+`;
+
+  const result = validateHeaderOnlyChange(before, after, "app/src/main/kotlin/MainActivity.kt", 80);
+  assert.equal(result.passed, true);
+});
+
+test("applyHeaderToSource refreshes existing Swift header", () => {
+  const source = `/* @agentify
+ * module: App
+ * path: App/AppDelegate.swift
+ * summary: Old summary
+ */
+
+import Foundation
+`;
+  const header = renderHeader({
+    moduleName: "App",
+    summary: "Updated iOS entrypoint summary",
+    relativePath: "App/AppDelegate.swift",
+    stack: "dotnet"
+  });
+  const next = applyHeaderToSource(source, header);
+
+  assert.match(next, /Updated iOS entrypoint summary/);
+  assert.doesNotMatch(next, /Old summary/);
+});

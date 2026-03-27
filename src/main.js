@@ -59,7 +59,7 @@ Flags:
                                Provider to use for doc generation
   --mode branch|pr|patch       Output mode (default: branch)
   --strict true|false          Fail closed on validation issues (default: true)
-  --languages auto|ts|python|dotnet
+  --languages auto|ts|python|dotnet|java|kotlin|swift
   --module-strategy auto|workspace|src-folder|namespace
   --dry-run                    Report planned changes without writing
   --max-files-per-module N     Bound file context per module
