@@ -23,3 +23,12 @@ export async function getChangedFiles(root) {
     return [];
   }
 }
+
+export async function getFileContentAtHead(root, filePath) {
+  try {
+    const { stdout } = await execFileAsync("git", ["show", `HEAD:${filePath}`], { cwd: root });
+    return stdout;
+  } catch {
+    return null;
+  }
+}

@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { getChangedFiles, getHeadCommit } from "./git.js";
+import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 
-const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^docs\//, /^\.agents\//];
+const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^output\.txt$/, /^agentify-report\.html$/, /^docs\//, /^\.agents\//];
 
 function isAllowedPath(filePath) {
   return ALLOWED_DOC_PATHS.some((pattern) => pattern.test(filePath)) || /\.(ts|tsx|js|jsx|py|cs)$/.test(filePath);
@@ -95,8 +95,9 @@ async function validateChangedFiles(root, config, failures) {
     }
 
     try {
-      const before = await fs.readFile(path.join(root, relPath), "utf8");
-      const result = validateHeaderOnlyChange("", before, relPath, config.headerWindow);
+      const after = await fs.readFile(path.join(root, relPath), "utf8");
+      const before = await getFileContentAtHead(root, relPath);
+      const result = validateHeaderOnlyChange(before ?? "", after, relPath, config.headerWindow);
       if (!result.passed) {
         failures.push(`unsafe code change in ${relPath}: ${result.reason}`);
       }

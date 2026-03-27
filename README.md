@@ -99,16 +99,28 @@ agentify validate
 Typical progress output:
 
 ```text
+[agentify] update: 0% starting
 [agentify] scan: starting deterministic repository scan
 [agentify] scan: analyzed 214 files and detected 6 modules
 [agentify] scan: wrote index artifacts
+[agentify] update: 33% scan complete
 [agentify] doc: starting documentation and metadata generation
+[agentify] doc: 0% starting
 [agentify] doc: prepared repo context from 12 top-level files
+[agentify] doc: 10% prepared repo context from 12 top-level files
 [agentify] doc: manager plan ready for 6 modules
+[agentify] doc: 20% manager plan ready for 6 modules
 [agentify] doc: dispatching 6 module jobs with concurrency 4
+[agentify] doc: 25% dispatched 6 module jobs
 [agentify] doc: completed 2/6 modules, approx 34% of bounded context processed
+[agentify] doc: 48% completed 2/6 modules
 [agentify] doc: completed 6/6 modules, approx 100% of bounded context processed
 [agentify] doc: wrote module docs, metadata, run report, and AGENTIFY.md
+[agentify] doc: 100% completed
+[agentify] update: 67% doc complete
+[agentify] tests: running npm test
+[agentify] tests: passed
+[agentify] update: 100% validation passed
 ```
 
 Typical JSON summary from `agentify doc`:
@@ -138,6 +150,8 @@ Typical JSON summary from `agentify doc`:
 After a successful run, expect these files to exist:
 - `AGENTS.md`
 - `AGENTIFY.md`
+- `output.txt`
+- `agentify-report.html`
 - `docs/repo-map.md`
 - `docs/modules/*.md`
 - `.agents/index.json`
@@ -333,14 +347,17 @@ agentify update --provider opencode --module-concurrency 4
 Progress logs are written to `stderr` so JSON command output on `stdout` stays machine-readable.
 
 Current progress reporting includes:
+- update phase percentages
 - scan start and completion
 - total files and modules detected
+- doc phase percentages
 - repo-context preparation
 - manager-plan completion
 - module job dispatch with concurrency
 - module completion count
 - approximate bounded-context progress
 - final artifact write completion
+- optional repo test execution and status
 
 ## Safety Model
 
@@ -375,6 +392,11 @@ Run tests:
 ```bash
 npm test
 ```
+
+Generated run extras:
+- `output.txt` stores the combined command output inside the target repo
+- `agentify-report.html` summarizes changes, why they were made, token usage, validation, and test status
+- the HTML report includes copy-to-clipboard rerun commands for tests and Agentify
 
 Main implementation files:
 - `src/main.js`
