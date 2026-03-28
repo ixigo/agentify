@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
+import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
 
 const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^output\.txt$/, /^agentify-report\.html$/, /^docs\//, /^\.agents\//];
 const ALLOWED_CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/;
@@ -26,24 +27,12 @@ function classifyCommentLine(line, filePath) {
 }
 
 function stripTopAgentifyHeader(source, filePath, headerWindow) {
-  const lines = source.split(/\r?\n/);
-  const windowText = lines.slice(0, headerWindow).join("\n");
-
-  if (/\.(ts|tsx|js|jsx|cs|java|kt|kts|swift)$/.test(filePath)) {
-    const match = windowText.match(/^(#!.*\n)?(?:\/\*[\s\S]*?@agentify[\s\S]*?\*\/\n\n?)/);
-    if (match) {
-      return source.slice(match[0].length);
-    }
-  }
-
-  if (filePath.endsWith(".py")) {
-    const match = windowText.match(/^(#!.*\n)?(?:"""@agentify[\s\S]*?"""\n\n?)/);
-    if (match) {
-      return source.slice(match[0].length);
-    }
-  }
-
-  return source;
+  const shebangMatch = source.match(/^#!.*\r?\n/);
+  const shebang = shebangMatch ? shebangMatch[0] : "";
+  const body = shebang ? source.slice(shebang.length) : source;
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const { prefix, rest } = splitLicense(body, eol);
+  return `${shebang}${prefix}${stripLeadingAgentifyHeader(rest)}`;
 }
 
 export function validateHeaderOnlyChange(before, after, filePath, headerWindow = 80) {

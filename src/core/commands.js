@@ -174,7 +174,7 @@ async function runChildCommand(command, args, { cwd } = {}) {
   };
 }
 
-async function detectTestCommand(root) {
+export async function detectTestCommand(root) {
   const packageJsonPath = path.join(root, "package.json");
   if (!(await exists(packageJsonPath))) {
     return null;
@@ -182,6 +182,27 @@ async function detectTestCommand(root) {
   try {
     const packageJson = await readJson(packageJsonPath);
     if (packageJson?.scripts?.test) {
+      const packageManager = typeof packageJson.packageManager === "string"
+        ? packageJson.packageManager.split("@")[0]
+        : null;
+      if (packageManager === "pnpm") {
+        return { command: "pnpm", args: ["test"] };
+      }
+      if (packageManager === "yarn") {
+        return { command: "yarn", args: ["test"] };
+      }
+      if (packageManager === "bun") {
+        return { command: "bun", args: ["test"] };
+      }
+      if (await exists(path.join(root, "pnpm-lock.yaml"))) {
+        return { command: "pnpm", args: ["test"] };
+      }
+      if (await exists(path.join(root, "yarn.lock"))) {
+        return { command: "yarn", args: ["test"] };
+      }
+      if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
+        return { command: "bun", args: ["test"] };
+      }
       return { command: "npm", args: ["test"] };
     }
   } catch {
@@ -253,6 +274,29 @@ function renderHtmlReport(summary) {
     : summary.tests?.status === "failed"
       ? "Some test cases failed. Use the rerun button and inspect the output below."
       : "Tests were skipped because no runnable test script was detected.";
+  const validationCount = summary.validation?.failures?.length || 0;
+  const artifactCount = summary.artifacts.length || 0;
+  const moduleCount = summary.doc?.modules_processed ?? 0;
+  const docsWritten = summary.doc?.docs_written ?? 0;
+  const headersRefreshed = summary.doc?.files_with_headers ?? 0;
+  const validationTone = validationStatus === "passed" ? "passed" : validationStatus === "failed" ? "failed" : "skipped";
+  const testTone = testStatus === "passed" ? "passed" : testStatus === "failed" ? "failed" : "skipped";
+  const moduleUsageCards = (tokenUsage.by_module || []).length > 0
+    ? tokenUsage.by_module.map((moduleSummary) => `
+        <article class="module-card">
+          <div class="module-card-header">
+            <p class="eyebrow">Module</p>
+            <p class="module-id">${escapeHtml(moduleSummary.module_id || "module")}</p>
+          </div>
+          <p class="module-total">${escapeHtml(moduleSummary.total_tokens ?? 0)}</p>
+          <p class="muted">total tokens consumed</p>
+          <dl class="module-breakdown">
+            <div><dt>Input</dt><dd>${escapeHtml(moduleSummary.input_tokens ?? 0)}</dd></div>
+            <div><dt>Output</dt><dd>${escapeHtml(moduleSummary.output_tokens ?? 0)}</dd></div>
+          </dl>
+        </article>
+      `).join("")
+    : "<p class=\"muted\">No per-module token usage was recorded.</p>";
 
   return `<!doctype html>
 <html lang="en">
@@ -262,184 +306,658 @@ function renderHtmlReport(summary) {
   <title>Agentify Run Report</title>
   <style>
     :root {
-      --bg: #f6f1e8;
-      --panel: rgba(255, 255, 255, 0.82);
-      --ink: #1e2430;
-      --muted: #5f6b7a;
-      --line: rgba(30, 36, 48, 0.14);
-      --accent: #0e7c66;
-      --warn: #b75d1c;
-      --bad: #a4372f;
-      --shadow: 0 24px 60px rgba(38, 38, 52, 0.12);
+      color-scheme: light;
+      --bg: oklch(0.97 0.008 235);
+      --bg-grid: rgba(28, 47, 74, 0.07);
+      --surface: rgba(248, 250, 252, 0.88);
+      --surface-strong: rgba(241, 245, 249, 0.97);
+      --surface-code: #0d1726;
+      --ink: oklch(0.23 0.03 252);
+      --muted: oklch(0.5 0.025 245);
+      --line: rgba(36, 58, 89, 0.14);
+      --line-strong: rgba(36, 58, 89, 0.3);
+      --accent: oklch(0.45 0.11 240);
+      --accent-soft: rgba(46, 104, 181, 0.12);
+      --good: oklch(0.52 0.12 170);
+      --good-bg: rgba(16, 137, 107, 0.1);
+      --warn: oklch(0.66 0.14 78);
+      --warn-bg: rgba(181, 123, 19, 0.11);
+      --bad: oklch(0.56 0.2 28);
+      --bad-bg: rgba(201, 72, 43, 0.1);
+      --shadow: 0 18px 48px rgba(14, 25, 42, 0.08);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
     }
     * { box-sizing: border-box; }
+    html {
+      scroll-behavior: smooth;
+    }
     body {
       margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
+      min-height: 100vh;
+      font-family: "Aptos", "Segoe UI", "Helvetica Neue", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(14, 124, 102, 0.18), transparent 32%),
-        radial-gradient(circle at top right, rgba(183, 93, 28, 0.16), transparent 28%),
-        linear-gradient(180deg, #f7f4ee 0%, #efe5d6 100%);
+        linear-gradient(var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px),
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 26%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      background-size: 24px 24px, 24px 24px, auto, auto;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(130deg, rgba(59, 130, 246, 0.08), transparent 30%),
+        linear-gradient(330deg, rgba(14, 165, 233, 0.05), transparent 28%);
+      opacity: 0.9;
     }
     main {
-      width: min(1080px, calc(100vw - 32px));
-      margin: 32px auto 64px;
+      position: relative;
+      width: min(1320px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 20px 0 48px;
       display: grid;
       gap: 18px;
     }
     section {
-      background: var(--panel);
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 22px;
+      border-radius: var(--radius-lg);
+      padding: 24px;
       box-shadow: var(--shadow);
       backdrop-filter: blur(10px);
+      overflow-x: hidden;
     }
     h1, h2, h3, p { margin-top: 0; }
-    h1 { font-size: clamp(2.2rem, 5vw, 4rem); line-height: 0.95; letter-spacing: -0.04em; }
-    h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
-    .hero {
-      display: grid;
-      grid-template-columns: 1.6fr 1fr;
-      gap: 18px;
-      align-items: end;
+    h1 {
+      font-size: clamp(2.7rem, 6vw, 5.4rem);
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      text-wrap: balance;
+      margin-bottom: 16px;
     }
-    .pill {
-      display: inline-block;
-      padding: 7px 12px;
+    h2 {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    p, li, summary, button {
+      font-size: 0.98rem;
+      line-height: 1.6;
+    }
+    a {
+      color: inherit;
+    }
+    .page-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .hero {
+      padding: clamp(26px, 4vw, 40px);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(180deg, rgba(249, 252, 255, 0.96), rgba(239, 245, 252, 0.9)),
+        linear-gradient(135deg, rgba(59, 130, 246, 0.08), transparent 45%);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -8% -22% auto;
+      width: clamp(180px, 32vw, 360px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      border: 1px solid rgba(46, 104, 181, 0.14);
+      box-shadow:
+        0 0 0 28px rgba(46, 104, 181, 0.04),
+        0 0 0 56px rgba(46, 104, 181, 0.025);
+    }
+    .hero-copy,
+    .hero-top,
+    .hero-actions,
+    .summary-rail,
+    .rail-block {
+      position: relative;
+      z-index: 1;
+    }
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .label {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid var(--line);
-      margin-right: 8px;
-      margin-bottom: 8px;
-      font-size: 0.92rem;
+      background: rgba(255, 255, 255, 0.7);
+      white-space: normal;
+      color: var(--muted);
+      font-size: 0.82rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
-    .grid {
+    .label strong {
+      color: var(--ink);
+      font-size: 0.84rem;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .summary-rail {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 14px;
+      position: sticky;
+      top: 18px;
     }
-    .stat {
+    .rail-block,
+    .panel,
+    .metric,
+    .timeline-item,
+    .module-card {
       border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 14px;
-      background: rgba(255,255,255,0.6);
+      border-radius: var(--radius-md);
+      background: var(--surface-strong);
+      min-width: 0;
     }
-    .value {
-      font-size: 1.7rem;
-      font-weight: 700;
-      margin: 0 0 6px;
+    .rail-block {
+      padding: 18px;
     }
     .muted { color: var(--muted); }
+    .lede {
+      font-size: 1.08rem;
+      max-width: 60ch;
+      color: color-mix(in oklab, var(--ink) 85%, white);
+    }
+    .eyebrow {
+      margin-bottom: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.76rem;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-weight: 700;
+      text-transform: capitalize;
+    }
+    .status::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: 0 0 auto;
+    }
     .status-passed { color: var(--accent); }
     .status-failed { color: var(--bad); }
     .status-skipped { color: var(--warn); }
-    ul { margin-bottom: 0; }
+    .tone-passed { background: var(--good-bg); }
+    .tone-failed { background: var(--bad-bg); }
+    .tone-skipped { background: var(--warn-bg); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .metric {
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .metric::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--accent), transparent);
+    }
+    .value {
+      font-size: clamp(1.8rem, 3vw, 2.5rem);
+      font-weight: 700;
+      margin: 0 0 4px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.04em;
+    }
+    .value-label {
+      color: var(--muted);
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    li {
+      overflow-wrap: anywhere;
+    }
+    .artifact-list,
+    .failure-list {
+      display: grid;
+      gap: 12px;
+      padding-left: 0;
+      list-style: none;
+    }
+    .artifact-list li,
+    .failure-list li {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.68);
+      padding: 14px 16px;
+    }
+    .artifact-list code,
+    .failure-list code,
+    pre code {
+      word-break: break-word;
+    }
+    code, pre, .module-total, .module-id, .terminal-note {
+      font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
     pre {
       overflow: auto;
-      background: #1c2330;
-      color: #ecf3ff;
-      padding: 16px;
+      background: var(--surface-code);
+      color: #dbeafe;
+      padding: 18px;
       border-radius: 14px;
       font-size: 0.9rem;
-      line-height: 1.45;
+      line-height: 1.5;
+      max-width: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.16);
     }
     button {
       appearance: none;
-      border: 0;
+      border: 1px solid transparent;
       border-radius: 999px;
       padding: 12px 16px;
-      margin-right: 10px;
-      background: #1e2430;
+      background: var(--ink);
       color: white;
       cursor: pointer;
       font: inherit;
+      touch-action: manipulation;
+      transition: background-color 160ms ease, transform 160ms ease, border-color 160ms ease;
     }
-    .secondary { background: #dbe4ea; color: #1e2430; }
-    @media (max-width: 720px) {
-      .hero { grid-template-columns: 1fr; }
+    button:hover {
+      background: color-mix(in oklab, var(--ink) 88%, white);
+      transform: translateY(-1px);
+    }
+    button:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid rgba(46, 104, 181, 0.25);
+      outline-offset: 3px;
+    }
+    .secondary {
+      background: transparent;
+      border-color: var(--line-strong);
+      color: var(--ink);
+    }
+    .secondary:hover {
+      background: rgba(15, 23, 42, 0.04);
+    }
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+    .intro-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+      gap: 16px;
+    }
+    .panel {
+      padding: 18px;
+    }
+    .panel p:last-child,
+    .rail-block p:last-child {
+      margin-bottom: 0;
+    }
+    .timeline {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .timeline-item {
+      padding: 16px;
+      position: relative;
+    }
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      inset: 16px auto 16px 16px;
+      width: 2px;
+      background: linear-gradient(180deg, var(--accent), rgba(46, 104, 181, 0.08));
+    }
+    .timeline-item > * {
+      position: relative;
+      margin-left: 18px;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 16px;
+    }
+    .section-head p:last-child {
+      margin-bottom: 0;
+    }
+    .stat-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .module-card {
+      padding: 16px;
+    }
+    .module-card-header {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 14px;
+    }
+    .module-id {
+      margin: 0;
+      font-size: 0.92rem;
+      word-break: break-word;
+    }
+    .module-total {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin: 0 0 6px;
+    }
+    .module-breakdown {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0 0;
+    }
+    .module-breakdown div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .module-breakdown dt,
+    .module-breakdown dd {
+      margin: 0;
+      color: var(--muted);
+    }
+    details summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .kicker,
+    .section-kicker {
+      margin-bottom: 12px;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+    }
+    .rule {
+      height: 1px;
+      background: linear-gradient(90deg, var(--line-strong), transparent);
+      margin: 18px 0;
+    }
+    .terminal-note {
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin-top: 10px;
+    }
+    .copy-feedback {
+      min-height: 1.2rem;
+      color: var(--muted);
+      margin-top: 12px;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 980px) {
+      .page-shell,
+      .intro-grid {
+        grid-template-columns: 1fr;
+      }
+      .summary-rail {
+        position: static;
+      }
+    }
+    @media (max-width: 860px) {
+      main {
+        width: min(100vw - 16px, 1180px);
+        padding-top: 16px;
+      }
+      section,
+      .hero {
+        padding: 20px;
+      }
+      .grid,
+      .stat-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 560px) {
+      body {
+        -webkit-text-size-adjust: 100%;
+      }
+      main {
+        width: calc(100vw - 12px);
+        gap: 12px;
+        padding-bottom: 32px;
+      }
+      section,
+      .hero {
+        padding: 16px;
+        border-radius: 18px;
+      }
+      .grid,
+      .stat-strip,
+      .module-grid {
+        grid-template-columns: 1fr;
+      }
+      .action-row,
+      .hero-actions {
+        display: grid;
+      }
+      button {
+        width: 100%;
+      }
     }
   </style>
 </head>
 <body>
   <main>
-    <section class="hero">
-      <div>
-        <p class="pill">Command: <strong>${escapeHtml(summary.command || "unknown")}</strong></p>
-        <p class="pill">Validation: <strong>${escapeHtml(validationStatus)}</strong></p>
-        <p class="pill">Tests: <strong class="status-${escapeHtml(testStatus)}">${escapeHtml(testStatus)}</strong></p>
-        <h1>Agentify run output, changes, and why they happened.</h1>
-        <p>This report captures the repository changes created by Agentify, the reason for those changes, the token usage consumed during doc generation, and the latest validation and test results.</p>
-      </div>
-      <div class="grid">
-        <div class="stat">
-          <p class="value">${escapeHtml(summary.doc?.modules_processed ?? 0)}</p>
-          <p class="muted">Modules processed</p>
+    <div class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="kicker">Agentify Change Documentation</p>
+          <div class="hero-top">
+            <p class="label">Command <strong>${escapeHtml(summary.command || "unknown")}</strong></p>
+            <p class="label">Validation <strong>${escapeHtml(validationStatus)}</strong></p>
+            <p class="label">Tests <strong>${escapeHtml(testStatus)}</strong></p>
+          </div>
+          <h1>Generated changes, execution health, and evidence in one technical document.</h1>
+          <p class="lede">This report is the portable record for an Agentify run. It explains what changed, why those outputs exist, how much model usage the run consumed, and whether validation and tests left the repository in a trustworthy state.</p>
+          <div class="hero-actions">
+            <button type="button" onclick="copyCommand(\`${rerunUpdateCommand}\`)">Copy rerun Agentify command</button>
+            <button type="button" class="secondary" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
+          </div>
+          <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
         </div>
-        <div class="stat">
-          <p class="value">${escapeHtml(summary.doc?.docs_written ?? 0)}</p>
-          <p class="muted">Docs written</p>
+      </section>
+
+      <aside class="summary-rail">
+        <section class="rail-block">
+          <p class="section-kicker">Run Overview</p>
+          <div class="grid">
+            <article class="metric">
+              <p class="value">${escapeHtml(moduleCount)}</p>
+              <p class="value-label">Modules processed</p>
+            </article>
+            <article class="metric">
+              <p class="value">${escapeHtml(docsWritten)}</p>
+              <p class="value-label">Docs written</p>
+            </article>
+            <article class="metric">
+              <p class="value">${escapeHtml(headersRefreshed)}</p>
+              <p class="value-label">Headers refreshed</p>
+            </article>
+            <article class="metric">
+              <p class="value">${escapeHtml(validationCount)}</p>
+              <p class="value-label">Validation issues</p>
+            </article>
+          </div>
+          <div class="rule"></div>
+          <p class="status status-${escapeHtml(validationStatus)} tone-${escapeHtml(validationTone)}">${escapeHtml(validationStatus)}</p>
+          <p class="status status-${escapeHtml(testStatus)} tone-${escapeHtml(testTone)}">${escapeHtml(testStatus)}</p>
+          <p class="terminal-note">Re-run tests before trusting a failed or skipped health state.</p>
+        </section>
+      </aside>
+    </div>
+
+    <div class="stack">
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Operational Intent</h2>
+            <p class="lede">Agentify generates repository-facing documentation artifacts so both humans and agents can navigate the codebase with less ambiguity and lower onboarding cost.</p>
+          </div>
         </div>
-        <div class="stat">
-          <p class="value">${escapeHtml(summary.doc?.files_with_headers ?? 0)}</p>
-          <p class="muted">Headers refreshed</p>
+        <div class="intro-grid">
+          <article class="panel">
+            <p class="eyebrow">Why These Outputs Exist</p>
+            <p>Repo maps, module docs, metadata, and bounded file headers give future sessions enough structure to reason about the project without editing core business logic blindly. This report is the audit layer over that generated state.</p>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Operator Guidance</p>
+            <p>If validation or tests fail, treat this file as evidence rather than approval. Fix the underlying issue, rerun the failing command, and regenerate the report so the documented state matches the repository state.</p>
+          </article>
         </div>
-        <div class="stat">
-          <p class="value">${escapeHtml(tokenUsage.total_tokens ?? 0)}</p>
-          <p class="muted">Total tokens</p>
+        <div class="timeline">
+          <article class="timeline-item">
+            <p class="eyebrow">Step 01</p>
+            <p>Scan establishes the deterministic project map and dependency graph.</p>
+          </article>
+          <article class="timeline-item">
+            <p class="eyebrow">Step 02</p>
+            <p>Documentation generation writes module docs, metadata, and bounded file headers.</p>
+          </article>
+          <article class="timeline-item">
+            <p class="eyebrow">Step 03</p>
+            <p>Validation and tests determine whether the generated outputs can be treated as current and safe.</p>
+          </article>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section>
-      <h2>Why</h2>
-      <p>Agentify writes repo maps, module docs, metadata, and safe top-of-file headers so agents can navigate the codebase faster without changing business logic. Validation is run afterward to catch unsafe writes or stale generated state before those outputs are trusted.</p>
-    </section>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Change Inventory</h2>
+            <p class="muted">${escapeHtml(artifactCount)} artifact${artifactCount === 1 ? "" : "s"} recorded for this run.</p>
+          </div>
+        </div>
+        <ul class="artifact-list">${artifacts}</ul>
+      </section>
 
-    <section>
-      <h2>Changes</h2>
-      <ul>${artifacts}</ul>
-    </section>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Token Usage</h2>
+            <p class="muted">Model consumption is separated into total counters and per-module breakdown for traceability.</p>
+          </div>
+        </div>
+        <div class="stat-strip">
+          <article class="metric"><p class="value">${escapeHtml(tokenUsage.input_tokens ?? 0)}</p><p class="value-label">Input tokens</p></article>
+          <article class="metric"><p class="value">${escapeHtml(tokenUsage.output_tokens ?? 0)}</p><p class="value-label">Output tokens</p></article>
+          <article class="metric"><p class="value">${escapeHtml(tokenUsage.total_tokens ?? 0)}</p><p class="value-label">Total tokens</p></article>
+        </div>
+        <div class="module-grid">${moduleUsageCards}</div>
+        <details>
+          <summary>Raw per-module token usage</summary>
+          <pre>${escapeHtml(JSON.stringify(tokenUsage.by_module || [], null, 2))}</pre>
+        </details>
+      </section>
 
-    <section>
-      <h2>Token Usage</h2>
-      <div class="grid">
-        <div class="stat"><p class="value">${escapeHtml(tokenUsage.input_tokens ?? 0)}</p><p class="muted">Input tokens</p></div>
-        <div class="stat"><p class="value">${escapeHtml(tokenUsage.output_tokens ?? 0)}</p><p class="muted">Output tokens</p></div>
-        <div class="stat"><p class="value">${escapeHtml(tokenUsage.total_tokens ?? 0)}</p><p class="muted">Total tokens</p></div>
-      </div>
-      <details>
-        <summary>Per-module token usage</summary>
-        <pre>${escapeHtml(JSON.stringify(tokenUsage.by_module || [], null, 2))}</pre>
-      </details>
-    </section>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Validation</h2>
+            <p class="muted">Unsafe writes, freshness issues, and invalid generated state are surfaced here.</p>
+          </div>
+          <p class="status status-${escapeHtml(validationStatus)} tone-${escapeHtml(validationTone)}">${escapeHtml(validationStatus)}</p>
+        </div>
+        ${summary.validation?.failures?.length ? `<ul class="failure-list">${summary.validation.failures.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")}</ul>` : validationFailures}
+      </section>
 
-    <section>
-      <h2>Validation</h2>
-      ${validationFailures}
-    </section>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Tests</h2>
+            <p class="muted">${escapeHtml(testSummaryText)}</p>
+          </div>
+          <p class="status status-${escapeHtml(testStatus)} tone-${escapeHtml(testTone)}">${escapeHtml(testStatus)}</p>
+        </div>
+        <div class="action-row">
+          <button type="button" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
+          <button type="button" class="secondary" onclick="copyCommand(\`${rerunUpdateCommand}\`)">Copy rerun Agentify command</button>
+        </div>
+        ${testOutput}
+      </section>
 
-    <section>
-      <h2>Tests</h2>
-      <p class="status-${escapeHtml(testStatus)}">${escapeHtml(testSummaryText)}</p>
-      <p class="muted">If a test fails, rerun it first and then rerun Agentify after the underlying issue is fixed.</p>
-      <button type="button" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
-      <button type="button" class="secondary" onclick="copyCommand(\`${rerunUpdateCommand}\`)">Copy rerun agentify command</button>
-      ${testOutput}
-    </section>
-
-    <section>
-      <h2>Machine Summary</h2>
-      <pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
-    </section>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Machine Summary</h2>
+            <p class="muted">Full structured payload preserved for debugging, diffing, or downstream tooling.</p>
+          </div>
+        </div>
+        <pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
+      </section>
+    </div>
   </main>
   <script>
     async function copyCommand(command) {
+      const feedback = document.getElementById("copy-feedback");
       try {
         await navigator.clipboard.writeText(command);
-        alert("Copied: " + command);
+        if (feedback) {
+          feedback.textContent = "Copied command to clipboard: " + command;
+        }
       } catch {
-        alert(command);
+        if (feedback) {
+          feedback.textContent = "Clipboard access failed. Command: " + command;
+        }
       }
     }
   </script>

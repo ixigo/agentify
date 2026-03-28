@@ -5,6 +5,10 @@ import { relative } from "./fs.js";
 
 export const AGENTIFY_HEADER_START = "/** @agentify";
 
+function detectEol(text) {
+  return text.includes("\r\n") ? "\r\n" : "\n";
+}
+
 function detectCommentSyntax(filePath) {
   if (filePath.endsWith(".py")) {
     return "python";
@@ -25,7 +29,7 @@ function isGenerated(text) {
   return /@generated|do not edit/i.test(text);
 }
 
-function splitLicense(text) {
+export function splitLicense(text, eol = "\n") {
   const trimmed = text.trimStart();
   if (trimmed.startsWith("/*") || trimmed.startsWith("//")) {
     const lines = text.split(/\r?\n/);
@@ -49,66 +53,63 @@ function splitLicense(text) {
     }
     if (/copyright|license/i.test(licenseLines.join("\n"))) {
       return {
-        prefix: `${licenseLines.join("\n")}\n`,
-        rest: lines.slice(index).join("\n")
+        prefix: `${licenseLines.join(eol)}${eol}`,
+        rest: lines.slice(index).join(eol)
       };
     }
   }
   return { prefix: "", rest: text };
 }
 
-export function renderHeader({ moduleName, summary, relativePath, stack }) {
-  if (stack === "python") {
-    return `"""@agentify
-module: ${moduleName}
-path: ${relativePath}
-summary: ${summary}
-"""
+export function stripLeadingAgentifyHeader(text) {
+  const match = text.match(/^((?:[ \t]*\r?\n)*)(?:\/\*\*\s*@agentify[\s\S]*?\*\/|\/\*\s*@agentify[\s\S]*?\*\/|"""@agentify[\s\S]*?""")(?:\r?\n){1,2}/);
+  return match ? `${match[1]}${text.slice(match[0].length)}` : text;
+}
 
-`;
+export function renderHeader({ moduleName, summary, relativePath, stack, eol = "\n" }) {
+  if (stack === "python") {
+    return [
+      "\"\"\"@agentify",
+      `module: ${moduleName}`,
+      `path: ${relativePath}`,
+      `summary: ${summary}`,
+      "\"\"\"",
+      "",
+      ""
+    ].join(eol);
   }
 
   if (stack === "dotnet") {
-    return `/* @agentify
- * module: ${moduleName}
- * path: ${relativePath}
- * summary: ${summary}
- */
-
-`;
+    return [
+      "/* @agentify",
+      ` * module: ${moduleName}`,
+      ` * path: ${relativePath}`,
+      ` * summary: ${summary}`,
+      " */",
+      "",
+      ""
+    ].join(eol);
   }
 
-  return `/** @agentify
- * module: ${moduleName}
- * path: ${relativePath}
- * summary: ${summary}
- */
-
-`;
+  return [
+    "/** @agentify",
+    ` * module: ${moduleName}`,
+    ` * path: ${relativePath}`,
+    ` * summary: ${summary}`,
+    " */",
+    "",
+    ""
+  ].join(eol);
 }
 
 export function applyHeaderToSource(source, header) {
+  const eol = detectEol(source);
+  const normalizedHeader = header.replace(/\r?\n/g, eol);
   const shebangMatch = source.match(/^#!.*\n/);
   const shebang = shebangMatch ? shebangMatch[0] : "";
   let body = shebang ? source.slice(shebang.length) : source;
-
-  const existingHeader = body.match(/^\/\*\*\s*@agentify[\s\S]*?\*\/\n\n?/);
-  if (existingHeader) {
-    return `${shebang}${header}${body.slice(existingHeader[0].length)}`;
-  }
-
-  const existingBlockHeader = body.match(/^\/\*\s*@agentify[\s\S]*?\*\/\n\n?/);
-  if (existingBlockHeader) {
-    return `${shebang}${header}${body.slice(existingBlockHeader[0].length)}`;
-  }
-
-  const existingPyHeader = body.match(/^"""@agentify[\s\S]*?"""\n\n?/);
-  if (existingPyHeader) {
-    return `${shebang}${header}${body.slice(existingPyHeader[0].length)}`;
-  }
-
-  const { prefix, rest } = splitLicense(body);
-  return `${shebang}${prefix}${header}${rest}`;
+  const { prefix, rest } = splitLicense(body, eol);
+  return `${shebang}${prefix}${normalizedHeader}${stripLeadingAgentifyHeader(rest)}`;
 }
 
 export async function updateFileHeader(root, moduleName, filePath, summary, stack) {
@@ -123,7 +124,8 @@ export async function updateFileHeader(root, moduleName, filePath, summary, stac
     moduleName,
     summary,
     relativePath: relative(root, absolutePath),
-    stack: syntax === "jsdoc" ? "ts" : syntax === "python" ? "python" : "dotnet"
+    stack: syntax === "jsdoc" ? "ts" : syntax === "python" ? "python" : "dotnet",
+    eol: detectEol(source)
   });
   const next = applyHeaderToSource(source, header);
   if (next === source) {

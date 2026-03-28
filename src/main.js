@@ -17,6 +17,10 @@ function parseValue(raw) {
   return raw;
 }
 
+function toCamelCaseFlag(key) {
+  return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
 export function parseArgs(argv) {
   const args = { _: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -26,7 +30,8 @@ export function parseArgs(argv) {
       continue;
     }
 
-    const [key, inlineValue] = token.slice(2).split("=", 2);
+    const [rawKey, inlineValue] = token.slice(2).split("=", 2);
+    const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
       args[key] = parseValue(inlineValue);
       continue;
