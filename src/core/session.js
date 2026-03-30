@@ -41,7 +41,7 @@ function buildBootstrap(manifest, index, checklist, options) {
 ## Session
 - ID: ${manifest.session_id}
 - Parent: ${manifest.parent_id || "none"}
-- Tool: ${manifest.tool}
+- Provider: ${manifest.provider || manifest.tool || "local"}
 - Created: ${manifest.created_at}
 
 ## Repository State
@@ -71,7 +71,7 @@ export async function forkSession(root, config, options = {}) {
     parent_id: options.from || null,
     forked_from: options.from || null,
     created_at: new Date().toISOString(),
-    tool: options.tool || config.provider || "local",
+    provider: options.provider || config.provider || "local",
     name: options.name || null,
     status: "active",
     head_commit_at_creation: headCommit,
@@ -92,18 +92,15 @@ export async function forkSession(root, config, options = {}) {
     }
   }
 
+  const context = buildContext(manifest, index, parentChecklist, options);
+  const bootstrap = buildBootstrap(manifest, index, parentChecklist, options);
+
   await writeJson(path.join(sessionDir, "session-manifest.json"), manifest);
   await writeJson(path.join(sessionDir, "checklist.json"), parentChecklist);
-  await writeJson(
-    path.join(sessionDir, "context.json"),
-    buildContext(manifest, index, parentChecklist, options)
-  );
-  await writeText(
-    path.join(sessionDir, "bootstrap.md"),
-    buildBootstrap(manifest, index, parentChecklist, options)
-  );
+  await writeJson(path.join(sessionDir, "context.json"), context);
+  await writeText(path.join(sessionDir, "bootstrap.md"), bootstrap);
 
-  return { sessionId, sessionDir, manifest };
+  return { sessionId, sessionDir, manifest, context, bootstrap };
 }
 
 export async function listSessions(root) {
@@ -137,4 +134,8 @@ export async function resumeSession(root, sessionId) {
   const bootstrap = await fs.readFile(path.join(sessionDir, "bootstrap.md"), "utf8");
 
   return { manifest, context, bootstrap };
+}
+
+export function resolveSessionProvider(manifest, fallback = "local") {
+  return manifest?.provider || manifest?.tool || fallback;
 }

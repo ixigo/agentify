@@ -132,3 +132,28 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
   }
   return configPath;
 }
+
+export async function persistProviderPreference(root, provider, { dryRun = false } = {}) {
+  const configPath = path.join(root, ".agentify.yaml");
+  let fileConfig = {};
+
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    fileConfig = parseConfigFile(raw);
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const yaml = stringifyYaml({
+    ...fileConfig,
+    provider,
+  });
+
+  if (!dryRun) {
+    await fs.writeFile(configPath, yaml, "utf8");
+  }
+
+  return configPath;
+}

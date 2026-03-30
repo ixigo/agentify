@@ -1,15 +1,16 @@
 import path from "node:path";
 import process from "node:process";
 
-import { loadConfig, writeDefaultConfig } from "./core/config.js";
+import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged } from "./core/query.js";
-import { forkSession, listSessions, resumeSession } from "./core/session.js";
+import { forkSession, listSessions, resolveSessionProvider, resumeSession } from "./core/session.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
-import { VERSION, setSilent, bold, cyan, dim, green, success, warn, error, log, newline } from "./core/ui.js";
+import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
+import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
   if (raw === "true") {
@@ -26,6 +27,126 @@ function parseValue(raw) {
 
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function isProviderStickyCommand(command, subcommand) {
+  return command === "run" || command === "exec" || (command === "sess" && ["run", "resume", "fork"].includes(subcommand || ""));
+}
+
+function normalizeProvider(value) {
+  const provider = String(value || "").trim();
+  if (!provider || provider === "true") {
+    throw new Error(`--provider requires a value. Supported providers: ${SUPPORTED_PROVIDERS.join(", ")}`);
+  }
+  assertSupportedProvider(provider);
+  return provider;
+}
+
+async function maybePersistProvider(root, config, args, command, subcommand) {
+  if (!hasOwn(args, "provider")) {
+    return;
+  }
+
+  const provider = normalizeProvider(args.provider);
+  config.provider = provider;
+
+  if (isProviderStickyCommand(command, subcommand)) {
+    await persistProviderPreference(root, provider, { dryRun: config.dryRun });
+  }
+}
+
+function getExecFlags(args) {
+  return {
+    failOnStale: args.failOnStale || false,
+    timeout: args.timeout || null,
+    skipRefresh: args.skipRefresh || false,
+  };
+}
+
+function getPromptFromArgs(args, startIndex) {
+  return args._.slice(startIndex).join(" ").trim();
+}
+
+function buildRunPrompt(userPrompt) {
+  if (userPrompt) {
+    return userPrompt;
+  }
+  return "Continue implementation in this repository using small, validated changes.";
+}
+
+function buildSessionPrompt(bootstrap, userPrompt) {
+  const task = userPrompt || "Continue this session from the latest repository state.";
+  return [
+    "You are continuing an Agentify session.",
+    "",
+    bootstrap.trim(),
+    "",
+    `Current task: ${task}`,
+  ].join("\n");
+}
+
+function resolveSessionIdForResume(args) {
+  if (args.session) {
+    return { sessionId: String(args.session), promptStartIndex: 2 };
+  }
+  const positional = args._[2];
+  if (positional) {
+    return { sessionId: String(positional), promptStartIndex: 3 };
+  }
+  throw new Error("sess resume requires --session <id> or sess resume <id>");
+}
+
+function printHelp() {
+  const c = (s) => bold(cyan(s));
+  const d = (s) => dim(s);
+
+  const lines = [
+    `  ${bold("COMMANDS")}`,
+    ``,
+    `    ${c("init")}            ${d("Create baseline Agentify artifacts")}`,
+    `    ${c("scan")}            ${d("Run deterministic repo scan and write index artifacts")}`,
+    `    ${c("doc")}             ${d("Generate docs, metadata, and key-file headers")}`,
+    `    ${c("up")}              ${d("Run scan -> doc -> check -> test pipeline")}`,
+    `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
+    `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
+    `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
+    `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
+    `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
+    `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
+    `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
+    `    ${c("cache")}           ${d("Manage the content cache")}`,
+    ``,
+    `  ${bold("OPTIONS")}`,
+    ``,
+    `    ${c("--provider")} ${d(`<${SUPPORTED_PROVIDERS.join("|")}>`)}`,
+    `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
+    `    ${c("--languages")} ${d("<auto|ts|python|dotnet|java|kotlin|swift>")}`,
+    `    ${c("--dry-run")}                   Report planned changes without writing`,
+    `    ${c("--ghost")}                     Route outputs to .current_session/`,
+    `    ${c("--json")}                      Machine-readable JSON output only`,
+    `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
+    ``,
+    `  ${bold("EXEC FLAGS")}`,
+    ``,
+    `    ${c("--fail-on-stale")}             Exit 80 if validation fails post-refresh`,
+    `    ${c("--timeout")} ${d("<seconds>")}         Kill wrapped command after N seconds`,
+    `    ${c("--skip-refresh")}              Skip post-command refresh`,
+    ``,
+    `  ${bold("EXAMPLES")}`,
+    ``,
+    `    ${d("$")} agentify init`,
+    `    ${d("$")} agentify up --provider codex`,
+    `    ${d("$")} agentify run --provider codex "implement payment retries"`,
+    `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
+    `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
+    ``,
+  ];
+
+  process.stderr.write(lines.join("\n") + "\n");
 }
 
 export function parseArgs(argv) {
@@ -74,54 +195,6 @@ export function parseArgs(argv) {
   return args;
 }
 
-function printHelp() {
-  const c = (s) => bold(cyan(s));
-  const d = (s) => dim(s);
-
-  const lines = [
-    `  ${bold("COMMANDS")}`,
-    ``,
-    `    ${c("init")}            ${d("Create baseline Agentify artifacts")}`,
-    `    ${c("scan")}            ${d("Run deterministic repo scan and write index artifacts")}`,
-    `    ${c("doc")}             ${d("Generate docs, metadata, and key-file headers")}`,
-    `    ${c("update")}          ${d("Run scan -> doc -> validate -> test pipeline")}`,
-    `    ${c("validate")}        ${d("Validate freshness, schemas, and safety rules")}`,
-    `    ${c("exec")}            ${d("Wrap an agent command with auto-refresh")}`,
-    `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
-    `    ${c("session")}         ${d("Manage session fork/resume")}`,
-    `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
-    `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
-    `    ${c("cache")}           ${d("Manage the content cache")}`,
-    ``,
-    `  ${bold("OPTIONS")}`,
-    ``,
-    `    ${c("--provider")} ${d("<local|codex|claude|gemini|opencode>")}`,
-    `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
-    `    ${c("--languages")} ${d("<auto|ts|python|dotnet|java|kotlin|swift>")}`,
-    `    ${c("--dry-run")}                   Report planned changes without writing`,
-    `    ${c("--ghost")}                     Route outputs to .current_session/`,
-    `    ${c("--json")}                      Machine-readable JSON output only`,
-    `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
-    ``,
-    `  ${bold("EXEC FLAGS")}`,
-    ``,
-    `    ${c("--fail-on-stale")}             Exit 80 if validation fails post-refresh`,
-    `    ${c("--timeout")} ${d("<seconds>")}         Kill wrapped command after N seconds`,
-    `    ${c("--skip-refresh")}              Skip post-command refresh`,
-    ``,
-    `  ${bold("EXAMPLES")}`,
-    ``,
-    `    ${d("$")} agentify init`,
-    `    ${d("$")} agentify scan --provider codex`,
-    `    ${d("$")} agentify update --strict`,
-    `    ${d("$")} agentify exec -- codex --task "add tests"`,
-    `    ${d("$")} agentify doctor`,
-    ``,
-  ];
-
-  process.stderr.write(lines.join("\n") + "\n");
-}
-
 export async function runCli(argv) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
@@ -136,6 +209,20 @@ export async function runCli(argv) {
     return;
   }
 
+  if (hasOwn(args, "tool")) {
+    throw new Error("--tool was removed. Use --provider.");
+  }
+
+  if (command === "update") {
+    throw new Error("command \"update\" was removed. Use \"up\".");
+  }
+  if (command === "validate") {
+    throw new Error("command \"validate\" was removed. Use \"check\".");
+  }
+  if (command === "session") {
+    throw new Error("command \"session\" was removed. Use \"sess\".");
+  }
+
   const root = path.resolve(String(args.root || process.cwd()));
   const config = await loadConfig(root, args);
 
@@ -147,6 +234,8 @@ export async function runCli(argv) {
   if (args.ghost) {
     config.ghost = true;
   }
+
+  await maybePersistProvider(root, config, args, command, subcommand);
 
   switch (command) {
     case "init":
@@ -163,24 +252,30 @@ export async function runCli(argv) {
       await runDoc(root, config);
       return;
 
-    case "update":
+    case "up":
       await runUpdate(root, config);
       return;
 
-    case "validate":
+    case "check":
       await runValidate(root, config);
       return;
+
+    case "run": {
+      const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
+      const agentCommand = args._exec?.length
+        ? args._exec
+        : buildProviderTemplateCommand(config.provider, prompt, { root });
+
+      await runExec(root, config, agentCommand, getExecFlags(args));
+      return;
+    }
 
     case "exec": {
       const agentCommand = args._exec || [];
       if (agentCommand.length === 0) {
         throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
       }
-      await runExec(root, config, agentCommand, {
-        failOnStale: args.failOnStale || false,
-        timeout: args.timeout || null,
-        skipRefresh: args.skipRefresh || false,
-      });
+      await runExec(root, config, agentCommand, getExecFlags(args));
       return;
     }
 
@@ -202,20 +297,8 @@ export async function runCli(argv) {
       return;
     }
 
-    case "session": {
-      if (subcommand === "fork") {
-        const result = await forkSession(root, config, {
-          from: args.from || null,
-          tool: args.tool || null,
-          name: args.name || null,
-        });
-        if (config.json) {
-          console.log(JSON.stringify(result.manifest, null, 2));
-        } else {
-          success(`Session forked: ${result.manifest.session_id}`);
-          log(`Path: ${dim(result.sessionDir)}`);
-        }
-      } else if (subcommand === "list") {
+    case "sess": {
+      if (subcommand === "list") {
         const sessions = await listSessions(root);
         if (config.json) {
           console.log(JSON.stringify(sessions, null, 2));
@@ -223,21 +306,91 @@ export async function runCli(argv) {
           log("No sessions found.");
         } else {
           for (const s of sessions) {
-            log(`${bold(s.session_id)} ${dim(s.tool || "")} ${dim(s.created_at || "")}`);
+            log(`${bold(s.session_id)} ${dim(resolveSessionProvider(s, ""))} ${dim(s.created_at || "")}`);
           }
         }
-      } else if (subcommand === "resume") {
-        if (!args.session) throw new Error("session resume requires --session <id>");
-        const result = await resumeSession(root, args.session);
-        if (config.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else {
-          process.stdout.write(result.bootstrap);
-        }
-      } else {
-        throw new Error("session requires a subcommand: fork, list, or resume");
+        return;
       }
-      return;
+
+      if (subcommand === "fork") {
+        const result = await forkSession(root, config, {
+          from: args.from || null,
+          provider: args.provider || null,
+          name: args.name || null,
+        });
+        const provider = hasOwn(args, "provider")
+          ? normalizeProvider(args.provider)
+          : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
+        const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, 2));
+        const agentCommand = args._exec?.length
+          ? args._exec
+          : buildProviderTemplateCommand(provider, prompt, { root });
+
+        if (!config.json) {
+          success(`Session forked: ${result.manifest.session_id}`);
+          log(`Path: ${dim(result.sessionDir)}`);
+        }
+
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        return;
+      }
+
+      if (subcommand === "resume") {
+        const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
+        const result = await resumeSession(root, sessionId);
+        const provider = hasOwn(args, "provider")
+          ? normalizeProvider(args.provider)
+          : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
+        const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, promptStartIndex));
+        const agentCommand = args._exec?.length
+          ? args._exec
+          : buildProviderTemplateCommand(provider, prompt, { root });
+
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        return;
+      }
+
+      if (subcommand === "run") {
+        let sessionResult;
+        let sessionDir;
+
+        if (args.session) {
+          sessionResult = await resumeSession(root, String(args.session));
+        } else {
+          const created = await forkSession(root, config, {
+            from: args.from || null,
+            provider: args.provider || null,
+            name: args.name || null,
+          });
+          sessionResult = {
+            manifest: created.manifest,
+            context: created.context,
+            bootstrap: created.bootstrap,
+          };
+          sessionDir = created.sessionDir;
+          if (!config.json) {
+            success(`Session created: ${created.manifest.session_id}`);
+            log(`Path: ${dim(created.sessionDir)}`);
+          }
+        }
+
+        const provider = hasOwn(args, "provider")
+          ? normalizeProvider(args.provider)
+          : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
+        const prompt = buildSessionPrompt(sessionResult.bootstrap, getPromptFromArgs(args, 2));
+        const agentCommand = args._exec?.length
+          ? args._exec
+          : buildProviderTemplateCommand(provider, prompt, { root });
+
+        if (config.json && sessionDir) {
+          console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
+        }
+
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        return;
+      }
+
+      throw new Error("sess requires a subcommand: run, fork, list, or resume");
     }
 
     case "hooks": {
