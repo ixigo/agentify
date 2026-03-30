@@ -9,7 +9,7 @@ import { queryOwner, queryDeps, queryChanged } from "./core/query.js";
 import { forkSession, listSessions, resumeSession } from "./core/session.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
-import { setSilent, bold, cyan, dim, green, success, warn, error, log, newline } from "./core/ui.js";
+import { VERSION, setSilent, bold, cyan, dim, green, success, warn, error, log, newline } from "./core/ui.js";
 
 function parseValue(raw) {
   if (raw === "true") {
@@ -34,6 +34,15 @@ export function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+
+    if (token === "-h") {
+      args.help = true;
+      continue;
+    }
+    if (token === "-v" || token === "-V") {
+      args.version = true;
+      continue;
+    }
 
     if (token === "--" && !seenDoubleDash) {
       seenDoubleDash = true;
@@ -116,6 +125,11 @@ function printHelp() {
 export async function runCli(argv) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
+
+  if (args.version) {
+    process.stdout.write(`agentify v${VERSION}\n`);
+    return;
+  }
 
   if (command === "help" || args.help) {
     printHelp();

@@ -17,3 +17,9 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
   assert.equal(args.moduleConcurrency, 6);
   assert.equal(args.maxFilesPerModule, 12);
 });
+
+test("parseArgs supports short help and version flags", () => {
+  const args = parseArgs(["-h", "-V"]);
+  assert.equal(args.help, true);
+  assert.equal(args.version, true);
+});
