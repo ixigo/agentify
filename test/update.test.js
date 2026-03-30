@@ -125,10 +125,10 @@ test("passes", () => {
   }
 
   const stderr = stderrChunks.join("");
-  assert.match(stderr, /update: 0% starting/);
-  assert.match(stderr, /update: 33% scan complete/);
-  assert.match(stderr, /update: 67% doc complete/);
-  assert.match(stderr, /update: 100% validation passed/);
+  assert.match(stderr, /up: 0% starting/);
+  assert.match(stderr, /up: 33% scan complete/);
+  assert.match(stderr, /up: 67% doc complete/);
+  assert.match(stderr, /up: 100% validation passed/);
   assert.match(stderr, /doc: 100% completed/);
   assert.ok(stdoutMessages.length > 0);
   assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true), true);
