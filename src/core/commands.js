@@ -286,7 +286,7 @@ function renderHtmlReport(summary) {
   const testOutput = summary.tests
     ? `<details><summary>Test output</summary><pre>${escapeHtml([summary.tests.stdout, summary.tests.stderr].filter(Boolean).join("\n"))}</pre></details>`
     : "<p>No test run was recorded.</p>";
-  const rerunUpdateCommand = sanitizeForJsString("agentify update --provider local");
+  const rerunUpdateCommand = sanitizeForJsString("agentify up --provider local");
   const rerunTestsCommand = sanitizeForJsString(summary.tests?.command || "npm test");
   const testStatus = summary.tests?.status || "not-run";
   const testSummaryText = summary.tests?.status === "passed"
@@ -1603,10 +1603,10 @@ async function _runDocInner(root, config, options, progress) {
 
 export async function runValidate(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
-  progress.percent("validate", 0, "starting");
+  progress.percent("check", 0, "starting");
   const result = await validateRepo(root, config, options);
-  progress.percent("validate", 100, result.passed ? "passed" : `failed with ${result.failures.length} issue(s)`);
-  progress.setCommand("validate");
+  progress.percent("check", 100, result.passed ? "passed" : `failed with ${result.failures.length} issue(s)`);
+  progress.setCommand("check");
   progress.setValidation(result);
   if (config.json || !config._suppressProgress) {
     progress.json(result);
@@ -1638,20 +1638,20 @@ export async function runUpdate(root, config) {
   const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const progress = createRunReporter(artifactRoot);
-  progress.setCommand("update");
-  progress.percent("update", 0, "starting");
+  progress.setCommand("up");
+  progress.percent("up", 0, "starting");
   await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
-  progress.percent("update", 33, "scan complete");
+  progress.percent("up", 33, "scan complete");
   const scanStateForDryRun = config.dryRun ? await buildScanState(root, config) : null;
   await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanState: scanStateForDryRun });
-  progress.percent("update", 67, "doc complete");
+  progress.percent("up", 67, "doc complete");
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
-  progress.percent("update", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
+  progress.percent("up", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
   if (config.tokenReport && !config.dryRun) {
     const runReport = {
-      run_id: `${Date.now()}-update`,
+      run_id: `${Date.now()}-up`,
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
       provider: config.provider,
@@ -1673,7 +1673,7 @@ export async function runUpdate(root, config) {
     await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
-    command: "update",
+    command: "up",
     validation: result,
     tests: {
       status: testResult.status,
@@ -1688,7 +1688,7 @@ export async function runUpdate(root, config) {
     if (config.strict) {
       process.exitCode = 1;
     } else {
-      progress.log("update: validation warnings found but --strict is false, continuing");
+      progress.log("up: validation warnings found but --strict is false, continuing");
     }
   }
   if (testResult.status === "failed") {

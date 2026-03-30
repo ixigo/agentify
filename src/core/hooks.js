@@ -7,7 +7,7 @@ const AGENTIFY_MARKER = "# @agentify";
 const PRE_COMMIT_TEMPLATE = `#!/bin/sh
 ${AGENTIFY_MARKER} pre-commit hook
 # Validates freshness and safety before commit
-agentify validate
+agentify check
 `;
 
 const POST_MERGE_TEMPLATE = `#!/bin/sh
