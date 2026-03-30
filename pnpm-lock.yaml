@@ -4,10 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  agentify: link:../../.local/share/pnpm/global/5/node_modules/agentify
+
 importers:
 
   .:
     dependencies:
+      agentify:
+        specifier: link:../../.local/share/pnpm/global/5/node_modules/agentify
+        version: link:../../.local/share/pnpm/global/5/node_modules/agentify
       cli-table3:
         specifier: ^0.6.5
         version: 0.6.5
