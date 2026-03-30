@@ -164,7 +164,9 @@ async function validateChangedFiles(root, config, failures) {
 
 export async function validateRepo(root, config, options = {}) {
   const failures = [];
-  await validateFreshness(root, failures, options);
+  if (!options.skipFreshness) {
+    await validateFreshness(root, failures, options);
+  }
   await validateChangedFiles(root, config, failures);
 
   const targetRoot = options.artifactRoot || root;

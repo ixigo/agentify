@@ -1337,34 +1337,36 @@ async function _runDocInner(root, config, options, progress) {
   await ensureBaselineArtifacts(artifactRoot, config);
   const provider = createProvider(config.provider, config);
   const indexPath = path.join(artifactRoot, ".agents", "index.json");
-  let state;
-  let index;
-  if (await exists(indexPath)) {
-    index = await readJson(indexPath);
-    const graphPath = path.join(artifactRoot, ".agents", "graphs", "deps.json");
-    const graph = (await exists(graphPath))
-      ? await readJson(graphPath)
-      : { nodes: {}, edges: [] };
-    const repoFiles = (await walkFiles(root)).map((file) => relative(root, file));
-    state = {
-      stacks: index.repo.detected_stacks,
-      defaultStack: index.repo.default_stack,
-      graph,
-      files: repoFiles,
-      modules: index.modules.map((moduleInfo) => ({
-        id: moduleInfo.id,
-        name: moduleInfo.name,
-        rootPath: moduleInfo.root_path,
-        slug: path.basename(moduleInfo.doc_path, ".md"),
-        hash: path.basename(moduleInfo.metadata_path, ".json"),
-        stack: moduleInfo.tags?.[0] || index.repo.default_stack,
-        entryFiles: moduleInfo.entry_files,
-        keyFiles: moduleInfo.key_files,
-        files: moduleInfo.key_files
-      }))
-    };
-  } else {
-    state = await buildScanState(root, config);
+  let state = options.scanState || null;
+  let index = null;
+  if (!state) {
+    if (await exists(indexPath)) {
+      index = await readJson(indexPath);
+      const graphPath = path.join(artifactRoot, ".agents", "graphs", "deps.json");
+      const graph = (await exists(graphPath))
+        ? await readJson(graphPath)
+        : { nodes: {}, edges: [] };
+      const repoFiles = (await walkFiles(root)).map((file) => relative(root, file));
+      state = {
+        stacks: index.repo.detected_stacks,
+        defaultStack: index.repo.default_stack,
+        graph,
+        files: repoFiles,
+        modules: index.modules.map((moduleInfo) => ({
+          id: moduleInfo.id,
+          name: moduleInfo.name,
+          rootPath: moduleInfo.root_path,
+          slug: path.basename(moduleInfo.doc_path, ".md"),
+          hash: path.basename(moduleInfo.metadata_path, ".json"),
+          stack: moduleInfo.tags?.[0] || index.repo.default_stack,
+          entryFiles: moduleInfo.entry_files,
+          keyFiles: moduleInfo.key_files,
+          files: moduleInfo.key_files
+        }))
+      };
+    } else {
+      state = await buildScanState(root, config);
+    }
   }
 
   const now = new Date().toISOString();
@@ -1640,9 +1642,10 @@ export async function runUpdate(root, config) {
   progress.percent("update", 0, "starting");
   await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
   progress.percent("update", 33, "scan complete");
-  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
+  const scanStateForDryRun = config.dryRun ? await buildScanState(root, config) : null;
+  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanState: scanStateForDryRun });
   progress.percent("update", 67, "doc complete");
-  const result = await validateRepo(root, config, { artifactRoot });
+  const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
   progress.percent("update", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);

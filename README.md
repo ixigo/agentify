@@ -273,6 +273,8 @@ git add -A && git commit -m "feat: done"
 --root <path>               Target repo root (default: cwd)
 ```
 
+When `--dry-run` is used with `update`, Agentify still runs scan/doc/test planning but skips freshness failures that depend on writing artifacts.
+
 ### Exec flags
 
 ```
