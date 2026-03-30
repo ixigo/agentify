@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -13,8 +14,52 @@ const SKIP_DIRS = new Set([
   ".venv",
   "venv",
   "bin",
-  "obj"
+  "obj",
 ]);
+
+const HARD_EXCLUDES = [
+  /^\.agents\//,
+  /^\.current_session\//,
+  /^docs\//,
+  /^agentify-report\.html$/,
+  /^output\.txt$/,
+  /^AGENTIFY\.md$/,
+];
+
+let cachedIgnorePatterns = null;
+
+async function loadAgentignore(root) {
+  if (cachedIgnorePatterns !== null) return cachedIgnorePatterns;
+  try {
+    const raw = await fs.readFile(path.join(root, ".agentignore"), "utf8");
+    cachedIgnorePatterns = raw
+      .split(/\r?\n/)
+      .filter((line) => line.trim() && !line.startsWith("#"))
+      .map((pattern) => {
+        const regexStr = pattern
+          .replace(/\./g, "\\.")
+          .replace(/\*\*/g, "{{GLOBSTAR}}")
+          .replace(/\*/g, "[^/]*")
+          .replace(/\{\{GLOBSTAR\}\}/g, ".*");
+        return new RegExp(`^${regexStr}$`);
+      });
+  } catch {
+    cachedIgnorePatterns = [];
+  }
+  return cachedIgnorePatterns;
+}
+
+function isHardExcluded(relativePath) {
+  return HARD_EXCLUDES.some((p) => p.test(relativePath));
+}
+
+function isAgentIgnored(relativePath, patterns) {
+  return patterns.some((p) => p.test(relativePath));
+}
+
+export function resetIgnoreCache() {
+  cachedIgnorePatterns = null;
+}
 
 export async function exists(targetPath) {
   try {
@@ -35,11 +80,15 @@ export async function readJson(targetPath) {
 
 export async function writeJson(targetPath, value) {
   await ensureDir(path.dirname(targetPath));
-  await fs.writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  await fs.writeFile(tmp, content, "utf8");
+  await fs.rename(tmp, targetPath);
 }
 
-export async function walkFiles(root) {
+export async function walkFiles(root, { respectIgnore = false } = {}) {
   const files = [];
+  const ignorePatterns = respectIgnore ? await loadAgentignore(root) : [];
 
   async function visit(current) {
     const entries = await fs.readdir(current, { withFileTypes: true });
@@ -55,6 +104,12 @@ export async function walkFiles(root) {
         await visit(fullPath);
         continue;
       }
+      if (respectIgnore) {
+        const rel = relative(root, fullPath);
+        if (isHardExcluded(rel) || isAgentIgnored(rel, ignorePatterns)) {
+          continue;
+        }
+      }
       files.push(fullPath);
     }
   }
@@ -69,7 +124,9 @@ export function relative(root, targetPath) {
 
 export async function writeText(targetPath, text) {
   await ensureDir(path.dirname(targetPath));
-  await fs.writeFile(targetPath, text, "utf8");
+  const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
+  await fs.writeFile(tmp, text, "utf8");
+  await fs.rename(tmp, targetPath);
 }
 
 export async function readText(targetPath) {

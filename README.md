@@ -1,12 +1,214 @@
-# Agentify CLI
+# agentify
 
-Agentify is a one-command CLI that makes an existing repository more agent-friendly without changing business logic by default.
+[![npm version](https://img.shields.io/npm/v/agentify)](https://www.npmjs.com/package/agentify)
+[![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
+[![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-It detects the primary stack, maps modules, generates durable docs and machine-readable metadata, inserts bounded top-of-file headers into selected key files, validates that only safe changes were made, and records run/token usage when the provider exposes it.
+Orchestration layer for AI agent coding workflows. Scans repos, generates docs, validates safety, and manages sessions across **Codex**, **Claude**, **Gemini**, and **OpenCode**.
 
-## Current Scope
+```
+  agentify v0.2.0
 
-Implemented stacks:
+  ~ scan: analyzed 214 files and detected 6 modules
+  ~ scan: wrote index artifacts
+  ~ doc: completed 6/6 modules
+  + Validation passed
+
+  ----------------------------------------
+  Run Complete
+  ----------------------------------------
+  Artifacts: 4
+  Modules:   6
+  Validation: passed
+  ----------------------------------------
+```
+
+## Install
+
+```bash
+npm install -g agentify
+```
+
+Requires **Node.js >= 20**.
+
+### Recommended Tools
+
+For the best experience, install these optional tools. Agentify works without them but produces faster scans and richer output when they're available.
+
+```bash
+# Tier 1 -- fast search and file enumeration
+brew install ripgrep fd        # macOS
+# or: cargo install ripgrep fd-find
+
+# Tier 2 -- structural code queries and symbol extraction
+brew install ast-grep          # macOS
+npm install -g tree-sitter-cli
+# or: cargo install ast-grep tree-sitter-cli
+```
+
+Run `agentify doctor` after installing to verify your tier.
+
+### AI Providers (optional)
+
+To generate richer, model-powered documentation instead of deterministic local output, install and authenticate one of the supported provider CLIs:
+
+| Provider   | Install / Auth                             |
+| ---------- | ------------------------------------------ |
+| Codex      | `npm i -g @openai/codex` + OpenAI API key |
+| Claude     | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) |
+| Gemini     | [Gemini CLI](https://github.com/google-gemini/gemini-cli) |
+| OpenCode   | [OpenCode CLI](https://github.com/sst/opencode) |
+
+Without a provider, `--provider local` (the default) works fully offline.
+
+## Quick Start
+
+```bash
+agentify init                          # scaffold baseline artifacts
+agentify update --provider codex       # scan + doc + validate + test
+agentify validate                      # check freshness and safety
+```
+
+## Commands
+
+| Command      | Description                                          |
+| ------------ | ---------------------------------------------------- |
+| `init`       | Create baseline Agentify artifacts                   |
+| `scan`       | Run deterministic repo scan and write index           |
+| `doc`        | Generate docs, metadata, and key-file headers         |
+| `update`     | Run scan -> doc -> validate -> test pipeline          |
+| `validate`   | Validate freshness, schemas, and safety rules         |
+| `exec`       | Wrap an agent command with auto-refresh               |
+| `query`      | Query the repository index (owner, deps, changed)     |
+| `session`    | Manage session fork/resume for continuity             |
+| `hooks`      | Install/remove git hooks (pre-commit, post-merge)     |
+| `doctor`     | Check toolchain health and capability tier             |
+| `cache`      | Manage the content-addressed cache                    |
+
+## Options
+
+```
+--provider <local|codex|claude|gemini|opencode>
+--strict <true|false>       Fail closed on validation issues (default: true)
+--languages <auto|ts|python|dotnet|java|kotlin|swift>
+--dry-run                   Report planned changes without writing
+--ghost                     Route outputs to .current_session/ (no source changes)
+--json                      Machine-readable JSON output only
+--root <path>               Target repo root (default: cwd)
+```
+
+### Exec flags
+
+```
+agentify exec [flags] -- <command...>
+
+--fail-on-stale             Exit 80 if validation fails post-refresh
+--timeout <seconds>         Kill wrapped command after N seconds
+--skip-refresh              Skip post-command refresh
+```
+
+## Capability Tiers
+
+Agentify works at Tier 0 with just Node.js, but **Tier 2 is strongly recommended** for the best output quality. Higher tiers enable faster scans, structural code understanding, and more accurate dependency graphs.
+
+| Tier | Tools                       | What improves                            |
+| ---- | --------------------------- | ---------------------------------------- |
+| 0    | (none)                      | Basic Node.js scanning                   |
+| 1    | `rg`, `fd`                  | 10-50x faster text search and file walks |
+| 2    | + `ast-grep`, `tree-sitter` | Structural queries, symbol extraction, deeper analysis |
+
+Check your current tier:
+
+```bash
+agentify doctor
+```
+
+```
+  agentify v0.2.0
+
+  > Capability tier: Tier 2
+
+  +-------------+------+---------+--------------------+
+  | Tool        | Tier | Status  | Version            |
+  +-------------+------+---------+--------------------+
+  | rg          | 1    | OK      | 15.1.0             |
+  | fd          | 1    | OK      | 10.4.2             |
+  | ast-grep    | 2    | OK      | 0.38.1             |
+  | tree-sitter | 2    | OK      | 0.24.7             |
+  +-------------+------+---------+--------------------+
+
+  > Node.js: v22.22.0
+  > Platform: darwin arm64
+```
+
+If any tools show `MISSING`, the install command is shown in the Version column. See [Recommended Tools](#recommended-tools) above.
+
+## Ghost Mode
+
+Run without modifying source files. All outputs go to `.current_session/`:
+
+```bash
+agentify update --ghost --provider local
+```
+
+## Sessions
+
+Fork and resume agent sessions for multi-step workflows:
+
+```bash
+agentify session fork --tool codex --name "add-auth"
+agentify session list
+agentify session resume --session sess_20260330_abc123
+```
+
+## Git Hooks
+
+Auto-validate on commit and refresh on merge:
+
+```bash
+agentify hooks install     # installs pre-commit + post-merge
+agentify hooks status
+agentify hooks remove
+```
+
+## Exec Wrapper
+
+Wrap any agent command with automatic pre/post refresh and validation:
+
+```bash
+agentify exec -- codex --task "add user authentication"
+agentify exec --fail-on-stale -- claude -p "refactor the API layer"
+```
+
+## Providers
+
+| Provider   | Best for                              | Speed  | Token Usage     |
+| ---------- | ------------------------------------- | ------ | --------------- |
+| `local`    | Offline, CI fallback, deterministic   | Fast   | None            |
+| `codex`    | Richer summaries, agent orchestration | Slower | Recorded        |
+| `claude`   | Schema-constrained structured output  | Slower | Recorded        |
+| `gemini`   | Gemini-based generation with stats    | Slower | Recorded        |
+| `opencode` | Event-stream based generation         | Slower | Recorded        |
+
+```bash
+agentify update --provider codex --module-concurrency 4
+```
+
+## Generated Artifacts
+
+```
+AGENTS.md                   # root navigation for humans and agents
+AGENTIFY.md                 # consolidated run summary
+docs/repo-map.md            # repo-level module map
+docs/modules/*.md           # per-module documentation
+.agents/index.json          # machine-readable repo/module index
+.agents/modules/*.json      # per-module metadata
+.agents/graphs/deps.json    # inter-module dependency graph
+.agents/runs/*.json         # run reports with token accounting
+```
+
+## Supported Stacks
+
 - TypeScript / JavaScript
 - Python
 - .NET / C#
@@ -14,437 +216,73 @@ Implemented stacks:
 - Kotlin / Android
 - Swift / iOS
 
-Implemented commands:
-- `agentify init`
-- `agentify scan`
-- `agentify doc`
-- `agentify update`
-- `agentify validate`
+## Configuration
 
-Provider support:
-- `local`: deterministic local artifact generation
-- `codex`: repo-manager plus per-module Codex sub-agent orchestration via `codex exec`
-- `claude`: repo-manager plus per-module Claude Code orchestration via `claude -p`
-- `gemini`: repo-manager plus per-module Gemini CLI orchestration via `gemini -p`
-- `opencode`: repo-manager plus per-module OpenCode orchestration via `opencode run`
+Create `.agentify.yaml` in your project root:
 
-## Features
+```yaml
+provider: local
+strict: true
+languages: auto
+maxFilesPerModule: 20
+moduleConcurrency: 4
+tokenReport: true
 
-- Auto-detects repo stack and module boundaries
-- Builds `.agents/index.json` and `.agents/graphs/deps.json`
-- Generates module docs under `docs/modules/*`
-- Generates root navigation docs: `AGENTS.md`, `docs/repo-map.md`, `AGENTIFY.md`
-- Adds idempotent Agentify headers to selected key files only
-- Enforces comment-only top-of-file edits in code files
-- Tracks run metrics and token usage in `.agents/runs/*.json`
-- Shows progress while scanning and generating docs
-- Runs module generation in parallel with bounded concurrency
+budgets:
+  perFile: 8000
+  perModule: 32000
 
-## Generated Artifacts
-
-- `AGENTS.md`: root guidance for human and agent navigation
-- `AGENTIFY.md`: consolidated generated summary for the latest run
-- `docs/repo-map.md`: repo-level map and module links
-- `docs/modules/*.md`: module-level docs
-- `.agents/index.json`: repo/module index
-- `.agents/modules/*.json`: per-module metadata
-- `.agents/graphs/deps.json`: dependency graph
-- `.agents/runs/*.json`: run report and token accounting
-
-## Prerequisites
-
-Required:
-- Node.js `>= 20`
-
-Optional but recommended:
-- Git, if you want freshness validation against `HEAD`
-- Codex CLI installed and authenticated, if using `--provider codex`
-- Claude Code installed and authenticated, if using `--provider claude`
-- Gemini CLI installed and authenticated, if using `--provider gemini`
-- OpenCode installed and authenticated, if using `--provider opencode`
-
-Examples:
-- `node -v`
-- `codex --help`
-
-## Installation
-
-Clone this repo, install dependencies, and make the CLI executable:
-
-```bash
-git clone <repo-url> agentify
-cd agentify
-npm install
-chmod +x src/cli.js
+cache:
+  enabled: true
+  maxAgeDays: 7
 ```
-
-Run directly:
-
-```bash
-node src/cli.js --help
-```
-
-Or via the package bin:
-
-```bash
-npm link
-agentify --help
-```
-
-Update any repo by passing its absolute path:
-
-```bash
-agentify update --provider local --root "/absolute/path/to/your/repo"
-```
-
-If you are already inside the repo you want to scan, use:
-
-```bash
-agentify update --provider local --root "$(pwd)"
-```
-
-## Quickstart
-
-Minimal end-to-end flow:
-
-```bash
-agentify init
-agentify update --provider codex
-agentify validate
-```
-
-Example for another local repo:
-
-```bash
-agentify update --provider local --root "$(pwd)"
-```
-
-Typical progress output:
-
-```text
-[agentify] update: 0% starting
-[agentify] scan: starting deterministic repository scan
-[agentify] scan: analyzed 214 files and detected 6 modules
-[agentify] scan: wrote index artifacts
-[agentify] update: 33% scan complete
-[agentify] doc: starting documentation and metadata generation
-[agentify] doc: 0% starting
-[agentify] doc: prepared repo context from 12 top-level files
-[agentify] doc: 10% prepared repo context from 12 top-level files
-[agentify] doc: manager plan ready for 6 modules
-[agentify] doc: 20% manager plan ready for 6 modules
-[agentify] doc: dispatching 6 module jobs with concurrency 4
-[agentify] doc: 25% dispatched 6 module jobs
-[agentify] doc: completed 2/6 modules, approx 34% of bounded context processed
-[agentify] doc: 48% completed 2/6 modules
-[agentify] doc: completed 6/6 modules, approx 100% of bounded context processed
-[agentify] doc: wrote module docs, metadata, run report, and AGENTIFY.md
-[agentify] doc: 100% completed
-[agentify] update: 67% doc complete
-[agentify] tests: running npm test
-[agentify] tests: passed
-[agentify] update: 100% validation passed
-```
-
-Typical JSON summary from `agentify doc`:
-
-```json
-{
-  "command": "doc",
-  "modules_processed": 6,
-  "files_with_headers": 18,
-  "docs_written": 12,
-  "token_usage": {
-    "input_tokens": 72636,
-    "output_tokens": 1967,
-    "total_tokens": 74603,
-    "by_module": [
-      {
-        "module_id": "__manager__",
-        "input_tokens": 11818,
-        "output_tokens": 403,
-        "total_tokens": 12221
-      }
-    ]
-  }
-}
-```
-
-After a successful run, expect these files to exist:
-- `AGENTS.md`
-- `AGENTIFY.md`
-- `output.txt`
-- `agentify-report.html`
-- `docs/repo-map.md`
-- `docs/modules/*.md`
-- `.agents/index.json`
-- `.agents/modules/*.json`
-- `.agents/graphs/deps.json`
-- `.agents/runs/*.json`
-
-## Usage
-
-Initialize baseline files:
-
-```bash
-agentify init
-```
-
-Run a deterministic scan only:
-
-```bash
-agentify scan
-```
-
-Generate docs and metadata with the local provider:
-
-```bash
-agentify doc --provider local
-```
-
-Generate docs and metadata with Codex:
-
-```bash
-agentify doc --provider codex
-```
-
-Run the full flow:
-
-```bash
-agentify update --provider codex
-```
-
-Run the full flow for a repo path you paste in:
-
-```bash
-agentify update --provider local --root "/paste/the/output/of/pwd/here"
-```
-
-Validate generated artifacts and safety rules:
-
-```bash
-agentify validate
-```
-
-## Common Flags
-
-- `--provider local|codex|claude|gemini|opencode`
-- `--mode branch|pr|patch`
-- `--strict true|false`
-- `--languages auto|ts|python|dotnet|java|kotlin|swift`
-- `--module-strategy auto|workspace|src-folder|namespace`
-- `--dry-run`
-- `--max-files-per-module N`
-- `--module-concurrency N`
-- `--token-report true|false`
-- `--root <path>`
-
-Example:
-
-```bash
-agentify doc --provider codex --module-concurrency 6 --max-files-per-module 12
-```
-
-Examples:
-
-```bash
-agentify scan --root "/absolute/path/to/repo"
-agentify update --provider local --root "/absolute/path/to/repo"
-agentify update --provider codex --root "$(pwd)"
-```
-
-## Provider Comparison
-
-### `local`
-
-Use `local` when:
-- you want deterministic output without external model calls
-- you are working offline
-- you want fast scaffolding or CI-safe fallback behavior
-
-Behavior:
-- no external provider dependency
-- zero provider token usage
-- docs and metadata are generated from deterministic repo signals
-- useful for bootstrapping and validation pipelines
-
-Tradeoffs:
-- summaries are less nuanced
-- module docs are more template-like
-- no model-based repo interpretation beyond heuristics
-
-Example:
-
-```bash
-agentify update --provider local
-```
-
-### `codex`
-
-Use `codex` when:
-- you want higher-quality summaries and richer module docs
-- Codex CLI is installed and authenticated
-- you want repo-manager plus sub-agent orchestration with token tracking
-
-Behavior:
-- runs one repo-level manager step
-- runs one module job per module
-- supports bounded parallelism with `--module-concurrency`
-- records token usage when Codex returns it
-- falls back to deterministic local generation if a Codex module job fails
-
-Tradeoffs:
-- slower than `local`
-- depends on Codex CLI availability and connectivity
-- token usage varies with repo size and file caps
-
-Example:
-
-```bash
-agentify update --provider codex --module-concurrency 4
-```
-
-### `claude`
-
-Use `claude` when:
-- Claude Code is already part of your workflow
-- you want structured output enforced with Claude's JSON schema support
-- you want token/cost accounting from Claude's non-interactive result payload
-
-Behavior:
-- uses `claude -p`
-- requests JSON output with schema validation
-- runs manager plus per-module prompts
-- captures input/output token usage from Claude's result JSON
-
-Tradeoffs:
-- depends on Claude Code CLI availability and auth
-- slower than `local`
-
-Example:
-
-```bash
-agentify update --provider claude --module-concurrency 4
-```
-
-### `gemini`
-
-Use `gemini` when:
-- Gemini CLI is available in your environment
-- you want Gemini-based summaries while keeping the same Agentify safety layer
-
-Behavior:
-- uses `gemini -p --output-format json`
-- parses provider JSON stats for token accounting
-- enforces structure through Agentify prompt contract plus response sanitization
-
-Tradeoffs:
-- no native schema enforcement in the current adapter path
-- provider output is sanitized after parsing rather than schema-constrained at source
-
-Example:
-
-```bash
-agentify update --provider gemini --module-concurrency 4
-```
-
-### `opencode`
-
-Use `opencode` when:
-- OpenCode is the CLI already installed in your environment
-- you want a headless JSON event stream provider path
-
-Behavior:
-- uses `opencode run --format json`
-- extracts JSON payload from text events
-- captures token usage from `step_finish` event tokens
-
-Tradeoffs:
-- no native schema enforcement in the current adapter path
-- output quality depends on prompt compliance plus Agentify sanitization
-
-Example:
-
-```bash
-agentify update --provider opencode --module-concurrency 4
-```
-
-### Summary
-
-| Provider | Best for | Speed | Quality | Network/Auth | Token Usage |
-|---|---|---:|---:|---|---|
-| `local` | offline runs, CI fallback, deterministic scaffolding | fast | moderate | not required | none |
-| `codex` | richer summaries, agent-oriented docs, repo interpretation | slower | higher | required | recorded when available |
-| `claude` | schema-constrained structured generation | slower | higher | required | recorded when available |
-| `gemini` | Gemini-based generation with JSON stats | slower | higher | required | recorded when available |
-| `opencode` | OpenCode event-stream based generation | slower | higher | required | recorded when available |
-
-## Progress UX
-
-Progress logs are written to `stderr` so JSON command output on `stdout` stays machine-readable.
-
-Current progress reporting includes:
-- update phase percentages
-- scan start and completion
-- total files and modules detected
-- doc phase percentages
-- repo-context preparation
-- manager-plan completion
-- module job dispatch with concurrency
-- module completion count
-- approximate bounded-context progress
-- final artifact write completion
-- optional repo test execution and status
 
 ## Safety Model
 
-Allowed changes:
-- `AGENTS.md`
-- `AGENTIFY.md`
-- `docs/**`
-- `.agents/**`
-- top-of-file comment/header insertions in supported code files
+Agentify enforces strict boundaries on what it writes:
 
-Disallowed changes:
-- code logic edits
-- non-comment edits in code files
-- writes outside approved generated artifact locations
+**Allowed**: `AGENTS.md`, `AGENTIFY.md`, `docs/**`, `.agents/**`, top-of-file comment headers in key files.
 
-Validation is designed to fail closed.
+**Disallowed**: Code logic edits, non-comment changes in code files, writes outside approved locations.
 
-## Codex Provider Notes
-
-When `--provider codex` is used:
-- Agentify runs one repo-level manager prompt first
-- Then it runs one Codex module job per module
-- Module jobs execute in parallel up to `--module-concurrency`
-- Token usage is aggregated from Codex JSONL events when available
-
-If Codex execution fails for a module, Agentify falls back to deterministic local generation for that module rather than writing arbitrary partial output.
+Validation fails closed by default (`--strict true`).
 
 ## Development
 
-Run tests:
-
 ```bash
+git clone https://github.com/user/agentify.git
+cd agentify
+npm install
 npm test
 ```
 
-Generated run extras:
-- `output.txt` stores the combined command output inside the target repo
-- `agentify-report.html` summarizes changes, why they were made, token usage, validation, and test status
-- the HTML report includes copy-to-clipboard rerun commands for tests and Agentify
+Architecture:
 
-Main implementation files:
-- `src/main.js`
-- `src/core/commands.js`
-- `src/core/provider.js`
-- `src/core/validate.js`
-- `src/core/detect.js`
+```
+src/
+  cli.js            # entry point
+  main.js           # arg parsing, command dispatch
+  core/
+    commands.js     # scan, doc, update, validate orchestration
+    config.js       # .agentify.yaml loading and defaults
+    detect.js       # stack and module detection
+    exec.js         # exec wrapper with pre/post refresh
+    fs.js           # file system utilities
+    git.js          # git abstractions
+    graph.js        # dependency graph builder
+    headers.js      # file header management
+    hooks.js        # git hook install/remove
+    lock.js         # advisory lockfile
+    provider.js     # AI provider interface
+    query.js        # repository index queries
+    cache.js        # content-addressed cache
+    schema.js       # schema versioning and migration
+    session.js      # session fork/resume
+    toolchain.js    # capability tier detection
+    ui.js           # presentation layer (colors, tables, spinners)
+    validate.js     # safety and freshness validation
+```
 
-## Limitations
+## License
 
-- JSON schema enforcement for generated artifact files themselves is still lightweight
-- Patch/PR output modes are not yet fully implemented
-- Stack-specific heuristics are stronger for TypeScript than for Python and .NET today
-- Progress reporting is line-oriented CLI output, not a live TUI
+[MIT](./LICENSE)

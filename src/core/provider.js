@@ -53,7 +53,8 @@ function fallbackArtifacts(moduleInfo, context) {
     tags: [moduleInfo.stack],
     freshness: {
       last_indexed_at: context.now,
-      last_indexed_commit: context.headCommit
+      last_indexed_commit: context.headCommit,
+      content_fingerprint: null,
     }
   };
 
@@ -361,7 +362,8 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
     tags: [moduleInfo.stack],
     freshness: {
       last_indexed_at: context.now,
-      last_indexed_commit: context.headCommit
+      last_indexed_commit: context.headCommit,
+      content_fingerprint: null,
     }
   };
 }

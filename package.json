@@ -1,15 +1,52 @@
 {
   "name": "agentify",
-  "version": "0.1.0",
-  "description": "Auto-agentify any repo with deterministic scans, docs, metadata, and validation.",
+  "version": "0.2.0",
+  "description": "Orchestration layer for AI agent coding workflows. Scans repos, generates docs, validates safety, and manages sessions across Codex, Claude, Gemini, and OpenCode.",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "agentify": "./src/cli.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./src/main.js"
   },
   "scripts": {
     "test": "node --test"
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "codex",
+    "claude",
+    "gemini",
+    "opencode",
+    "cli",
+    "documentation",
+    "metadata",
+    "validation",
+    "orchestration",
+    "developer-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/user/agentify.git"
+  },
+  "homepage": "https://github.com/user/agentify",
+  "bugs": {
+    "url": "https://github.com/user/agentify/issues"
+  },
+  "dependencies": {
+    "cli-table3": "^0.6.5",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.8.3",
+    "yocto-spinner": "^1.1.0"
   }
 }

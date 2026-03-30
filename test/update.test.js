@@ -108,11 +108,11 @@ test("passes", () => {
   }
 
   const stderr = stderrChunks.join("");
-  assert.match(stderr, /\[agentify\] update: 0% starting/);
-  assert.match(stderr, /\[agentify\] update: 33% scan complete/);
-  assert.match(stderr, /\[agentify\] update: 67% doc complete/);
-  assert.match(stderr, /\[agentify\] update: 100% validation passed/);
-  assert.match(stderr, /\[agentify\] doc: 100% completed/);
+  assert.match(stderr, /update: 0% starting/);
+  assert.match(stderr, /update: 33% scan complete/);
+  assert.match(stderr, /update: 67% doc complete/);
+  assert.match(stderr, /update: 100% validation passed/);
+  assert.match(stderr, /doc: 100% completed/);
   assert.ok(stdoutMessages.length > 0);
   assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "agentify-report.html")).then(() => true), true);

@@ -10,6 +10,9 @@ import { buildDependencyGraph, rankKeyFiles } from "./graph.js";
 import { updateFileHeader } from "./headers.js";
 import { createProvider } from "./provider.js";
 import { validateRepo } from "./validate.js";
+import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
+import { acquireLock } from "./lock.js";
+import * as ui from "./ui.js";
 
 function stableHash(value) {
   return crypto.createHash("sha1").update(value).digest("hex").slice(0, 12);
@@ -64,11 +67,11 @@ function selectEntrypoints(files, stack) {
 function createProgressReporter() {
   return {
     log(message) {
-      process.stderr.write(`[agentify] ${message}\n`);
+      ui.step(message);
     },
     percent(scope, percent, message) {
       const normalizedPercent = Math.max(0, Math.min(100, Math.round(percent)));
-      process.stderr.write(`[agentify] ${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}\n`);
+      ui.step(`${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}`);
     }
   };
 }
@@ -103,13 +106,13 @@ function createRunReporter(root) {
   return {
     log(message) {
       const line = `[agentify] ${message}`;
-      process.stderr.write(`${line}\n`);
+      ui.step(message);
       record(line);
     },
     percent(scope, percent, message) {
       const normalizedPercent = Math.max(0, Math.min(100, Math.round(percent)));
       const line = `[agentify] ${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}`;
-      process.stderr.write(`${line}\n`);
+      ui.step(`${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}`);
       record(line);
     },
     json(value) {
@@ -146,6 +149,15 @@ function createRunReporter(root) {
       const htmlPath = path.join(root, "agentify-report.html");
       await writeText(outputPath, events.join(""));
       await writeText(htmlPath, renderHtmlReport(summary));
+
+      ui.box("Run Complete", [
+        ui.label("Artifacts", String(summary.artifacts.length)),
+        ui.label("Modules", String(summary.doc?.modules_processed ?? 0)),
+        ui.label("Validation", summary.validation?.passed ? ui.green("passed") : ui.red("failed")),
+        ui.label("Tests", summary.tests?.status || "not run"),
+        ui.label("Report", ui.dim(htmlPath)),
+      ]);
+
       return { outputPath, htmlPath };
     }
   };
@@ -261,7 +273,10 @@ function renderHtmlReport(summary) {
   };
   const validationStatus = summary.validation ? (summary.validation.passed ? "passed" : "failed") : "not-run";
   const validationFailures = summary.validation?.failures?.length
-    ? `<ul>${summary.validation.failures.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    ? `<ul>${summary.validation.failures.map((item) => {
+        const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
+        return `<li>${escapeHtml(msg)}</li>`;
+      }).join("")}</ul>`
     : summary.validation ? "<p>No validation failures.</p>" : "<p>Validation was not run for this command.</p>";
   const testOutput = summary.tests
     ? `<details><summary>Test output</summary><pre>${escapeHtml([summary.tests.stdout, summary.tests.stderr].filter(Boolean).join("\n"))}</pre></details>`
@@ -917,7 +932,11 @@ function renderHtmlReport(summary) {
           </div>
           <p class="status status-${escapeHtml(validationStatus)} tone-${escapeHtml(validationTone)}">${escapeHtml(validationStatus)}</p>
         </div>
-        ${summary.validation?.failures?.length ? `<ul class="failure-list">${summary.validation.failures.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")}</ul>` : validationFailures}
+        ${summary.validation?.failures?.length ? `<ul class="failure-list">${summary.validation.failures.map((item) => {
+          const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
+          const rem = typeof item === "object" && item.remediation ? `<br><small>${escapeHtml(item.remediation)}</small>` : "";
+          return `<li><code>${escapeHtml(msg)}</code>${rem}</li>`;
+        }).join("")}</ul>` : validationFailures}
       </section>
 
       <section>
@@ -1014,14 +1033,12 @@ async function buildScanState(root, config) {
   const defaultStack = stacks[0]?.name || "ts";
   const modules = await detectModules(root, config, defaultStack);
   const files = (await walkFiles(root)).map((file) => relative(root, file));
-  const graph = defaultStack === "ts" ? await buildDependencyGraph(root) : { nodes: {}, edges: [] };
+  const graph = await buildDependencyGraph(root, defaultStack);
   const moduleDeps = findModuleDeps(modules, graph);
 
   const hydratedModules = modules.map((moduleInfo) => {
     const moduleFiles = files.filter((file) => isFileInModule(file, moduleInfo.rootPath) && getAllowedExtensions(moduleInfo.stack).some((ext) => file.endsWith(ext)));
-    const keyFiles = moduleInfo.stack === "ts"
-      ? rankKeyFiles(moduleFiles, graph, config.topKeyFilesPerModule || 15)
-      : moduleFiles.slice(0, config.topKeyFilesPerModule || 15);
+    const keyFiles = rankKeyFiles(moduleFiles, graph, config.topKeyFilesPerModule || 15);
 
     return {
       ...moduleInfo,
@@ -1167,17 +1184,66 @@ export async function ensureBaselineArtifacts(root, config) {
   }
 }
 
+function resolveArtifactRoot(root, config, runId) {
+  if (config.ghost || config.ghostMode) {
+    return path.join(root, ".current_session", runId || `ghost_${Date.now()}`);
+  }
+  return root;
+}
+
+function applyBudgets(files, config) {
+  const perFile = config.budgets?.perFile || 8000;
+  const perModule = config.budgets?.perModule || 32000;
+
+  let totalChars = 0;
+  const bounded = [];
+
+  for (const file of files) {
+    const clipped = file.content.slice(0, perFile);
+    if (totalChars + clipped.length > perModule) break;
+    bounded.push({ path: file.path, content: clipped });
+    totalChars += clipped.length;
+  }
+
+  return bounded;
+}
+
+export function computeModuleFingerprint(files) {
+  const entries = files
+    .map((f) => `${f.path}:${crypto.createHash("sha256").update(f.content).digest("hex")}`)
+    .sort();
+  return crypto.createHash("sha256").update(entries.join("\n")).digest("hex");
+}
+
 export async function runScan(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("scan: starting deterministic repository scan");
-  await ensureBaselineArtifacts(root, config);
+
+  const lock = await acquireLock(root, "scan");
+  if (!lock.acquired) {
+    progress.log(`scan: ${lock.message}`);
+    return;
+  }
+
+  try {
+    await _runScanInner(root, config, options, progress);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function _runScanInner(root, config, options, progress) {
+  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+
+  await ensureBaselineArtifacts(artifactRoot, config);
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
   const state = await buildScanState(root, config);
   progress.log(`scan: analyzed ${state.files.length} files and detected ${state.modules.length} modules`);
   const repoName = path.basename(root);
   const index = {
-    schema_version: "1.0",
+    schema_version: SCHEMA_VERSIONS.INDEX,
     repo: {
       name: repoName,
       root,
@@ -1210,10 +1276,10 @@ export async function runScan(root, config, options = {}) {
   };
 
   if (!config.dryRun) {
-    await writeJson(path.join(root, ".agents", "index.json"), index);
-    await writeJson(path.join(root, ".agents", "graphs", "deps.json"), state.graph);
-    await writeText(path.join(root, "AGENTS.md"), renderAgentsMd(index));
-    await writeText(path.join(root, "docs", "repo-map.md"), renderRepoMap(index));
+    await writeJson(path.join(artifactRoot, ".agents", "index.json"), index);
+    await writeJson(path.join(artifactRoot, ".agents", "graphs", "deps.json"), state.graph);
+    await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
+    await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
   }
   progress.log("scan: wrote index artifacts");
 
@@ -1222,11 +1288,13 @@ export async function runScan(root, config, options = {}) {
     detected_stacks: state.stacks,
     default_stack: state.defaultStack,
     modules: state.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.rootPath })),
-    wrote: config.dryRun ? [] : [".agents/index.json", ".agents/graphs/deps.json", "AGENTS.md", "docs/repo-map.md"]
+    wrote: config.dryRun ? [] : [".agents/index.json", ".agents/graphs/deps.json", "AGENTS.md", "docs/repo-map.md"],
   };
   progress.setCommand("scan");
   progress.setScan(result);
-  progress.json(result);
+  if (config.json || !config._suppressProgress) {
+    progress.json(result);
+  }
   if (!options.skipFinalize) {
     await progress.finalize();
   }
@@ -1236,14 +1304,33 @@ export async function runDoc(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("doc: starting documentation and metadata generation");
   progress.percent("doc", 0, "starting");
-  await ensureBaselineArtifacts(root, config);
+
+  const lock = await acquireLock(root, "doc");
+  if (!lock.acquired) {
+    progress.log(`doc: ${lock.message}`);
+    return;
+  }
+
+  try {
+    await _runDocInner(root, config, options, progress);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function _runDocInner(root, config, options, progress) {
+  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+
+  await ensureBaselineArtifacts(artifactRoot, config);
   const provider = createProvider(config.provider, config);
-  const indexPath = path.join(root, ".agents", "index.json");
+  const indexPath = path.join(artifactRoot, ".agents", "index.json");
   let state;
   if (await exists(indexPath)) {
     const index = await readJson(indexPath);
-    const graph = (await exists(path.join(root, ".agents", "graphs", "deps.json")))
-      ? await readJson(path.join(root, ".agents", "graphs", "deps.json"))
+    const graphPath = path.join(artifactRoot, ".agents", "graphs", "deps.json");
+    const graph = (await exists(graphPath))
+      ? await readJson(graphPath)
       : { nodes: {}, edges: [] };
     const repoFiles = (await walkFiles(root)).map((file) => relative(root, file));
     state = {
@@ -1274,13 +1361,14 @@ export async function runDoc(root, config, options = {}) {
   let inputTokens = 0;
   let outputTokens = 0;
   const byModule = [];
+  const repoBudgetPerFile = config.budgets?.perFile || 8000;
   const topLevelFiles = [];
   for (const file of state.files.slice(0, config.maxFilesPerModule || 20)) {
     try {
       const content = await fs.readFile(path.join(root, file), "utf8");
       topLevelFiles.push({
         path: file,
-        content: content.slice(0, 4000)
+        content: content.slice(0, repoBudgetPerFile),
       });
     } catch {
       // Ignore unreadable files.
@@ -1326,14 +1414,12 @@ export async function runDoc(root, config, options = {}) {
     const allFiles = (await walkFiles(moduleRoot))
       .map((file) => relative(root, file))
       .filter((file) => file.startsWith(moduleInfo.rootPath === "." ? "" : moduleInfo.rootPath));
-    const boundedFiles = [];
+    const rawFiles = [];
     for (const file of allFiles.slice(0, config.maxFilesPerModule)) {
       const content = await fs.readFile(path.join(root, file), "utf8");
-      boundedFiles.push({
-        path: file,
-        content: content.slice(0, 6000)
-      });
+      rawFiles.push({ path: file, content });
     }
+    const boundedFiles = applyBudgets(rawFiles, config);
     preparedModules.push({
       moduleInfo,
       context: {
@@ -1374,6 +1460,7 @@ export async function runDoc(root, config, options = {}) {
     }
   );
 
+  const plannedHeaders = [];
   const metadataByModule = new Map();
   for (const { moduleInfo, result } of generatedModules) {
     metadataByModule.set(moduleInfo.id, result.metadata);
@@ -1387,14 +1474,25 @@ export async function runDoc(root, config, options = {}) {
     outputTokens += result.tokenUsage.output_tokens;
 
     if (!config.dryRun) {
-      await writeText(path.join(root, "docs", "modules", `${moduleInfo.slug}.md`), result.markdown);
-      await writeJson(path.join(root, ".agents", "modules", `${moduleInfo.hash}.json`), result.metadata);
+      await writeText(path.join(artifactRoot, "docs", "modules", `${moduleInfo.slug}.md`), result.markdown);
+      await writeJson(path.join(artifactRoot, ".agents", "modules", `${moduleInfo.hash}.json`), result.metadata);
       docsWritten += 2;
 
-      for (const header of result.headers) {
-        const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
-        if (update.changed) {
-          filesWithHeaders += 1;
+      if (config.ghost || config.ghostMode) {
+        for (const header of result.headers) {
+          plannedHeaders.push({
+            path: header.path,
+            module: moduleInfo.name,
+            summary: header.summary,
+            action: "would_update",
+          });
+        }
+      } else {
+        for (const header of result.headers) {
+          const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
+          if (update.changed) {
+            filesWithHeaders += 1;
+          }
         }
       }
     }
@@ -1433,17 +1531,32 @@ export async function runDoc(root, config, options = {}) {
   };
 
   if (config.tokenReport && !config.dryRun) {
-    await writeRunReport(root, runReport);
+    await writeRunReport(artifactRoot, runReport);
   }
   if (!config.dryRun) {
-    const index = await readJson(path.join(root, ".agents", "index.json"));
-    await writeText(path.join(root, "AGENTIFY.md"), renderAgentifyMd({
+    const index = await readJson(path.join(artifactRoot, ".agents", "index.json"));
+    await writeText(path.join(artifactRoot, "AGENTIFY.md"), renderAgentifyMd({
       index,
       metadataByModule,
       runReport,
-      managerPlan: managerResult.plan
+      managerPlan: managerResult.plan,
     }));
   }
+
+  if ((config.ghost || config.ghostMode) && !config.dryRun) {
+    await writeJson(path.join(artifactRoot, "header-plan.json"), {
+      run_id: ghostRunId,
+      planned_headers: plannedHeaders,
+      total_files_affected: plannedHeaders.length,
+    });
+    await writeJson(path.join(artifactRoot, "ghost-report.json"), {
+      run_id: ghostRunId,
+      artifacts_written: docsWritten,
+      headers_planned: plannedHeaders.length,
+      validation: { passed: true, failures: [] },
+    });
+  }
+
   progress.log("doc: wrote module docs, metadata, run report, and AGENTIFY.md");
   progress.percent("doc", 100, "completed");
 
@@ -1453,11 +1566,13 @@ export async function runDoc(root, config, options = {}) {
     files_with_headers: filesWithHeaders,
     docs_written: docsWritten,
     token_usage: runReport.token_usage,
-    wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/modules/*.json", ".agents/runs/*.json"]
+    wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/modules/*.json", ".agents/runs/*.json"],
   };
   progress.setCommand("doc");
   progress.setDoc(result);
-  progress.json(result);
+  if (config.json || !config._suppressProgress) {
+    progress.json(result);
+  }
   if (!options.skipFinalize) {
     await progress.finalize();
   }
@@ -1466,16 +1581,33 @@ export async function runDoc(root, config, options = {}) {
 export async function runValidate(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.percent("validate", 0, "starting");
-  const result = await validateRepo(root, config);
+  const result = await validateRepo(root, config, options);
   progress.percent("validate", 100, result.passed ? "passed" : `failed with ${result.failures.length} issue(s)`);
   progress.setCommand("validate");
   progress.setValidation(result);
-  progress.json(result);
+  if (config.json || !config._suppressProgress) {
+    progress.json(result);
+  }
+
+  if (result.passed) {
+    ui.success("Validation passed");
+  } else {
+    ui.newline();
+    for (const failure of result.failures) {
+      process.stderr.write(ui.formatFailure(failure) + "\n");
+    }
+    ui.newline();
+  }
+
   if (!options.skipFinalize) {
     await progress.finalize();
   }
   if (!result.passed) {
-    process.exitCode = 1;
+    if (config.strict) {
+      process.exitCode = 1;
+    } else {
+      ui.warn("Validation warnings found but --strict is false, continuing");
+    }
   }
 }
 
@@ -1526,7 +1658,14 @@ export async function runUpdate(root, config) {
   };
   progress.json(finalOutput);
   await progress.finalize();
-  if (!result.passed || testResult.status === "failed") {
+  if (!result.passed) {
+    if (config.strict) {
+      process.exitCode = 1;
+    } else {
+      progress.log("update: validation warnings found but --strict is false, continuing");
+    }
+  }
+  if (testResult.status === "failed") {
     process.exitCode = 1;
   }
 }
