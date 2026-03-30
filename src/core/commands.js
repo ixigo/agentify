@@ -1233,7 +1233,9 @@ export async function runScan(root, config, options = {}) {
 }
 
 async function _runScanInner(root, config, options, progress) {
-  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const ghostRunId = (config.ghost || config.ghostMode)
+    ? (options.ghostRunId || `ghost_${Date.now()}`)
+    : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
 
   await ensureBaselineArtifacts(artifactRoot, config);
@@ -1319,7 +1321,9 @@ export async function runDoc(root, config, options = {}) {
 }
 
 async function _runDocInner(root, config, options, progress) {
-  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const ghostRunId = (config.ghost || config.ghostMode)
+    ? (options.ghostRunId || `ghost_${Date.now()}`)
+    : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
 
   await ensureBaselineArtifacts(artifactRoot, config);
@@ -1612,14 +1616,16 @@ export async function runValidate(root, config, options = {}) {
 }
 
 export async function runUpdate(root, config) {
-  const progress = createRunReporter(root);
+  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const progress = createRunReporter(artifactRoot);
   progress.setCommand("update");
   progress.percent("update", 0, "starting");
-  await runScan(root, config, { reporter: progress, skipFinalize: true });
+  await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
   progress.percent("update", 33, "scan complete");
-  await runDoc(root, config, { reporter: progress, skipFinalize: true });
+  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
   progress.percent("update", 67, "doc complete");
-  const result = await validateRepo(root, config);
+  const result = await validateRepo(root, config, { artifactRoot });
   progress.setValidation(result);
   progress.percent("update", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
@@ -1638,13 +1644,13 @@ export async function runUpdate(root, config) {
         note: "token counts are best-effort and depend on provider support"
       },
       results: {
-        modules_processed: (await readJson(path.join(root, ".agents", "index.json"))).modules.length,
+        modules_processed: (await readJson(path.join(artifactRoot, ".agents", "index.json"))).modules.length,
         files_with_headers: 0,
         docs_written: 0
       },
       validation: result
     };
-    await writeRunReport(root, runReport);
+    await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
     command: "update",
