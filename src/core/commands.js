@@ -153,7 +153,12 @@ function createRunReporter(root) {
       ui.box("Run Complete", [
         ui.label("Artifacts", String(summary.artifacts.length)),
         ui.label("Modules", String(summary.doc?.modules_processed ?? 0)),
-        ui.label("Validation", summary.validation?.passed ? ui.green("passed") : ui.red("failed")),
+        ui.label(
+          "Validation",
+          summary.validation
+            ? (summary.validation.passed ? ui.green("passed") : ui.red("failed"))
+            : ui.dim("not run")
+        ),
         ui.label("Tests", summary.tests?.status || "not run"),
         ui.label("Report", ui.dim(htmlPath)),
       ]);
@@ -1191,6 +1196,41 @@ function resolveArtifactRoot(root, config, runId) {
   return root;
 }
 
+function buildIndexFromState(root, state, headCommit, generatedAt, provider) {
+  return {
+    schema_version: SCHEMA_VERSIONS.INDEX,
+    repo: {
+      name: path.basename(root),
+      root,
+      detected_stacks: state.stacks,
+      default_stack: state.defaultStack
+    },
+    index: {
+      generated_at: generatedAt,
+      head_commit: headCommit,
+      generator: {
+        agentify_version: "0.1.0",
+        provider
+      }
+    },
+    modules: state.modules.map((moduleInfo) => ({
+      id: moduleInfo.id,
+      name: moduleInfo.name,
+      root_path: moduleInfo.rootPath,
+      doc_path: `docs/modules/${moduleInfo.slug}.md`,
+      metadata_path: `.agents/modules/${moduleInfo.hash}.json`,
+      tags: [moduleInfo.stack],
+      entry_files: moduleInfo.entryFiles,
+      key_files: moduleInfo.keyFiles
+    })),
+    entrypoints: state.modules.flatMap((moduleInfo) => moduleInfo.entryFiles),
+    symbol_index_hint: {
+      enabled: false,
+      note: "reserved for future symbol-level indexing"
+    }
+  };
+}
+
 function applyBudgets(files, config) {
   const perFile = config.budgets?.perFile || 8000;
   const perModule = config.budgets?.perModule || 32000;
@@ -1243,39 +1283,7 @@ async function _runScanInner(root, config, options, progress) {
   const headCommit = await getHeadCommit(root);
   const state = await buildScanState(root, config);
   progress.log(`scan: analyzed ${state.files.length} files and detected ${state.modules.length} modules`);
-  const repoName = path.basename(root);
-  const index = {
-    schema_version: SCHEMA_VERSIONS.INDEX,
-    repo: {
-      name: repoName,
-      root,
-      detected_stacks: state.stacks,
-      default_stack: state.defaultStack
-    },
-    index: {
-      generated_at: now,
-      head_commit: headCommit,
-      generator: {
-        agentify_version: "0.1.0",
-        provider: config.provider
-      }
-    },
-    modules: state.modules.map((moduleInfo) => ({
-      id: moduleInfo.id,
-      name: moduleInfo.name,
-      root_path: moduleInfo.rootPath,
-      doc_path: `docs/modules/${moduleInfo.slug}.md`,
-      metadata_path: `.agents/modules/${moduleInfo.hash}.json`,
-      tags: [moduleInfo.stack],
-      entry_files: moduleInfo.entryFiles,
-      key_files: moduleInfo.keyFiles
-    })),
-    entrypoints: state.modules.flatMap((moduleInfo) => moduleInfo.entryFiles),
-    symbol_index_hint: {
-      enabled: false,
-      note: "reserved for future symbol-level indexing"
-    }
-  };
+  const index = buildIndexFromState(root, state, headCommit, now, config.provider);
 
   if (!config.dryRun) {
     await writeJson(path.join(artifactRoot, ".agents", "index.json"), index);
@@ -1330,8 +1338,9 @@ async function _runDocInner(root, config, options, progress) {
   const provider = createProvider(config.provider, config);
   const indexPath = path.join(artifactRoot, ".agents", "index.json");
   let state;
+  let index;
   if (await exists(indexPath)) {
-    const index = await readJson(indexPath);
+    index = await readJson(indexPath);
     const graphPath = path.join(artifactRoot, ".agents", "graphs", "deps.json");
     const graph = (await exists(graphPath))
       ? await readJson(graphPath)
@@ -1360,6 +1369,15 @@ async function _runDocInner(root, config, options, progress) {
 
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
+  if (!index) {
+    index = buildIndexFromState(root, state, headCommit, now, config.provider);
+    if (!config.dryRun) {
+      await writeJson(path.join(artifactRoot, ".agents", "index.json"), index);
+      await writeJson(path.join(artifactRoot, ".agents", "graphs", "deps.json"), state.graph);
+      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
+      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
+    }
+  }
   let filesWithHeaders = 0;
   let docsWritten = 0;
   let inputTokens = 0;
@@ -1538,7 +1556,6 @@ async function _runDocInner(root, config, options, progress) {
     await writeRunReport(artifactRoot, runReport);
   }
   if (!config.dryRun) {
-    const index = await readJson(path.join(artifactRoot, ".agents", "index.json"));
     await writeText(path.join(artifactRoot, "AGENTIFY.md"), renderAgentifyMd({
       index,
       metadataByModule,

@@ -259,6 +259,8 @@ git add -A && git commit -m "feat: done"
 | `doctor`     | Check toolchain health and capability tier             |
 | `cache`      | Manage the content-addressed cache                    |
 
+`agentify doc` can run directly after `agentify init`; if `.agents/index.json` is missing, Agentify derives module/index state on the fly (including `--ghost` runs).
+
 ## Options
 
 ```
