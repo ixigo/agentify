@@ -1040,6 +1040,229 @@ export function loadSemanticProjectFactsByFile(db) {
   });
 }
 
+export function loadSemanticPlannerFacts(db) {
+  const symbolRows = normalizeRows(db.prepare(`
+    SELECT
+      s.symbol_id AS semantic_id,
+      s.project_id,
+      s.file_path,
+      f.module_id,
+      s.name,
+      s.kind,
+      s.is_exported AS exported,
+      s.start_line,
+      s.end_line,
+      s.domain,
+      'symbol' AS source,
+      NULL AS alias
+    FROM semantic_symbols s
+    LEFT JOIN files f ON f.path = s.file_path
+    WHERE s.domain != 'support'
+    ORDER BY s.file_path, s.start_line
+  `).all());
+  const surfaceRows = normalizeRows(db.prepare(`
+    SELECT
+      sf.surface_id AS semantic_id,
+      sf.project_id,
+      sf.file_path,
+      f.module_id,
+      sf.display_name AS name,
+      sf.kind || ':' || sf.role AS kind,
+      1 AS exported,
+      1 AS start_line,
+      1 AS end_line,
+      sf.domain,
+      'surface' AS source,
+      sf.surface_key AS alias
+    FROM semantic_surfaces sf
+    LEFT JOIN files f ON f.path = sf.file_path
+    WHERE sf.domain != 'support'
+    ORDER BY sf.file_path, sf.kind, sf.role
+  `).all());
+
+  return [...symbolRows, ...surfaceRows];
+}
+
+export function searchSemanticIndex(db, term, limit = 20) {
+  const normalized = `%${String(term || "").trim().toLowerCase()}%`;
+  return {
+    semantic_projects: normalizeRows(db.prepare(`
+      SELECT project_id, config_path, project_root, status, file_count, symbol_count, surface_count, edge_count
+      FROM semantic_projects
+      WHERE lower(coalesce(config_path, '')) LIKE ?
+        OR lower(project_root) LIKE ?
+        OR lower(project_id) LIKE ?
+      ORDER BY coalesce(config_path, project_root), project_id
+      LIMIT ?
+    `).all(normalized, normalized, normalized, limit)),
+    semantic_surfaces: normalizeRows(db.prepare(`
+      SELECT surface_id, project_id, file_path, kind, role, surface_key, display_name
+      FROM semantic_surfaces
+      WHERE lower(file_path) LIKE ?
+        OR lower(kind) LIKE ?
+        OR lower(role) LIKE ?
+        OR lower(surface_key) LIKE ?
+        OR lower(display_name) LIKE ?
+      ORDER BY file_path, kind, role
+      LIMIT ?
+    `).all(normalized, normalized, normalized, normalized, normalized, limit)),
+    semantic_symbols: normalizeRows(db.prepare(`
+      SELECT symbol_id, project_id, file_path, name, kind, export_name, is_exported
+      FROM semantic_symbols
+      WHERE lower(name) LIKE ?
+        OR lower(file_path) LIKE ?
+        OR lower(coalesce(export_name, '')) LIKE ?
+      ORDER BY file_path, start_line
+      LIMIT ?
+    `).all(normalized, normalized, normalized, limit)),
+  };
+}
+
+export function loadSemanticFileContext(db, filePath) {
+  return {
+    projects: normalizeRows(db.prepare(`
+      SELECT p.project_id, p.config_path, p.project_root, p.status
+      FROM semantic_project_files f
+      JOIN semantic_projects p ON p.project_id = f.project_id
+      WHERE f.file_path = ?
+      ORDER BY coalesce(p.config_path, p.project_root)
+    `).all(filePath)),
+    surfaces: normalizeRows(db.prepare(`
+      SELECT surface_id, project_id, kind, role, surface_key, display_name, domain
+      FROM semantic_surfaces
+      WHERE file_path = ?
+      ORDER BY kind, role, display_name
+    `).all(filePath)),
+    exports: normalizeRows(db.prepare(`
+      SELECT symbol_id, name, kind, export_name
+      FROM semantic_symbols
+      WHERE file_path = ?
+        AND is_exported = 1
+      ORDER BY start_line
+    `).all(filePath)),
+  };
+}
+
+export function loadSemanticModuleDependencies(db, moduleId) {
+  const dependsOn = normalizeRows(db.prepare(`
+    SELECT DISTINCT tf.module_id AS module_id
+    FROM semantic_symbol_edges e
+    JOIN files ff ON ff.path = e.from_file_path
+    JOIN files tf ON tf.path = e.to_file_path
+    WHERE ff.module_id = ?
+      AND tf.module_id IS NOT NULL
+      AND tf.module_id != ?
+      AND e.edge_domain = 'runtime'
+    ORDER BY tf.module_id
+  `).all(moduleId, moduleId)).map((row) => row.module_id);
+
+  const usedBy = normalizeRows(db.prepare(`
+    SELECT DISTINCT ff.module_id AS module_id
+    FROM semantic_symbol_edges e
+    JOIN files ff ON ff.path = e.from_file_path
+    JOIN files tf ON tf.path = e.to_file_path
+    WHERE tf.module_id = ?
+      AND ff.module_id IS NOT NULL
+      AND ff.module_id != ?
+      AND e.edge_domain = 'runtime'
+    ORDER BY ff.module_id
+  `).all(moduleId, moduleId)).map((row) => row.module_id);
+
+  return { dependsOn, usedBy };
+}
+
+export function loadSemanticModuleContext(db, moduleId) {
+  const publicApi = normalizeRows(db.prepare(`
+    SELECT s.name, s.kind, s.file_path
+    FROM semantic_symbols s
+    JOIN files f ON f.path = s.file_path
+    WHERE f.module_id = ?
+      AND s.is_exported = 1
+      AND s.domain != 'support'
+    ORDER BY s.file_path, s.start_line
+    LIMIT 12
+  `).all(moduleId)).map((row) => ({
+    symbol: row.name,
+    kind: row.kind,
+    path: row.file_path,
+  }));
+
+  const surfaces = normalizeRows(db.prepare(`
+    SELECT kind, role, surface_key, display_name, file_path
+    FROM semantic_surfaces sf
+    JOIN files f ON f.path = sf.file_path
+    WHERE f.module_id = ?
+      AND sf.domain != 'support'
+    ORDER BY
+      CASE WHEN sf.kind = 'route' THEN 0 ELSE 1 END,
+      sf.file_path,
+      sf.kind,
+      sf.role
+    LIMIT 16
+  `).all(moduleId)).map((row) => ({
+    kind: row.kind,
+    role: row.role,
+    surface_key: row.surface_key,
+    display_name: row.display_name,
+    path: row.file_path,
+  }));
+
+  const startHere = normalizeRows(db.prepare(`
+    SELECT DISTINCT sf.file_path, sf.kind, sf.role, sf.display_name
+    FROM semantic_surfaces sf
+    JOIN files f ON f.path = sf.file_path
+    WHERE f.module_id = ?
+      AND sf.is_header_target = 1
+    ORDER BY
+      CASE WHEN sf.kind = 'route' THEN 0 ELSE 1 END,
+      sf.file_path
+    LIMIT 5
+  `).all(moduleId)).map((row) => ({
+    path: row.file_path,
+    why: `Semantic ${row.role || row.kind} surface${row.display_name ? `: ${row.display_name}` : ""}.`,
+  }));
+
+  const runtimeDeps = normalizeRows(db.prepare(`
+    SELECT DISTINCT coalesce(e.to_external_package, e.to_file_path) AS target
+    FROM semantic_symbol_edges e
+    JOIN files f ON f.path = e.from_file_path
+    WHERE f.module_id = ?
+      AND e.edge_domain = 'runtime'
+      AND coalesce(e.to_external_package, e.to_file_path) IS NOT NULL
+    ORDER BY target
+    LIMIT 12
+  `).all(moduleId)).map((row) => row.target);
+
+  const typeDeps = normalizeRows(db.prepare(`
+    SELECT DISTINCT coalesce(e.to_external_package, e.to_file_path) AS target
+    FROM semantic_symbol_edges e
+    JOIN files f ON f.path = e.from_file_path
+    WHERE f.module_id = ?
+      AND e.edge_domain = 'type'
+      AND coalesce(e.to_external_package, e.to_file_path) IS NOT NULL
+    ORDER BY target
+    LIMIT 12
+  `).all(moduleId)).map((row) => row.target);
+
+  const projects = normalizeRows(db.prepare(`
+    SELECT DISTINCT p.project_id, p.config_path, p.status
+    FROM semantic_project_files pf
+    JOIN files f ON f.path = pf.file_path
+    JOIN semantic_projects p ON p.project_id = pf.project_id
+    WHERE f.module_id = ?
+    ORDER BY coalesce(p.config_path, p.project_id)
+  `).all(moduleId));
+
+  return {
+    public_api: publicApi,
+    surfaces,
+    start_here: startHere,
+    runtime_deps: runtimeDeps,
+    type_deps: typeDeps,
+    projects,
+  };
+}
+
 export function searchIndex(db, term, limit = 20) {
   const normalized = `%${String(term || "").trim().toLowerCase()}%`;
   return {

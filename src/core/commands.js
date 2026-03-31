@@ -21,6 +21,7 @@ import {
   loadFiles,
   loadModuleDependencies,
   loadModules,
+  loadSemanticModuleContext,
   loadTests,
   openIndexDatabase,
   upsertArtifact,
@@ -1766,6 +1767,9 @@ async function _runDocInner(root, config, options, progress) {
       const moduleDeps = indexData.dependencyMap
         ? indexData.dependencyMap.get(moduleInfo.id)
         : loadModuleDependencies(db, moduleInfo.id);
+      const semanticContext = semanticEnabled && db
+        ? loadSemanticModuleContext(db, moduleInfo.id)
+        : null;
       preparedModules.push({
         moduleInfo,
         fingerprint,
@@ -1777,6 +1781,7 @@ async function _runDocInner(root, config, options, progress) {
           keyFiles: moduleInfo.key_files,
           dependsOn: Array.from(moduleDeps?.dependsOn || []),
           usedBy: Array.from(moduleDeps?.usedBy || []),
+          semantic: semanticContext,
           managerPlan: managerResult.plan,
           managerFocus: managerResult.plan.module_focus.find((item) => item.module_id === moduleInfo.id)?.focus || "",
           now,

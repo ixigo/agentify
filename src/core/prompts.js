@@ -133,6 +133,21 @@ Module context:
 Key files:
 ${context.keyFiles.map((file) => `- ${file}`).join("\n") || "- none"}
 
+Semantic projects:
+${context.semantic?.projects?.map((item) => `- ${item.config_path || item.project_id} (${item.status})`).join("\n") || "- none"}
+
+Semantic surfaces:
+${context.semantic?.surfaces?.map((item) => `- ${item.path}: ${item.role || item.kind}${item.display_name ? ` (${item.display_name})` : ""}`).join("\n") || "- none"}
+
+Semantic public API:
+${context.semantic?.public_api?.map((item) => `- ${item.path}: ${item.symbol} (${item.kind})`).join("\n") || "- none"}
+
+Semantic runtime deps:
+${context.semantic?.runtime_deps?.map((item) => `- ${item}`).join("\n") || "- none"}
+
+Semantic type deps:
+${context.semantic?.type_deps?.map((item) => `- ${item}`).join("\n") || "- none"}
+
 Candidate files:
 ${context.files.map((file) => `- ${file.path}`).join("\n") || "- none"}
 

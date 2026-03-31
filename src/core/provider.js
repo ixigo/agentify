@@ -5,13 +5,35 @@ import { spawn } from "node:child_process";
 import { sanitizeManagerPlan, sanitizeModuleResponse } from "./agent-contract.js";
 import { buildManagerPrompt, buildManagerSchema, buildModulePrompt, buildModuleSchema } from "./prompts.js";
 
-function summarizeModule(moduleInfo, files) {
+function summarizeModule(moduleInfo, files, semantic = null) {
   const examples = files.slice(0, 5).join(", ");
-  return `${moduleInfo.name} owns code under ${moduleInfo.rootPath} and is indexed from ${examples || "its module root"}.`;
+  const semanticLead = semantic?.surfaces?.length
+    ? `Semantic surfaces: ${semantic.surfaces.slice(0, 3).map((item) => item.display_name || item.surface_key || item.path).join(", ")}. `
+    : "";
+  return `${semanticLead}${moduleInfo.name} owns code under ${moduleInfo.rootPath} and is indexed from ${examples || "its module root"}.`;
 }
 
-function inferPublicApi(files) {
-  return files
+function dedupeBy(items, keyFn) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const key = keyFn(item);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function inferPublicApi(files, semantic = null) {
+  const semanticItems = semantic?.public_api?.map((item) => ({
+    symbol: item.symbol,
+    kind: item.kind,
+    path: item.path,
+  })) || [];
+  const inferredItems = files
     .filter((file) => /(index|public|exports|main|appdelegate|scenedelegate|application|mainactivity)\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/i.test(file))
     .slice(0, 8)
     .map((file) => ({
@@ -19,6 +41,63 @@ function inferPublicApi(files) {
       kind: "module",
       path: file
     }));
+  return dedupeBy([...semanticItems, ...inferredItems], (item) => `${item.path}:${item.symbol}:${item.kind}`).slice(0, 12);
+}
+
+function inferStartHere(context) {
+  const semanticItems = context.semantic?.start_here || [];
+  const fallbackItems = context.keyFiles.slice(0, 5).map((file) => ({
+    path: file,
+    why: "High-signal file selected by Agentify key-file ranking."
+  }));
+  return dedupeBy([...semanticItems, ...fallbackItems], (item) => `${item.path}:${item.why}`).slice(0, 5);
+}
+
+function buildSemanticMetadata(context) {
+  return {
+    projects: context.semantic?.projects || [],
+    surfaces: context.semantic?.surfaces || [],
+    runtime_deps: context.semantic?.runtime_deps || [],
+    type_deps: context.semantic?.type_deps || [],
+  };
+}
+
+function renderSemanticSection(metadata) {
+  const hasSemanticData = Boolean(
+    metadata.semantic?.projects?.length
+    || metadata.semantic?.surfaces?.length
+    || metadata.semantic?.runtime_deps?.length
+    || metadata.semantic?.type_deps?.length
+  );
+  if (!hasSemanticData) {
+    return "";
+  }
+
+  const projects = metadata.semantic?.projects?.length
+    ? metadata.semantic.projects.map((item) => `- \`${item.config_path || item.project_id}\` (${item.status})`).join("\n")
+    : "- No semantic projects recorded.";
+  const surfaces = metadata.semantic?.surfaces?.length
+    ? metadata.semantic.surfaces.map((item) => `- \`${item.path}\` (${item.role || item.kind})${item.display_name ? ` -> ${item.display_name}` : ""}`).join("\n")
+    : "- No semantic surfaces recorded.";
+  const runtimeDeps = metadata.semantic?.runtime_deps?.length
+    ? metadata.semantic.runtime_deps.map((item) => `- \`${item}\``).join("\n")
+    : "- No runtime semantic dependencies recorded.";
+  const typeDeps = metadata.semantic?.type_deps?.length
+    ? metadata.semantic.type_deps.map((item) => `- \`${item}\``).join("\n")
+    : "- No type semantic dependencies recorded.";
+
+  return `## Semantic Projects
+${projects}
+
+## Semantic Surfaces
+${surfaces}
+
+## Semantic Dependencies
+### Runtime
+${runtimeDeps}
+
+### Type
+${typeDeps}`;
 }
 
 function renderModuleMarkdown(moduleInfo, metadata) {
@@ -40,6 +119,7 @@ function renderModuleMarkdown(moduleInfo, metadata) {
   const tests = metadata.tests.length > 0
     ? metadata.tests.map((item) => `- \`${item}\``).join("\n")
     : "- No tests detected in module scan.";
+  const semanticSection = renderSemanticSection(metadata);
 
   return `# ${moduleInfo.name}
 
@@ -56,6 +136,8 @@ ${publicSurface}
 ## Start Reading Here
 ${startHere}
 
+${semanticSection ? `\n${semanticSection}\n` : ""}
+
 ## Dependencies
 - Depends on: ${dependsOn}
 - Used by: ${usedBy}
@@ -69,7 +151,7 @@ ${tests}
 }
 
 function fallbackArtifacts(moduleInfo, context) {
-  const summary = summarizeModule(moduleInfo, context.files);
+  const summary = summarizeModule(moduleInfo, context.files, context.semantic);
   const metadata = {
     schema_version: "1.0",
     module: {
@@ -79,11 +161,8 @@ function fallbackArtifacts(moduleInfo, context) {
       stack: moduleInfo.stack
     },
     summary,
-    public_api: inferPublicApi(context.files),
-    start_here: context.keyFiles.slice(0, 5).map((file) => ({
-      path: file,
-      why: "High-signal file selected by Agentify key-file ranking."
-    })),
+    public_api: inferPublicApi(context.files, context.semantic),
+    start_here: inferStartHere(context),
     dependencies: {
       depends_on: context.dependsOn.map((moduleId) => ({
         module_id: moduleId,
@@ -98,6 +177,7 @@ function fallbackArtifacts(moduleInfo, context) {
     tests: context.files.filter((file) => /test|spec/.test(file)).slice(0, 10),
     docs: [`docs/modules/${moduleInfo.slug}.md`],
     tags: [moduleInfo.stack],
+    semantic: buildSemanticMetadata(context),
     freshness: {
       last_indexed_at: context.now,
       last_indexed_commit: context.headCommit,
@@ -368,8 +448,8 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
       stack: moduleInfo.stack
     },
     summary: response.summary,
-    public_api: response.public_api,
-    start_here: response.start_here,
+    public_api: dedupeBy([...response.public_api, ...inferPublicApi([], context.semantic)], (item) => `${item.path}:${item.symbol}:${item.kind}`).slice(0, 12),
+    start_here: dedupeBy([...response.start_here, ...inferStartHere(context)], (item) => `${item.path}:${item.why}`).slice(0, 5),
     dependencies: {
       depends_on: context.dependsOn.map((moduleId) => ({
         module_id: moduleId,
@@ -384,6 +464,7 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
     tests: context.files.map((file) => file.path).filter((file) => /test|spec/.test(file)).slice(0, 10),
     docs: [`docs/modules/${moduleInfo.slug}.md`],
     tags: [moduleInfo.stack],
+    semantic: buildSemanticMetadata(context),
     freshness: {
       last_indexed_at: context.now,
       last_indexed_commit: context.headCommit,

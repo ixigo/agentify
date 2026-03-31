@@ -3,8 +3,11 @@ import path from "node:path";
 import {
   closeIndexDatabase,
   loadModuleDependencies,
+  loadSemanticFileContext,
+  loadSemanticModuleDependencies,
   loadModules,
   openIndexDatabase,
+  searchSemanticIndex,
   searchIndex,
 } from "./db.js";
 import { getChangedFilesSince } from "./git.js";
@@ -46,6 +49,7 @@ export async function queryOwner(root, filePath) {
       module_root: owner.root_path,
       doc_path: owner.doc_path,
       stack: owner.stack,
+      semantic: loadSemanticFileContext(db, normalized),
     };
   } finally {
     closeIndexDatabase(db);
@@ -61,10 +65,13 @@ export async function queryDeps(root, moduleId) {
       return { module_id: moduleId, error: "Module not found" };
     }
     const deps = loadModuleDependencies(db, moduleId);
+    const semanticDeps = loadSemanticModuleDependencies(db, moduleId);
     return {
       module_id: moduleId,
       depends_on: deps.dependsOn,
       used_by: deps.usedBy,
+      semantic_depends_on: semanticDeps.dependsOn,
+      semantic_used_by: semanticDeps.usedBy,
     };
   } finally {
     closeIndexDatabase(db);
@@ -108,9 +115,11 @@ export async function queryChanged(root, sinceCommit) {
 export async function querySearch(root, term) {
   const db = openIndexDatabase(root);
   try {
+    const semantic = searchSemanticIndex(db, term);
     return {
       term,
       ...searchIndex(db, term),
+      ...semantic,
     };
   } finally {
     closeIndexDatabase(db);

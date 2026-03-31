@@ -7,6 +7,8 @@ import {
   loadCommands,
   loadFiles,
   loadModuleDependencies,
+  loadSemanticModuleDependencies,
+  loadSemanticPlannerFacts,
   loadModules,
   loadSymbols,
   loadTests,
@@ -130,17 +132,25 @@ function scoreFile(fileInfo, taskText, tokens, changedPaths, symbolMatchesByFile
 function scoreSymbol(symbolInfo, taskText, tokens) {
   let score = 0;
   const reasons = [];
-  const name = normalizeToken(symbolInfo.name);
+  const terms = Array.from(new Set([
+    normalizeToken(symbolInfo.name),
+    normalizeToken(symbolInfo.alias || ""),
+  ].filter(Boolean)));
   for (const token of tokens) {
-    if (name === token) {
-      score += 130;
-      pushReason(reasons, `direct symbol match: ${token}`, 130);
-    } else if (name.includes(token) || token.includes(name)) {
-      score += 60;
-      pushReason(reasons, `symbol match: ${token}`, 60);
+    for (const term of terms) {
+      if (term === token) {
+        score += 130;
+        pushReason(reasons, `direct symbol match: ${token}`, 130);
+        break;
+      }
+      if (term.includes(token) || token.includes(term)) {
+        score += 60;
+        pushReason(reasons, `symbol match: ${token}`, 60);
+        break;
+      }
     }
   }
-  if (taskText.includes(symbolInfo.name.toLowerCase())) {
+  if (taskText.includes(String(symbolInfo.name || "").toLowerCase()) || taskText.includes(String(symbolInfo.alias || "").toLowerCase())) {
     score += 90;
     pushReason(reasons, `task mentions symbol ${symbolInfo.name}`, 90);
   }
@@ -288,7 +298,30 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
     const meta = getRepoMeta(db);
     const modules = loadModules(db);
     const files = loadFiles(db);
-    const symbols = loadSymbols(db);
+    const structuralSymbols = loadSymbols(db).map((symbolInfo) => ({
+      ...symbolInfo,
+      alias: null,
+      source: "structural",
+    }));
+    const semanticSymbols = config.semantic?.tsjs?.enabled
+      ? loadSemanticPlannerFacts(db).map((symbolInfo) => ({
+          symbol_id: symbolInfo.semantic_id,
+          module_id: symbolInfo.module_id || null,
+          file_path: symbolInfo.file_path,
+          name: symbolInfo.name,
+          kind: symbolInfo.kind,
+          exported: symbolInfo.exported,
+          start_line: symbolInfo.start_line,
+          end_line: symbolInfo.end_line,
+          alias: symbolInfo.alias || null,
+          source: symbolInfo.source,
+        }))
+      : [];
+    const semanticCoveredFiles = new Set(semanticSymbols.map((symbolInfo) => symbolInfo.file_path));
+    const symbols = [
+      ...structuralSymbols.filter((symbolInfo) => !semanticCoveredFiles.has(symbolInfo.file_path)),
+      ...semanticSymbols,
+    ];
     const tests = loadTests(db);
     const commands = loadCommands(db);
 
@@ -313,7 +346,14 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
         const symbolBoost = symbolScores
           .filter((symbolInfo) => symbolInfo.module_id === moduleInfo.id)
           .reduce((sum, symbolInfo) => sum + Math.min(symbolInfo.score, 50), 0);
-        const dep = loadModuleDependencies(db, moduleInfo.id);
+        const structuralDep = loadModuleDependencies(db, moduleInfo.id);
+        const semanticDep = config.semantic?.tsjs?.enabled
+          ? loadSemanticModuleDependencies(db, moduleInfo.id)
+          : { dependsOn: [], usedBy: [] };
+        const dep = {
+          dependsOn: Array.from(new Set([...(structuralDep.dependsOn || []), ...(semanticDep.dependsOn || [])])),
+          usedBy: Array.from(new Set([...(structuralDep.usedBy || []), ...(semanticDep.usedBy || [])])),
+        };
         moduleDependencyMap.set(moduleInfo.id, dep);
         const score = base.score + symbolBoost;
         const reasons = [...base.reasons];

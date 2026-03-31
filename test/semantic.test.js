@@ -13,6 +13,8 @@ import {
   loadSemanticRouteSurfaces,
   openIndexDatabase,
 } from "../src/core/db.js";
+import { buildExecutionPlan } from "../src/core/planner.js";
+import { queryDeps, queryOwner, querySearch } from "../src/core/query.js";
 import { runSemanticRefresh } from "../src/core/semantic.js";
 
 async function writeSemanticFixture(root) {
@@ -89,6 +91,7 @@ test("doc uses semantic repo map and deterministic semantic headers when enabled
 
   const repoMap = await fs.readFile(path.join(root, "docs", "repo-map.md"), "utf8");
   const pageSource = await fs.readFile(path.join(root, "src", "app", "dashboard", "page.tsx"), "utf8");
+  const appDoc = await fs.readFile(path.join(root, "docs", "modules", "app.md"), "utf8");
 
   assert.match(repoMap, /## Semantic Projects/);
   assert.match(repoMap, /## Routes/);
@@ -97,4 +100,30 @@ test("doc uses semantic repo map and deterministic semantic headers when enabled
   assert.match(pageSource, /surface: route/);
   assert.match(pageSource, /role: page/);
   assert.match(pageSource, /project: tsconfig\.json/);
+  assert.match(appDoc, /## Semantic Surfaces/);
+  assert.match(appDoc, /DashboardPage|\/dashboard/);
+});
+
+test("planner and query surface semantic TS/JS facts when enabled", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-query-plan-"));
+  await writeSemanticFixture(root);
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    "semantic.tsjs.enabled": true,
+  });
+
+  await runScan(root, config);
+  await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+
+  const plan = await buildExecutionPlan(root, config, "fix /dashboard route auth flow");
+  const search = await querySearch(root, "dashboard");
+  const owner = await queryOwner(root, "src/app/dashboard/page.tsx");
+  const deps = await queryDeps(root, "app");
+
+  assert.ok(plan.selected_files.some((fileInfo) => fileInfo.path === "src/app/dashboard/page.tsx"));
+  assert.ok(plan.selected_symbols.some((symbolInfo) => String(symbolInfo.name).includes("/dashboard")));
+  assert.ok(search.semantic_surfaces.some((surface) => surface.surface_key === "/dashboard"));
+  assert.ok(owner.semantic.surfaces.some((surface) => surface.surface_key === "/dashboard"));
+  assert.ok(Array.isArray(deps.semantic_depends_on));
 });
