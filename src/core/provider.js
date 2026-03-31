@@ -21,6 +21,53 @@ function inferPublicApi(files) {
     }));
 }
 
+function renderModuleMarkdown(moduleInfo, metadata) {
+  const publicSurface = metadata.public_api.length > 0
+    ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
+    : "- No explicit export surface detected.";
+  const startHere = metadata.start_here.length > 0
+    ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n")
+    : "- No key files selected.";
+  const dependsOn = metadata.dependencies.depends_on.length > 0
+    ? metadata.dependencies.depends_on.map((item) => item.module_id).join(", ")
+    : "none";
+  const usedBy = metadata.dependencies.used_by.length > 0
+    ? metadata.dependencies.used_by.map((item) => item.module_id).join(", ")
+    : "none";
+  const sideEffects = metadata.side_effects.length > 0
+    ? metadata.side_effects.map((item) => `- \`${item}\``).join("\n")
+    : "- \`none\`";
+  const tests = metadata.tests.length > 0
+    ? metadata.tests.map((item) => `- \`${item}\``).join("\n")
+    : "- No tests detected in module scan.";
+
+  return `# ${moduleInfo.name}
+
+## Purpose
+${metadata.summary}
+
+## Boundaries
+- Root: \`${moduleInfo.rootPath}\`
+- Stack: \`${moduleInfo.stack}\`
+
+## Public Surface
+${publicSurface}
+
+## Start Reading Here
+${startHere}
+
+## Dependencies
+- Depends on: ${dependsOn}
+- Used by: ${usedBy}
+
+## Side Effects
+${sideEffects}
+
+## Tests and Config
+${tests}
+`;
+}
+
 function fallbackArtifacts(moduleInfo, context) {
   const summary = summarizeModule(moduleInfo, context.files);
   const metadata = {
@@ -58,36 +105,13 @@ function fallbackArtifacts(moduleInfo, context) {
     }
   };
 
-  const markdown = `# ${moduleInfo.name}
-
-## Purpose
-${summary}
-
-## Boundaries
-- Root: \`${moduleInfo.rootPath}\`
-- Stack: \`${moduleInfo.stack}\`
-
-## Public Surface
-${metadata.public_api.length > 0 ? metadata.public_api.map((item) => `- \`${item.path}\``).join("\n") : "- No explicit export surface detected."}
-
-## Start Reading Here
-${metadata.start_here.length > 0 ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n") : "- No key files selected."}
-
-## Dependencies
-- Depends on: ${context.dependsOn.length > 0 ? context.dependsOn.join(", ") : "none"}
-- Used by: ${context.usedBy.length > 0 ? context.usedBy.join(", ") : "none"}
-
-## Tests and Config
-${metadata.tests.length > 0 ? metadata.tests.map((item) => `- \`${item}\``).join("\n") : "- No tests detected in module scan."}
-`;
-
   const headers = context.keyFiles.map((file) => ({
     path: file,
     summary
   }));
 
   return {
-    markdown,
+    markdown: renderModuleMarkdown(moduleInfo, metadata),
     metadata,
     headers,
     tokenUsage: {
@@ -442,17 +466,16 @@ function createExternalProvider(config, options) {
           model: config.model
         });
         const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
-
-        const metadata = buildMetadataFromCodex(moduleInfo, context, result.output);
+        const metadata = {
+          ...buildMetadataFromCodex(moduleInfo, context, sanitized),
+          summary: sanitized.summary,
+          public_api: sanitized.public_api,
+          start_here: sanitized.start_here,
+          side_effects: sanitized.side_effects
+        };
         return {
-          markdown: sanitized.markdown,
-          metadata: {
-            ...metadata,
-            summary: sanitized.summary,
-            public_api: sanitized.public_api,
-            start_here: sanitized.start_here,
-            side_effects: sanitized.side_effects
-          },
+          markdown: renderModuleMarkdown(moduleInfo, metadata),
+          metadata,
           headers: sanitized.header_summaries,
           tokenUsage: result.usage
         };

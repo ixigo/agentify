@@ -5,10 +5,12 @@ import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./cor
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
-import { queryOwner, queryDeps, queryChanged } from "./core/query.js";
+import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
+import { buildExecutionPlan } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession } from "./core/session.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
+import { runClean } from "./core/cleanup.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
@@ -32,6 +34,7 @@ const BOOLEAN_FLAGS = new Set([
   "interactive",
   "failOnStale",
   "skipRefresh",
+  "explainPlan",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -130,27 +133,31 @@ function printHelp() {
     `  ${bold("COMMANDS")}`,
     ``,
     `    ${c("init")}            ${d("Create baseline Agentify artifacts")}`,
-    `    ${c("scan")}            ${d("Run deterministic repo scan and write index artifacts")}`,
+    `    ${c("index")}           ${d("Build the SQLite repository index")}`,
+    `    ${c("scan")}            ${d("Alias for index")}`,
     `    ${c("doc")}             ${d("Generate docs, metadata, and key-file headers")}`,
     `    ${c("up")}              ${d("Run scan -> doc -> check -> test pipeline")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
+    `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
+    `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
     ``,
     `  ${bold("OPTIONS")}`,
     ``,
     `    ${c("--provider")} ${d(`<${SUPPORTED_PROVIDERS.join("|")}>`)}`,
     `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
-    `    ${c("--languages")} ${d("<auto|ts|python|dotnet|java|kotlin|swift>")}`,
+    `    ${c("--languages")} ${d("<auto|ts|python|go|rust|dotnet|java|kotlin|swift>")}`,
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--interactive")}, ${c("-i")}       Launch Codex interactive CLI for run/sess`,
+    `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     ``,
     `  ${bold("EXEC FLAGS")}`,
@@ -163,6 +170,7 @@ function printHelp() {
     ``,
     `    ${d("$")} agentify init`,
     `    ${d("$")} agentify up --provider codex`,
+    `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
@@ -277,6 +285,7 @@ export async function runCli(argv) {
       success("Initialized agentify artifacts");
       return;
 
+    case "index":
     case "scan":
       await runScan(root, config);
       return;
@@ -293,15 +302,29 @@ export async function runCli(argv) {
       await runValidate(root, config);
       return;
 
+    case "plan": {
+      const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
+      const plan = await buildExecutionPlan(root, config, prompt);
+      console.log(JSON.stringify(plan, null, 2));
+      return;
+    }
+
     case "run": {
       const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
       const usingTemplateCommand = !args._exec?.length;
+      const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
+      const plan = !args._exec?.length
+        ? await buildExecutionPlan(root, config, prompt)
+        : null;
+      if (args.explainPlan && plan) {
+        console.log(JSON.stringify(plan, null, 2));
+      }
       const agentCommand = args._exec?.length
         ? args._exec
         : buildProviderTemplateCommand(
           config.provider,
-          prompt,
-          getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand),
+          plan.prompt,
+          providerOptions,
         );
 
       await runExec(root, config, agentCommand, getExecFlags(args));
@@ -328,8 +351,11 @@ export async function runCli(argv) {
       } else if (subcommand === "changed") {
         if (!args.since) throw new Error("query changed requires --since <commit>");
         result = await queryChanged(root, args.since);
+      } else if (subcommand === "search") {
+        if (!args.term) throw new Error("query search requires --term <value>");
+        result = await querySearch(root, args.term);
       } else {
-        throw new Error("query requires a subcommand: owner, deps, or changed");
+        throw new Error("query requires a subcommand: owner, deps, changed, or search");
       }
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -480,6 +506,33 @@ export async function runCli(argv) {
     case "doctor":
       await runDoctor(config);
       return;
+
+    case "clean": {
+      const result = await runClean(root, config);
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        if (config.dryRun) {
+          log(`Cleanup dry-run: ${result.removed_count} item(s) would be pruned.`);
+        } else {
+          success(`Cleanup removed ${result.removed_count} item(s).`);
+        }
+        if (result.removed_paths.length > 0) {
+          for (const item of result.removed_paths) {
+            log(item);
+          }
+        }
+        if (result.removed_cache_blobs > 0) {
+          log(`Cache blobs removed: ${result.removed_cache_blobs}`);
+        }
+        if (result.skipped.length > 0) {
+          for (const item of result.skipped) {
+            log(`Skipped ${item}`);
+          }
+        }
+      }
+      return;
+    }
 
     case "cache": {
       const cacheRoot = path.join(root, ".agents", "cache");

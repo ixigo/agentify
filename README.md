@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
 [![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-Agent orchestration CLI for repository scanning, docs generation, validation, and session continuity across **Codex**, **Claude**, **Gemini**, and **OpenCode**.
+Agent orchestration CLI for repository indexing, context planning, docs generation, validation, and session continuity across **Codex**, **Claude**, **Gemini**, and **OpenCode**.
 
 ## Install
 
@@ -20,6 +20,7 @@ Requires **Node.js >= 20**.
 cd /path/to/your/repo
 agentify init
 agentify up --provider codex
+agentify clean
 agentify check
 agentify run "implement retry logic for checkout"
 ```
@@ -55,7 +56,7 @@ Pass `--interactive` to launch the interactive Codex CLI instead of `codex exec`
 agentify up
 ```
 
-Runs: `scan -> doc -> check -> tests`.
+Runs: `index -> doc -> check -> tests`.
 
 ## Sticky Provider Behavior
 
@@ -81,16 +82,19 @@ agentify run "task B"     # uses codex in the same repo
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
-| `scan` | Deterministic repo scan + index artifacts |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, and key-file headers |
-| `up` | Full pipeline (`scan -> doc -> check -> tests`) |
+| `up` | Full pipeline (`index -> doc -> check -> tests`) |
 | `check` | Validate freshness, schemas, and safety rules |
+| `plan` | Preview the planner-selected context for a task |
 | `run` | Provider-template execution with auto-refresh |
 | `exec` | Advanced wrapper for custom command after `--` |
 | `sess` | Session lifecycle commands (`run`, `list`, `resume`, `fork`) |
-| `query` | Query index (`owner`, `deps`, `changed`) |
+| `query` | Query index (`owner`, `deps`, `changed`, `search`) |
 | `hooks` | Install/remove/status git hooks |
 | `doctor` | Toolchain and capability diagnostics |
+| `clean` | Prune stale generated artifacts and dead Agentify folders |
 | `cache` | Cache maintenance (`gc`, `status`) |
 
 ## Session Commands
@@ -190,9 +194,7 @@ AGENTS.md
 AGENTIFY.md
 docs/repo-map.md
 docs/modules/*.md
-.agents/index.json
-.agents/modules/*.json
-.agents/graphs/deps.json
+.agents/index.db
 .agents/runs/*.json
 .agents/session/*
 ```
@@ -208,7 +210,27 @@ languages: auto
 maxFilesPerModule: 20
 moduleConcurrency: 4
 tokenReport: true
+cleanup:
+  keepRuns: 20
+  maxRunAgeDays: 14
+  keepGhostRuns: 3
+  maxGhostAgeDays: 3
 ```
+
+Cleanup workflow:
+
+```bash
+agentify clean
+agentify clean --dry-run
+```
+
+`clean` safely removes:
+
+- orphaned `docs/modules/*.md`
+- stale legacy `.agents/modules/*.json`
+- stale `.agents/runs/*.json`
+- stale `.current_session/ghost_*` folders
+- invalid `.agents/session/*` folders without manifests
 
 ## Development
 

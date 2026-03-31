@@ -7,11 +7,26 @@ import { detectModules, detectStacks } from "./detect.js";
 import { ensureDir, exists, readJson, relative, walkFiles, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
 import { buildDependencyGraph, rankKeyFiles } from "./graph.js";
-import { updateFileHeader } from "./headers.js";
+import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
 import { createProvider } from "./provider.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
+import {
+  closeIndexDatabase,
+  getArtifact,
+  getRepoMeta,
+  inTransaction,
+  loadCommands,
+  loadFiles,
+  loadModuleDependencies,
+  loadModules,
+  loadTests,
+  openIndexDatabase,
+  upsertArtifact,
+  writeRepositoryIndex,
+} from "./db.js";
+import { buildRepositoryIndex } from "./indexer.js";
 import * as ui from "./ui.js";
 
 function stableHash(value) {
@@ -1093,7 +1108,7 @@ async function buildScanState(root, config) {
   const stacks = await detectStacks(root, config);
   const defaultStack = stacks[0]?.name || "ts";
   const modules = await detectModules(root, config, defaultStack);
-  const files = (await walkFiles(root)).map((file) => relative(root, file));
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   const graph = await buildDependencyGraph(root, defaultStack);
   const moduleDeps = findModuleDeps(modules, graph);
 
@@ -1126,11 +1141,11 @@ function renderAgentsMd(index) {
   return `# AGENTS.md
 
 ## Overview
-This repository is Agentify-enabled. Start with \`docs/repo-map.md\`, then use \`.agents/index.json\` for machine-readable routing.
+This repository is Agentify-enabled. Start with \`agentify plan "<task>"\` or \`agentify query search --term <term>\`, then inspect \`.agents/index.db\` for machine-readable routing.
 
 ## Conventions
 - Generated docs live under \`docs/\`
-- Generated metadata lives under \`.agents/\`
+- Indexed metadata lives under \`.agents/index.db\`
 - Code headers marked with \`@agentify\` are safe to refresh
 
 ## Modules
@@ -1152,7 +1167,7 @@ function renderAgentifyMd({ index, metadataByModule, runReport, managerPlan }) {
 
 - Root: \`${moduleInfo.root_path}\`
 - Doc: \`${moduleInfo.doc_path}\`
-- Metadata: \`${moduleInfo.metadata_path}\`
+- Fingerprint: \`${moduleInfo.fingerprint || "unknown"}\`
 - Key files indexed: ${moduleInfo.key_files.length}
 
 ### Summary
@@ -1192,12 +1207,13 @@ ${sharedConventions}
 ## Artifacts
 - Root guidance: \`AGENTS.md\`
 - Repo map: \`docs/repo-map.md\`
-- Machine index: \`.agents/index.json\`
-- Dependency graph: \`.agents/graphs/deps.json\`
+- Machine index: \`.agents/index.db\`
 - Run report: \`.agents/runs/${runReport.run_id}.json\`
 
 ## Run Metrics
 - Modules processed: ${runReport.results.modules_processed}
+- Cached manager plan: ${runReport.results.cached_manager_plan ? "yes" : "no"}
+- Cached modules reused: ${runReport.results.cached_modules || 0}
 - Docs written: ${runReport.results.docs_written}
 - Files with headers: ${runReport.results.files_with_headers}
 - Total input tokens: ${runReport.token_usage.input_tokens}
@@ -1233,16 +1249,9 @@ export async function ensureBaselineArtifacts(root, config) {
   if (config.dryRun) {
     return;
   }
-  await ensureDir(path.join(root, ".agents", "graphs"));
-  await ensureDir(path.join(root, ".agents", "modules"));
+  await ensureDir(path.join(root, ".agents"));
   await ensureDir(path.join(root, ".agents", "runs"));
   await ensureDir(path.join(root, "docs", "modules"));
-  if (!(await exists(path.join(root, "AGENTS.md")))) {
-    await writeText(path.join(root, "AGENTS.md"), "# AGENTS.md\n");
-  }
-  if (!(await exists(path.join(root, "docs", "repo-map.md")))) {
-    await writeText(path.join(root, "docs", "repo-map.md"), "# Repo Map\n");
-  }
 }
 
 function resolveArtifactRoot(root, config, runId) {
@@ -1252,63 +1261,179 @@ function resolveArtifactRoot(root, config, runId) {
   return root;
 }
 
-function buildIndexFromState(root, state, headCommit, generatedAt, provider) {
+function buildRenderableIndex(root, meta, modules) {
   return {
-    schema_version: SCHEMA_VERSIONS.INDEX,
+    schema_version: "2.0",
     repo: {
-      name: path.basename(root),
+      name: meta.repo_name || path.basename(root),
       root,
-      detected_stacks: state.stacks,
-      default_stack: state.defaultStack
+      detected_stacks: meta.detected_stacks || [],
+      default_stack: meta.default_stack || "ts"
     },
     index: {
-      generated_at: generatedAt,
-      head_commit: headCommit,
+      generated_at: meta.generated_at || null,
+      head_commit: meta.head_commit || "unknown",
       generator: {
-        agentify_version: "0.1.0",
-        provider
+        agentify_version: "0.2.0",
+        provider: meta.provider || "local"
       }
     },
-    modules: state.modules.map((moduleInfo) => ({
+    modules: modules.map((moduleInfo) => ({
       id: moduleInfo.id,
       name: moduleInfo.name,
-      root_path: moduleInfo.rootPath,
-      doc_path: `docs/modules/${moduleInfo.slug}.md`,
-      metadata_path: `.agents/modules/${moduleInfo.hash}.json`,
+      root_path: moduleInfo.root_path,
+      doc_path: moduleInfo.doc_path,
+      metadata_path: null,
       tags: [moduleInfo.stack],
-      entry_files: moduleInfo.entryFiles,
-      key_files: moduleInfo.keyFiles
+      fingerprint: moduleInfo.fingerprint,
+      entry_files: moduleInfo.entry_files,
+      key_files: moduleInfo.key_files
     })),
-    entrypoints: state.modules.flatMap((moduleInfo) => moduleInfo.entryFiles),
+    entrypoints: modules.flatMap((moduleInfo) => moduleInfo.entry_files || []),
     symbol_index_hint: {
-      enabled: false,
-      note: "reserved for future symbol-level indexing"
+      enabled: true,
+      note: "symbol spans are stored in .agents/index.db"
     }
   };
 }
 
 function applyBudgets(files, config) {
-  const perFile = config.budgets?.perFile || 8000;
-  const perModule = config.budgets?.perModule || 32000;
+  return applyContentBudget(files, {
+    perFile: config.budgets?.perFile || 8000,
+    totalBudget: config.budgets?.perModule || 32000,
+  });
+}
 
+function applyContentBudget(files, { perFile, totalBudget }) {
   let totalChars = 0;
   const bounded = [];
 
   for (const file of files) {
     const clipped = file.content.slice(0, perFile);
-    if (totalChars + clipped.length > perModule) break;
-    bounded.push({ path: file.path, content: clipped });
-    totalChars += clipped.length;
+    if (clipped.length === 0) {
+      continue;
+    }
+
+    const remaining = totalBudget - totalChars;
+    if (remaining <= 0) {
+      break;
+    }
+
+    const boundedContent = clipped.slice(0, remaining);
+    bounded.push({ path: file.path, content: boundedContent });
+    totalChars += boundedContent.length;
   }
 
   return bounded;
 }
 
+async function readFilesWithBudget(root, filePaths, { perFile, totalBudget }) {
+  const rawFiles = [];
+
+  for (const file of filePaths) {
+    try {
+      const content = stripLeadingAgentifyHeader(await fs.readFile(path.join(root, file), "utf8"));
+      rawFiles.push({ path: file, content });
+    } catch {
+      // Ignore unreadable files.
+    }
+  }
+
+  return applyContentBudget(rawFiles, { perFile, totalBudget });
+}
+
+function scoreRepoContextFile(file, signals) {
+  const base = path.basename(file).toLowerCase();
+  let score = 0;
+
+  if (signals.entryFiles.has(file)) score += 90;
+  if (signals.keyFiles.has(file)) score += 75;
+  if (base === "readme.md") score += 80;
+  if (base === "package.json") score += 80;
+  if (/^tsconfig(\..+)?\.json$/.test(base)) score += 65;
+  if ([
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    "pyproject.toml",
+    "cargo.toml",
+    "package.swift",
+    ".agentify.yaml",
+  ].includes(base)) {
+    score += 65;
+  }
+  if (/^(index|main|app|server|cli)\./.test(base)) score += 55;
+  if (/(config|env|settings|constants)/.test(base)) score += 35;
+  if (file.split("/").length === 1) score += 12;
+  if (/(test|spec)\./.test(base)) score -= 20;
+
+  return score;
+}
+
+function selectRepoContextFiles(indexData, config) {
+  const entryFiles = new Set(indexData.modules.flatMap((moduleInfo) => moduleInfo.entry_files || []));
+  const keyFiles = new Set(indexData.modules.flatMap((moduleInfo) => (moduleInfo.key_files || []).slice(0, 3)));
+  const limit = Math.max(config.maxFilesPerModule || 20, indexData.modules.length);
+
+  return [...indexData.files]
+    .sort((left, right) => {
+      const scoreDelta = scoreRepoContextFile(right, { entryFiles, keyFiles }) - scoreRepoContextFile(left, { entryFiles, keyFiles });
+      return scoreDelta || left.localeCompare(right);
+    })
+    .slice(0, limit);
+}
+
+function withFreshness(metadata, { now, headCommit, fingerprint }) {
+  return {
+    ...metadata,
+    freshness: {
+      ...(metadata.freshness || {}),
+      last_indexed_at: now,
+      last_indexed_commit: headCommit,
+      content_fingerprint: fingerprint,
+    },
+  };
+}
+
+function computeFingerprintFromEntries(entries) {
+  return crypto.createHash("sha256").update(entries.sort().join("\n")).digest("hex");
+}
+
+function computeManagerPlanFingerprint(repoContext) {
+  return computeFingerprintFromEntries([
+    `repo:${repoContext.repoName}`,
+    `defaultStack:${repoContext.defaultStack}`,
+    ...repoContext.stacks.map((item) => `stack:${item.name}:${item.confidence}`),
+    ...repoContext.entrypoints.map((item) => `entry:${item}`),
+    ...repoContext.modules.map((item) => `module:${item.id}:${item.rootPath}`),
+    ...repoContext.sampleFiles.map((item) => `file:${item.path}:${crypto.createHash("sha256").update(item.content).digest("hex")}`),
+  ]);
+}
+
 export function computeModuleFingerprint(files) {
-  const entries = files
+  return computeFingerprintFromEntries(
+    files
     .map((f) => `${f.path}:${crypto.createHash("sha256").update(f.content).digest("hex")}`)
-    .sort();
-  return crypto.createHash("sha256").update(entries.join("\n")).digest("hex");
+  );
+}
+
+function getModuleArtifactKey(moduleId) {
+  return `module-doc:${moduleId}`;
+}
+
+function getManagerPlanArtifactKey() {
+  return "manager-plan";
+}
+
+function createDbSnapshot(root, db) {
+  const meta = getRepoMeta(db);
+  const modules = loadModules(db);
+  const files = loadFiles(db).map((fileInfo) => fileInfo.path);
+  return {
+    meta,
+    modules,
+    files,
+    index: buildRenderableIndex(root, meta, modules),
+  };
 }
 
 export async function runScan(root, config, options = {}) {
@@ -1335,26 +1460,34 @@ async function _runScanInner(root, config, options, progress) {
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
 
   await ensureBaselineArtifacts(artifactRoot, config);
-  const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
-  const state = await buildScanState(root, config);
-  progress.log(`scan: analyzed ${state.files.length} files and detected ${state.modules.length} modules`);
-  const index = buildIndexFromState(root, state, headCommit, now, config.provider);
+  const snapshot = options.scanSnapshot || await buildRepositoryIndex(root, config);
+  progress.log(`scan: analyzed ${snapshot.files.length} files and detected ${snapshot.modules.length} modules`);
 
   if (!config.dryRun) {
-    await writeJson(path.join(artifactRoot, ".agents", "index.json"), index);
-    await writeJson(path.join(artifactRoot, ".agents", "graphs", "deps.json"), state.graph);
-    await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
-    await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
+    const db = openIndexDatabase(artifactRoot);
+    try {
+      inTransaction(db, () => {
+        writeRepositoryIndex(db, snapshot, {
+          headCommit,
+          provider: config.provider,
+        });
+      });
+      const index = buildRenderableIndex(root, getRepoMeta(db), loadModules(db));
+      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
+      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
+    } finally {
+      closeIndexDatabase(db);
+    }
   }
-  progress.log("scan: wrote index artifacts");
+  progress.log("scan: wrote SQLite index and repo guidance");
 
   const result = {
     command: "scan",
-    detected_stacks: state.stacks,
-    default_stack: state.defaultStack,
-    modules: state.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.rootPath })),
-    wrote: config.dryRun ? [] : [".agents/index.json", ".agents/graphs/deps.json", "AGENTS.md", "docs/repo-map.md"],
+    detected_stacks: snapshot.repo.detected_stacks,
+    default_stack: snapshot.repo.default_stack,
+    modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
+    wrote: config.dryRun ? [] : [".agents/index.db", "AGENTS.md", "docs/repo-map.md"],
   };
   progress.setCommand("scan");
   progress.setScan(result);
@@ -1364,6 +1497,69 @@ async function _runScanInner(root, config, options, progress) {
   if (!options.skipFinalize) {
     await progress.finalize();
   }
+}
+
+function createDependencyMap(modules, imports) {
+  const byModule = new Map(modules.map((moduleInfo) => [
+    moduleInfo.id,
+    { dependsOn: new Set(), usedBy: new Set() },
+  ]));
+
+  for (const edge of imports) {
+    if (!edge.from_module_id || !edge.to_module_id || edge.from_module_id === edge.to_module_id) {
+      continue;
+    }
+    byModule.get(edge.from_module_id)?.dependsOn.add(edge.to_module_id);
+    byModule.get(edge.to_module_id)?.usedBy.add(edge.from_module_id);
+  }
+
+  return byModule;
+}
+
+function createIndexDataFromSnapshot(root, snapshot, headCommit, provider) {
+  const meta = {
+    repo_name: snapshot.repo.name,
+    repo_root: root,
+    detected_stacks: snapshot.repo.detected_stacks,
+    default_stack: snapshot.repo.default_stack,
+    generated_at: snapshot.generated_at,
+    head_commit: headCommit,
+    provider,
+  };
+  const modules = snapshot.modules.map((moduleInfo) => ({
+    ...moduleInfo,
+    entry_files: moduleInfo.entry_files || [],
+    key_files: moduleInfo.key_files || [],
+  }));
+
+  return {
+    meta,
+    modules,
+    files: snapshot.files.map((fileInfo) => fileInfo.path),
+    fileRows: snapshot.files,
+    testRows: snapshot.tests,
+    commandRows: snapshot.commands,
+    dependencyMap: createDependencyMap(modules, snapshot.imports),
+    index: buildRenderableIndex(root, meta, modules),
+  };
+}
+
+function prioritizeModuleFiles(moduleInfo, fileRows) {
+  const keyFiles = new Set(moduleInfo.key_files || []);
+  const entryFiles = new Set(moduleInfo.entry_files || []);
+  return [...fileRows]
+    .sort((left, right) => {
+      const leftScore = (keyFiles.has(left.path) ? 40 : 0)
+        + (entryFiles.has(left.path) ? 30 : 0)
+        + (left.is_test ? -10 : 0)
+        + (left.is_config ? 6 : 0);
+      const rightScore = (keyFiles.has(right.path) ? 40 : 0)
+        + (entryFiles.has(right.path) ? 30 : 0)
+        + (right.is_test ? -10 : 0)
+        + (right.is_config ? 6 : 0);
+      return rightScore - leftScore || left.path.localeCompare(right.path);
+    })
+    .map((fileInfo) => fileInfo.path);
 }
 
 export async function runDoc(root, config, options = {}) {
@@ -1392,193 +1588,262 @@ async function _runDocInner(root, config, options, progress) {
 
   await ensureBaselineArtifacts(artifactRoot, config);
   const provider = createProvider(config.provider, config);
-  const indexPath = path.join(artifactRoot, ".agents", "index.json");
-  let state = options.scanState || null;
-  let index = null;
-  if (!state) {
-    if (await exists(indexPath)) {
-      index = await readJson(indexPath);
-      const graphPath = path.join(artifactRoot, ".agents", "graphs", "deps.json");
-      const graph = (await exists(graphPath))
-        ? await readJson(graphPath)
-        : { nodes: {}, edges: [] };
-      const repoFiles = (await walkFiles(root)).map((file) => relative(root, file));
-      state = {
-        stacks: index.repo.detected_stacks,
-        defaultStack: index.repo.default_stack,
-        graph,
-        files: repoFiles,
-        modules: index.modules.map((moduleInfo) => ({
-          id: moduleInfo.id,
-          name: moduleInfo.name,
-          rootPath: moduleInfo.root_path,
-          slug: path.basename(moduleInfo.doc_path, ".md"),
-          hash: path.basename(moduleInfo.metadata_path, ".json"),
-          stack: moduleInfo.tags?.[0] || index.repo.default_stack,
-          entryFiles: moduleInfo.entry_files,
-          keyFiles: moduleInfo.key_files,
-          files: moduleInfo.key_files
-        }))
-      };
-    } else {
-      state = await buildScanState(root, config);
-    }
-  }
-
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
-  if (!index) {
-    index = buildIndexFromState(root, state, headCommit, now, config.provider);
-    if (!config.dryRun) {
-      await writeJson(path.join(artifactRoot, ".agents", "index.json"), index);
-      await writeJson(path.join(artifactRoot, ".agents", "graphs", "deps.json"), state.graph);
-      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
-      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
-    }
-  }
-  let filesWithHeaders = 0;
-  let docsWritten = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  const byModule = [];
-  const repoBudgetPerFile = config.budgets?.perFile || 8000;
-  const topLevelFiles = [];
-  for (const file of state.files.slice(0, config.maxFilesPerModule || 20)) {
+  const dbPath = path.join(artifactRoot, ".agents", "index.db");
+  const scanSnapshot = options.scanSnapshot || null;
+
+  if (!config.dryRun && (scanSnapshot || !(await exists(dbPath)))) {
+    const snapshot = scanSnapshot || await buildRepositoryIndex(root, config);
+    const writeDb = openIndexDatabase(artifactRoot);
     try {
-      const content = await fs.readFile(path.join(root, file), "utf8");
-      topLevelFiles.push({
-        path: file,
-        content: content.slice(0, repoBudgetPerFile),
+      inTransaction(writeDb, () => {
+        writeRepositoryIndex(writeDb, snapshot, {
+          headCommit,
+          provider: config.provider,
+        });
       });
-    } catch {
-      // Ignore unreadable files.
+      const renderable = buildRenderableIndex(root, getRepoMeta(writeDb), loadModules(writeDb));
+      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(renderable));
+      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(renderable));
+    } finally {
+      closeIndexDatabase(writeDb);
     }
   }
-  progress.log(`doc: prepared repo context from ${topLevelFiles.length} top-level files`);
-  progress.percent("doc", 10, `prepared repo context from ${topLevelFiles.length} top-level files`);
 
-  const managerResult = provider.buildManagerPlan
-    ? await provider.buildManagerPlan({
-        root,
-        repoName: path.basename(root),
-        defaultStack: state.defaultStack,
-        stacks: state.stacks,
-        entrypoints: state.modules.flatMap((moduleInfo) => moduleInfo.entryFiles || []),
-        modules: state.modules.map((moduleInfo) => ({
-          id: moduleInfo.id,
-          rootPath: moduleInfo.rootPath
-        })),
-        sampleFiles: topLevelFiles
-      })
-    : {
-        plan: {
-          repo_summary: "",
-          shared_conventions: [],
-          module_focus: []
-        },
-        tokenUsage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          total_tokens: 0
+  let indexData;
+  let db = null;
+  if (config.dryRun) {
+    if (scanSnapshot) {
+      indexData = createIndexDataFromSnapshot(root, scanSnapshot, headCommit, config.provider);
+    } else if (await exists(dbPath)) {
+      db = openIndexDatabase(artifactRoot);
+      indexData = createDbSnapshot(root, db);
+    } else {
+      indexData = createIndexDataFromSnapshot(root, await buildRepositoryIndex(root, config), headCommit, config.provider);
+    }
+  } else {
+    db = openIndexDatabase(artifactRoot);
+    indexData = createDbSnapshot(root, db);
+  }
+
+  try {
+    let filesWithHeaders = 0;
+    let docsWritten = 0;
+    let cachedModules = 0;
+    let cachedManagerPlan = false;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const byModule = [];
+    const repoContextCandidates = selectRepoContextFiles(indexData, config);
+    const repoContextFiles = await readFilesWithBudget(root, repoContextCandidates, {
+      perFile: config.budgets?.perFile || 8000,
+      totalBudget: config.budgets?.repo || 128000,
+    });
+    progress.log(`doc: prepared repo context from ${repoContextFiles.length} ranked files`);
+    progress.percent("doc", 10, `prepared repo context from ${repoContextFiles.length} ranked files`);
+
+    const repoContext = {
+      root,
+      repoName: path.basename(root),
+      defaultStack: indexData.meta.default_stack,
+      stacks: indexData.meta.detected_stacks || [],
+      entrypoints: indexData.modules.flatMap((moduleInfo) => moduleInfo.entry_files || []),
+      modules: indexData.modules.map((moduleInfo) => ({
+        id: moduleInfo.id,
+        rootPath: moduleInfo.root_path
+      })),
+      sampleFiles: repoContextFiles
+    };
+    const managerFingerprint = computeManagerPlanFingerprint(repoContext);
+    const cachedPlan = !config.dryRun && db
+      ? getArtifact(db, getManagerPlanArtifactKey())
+      : null;
+    const managerPlan = cachedPlan?.fingerprint === managerFingerprint ? cachedPlan.payload?.plan || cachedPlan.payload : null;
+    const managerResult = managerPlan
+      ? {
+          plan: managerPlan,
+          tokenUsage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0
+          }
+        }
+      : provider.buildManagerPlan
+        ? await provider.buildManagerPlan(repoContext)
+        : {
+            plan: {
+              repo_summary: "",
+              shared_conventions: [],
+              module_focus: []
+            },
+            tokenUsage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              total_tokens: 0
+            }
+          };
+    cachedManagerPlan = Boolean(managerPlan);
+
+    inputTokens += managerResult.tokenUsage.input_tokens;
+    outputTokens += managerResult.tokenUsage.output_tokens;
+    progress.log(`doc: manager plan ready for ${indexData.modules.length} modules${cachedManagerPlan ? " (cache hit)" : ""}`);
+    progress.percent("doc", 20, `manager plan ready for ${indexData.modules.length} modules`);
+
+    const preparedModules = [];
+    const fileRowsByModule = new Map(indexData.modules.map((moduleInfo) => [
+      moduleInfo.id,
+      (indexData.fileRows || loadFiles(db, moduleInfo.id)).filter((fileInfo) => fileInfo.module_id === moduleInfo.id),
+    ]));
+    for (const moduleInfo of indexData.modules) {
+      const prioritizedFiles = prioritizeModuleFiles(moduleInfo, fileRowsByModule.get(moduleInfo.id) || []);
+      const boundedFiles = await readFilesWithBudget(root, prioritizedFiles.slice(0, config.maxFilesPerModule), {
+        perFile: config.budgets?.perFile || 8000,
+        totalBudget: config.budgets?.perModule || 32000,
+      });
+      const fingerprint = computeModuleFingerprint(boundedFiles);
+      const cachedArtifact = !config.dryRun && db
+        ? getArtifact(db, getModuleArtifactKey(moduleInfo.id))
+        : null;
+      const reusableArtifact = cachedArtifact?.fingerprint === fingerprint ? cachedArtifact.payload : null;
+      const moduleDeps = indexData.dependencyMap
+        ? indexData.dependencyMap.get(moduleInfo.id)
+        : loadModuleDependencies(db, moduleInfo.id);
+      preparedModules.push({
+        moduleInfo,
+        fingerprint,
+        cachedArtifact: reusableArtifact,
+        preparedFileCount: boundedFiles.length,
+        context: {
+          root,
+          files: boundedFiles,
+          keyFiles: moduleInfo.key_files,
+          dependsOn: Array.from(moduleDeps?.dependsOn || []),
+          usedBy: Array.from(moduleDeps?.usedBy || []),
+          managerPlan: managerResult.plan,
+          managerFocus: managerResult.plan.module_focus.find((item) => item.module_id === moduleInfo.id)?.focus || "",
+          now,
+          headCommit
+        }
+      });
+    }
+    const totalPreparedFiles = preparedModules.reduce((sum, item) => sum + item.context.files.length, 0);
+    let completedModules = 0;
+    let processedFiles = 0;
+    progress.log(`doc: dispatching ${preparedModules.length} module jobs with concurrency ${config.moduleConcurrency}`);
+    progress.percent("doc", 25, `dispatched ${preparedModules.length} module jobs`);
+
+    const generatedModules = await mapWithConcurrency(
+      preparedModules,
+      config.moduleConcurrency,
+      async ({ moduleInfo, context, fingerprint, cachedArtifact }) => {
+      if (cachedArtifact) {
+        return {
+          moduleInfo,
+          fingerprint,
+          reused: true,
+          result: {
+            markdown: cachedArtifact.markdown,
+            metadata: withFreshness(cachedArtifact.metadata, {
+              now,
+              headCommit,
+              fingerprint,
+            }),
+            headers: context.keyFiles.map((file) => ({
+              path: file,
+              summary: cachedArtifact.metadata.summary,
+            })),
+            tokenUsage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              total_tokens: 0
+            }
+          }
+        };
       }
+
+      const result = await provider.generateModuleArtifacts(moduleInfo, context);
+      return {
+        moduleInfo,
+        fingerprint,
+        reused: false,
+        result: {
+          ...result,
+          metadata: withFreshness(result.metadata, {
+            now,
+            headCommit,
+            fingerprint,
+          }),
+        }
       };
-
-  inputTokens += managerResult.tokenUsage.input_tokens;
-  outputTokens += managerResult.tokenUsage.output_tokens;
-  progress.log(`doc: manager plan ready for ${state.modules.length} modules`);
-  progress.percent("doc", 20, `manager plan ready for ${state.modules.length} modules`);
-
-  const preparedModules = [];
-  for (const moduleInfo of state.modules) {
-    const moduleRoot = moduleInfo.rootPath === "." ? root : path.join(root, moduleInfo.rootPath);
-    const allFiles = (await walkFiles(moduleRoot))
-      .map((file) => relative(root, file))
-      .filter((file) => file.startsWith(moduleInfo.rootPath === "." ? "" : moduleInfo.rootPath));
-    const rawFiles = [];
-    for (const file of allFiles.slice(0, config.maxFilesPerModule)) {
-      const content = await fs.readFile(path.join(root, file), "utf8");
-      rawFiles.push({ path: file, content });
-    }
-    const boundedFiles = applyBudgets(rawFiles, config);
-    preparedModules.push({
-      moduleInfo,
-      context: {
-        root,
-        files: boundedFiles,
-        keyFiles: moduleInfo.keyFiles,
-        dependsOn: moduleInfo.dependsOn || [],
-        usedBy: moduleInfo.usedBy || [],
-        managerPlan: managerResult.plan,
-        managerFocus: managerResult.plan.module_focus.find((item) => item.module_id === moduleInfo.id)?.focus || "",
-        now,
-        headCommit
+      },
+      {
+        onProgress: async ({ moduleInfo, reused }) => {
+          completedModules += 1;
+          processedFiles += preparedModules.find((item) => item.moduleInfo.id === moduleInfo.id)?.preparedFileCount || 0;
+          const percent = totalPreparedFiles > 0 ? Math.min(100, Math.round((processedFiles / totalPreparedFiles) * 100)) : Math.round((completedModules / Math.max(preparedModules.length, 1)) * 100);
+          progress.log(`doc: completed ${completedModules}/${preparedModules.length} modules, approx ${percent}% of bounded context processed${reused ? " (cache hit)" : ""}`);
+          const stagePercent = 25 + Math.round((completedModules / Math.max(preparedModules.length, 1)) * 70);
+          progress.percent("doc", stagePercent, `completed ${completedModules}/${preparedModules.length} modules`);
+        }
       }
-    });
-  }
-  const totalPreparedFiles = preparedModules.reduce((sum, item) => sum + item.context.files.length, 0);
-  let completedModules = 0;
-  let processedFiles = 0;
-  progress.log(`doc: dispatching ${preparedModules.length} module jobs with concurrency ${config.moduleConcurrency}`);
-  progress.percent("doc", 25, `dispatched ${preparedModules.length} module jobs`);
+    );
 
-  const generatedModules = await mapWithConcurrency(
-    preparedModules,
-    config.moduleConcurrency,
-    async ({ moduleInfo, context }) => ({
-      moduleInfo,
-      result: await provider.generateModuleArtifacts(moduleInfo, context)
-    }),
-    {
-      onProgress: async ({ moduleInfo, result }) => {
-        completedModules += 1;
-        processedFiles += result.metadata.tests?.length >= 0 ? preparedModules.find((item) => item.moduleInfo.id === moduleInfo.id)?.context.files.length || 0 : 0;
-        const percent = totalPreparedFiles > 0 ? Math.min(100, Math.round((processedFiles / totalPreparedFiles) * 100)) : Math.round((completedModules / Math.max(preparedModules.length, 1)) * 100);
-        progress.log(`doc: completed ${completedModules}/${preparedModules.length} modules, approx ${percent}% of bounded context processed`);
-        const stagePercent = 25 + Math.round((completedModules / Math.max(preparedModules.length, 1)) * 70);
-        progress.percent("doc", stagePercent, `completed ${completedModules}/${preparedModules.length} modules`);
+    const plannedHeaders = [];
+    const metadataByModule = new Map();
+    for (const { moduleInfo, result, reused, fingerprint } of generatedModules) {
+      metadataByModule.set(moduleInfo.id, result.metadata);
+      byModule.push({
+        module_id: moduleInfo.id,
+        input_tokens: result.tokenUsage.input_tokens,
+        output_tokens: result.tokenUsage.output_tokens,
+        total_tokens: result.tokenUsage.total_tokens,
+        cache_hit: reused
+      });
+      inputTokens += result.tokenUsage.input_tokens;
+      outputTokens += result.tokenUsage.output_tokens;
+      if (reused) {
+        cachedModules += 1;
       }
-    }
-  );
 
-  const plannedHeaders = [];
-  const metadataByModule = new Map();
-  for (const { moduleInfo, result } of generatedModules) {
-    metadataByModule.set(moduleInfo.id, result.metadata);
-    byModule.push({
-      module_id: moduleInfo.id,
-      input_tokens: result.tokenUsage.input_tokens,
-      output_tokens: result.tokenUsage.output_tokens,
-      total_tokens: result.tokenUsage.total_tokens
-    });
-    inputTokens += result.tokenUsage.input_tokens;
-    outputTokens += result.tokenUsage.output_tokens;
-
-    if (!config.dryRun) {
-      await writeText(path.join(artifactRoot, "docs", "modules", `${moduleInfo.slug}.md`), result.markdown);
-      await writeJson(path.join(artifactRoot, ".agents", "modules", `${moduleInfo.hash}.json`), result.metadata);
-      docsWritten += 2;
-
-      if (config.ghost || config.ghostMode) {
-        for (const header of result.headers) {
-          plannedHeaders.push({
-            path: header.path,
-            module: moduleInfo.name,
-            summary: header.summary,
-            action: "would_update",
+      if (!config.dryRun) {
+        await writeText(path.join(artifactRoot, moduleInfo.doc_path), result.markdown);
+        docsWritten += 1;
+        if (db) {
+          upsertArtifact(db, {
+            key: getModuleArtifactKey(moduleInfo.id),
+            type: "module-doc",
+            scope: moduleInfo.id,
+            fingerprint,
+            payload: {
+              markdown: result.markdown,
+              metadata: result.metadata,
+            },
+            updatedAt: now,
           });
         }
-      } else {
-        for (const header of result.headers) {
-          const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
-          if (update.changed) {
-            filesWithHeaders += 1;
+
+        if (config.ghost || config.ghostMode) {
+          for (const header of result.headers) {
+            plannedHeaders.push({
+              path: header.path,
+              module: moduleInfo.name,
+              summary: header.summary,
+              action: "would_update",
+            });
+          }
+        } else {
+          for (const header of result.headers) {
+            const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
+            if (update.changed) {
+              filesWithHeaders += 1;
+            }
           }
         }
       }
     }
-  }
 
-  const runReport = {
+    const runReport = {
     run_id: `${Date.now()}`,
     started_at: now,
     finished_at: new Date().toISOString(),
@@ -1600,7 +1865,9 @@ async function _runDocInner(root, config, options, progress) {
       note: "token counts are best-effort and depend on provider support"
     },
     results: {
-      modules_processed: state.modules.length,
+      modules_processed: indexData.modules.length,
+      cached_manager_plan: cachedManagerPlan,
+      cached_modules: cachedModules,
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten
     },
@@ -1608,52 +1875,69 @@ async function _runDocInner(root, config, options, progress) {
       passed: true,
       failures: []
     }
-  };
+    };
 
-  if (config.tokenReport && !config.dryRun) {
-    await writeRunReport(artifactRoot, runReport);
-  }
-  if (!config.dryRun) {
-    await writeText(path.join(artifactRoot, "AGENTIFY.md"), renderAgentifyMd({
-      index,
-      metadataByModule,
-      runReport,
-      managerPlan: managerResult.plan,
-    }));
-  }
+    if (config.tokenReport && !config.dryRun) {
+      await writeRunReport(artifactRoot, runReport);
+    }
+    if (!config.dryRun && db) {
+      upsertArtifact(db, {
+        key: getManagerPlanArtifactKey(),
+        type: "manager-plan",
+        scope: "repo",
+        fingerprint: managerFingerprint,
+        payload: {
+          plan: managerResult.plan,
+        },
+        updatedAt: now,
+      });
+      await writeText(path.join(artifactRoot, "AGENTIFY.md"), renderAgentifyMd({
+        index: indexData.index,
+        metadataByModule,
+        runReport,
+        managerPlan: managerResult.plan,
+      }));
+    }
 
-  if ((config.ghost || config.ghostMode) && !config.dryRun) {
-    await writeJson(path.join(artifactRoot, "header-plan.json"), {
-      run_id: ghostRunId,
-      planned_headers: plannedHeaders,
-      total_files_affected: plannedHeaders.length,
-    });
-    await writeJson(path.join(artifactRoot, "ghost-report.json"), {
-      run_id: ghostRunId,
-      artifacts_written: docsWritten,
-      headers_planned: plannedHeaders.length,
-      validation: { passed: true, failures: [] },
-    });
-  }
+    if ((config.ghost || config.ghostMode) && !config.dryRun) {
+      await writeJson(path.join(artifactRoot, "header-plan.json"), {
+        run_id: ghostRunId,
+        planned_headers: plannedHeaders,
+        total_files_affected: plannedHeaders.length,
+      });
+      await writeJson(path.join(artifactRoot, "ghost-report.json"), {
+        run_id: ghostRunId,
+        artifacts_written: docsWritten,
+        headers_planned: plannedHeaders.length,
+        validation: { passed: true, failures: [] },
+      });
+    }
 
-  progress.log("doc: wrote module docs, metadata, run report, and AGENTIFY.md");
-  progress.percent("doc", 100, "completed");
+    progress.log("doc: wrote module docs, metadata, run report, and AGENTIFY.md");
+    progress.percent("doc", 100, "completed");
 
-  const result = {
-    command: "doc",
-    modules_processed: state.modules.length,
-    files_with_headers: filesWithHeaders,
-    docs_written: docsWritten,
-    token_usage: runReport.token_usage,
-    wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/modules/*.json", ".agents/runs/*.json"],
-  };
-  progress.setCommand("doc");
-  progress.setDoc(result);
-  if (config.json || !config._suppressProgress) {
-    progress.json(result);
-  }
-  if (!options.skipFinalize) {
-    await progress.finalize();
+    const result = {
+      command: "doc",
+      modules_processed: indexData.modules.length,
+      cached_manager_plan: cachedManagerPlan,
+      cached_modules: cachedModules,
+      files_with_headers: filesWithHeaders,
+      docs_written: docsWritten,
+      token_usage: runReport.token_usage,
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
+    };
+    progress.setCommand("doc");
+    progress.setDoc(result);
+    if (config.json || !config._suppressProgress) {
+      progress.json(result);
+    }
+    if (!options.skipFinalize) {
+      await progress.finalize();
+    }
+  } finally {
+    if (db) {
+      closeIndexDatabase(db);
+    }
   }
 }
 
@@ -1694,18 +1978,21 @@ export async function runUpdate(root, config) {
   const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const progress = createRunReporter(artifactRoot);
+  const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
   progress.setCommand("up");
   progress.percent("up", 0, "starting");
-  await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId });
+  await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanSnapshot });
   progress.percent("up", 33, "scan complete");
-  const scanStateForDryRun = config.dryRun ? await buildScanState(root, config) : null;
-  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanState: scanStateForDryRun });
+  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanSnapshot });
   progress.percent("up", 67, "doc complete");
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
   progress.percent("up", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
   if (config.tokenReport && !config.dryRun) {
+    const db = openIndexDatabase(artifactRoot);
+    const meta = getRepoMeta(db);
+    closeIndexDatabase(db);
     const runReport = {
       run_id: `${Date.now()}-up`,
       started_at: new Date().toISOString(),
@@ -1720,7 +2007,7 @@ export async function runUpdate(root, config) {
         note: "token counts are best-effort and depend on provider support"
       },
       results: {
-        modules_processed: (await readJson(path.join(artifactRoot, ".agents", "index.json"))).modules.length,
+        modules_processed: meta.module_count || 0,
         files_with_headers: 0,
         docs_written: 0
       },

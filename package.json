@@ -45,8 +45,10 @@
   },
   "dependencies": {
     "agentify": "link:../../.local/share/pnpm/global/5/node_modules/agentify",
+    "better-sqlite3": "^12.8.0",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
+    "typescript": "^6.0.2",
     "yaml": "^2.8.3",
     "yocto-spinner": "^1.1.0"
   }

@@ -1,95 +1,118 @@
 import path from "node:path";
-import { readJson, exists } from "./fs.js";
+
+import {
+  closeIndexDatabase,
+  loadModuleDependencies,
+  loadModules,
+  openIndexDatabase,
+  searchIndex,
+} from "./db.js";
 import { getChangedFilesSince } from "./git.js";
 
-export async function queryOwner(root, filePath) {
-  const index = await readJson(path.join(root, ".agents", "index.json"));
-  const normalized = filePath.split(path.sep).join("/");
+function normalizePath(filePath) {
+  return String(filePath || "").split(path.sep).join("/");
+}
 
-  const sorted = [...index.modules].sort(
-    (a, b) => b.root_path.length - a.root_path.length
-  );
-
-  for (const mod of sorted) {
+function findOwningModule(modules, filePath) {
+  const normalized = normalizePath(filePath);
+  const sorted = [...modules].sort((left, right) => right.root_path.length - left.root_path.length);
+  for (const moduleInfo of sorted) {
     if (
-      mod.root_path === "." ||
-      normalized.startsWith(`${mod.root_path}/`) ||
-      normalized === mod.root_path
+      moduleInfo.root_path === "."
+      || normalized === moduleInfo.root_path
+      || normalized.startsWith(`${moduleInfo.root_path}/`)
     ) {
-      return {
-        file: normalized,
-        module_id: mod.id,
-        module_name: mod.name,
-        module_root: mod.root_path,
-        doc_path: mod.doc_path,
-        metadata_path: mod.metadata_path,
-      };
+      return moduleInfo;
     }
   }
-  return { file: normalized, module_id: null, message: "No owning module found" };
+  return null;
+}
+
+export async function queryOwner(root, filePath) {
+  const db = openIndexDatabase(root);
+  try {
+    const modules = loadModules(db);
+    const owner = findOwningModule(modules, filePath);
+    const normalized = normalizePath(filePath);
+
+    if (!owner) {
+      return { file: normalized, module_id: null, message: "No owning module found" };
+    }
+
+    return {
+      file: normalized,
+      module_id: owner.id,
+      module_name: owner.name,
+      module_root: owner.root_path,
+      doc_path: owner.doc_path,
+      stack: owner.stack,
+    };
+  } finally {
+    closeIndexDatabase(db);
+  }
 }
 
 export async function queryDeps(root, moduleId) {
-  const index = await readJson(path.join(root, ".agents", "index.json"));
-  const graphPath = path.join(root, ".agents", "graphs", "deps.json");
-
-  if (!(await exists(graphPath))) {
-    return { module_id: moduleId, error: "Dependency graph not found" };
-  }
-
-  const graph = await readJson(graphPath);
-  const mod = index.modules.find((m) => m.id === moduleId);
-  if (!mod) return { module_id: moduleId, error: "Module not found" };
-
-  const dependsOn = new Set();
-  const usedBy = new Set();
-
-  for (const edge of graph.edges) {
-    const fromMod = index.modules.find(
-      (m) => edge.from === m.root_path || edge.from.startsWith(`${m.root_path}/`)
-    );
-    const toMod = index.modules.find(
-      (m) => edge.to === m.root_path || edge.to.startsWith(`${m.root_path}/`)
-    );
-    if (fromMod?.id === moduleId && toMod && toMod.id !== moduleId) {
-      dependsOn.add(toMod.id);
+  const db = openIndexDatabase(root);
+  try {
+    const modules = loadModules(db);
+    const moduleInfo = modules.find((item) => item.id === moduleId);
+    if (!moduleInfo) {
+      return { module_id: moduleId, error: "Module not found" };
     }
-    if (toMod?.id === moduleId && fromMod && fromMod.id !== moduleId) {
-      usedBy.add(fromMod.id);
-    }
+    const deps = loadModuleDependencies(db, moduleId);
+    return {
+      module_id: moduleId,
+      depends_on: deps.dependsOn,
+      used_by: deps.usedBy,
+    };
+  } finally {
+    closeIndexDatabase(db);
   }
-
-  return {
-    module_id: moduleId,
-    depends_on: Array.from(dependsOn),
-    used_by: Array.from(usedBy),
-  };
 }
 
 export async function queryChanged(root, sinceCommit) {
-  const index = await readJson(path.join(root, ".agents", "index.json"));
-  const changed = await getChangedFilesSince(root, sinceCommit);
+  const db = openIndexDatabase(root);
+  try {
+    const modules = loadModules(db);
+    const changed = await getChangedFilesSince(root, sinceCommit);
+    const affectedModules = new Map();
 
-  const affectedModules = new Map();
-  for (const entry of changed) {
-    for (const mod of index.modules) {
-      if (
-        mod.root_path === "." ||
-        entry.path.startsWith(`${mod.root_path}/`)
-      ) {
-        if (!affectedModules.has(mod.id)) {
-          affectedModules.set(mod.id, { module_id: mod.id, changed_files: [] });
-        }
-        affectedModules.get(mod.id).changed_files.push({
-          status: entry.status,
-          path: entry.path,
+    for (const entry of changed) {
+      const owner = findOwningModule(modules, entry.path);
+      if (!owner) {
+        continue;
+      }
+      if (!affectedModules.has(owner.id)) {
+        affectedModules.set(owner.id, {
+          module_id: owner.id,
+          module_name: owner.name,
+          changed_files: [],
         });
       }
+      affectedModules.get(owner.id).changed_files.push({
+        status: entry.status,
+        path: entry.path,
+      });
     }
-  }
 
-  return {
-    since: sinceCommit,
-    affected_modules: Array.from(affectedModules.values()),
-  };
+    return {
+      since: sinceCommit,
+      affected_modules: Array.from(affectedModules.values()),
+    };
+  } finally {
+    closeIndexDatabase(db);
+  }
+}
+
+export async function querySearch(root, term) {
+  const db = openIndexDatabase(root);
+  try {
+    return {
+      term,
+      ...searchIndex(db, term),
+    };
+  } finally {
+    closeIndexDatabase(db);
+  }
 }

@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { applyHeaderToSource, renderHeader } from "../src/core/headers.js";
 import { loadConfig } from "../src/core/config.js";
 import { detectTestCommand, runDoc, runScan, runUpdate } from "../src/core/commands.js";
+import { closeIndexDatabase, getArtifact, getRepoMeta, openIndexDatabase } from "../src/core/db.js";
 import { validateRepo } from "../src/core/validate.js";
 
 const execFileAsync = promisify(execFile);
@@ -33,7 +34,7 @@ test("scan and doc generate required artifacts", async () => {
   const result = await validateRepo(root, config);
 
   assert.equal(result.passed, true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "index.json")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   const summary = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
@@ -159,12 +160,12 @@ test("runUpdate in ghost mode reuses a single artifact root", async () => {
   assert.equal(ghostRuns.length, 1);
 
   const artifactRoot = path.join(sessionRoot, ghostRuns[0]);
-  assert.equal(await fs.stat(path.join(artifactRoot, ".agents", "index.json")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(artifactRoot, ".agents", "index.db")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "ghost-report.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "output.txt")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "agentify-report.html")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "index.json")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, "agentify-report.html")).then(() => true).catch(() => false), false);
 });
@@ -195,4 +196,57 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   const result = await detectTestCommand(root);
 
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
+});
+
+test("runDoc reuses cached module artifacts when bounded content is unchanged", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-cache-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: true });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const outputs = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    outputs.push(args.join(" "));
+  };
+
+  try {
+    await runDoc(root, config);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const docResult = outputs
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .find((item) => item?.command === "doc");
+
+  assert.equal(docResult?.cached_manager_plan, true);
+  assert.equal(docResult?.cached_modules, 1);
+
+  const runDir = path.join(root, ".agents", "runs");
+  const runFiles = (await fs.readdir(runDir)).sort();
+  const latestRun = JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
+  assert.equal(latestRun.results.cached_manager_plan, true);
+  assert.equal(latestRun.results.cached_modules, 1);
+  const db = openIndexDatabase(root);
+  try {
+    const meta = getRepoMeta(db);
+    const managerPlanArtifact = getArtifact(db, "manager-plan");
+    const moduleArtifact = getArtifact(db, "module-doc:auth");
+    assert.equal(meta.module_count, 1);
+    assert.ok(managerPlanArtifact);
+    assert.match(moduleArtifact?.payload?.metadata?.freshness?.content_fingerprint || "", /^[a-f0-9]{64}$/);
+  } finally {
+    closeIndexDatabase(db);
+  }
 });

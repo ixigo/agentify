@@ -15,6 +15,27 @@ async function readTextIfExists(targetPath) {
   }
 }
 
+function parseTomlStringField(raw, key) {
+  const match = String(raw || "").match(new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, "m"));
+  return match ? match[1].trim() : null;
+}
+
+function parseTomlArrayField(raw, key) {
+  const match = String(raw || "").match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`, "m"));
+  if (!match) {
+    return [];
+  }
+
+  return match[1]
+    .split(",")
+    .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+}
+
+function normalizeRelPath(value) {
+  return String(value || "").split(path.sep).join("/");
+}
+
 async function readGradleModules(root) {
   const settingsFiles = [
     path.join(root, "settings.gradle"),
@@ -119,7 +140,8 @@ async function detectSwiftModules(root) {
       continue;
     }
     const moduleRoot = path.join(root, entry.name);
-    const hasSwiftSources = (await walkFiles(moduleRoot)).some((file) => file.endsWith(".swift"));
+    const hasSwiftSources = (await walkFiles(root, { respectIgnore: true }))
+      .some((file) => file.startsWith(`${moduleRoot}${path.sep}`) && file.endsWith(".swift"));
     const hasXcodeSignals = await exists(path.join(moduleRoot, `${entry.name}.xcodeproj`))
       || await exists(path.join(moduleRoot, "Info.plist"));
 
@@ -143,7 +165,7 @@ export async function detectStacks(root, config) {
     return [{ name: config.languages, confidence: 1 }];
   }
 
-  const files = await walkFiles(root);
+  const files = await walkFiles(root, { respectIgnore: true });
   const relFiles = files.map((file) => relative(root, file));
 
   const tsSignals = [
@@ -177,19 +199,31 @@ export async function detectStacks(root, config) {
     await exists(path.join(root, "gradle.properties"))
   ].filter(Boolean).length + hasExtension(relFiles, [".kt", ".kts"]);
 
+  const goSignals = [
+    await exists(path.join(root, "go.mod")),
+    await exists(path.join(root, "go.sum"))
+  ].filter(Boolean).length + hasExtension(relFiles, [".go"]);
+
+  const rustSignals = [
+    await exists(path.join(root, "Cargo.toml")),
+    await exists(path.join(root, "Cargo.lock"))
+  ].filter(Boolean).length + hasExtension(relFiles, [".rs"]);
+
   const swiftSignals = [
     await exists(path.join(root, "Package.swift")),
     relFiles.some((file) => file.endsWith(".xcodeproj/project.pbxproj")),
     relFiles.some((file) => file.endsWith(".xcworkspace/contents.xcworkspacedata"))
   ].filter(Boolean).length + hasExtension(relFiles, [".swift"]);
 
-  const maxSignals = Math.max(tsSignals, pythonSignals, dotnetSignals, javaSignals, kotlinSignals, swiftSignals, 1);
+  const maxSignals = Math.max(tsSignals, pythonSignals, dotnetSignals, javaSignals, kotlinSignals, goSignals, rustSignals, swiftSignals, 1);
   const stacks = [
     { name: "ts", confidence: tsSignals / maxSignals, raw: tsSignals },
     { name: "python", confidence: pythonSignals / maxSignals, raw: pythonSignals },
     { name: "dotnet", confidence: dotnetSignals / maxSignals, raw: dotnetSignals },
     { name: "java", confidence: javaSignals / maxSignals, raw: javaSignals },
     { name: "kotlin", confidence: kotlinSignals / maxSignals, raw: kotlinSignals },
+    { name: "go", confidence: goSignals / maxSignals, raw: goSignals },
+    { name: "rust", confidence: rustSignals / maxSignals, raw: rustSignals },
     { name: "swift", confidence: swiftSignals / maxSignals, raw: swiftSignals }
   ]
     .filter((item) => item.raw > 0)
@@ -357,7 +391,7 @@ export async function detectPythonModules(root) {
 }
 
 export async function detectDotnetModules(root) {
-  const files = await walkFiles(root);
+  const files = await walkFiles(root, { respectIgnore: true });
   const projects = files
     .filter((file) => file.endsWith(".csproj"))
     .map((file) => ({
@@ -372,6 +406,98 @@ export async function detectDotnetModules(root) {
     : [{ id: path.basename(root), name: path.basename(root), rootPath: ".", stack: "dotnet" }];
 }
 
+export async function detectGoModules(root) {
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  const rawGoMod = await readTextIfExists(path.join(root, "go.mod"));
+  const moduleImportRoot = rawGoMod.match(/^\s*module\s+(.+)$/m)?.[1]?.trim() || null;
+  const moduleRoots = new Set();
+
+  for (const file of files) {
+    if (!file.endsWith(".go") || file.endsWith("_test.go")) {
+      continue;
+    }
+    const normalized = normalizeRelPath(file);
+    const dir = path.posix.dirname(normalized);
+
+    if (dir === ".") {
+      moduleRoots.add(".");
+      continue;
+    }
+    if (dir.startsWith("cmd/") || dir.startsWith("internal/") || dir.startsWith("pkg/")) {
+      const segments = dir.split("/");
+      moduleRoots.add(segments.slice(0, Math.min(2, segments.length)).join("/"));
+      continue;
+    }
+    if (segmentsLength(dir) <= 2) {
+      moduleRoots.add(dir);
+    }
+  }
+
+  const modules = Array.from(moduleRoots)
+    .sort()
+    .map((rootPath) => ({
+      id: rootPath === "." ? path.basename(root) : rootPath.replaceAll("/", "-"),
+      name: rootPath === "." ? path.basename(root) : path.posix.basename(rootPath),
+      rootPath,
+      stack: "go",
+      packageName: moduleImportRoot
+        ? (rootPath === "." ? moduleImportRoot : `${moduleImportRoot}/${rootPath}`)
+        : null,
+    }));
+
+  return modules.length > 0
+    ? modules
+    : [{
+        id: path.basename(root),
+        name: path.basename(root),
+        rootPath: ".",
+        stack: "go",
+        packageName: moduleImportRoot,
+      }];
+}
+
+export async function detectRustModules(root) {
+  const rootCargoPath = path.join(root, "Cargo.toml");
+  const rootCargoRaw = await readTextIfExists(rootCargoPath);
+  const workspaceMembers = parseTomlArrayField(rootCargoRaw, "members");
+  const modules = [];
+
+  if (workspaceMembers.length > 0) {
+    for (const member of workspaceMembers) {
+      const memberRoot = normalizeRelPath(member.replace(/\/+$/, ""));
+      const memberCargoRaw = await readTextIfExists(path.join(root, memberRoot, "Cargo.toml"));
+      if (!memberCargoRaw) {
+        continue;
+      }
+      const packageName = parseTomlStringField(memberCargoRaw, "name");
+      modules.push({
+        id: (packageName || memberRoot).replace(/^@/, "").replace(/[\/@]/g, "-"),
+        name: packageName || path.posix.basename(memberRoot),
+        rootPath: memberRoot,
+        stack: "rust",
+        packageName,
+      });
+    }
+  }
+
+  if (modules.length > 0) {
+    return modules;
+  }
+
+  const packageName = parseTomlStringField(rootCargoRaw, "name");
+  return [{
+    id: (packageName || path.basename(root)).replace(/^@/, "").replace(/[\/@]/g, "-"),
+    name: packageName || path.basename(root),
+    rootPath: ".",
+    stack: "rust",
+    packageName,
+  }];
+}
+
+function segmentsLength(value) {
+  return String(value || "").split("/").filter(Boolean).length;
+}
+
 export async function detectModules(root, config, defaultStack) {
   switch (defaultStack) {
     case "python":
@@ -382,6 +508,10 @@ export async function detectModules(root, config, defaultStack) {
       return detectJvmModules(root, "java");
     case "kotlin":
       return detectJvmModules(root, "kotlin");
+    case "go":
+      return detectGoModules(root, config);
+    case "rust":
+      return detectRustModules(root, config);
     case "swift":
       return detectSwiftModules(root, config);
     case "ts":

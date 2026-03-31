@@ -4,6 +4,7 @@ import path from "node:path";
 import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
+import { closeIndexDatabase, getRepoMeta, loadModules, openIndexDatabase } from "./db.js";
 
 const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^output\.txt$/, /^agentify-report\.html$/, /^\.agentify\.yaml$/, /^docs\//, /^\.agents\//, /^\.current_session(\/|$)/];
 const ALLOWED_CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/;
@@ -60,59 +61,50 @@ export function validateHeaderOnlyChange(before, after, filePath, headerWindow =
 
 async function validateFreshness(root, failures, options = {}) {
   const targetRoot = options.artifactRoot || root;
-  const indexPath = path.join(targetRoot, ".agents", "index.json");
+  const indexPath = path.join(targetRoot, ".agents", "index.db");
   if (!(await exists(indexPath))) {
     failures.push(
       createFailure(
         FAILURE_CATEGORIES.FRESHNESS_STALE,
-        ".agents/index.json",
-        "missing .agents/index.json"
+        ".agents/index.db",
+        "missing .agents/index.db"
       )
     );
     return;
   }
-  const index = await readJson(indexPath);
-  const headCommit = await getHeadCommit(root);
-  if (index.index.head_commit !== headCommit) {
-    failures.push(
-      createFailure(
-        FAILURE_CATEGORIES.FRESHNESS_STALE,
-        ".agents/index.json",
-        `stale index head_commit: expected ${headCommit}, found ${index.index.head_commit}`
-      )
-    );
-  }
+  const db = openIndexDatabase(targetRoot);
+  try {
+    const meta = getRepoMeta(db);
+    const headCommit = await getHeadCommit(root);
+    if (meta.head_commit !== headCommit) {
+      failures.push(
+        createFailure(
+          FAILURE_CATEGORIES.FRESHNESS_STALE,
+          ".agents/index.db",
+          `stale index head_commit: expected ${headCommit}, found ${meta.head_commit || "unknown"}`
+        )
+      );
+    }
 
-  for (const moduleInfo of index.modules) {
-    if (!(await exists(path.join(targetRoot, moduleInfo.doc_path)))) {
-      failures.push(
-        createFailure(
-          FAILURE_CATEGORIES.FRESHNESS_STALE,
-          moduleInfo.doc_path,
-          `missing module doc for ${moduleInfo.id}`
-        )
-      );
+    const modules = loadModules(db);
+    for (const moduleInfo of modules) {
+      const docPath = moduleInfo.doc_path;
+      const docExists = await exists(path.join(targetRoot, docPath));
+      if (!docExists) {
+        continue;
+      }
+      if (!moduleInfo.fingerprint) {
+        failures.push(
+          createFailure(
+            FAILURE_CATEGORIES.FRESHNESS_STALE,
+            docPath,
+            `module ${moduleInfo.id} is missing a fingerprint in the DB index`
+          )
+        );
+      }
     }
-    if (!(await exists(path.join(targetRoot, moduleInfo.metadata_path)))) {
-      failures.push(
-        createFailure(
-          FAILURE_CATEGORIES.FRESHNESS_STALE,
-          moduleInfo.metadata_path,
-          `missing module metadata for ${moduleInfo.id}`
-        )
-      );
-      continue;
-    }
-    const metadata = await readJson(path.join(targetRoot, moduleInfo.metadata_path));
-    if (metadata.freshness?.last_indexed_commit !== headCommit) {
-      failures.push(
-        createFailure(
-          FAILURE_CATEGORIES.FRESHNESS_STALE,
-          moduleInfo.metadata_path,
-          `stale module metadata for ${moduleInfo.id}`
-        )
-      );
-    }
+  } finally {
+    closeIndexDatabase(db);
   }
 }
 
@@ -170,7 +162,7 @@ export async function validateRepo(root, config, options = {}) {
   await validateChangedFiles(root, config, failures);
 
   const targetRoot = options.artifactRoot || root;
-  const allFiles = (await walkFiles(targetRoot)).map((file) => relative(targetRoot, file));
+  const allFiles = (await walkFiles(targetRoot, { respectIgnore: true })).map((file) => relative(targetRoot, file));
   const unsafeGeneratedFiles = allFiles
     .filter((file) => file.startsWith(".agents/") || file.startsWith("docs/") || file === "AGENTS.md")
     .filter((file) => !isAllowedPath(file));

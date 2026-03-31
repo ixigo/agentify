@@ -104,3 +104,73 @@ test("detectModules identifies Swift package modules", async () => {
     ["Sources/Core", "Sources/UI"]
   );
 });
+
+test("detectStacks identifies Go repo", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "go.mod"), "module example.com/agentify-go\n\ngo 1.22\n");
+    await fs.mkdir(path.join(dir, "cmd", "server"), { recursive: true });
+    await fs.writeFile(path.join(dir, "cmd", "server", "main.go"), "package main\n\nfunc main() {}\n");
+  });
+
+  const stacks = await detectStacks(root, { languages: "auto" });
+  assert.equal(stacks[0].name, "go");
+});
+
+test("detectModules identifies Go package modules", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "go.mod"), "module example.com/agentify-go\n\ngo 1.22\n");
+    await fs.mkdir(path.join(dir, "cmd", "server"), { recursive: true });
+    await fs.mkdir(path.join(dir, "internal", "auth"), { recursive: true });
+    await fs.mkdir(path.join(dir, "pkg", "billing"), { recursive: true });
+    await fs.writeFile(path.join(dir, "cmd", "server", "main.go"), "package main\n\nfunc main() {}\n");
+    await fs.writeFile(path.join(dir, "internal", "auth", "token.go"), "package auth\n");
+    await fs.writeFile(path.join(dir, "pkg", "billing", "client.go"), "package billing\n");
+  });
+
+  const modules = await detectModules(root, { moduleStrategy: "auto" }, "go");
+  assert.deepEqual(
+    modules.map((item) => item.rootPath).sort(),
+    ["cmd/server", "internal/auth", "pkg/billing"]
+  );
+});
+
+test("detectStacks identifies Rust repo", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "Cargo.toml"), "[package]\nname = \"agentify-rust\"\nversion = \"0.1.0\"\n");
+    await fs.mkdir(path.join(dir, "src"), { recursive: true });
+    await fs.writeFile(path.join(dir, "src", "lib.rs"), "pub fn parse_token() -> String { String::new() }\n");
+  });
+
+  const stacks = await detectStacks(root, { languages: "auto" });
+  assert.equal(stacks[0].name, "rust");
+});
+
+test("detectModules identifies Rust workspace crates", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(
+      path.join(dir, "Cargo.toml"),
+      "[workspace]\nmembers = [\"crates/core\", \"crates/api\"]\n",
+      "utf8",
+    );
+    await fs.mkdir(path.join(dir, "crates", "core", "src"), { recursive: true });
+    await fs.mkdir(path.join(dir, "crates", "api", "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "crates", "core", "Cargo.toml"),
+      "[package]\nname = \"agentify-core\"\nversion = \"0.1.0\"\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(dir, "crates", "api", "Cargo.toml"),
+      "[package]\nname = \"agentify-api\"\nversion = \"0.1.0\"\n",
+      "utf8",
+    );
+    await fs.writeFile(path.join(dir, "crates", "core", "src", "lib.rs"), "pub fn parse_token() {}\n");
+    await fs.writeFile(path.join(dir, "crates", "api", "src", "lib.rs"), "pub fn handle_login() {}\n");
+  });
+
+  const modules = await detectModules(root, { moduleStrategy: "auto" }, "rust");
+  assert.deepEqual(
+    modules.map((item) => item.rootPath).sort(),
+    ["crates/api", "crates/core"]
+  );
+});

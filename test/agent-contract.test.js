@@ -24,7 +24,6 @@ test("sanitizeManagerPlan drops unknown module ids and trims content", () => {
 test("sanitizeModuleResponse filters out paths outside the module and fills missing header summaries", () => {
   const result = sanitizeModuleResponse(
     {
-      markdown: "# Auth\n",
       summary: "Auth module summary",
       public_api: [
         { symbol: "login", kind: "function", path: "src/auth/index.ts" },

@@ -80,7 +80,6 @@ export function sanitizeModuleResponse(input, moduleInfo, allowedKeyFiles) {
     throw new Error("invalid module response");
   }
 
-  const markdown = clip(ensureString(input.markdown, "markdown"), 30000);
   const summary = clip(ensureString(input.summary, "summary"), 1000);
   const publicApi = sanitizePathList(input.public_api, moduleInfo.rootPath, 20, (item) => ({
     symbol: clip(ensureString(item?.symbol, "public_api.symbol"), 200),
@@ -113,7 +112,6 @@ export function sanitizeModuleResponse(input, moduleInfo, allowedKeyFiles) {
   }));
 
   return {
-    markdown,
     summary,
     public_api: publicApi,
     start_here: startHere.length > 0 ? startHere : Array.from(allowedKeyFiles).slice(0, 3).map((path) => ({

@@ -35,9 +35,25 @@ const DEFAULT_CONFIG = {
     maxAgeDays: 7,
     maxSizeMb: 100,
   },
+  cleanup: {
+    keepRuns: 20,
+    maxRunAgeDays: 14,
+    keepGhostRuns: 3,
+    maxGhostAgeDays: 3,
+    pruneInvalidSessions: true,
+    pruneCache: true,
+  },
   session: {
     bootstrapMaxKb: 4,
     contextMaxKb: 16,
+  },
+  planner: {
+    maxModules: 6,
+    maxFiles: 12,
+    maxSymbols: 24,
+    maxTests: 6,
+    maxSourceBytes: 24000,
+    maxInstructionBytes: 6000,
   },
 };
 
@@ -122,7 +138,9 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     toolchain: config.toolchain,
     hooks: config.hooks,
     cache: config.cache,
+    cleanup: config.cleanup,
     session: config.session,
+    planner: config.planner,
   };
 
   const yaml = stringifyYaml(output);

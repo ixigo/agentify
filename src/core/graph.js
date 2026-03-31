@@ -114,7 +114,7 @@ function getExtensionsForStack(stack) {
 }
 
 export async function buildDependencyGraph(root, stack = "ts") {
-  const files = await walkFiles(root);
+  const files = await walkFiles(root, { respectIgnore: true });
   const extensions = getExtensionsForStack(stack);
   const sourceFiles = files.filter((file) => extensions.some((ext) => file.endsWith(ext)));
   const graph = { nodes: {}, edges: [] };

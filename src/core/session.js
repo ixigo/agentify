@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
+import { closeIndexDatabase, loadModules, openIndexDatabase } from "./db.js";
 
 function generateSessionId() {
   const now = new Date();
@@ -11,32 +12,141 @@ function generateSessionId() {
   return `sess_${ts}_${rand}`;
 }
 
-function buildContext(manifest, index, checklist, options) {
-  const staleModules = [];
-  return {
-    schema_version: "1.0",
-    session_id: manifest.session_id,
-    index_snapshot: {
-      head_commit: manifest.head_commit_at_creation,
-      module_ids: index?.modules?.map((m) => m.id) || [],
-      stale_modules: staleModules,
-    },
-    checklist,
-    cache_refs: {},
-    parent_summary: options.parentSummary || "",
-  };
+function bytes(value) {
+  return Buffer.byteLength(value, "utf8");
 }
 
-function buildBootstrap(manifest, index, checklist, options) {
-  const checklistMd =
-    checklist.length > 0
-      ? checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.text}`).join("\n")
+function clipToBytes(value, maxBytes) {
+  const text = String(value || "");
+  if (maxBytes <= 0 || text.length === 0) {
+    return "";
+  }
+  if (bytes(text) <= maxBytes) {
+    return text;
+  }
+
+  let end = text.length;
+  while (end > 0) {
+    const candidate = `${text.slice(0, end).trimEnd()}...`;
+    if (bytes(candidate) <= maxBytes) {
+      return candidate;
+    }
+    end -= 1;
+  }
+
+  return "";
+}
+
+function getSessionLimitKb(config, key, fallbackKb) {
+  const value = Number(config?.session?.[key]);
+  return Number.isFinite(value) && value > 0 ? value : fallbackKb;
+}
+
+function normalizeChecklist(checklist, maxItems, maxTextBytes) {
+  return checklist
+    .slice(0, maxItems)
+    .map((item) => ({
+      done: Boolean(item?.done),
+      text: clipToBytes(item?.text || "Untitled checklist item", maxTextBytes)
+    }))
+    .filter((item) => item.text);
+}
+
+function summarizeModules(moduleIds, maxItems) {
+  if (moduleIds.length === 0) {
+    return "none";
+  }
+
+  const visible = moduleIds.slice(0, maxItems);
+  const remaining = moduleIds.length - visible.length;
+  if (visible.length === 0) {
+    return `${moduleIds.length} indexed modules (see .agents/index.db)`;
+  }
+
+  return remaining > 0
+    ? `${visible.join(", ")}, +${remaining} more (see .agents/index.db)`
+    : visible.join(", ");
+}
+
+function renderChecklistMarkdown(sessionId, checklist, totalItems) {
+  if (checklist.length === 0) {
+    return totalItems > 0
+      ? `- ${totalItems} checklist item(s) omitted. See \`.agents/session/${sessionId}/checklist.json\`.`
       : "- No checklist items.";
+  }
 
-  const modules =
-    index?.modules?.map((m) => m.id).join(", ") || "none";
+  const lines = checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.text}`);
+  const remaining = totalItems - checklist.length;
+  if (remaining > 0) {
+    lines.push(`- ... ${remaining} more item(s) in \`.agents/session/${sessionId}/checklist.json\`.`);
+  }
+  return lines.join("\n");
+}
 
-  return `# Session Context
+function fitContext(manifest, index, checklist, options, config) {
+  const moduleIds = index?.modules?.map((m) => m.id) || [];
+  const staleModules = [];
+  const maxBytes = getSessionLimitKb(config, "contextMaxKb", 16) * 1024;
+  const attempts = [
+    { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048 },
+    { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024 },
+    { moduleLimit: 24, checklistLimit: 10, checklistTextBytes: 140, parentSummaryBytes: 512 },
+    { moduleLimit: 8, checklistLimit: 5, checklistTextBytes: 100, parentSummaryBytes: 256 },
+    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 120 },
+  ];
+
+  let selected = null;
+  for (const attempt of attempts) {
+    const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
+    const candidate = {
+      schema_version: "1.0",
+      session_id: manifest.session_id,
+      index_snapshot: {
+        head_commit: manifest.head_commit_at_creation,
+        module_ids: moduleIds.slice(0, attempt.moduleLimit),
+        module_count: moduleIds.length,
+        truncated_module_ids: Math.max(0, moduleIds.length - Math.min(moduleIds.length, attempt.moduleLimit)),
+        stale_modules: staleModules,
+      },
+      checklist: previewChecklist,
+      checklist_summary: {
+        total_items: checklist.length,
+        displayed_items: previewChecklist.length,
+        remaining_items: Math.max(0, checklist.length - previewChecklist.length),
+      },
+      cache_refs: {
+        repo_index: ".agents/index.db",
+        repo_docs: "docs/modules/",
+        checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+      },
+      parent_summary: clipToBytes(options.parentSummary || "", attempt.parentSummaryBytes),
+    };
+
+    selected = candidate;
+    if (bytes(JSON.stringify(candidate, null, 2)) <= maxBytes) {
+      return { value: candidate, truncated: attempt !== attempts[0] };
+    }
+  }
+
+  return { value: selected, truncated: true };
+}
+
+function fitBootstrap(manifest, index, checklist, options, config) {
+  const moduleIds = index?.modules?.map((m) => m.id) || [];
+  const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
+  const baseStartHere = options.startHere || "- Inspect .agents/index.db via `agentify query` or `agentify plan` for module routing.";
+  const attempts = [
+    { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, startHereBytes: 1200 },
+    { moduleLimit: 32, checklistLimit: 16, checklistTextBytes: 180, startHereBytes: 720 },
+    { moduleLimit: 12, checklistLimit: 8, checklistTextBytes: 120, startHereBytes: 360 },
+    { moduleLimit: 4, checklistLimit: 3, checklistTextBytes: 90, startHereBytes: 180 },
+    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, startHereBytes: 96 },
+  ];
+
+  let selected = "";
+  for (const attempt of attempts) {
+    const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
+    const candidate = `# Session Context
 
 ## Session
 - ID: ${manifest.session_id}
@@ -46,14 +156,24 @@ function buildBootstrap(manifest, index, checklist, options) {
 
 ## Repository State
 - HEAD: ${manifest.head_commit_at_creation}
-- Modules: ${modules}
+- Module count: ${moduleIds.length}
+- Module preview: ${summarizeModules(moduleIds, attempt.moduleLimit)}
+- Full routing: .agents/index.db
 
 ## Checklist Status
-${checklistMd}
+${renderChecklistMarkdown(manifest.session_id, previewChecklist, checklist.length)}
 
 ## Start Here
-${options.startHere || "- Inspect .agents/index.json for module routing."}
+${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect .agents/index.db and session checklist for full context."}
 `;
+
+    selected = candidate;
+    if (bytes(candidate) <= maxBytes) {
+      return { value: candidate, truncated: attempt !== attempts[0] };
+    }
+  }
+
+  return { value: clipToBytes(selected, maxBytes), truncated: true };
 }
 
 export async function forkSession(root, config, options = {}) {
@@ -62,8 +182,17 @@ export async function forkSession(root, config, options = {}) {
   await ensureDir(sessionDir);
 
   const headCommit = await getHeadCommit(root);
-  const indexPath = path.join(root, ".agents", "index.json");
-  const index = (await exists(indexPath)) ? await readJson(indexPath) : null;
+  let index = null;
+  if (await exists(path.join(root, ".agents", "index.db"))) {
+    const db = openIndexDatabase(root);
+    try {
+      index = {
+        modules: loadModules(db).map((moduleInfo) => ({ id: moduleInfo.id })),
+      };
+    } finally {
+      closeIndexDatabase(db);
+    }
+  }
 
   const manifest = {
     schema_version: "1.0",
@@ -75,7 +204,7 @@ export async function forkSession(root, config, options = {}) {
     name: options.name || null,
     status: "active",
     head_commit_at_creation: headCommit,
-    index_snapshot: ".agents/index.json",
+    index_snapshot: ".agents/index.db",
     cache_refs: [],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
@@ -92,8 +221,15 @@ export async function forkSession(root, config, options = {}) {
     }
   }
 
-  const context = buildContext(manifest, index, parentChecklist, options);
-  const bootstrap = buildBootstrap(manifest, index, parentChecklist, options);
+  const contextResult = fitContext(manifest, index, parentChecklist, options, config);
+  const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, options, config);
+  const context = contextResult.value;
+  const bootstrap = bootstrapResult.value;
+
+  manifest.metadata.session_context_bytes = bytes(JSON.stringify(context, null, 2));
+  manifest.metadata.session_bootstrap_bytes = bytes(bootstrap);
+  manifest.metadata.context_truncated = contextResult.truncated;
+  manifest.metadata.bootstrap_truncated = bootstrapResult.truncated;
 
   await writeJson(path.join(sessionDir, "session-manifest.json"), manifest);
   await writeJson(path.join(sessionDir, "checklist.json"), parentChecklist);

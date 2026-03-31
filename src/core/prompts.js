@@ -29,9 +29,8 @@ export function buildModuleSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["markdown", "summary", "public_api", "start_here", "side_effects", "header_summaries"],
+    required: ["summary", "public_api", "start_here", "side_effects", "header_summaries"],
     properties: {
-      markdown: { type: "string" },
       summary: { type: "string" },
       public_api: {
         type: "array",
@@ -112,7 +111,7 @@ export function buildModulePrompt(moduleInfo, context) {
 Rules:
 - Do not propose business logic changes.
 - Keep descriptions factual, bounded, and repo-specific.
-- Markdown must document purpose, boundaries, public surface, key flows, start-here guidance, and tests/config where visible.
+- Keep the summary compact and high-signal. Agentify will render the markdown itself.
 - Header summaries must be safe top-of-file descriptions only.
 - Only reference module-local paths for public_api, start_here, and header_summaries.
 

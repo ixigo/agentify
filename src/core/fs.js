@@ -26,13 +26,15 @@ const HARD_EXCLUDES = [
   /^AGENTIFY\.md$/,
 ];
 
-let cachedIgnorePatterns = null;
+const ignorePatternCache = new Map();
 
 async function loadAgentignore(root) {
-  if (cachedIgnorePatterns !== null) return cachedIgnorePatterns;
+  if (ignorePatternCache.has(root)) {
+    return ignorePatternCache.get(root);
+  }
   try {
     const raw = await fs.readFile(path.join(root, ".agentignore"), "utf8");
-    cachedIgnorePatterns = raw
+    const patterns = raw
       .split(/\r?\n/)
       .filter((line) => line.trim() && !line.startsWith("#"))
       .map((pattern) => {
@@ -43,10 +45,11 @@ async function loadAgentignore(root) {
           .replace(/\{\{GLOBSTAR\}\}/g, ".*");
         return new RegExp(`^${regexStr}$`);
       });
+    ignorePatternCache.set(root, patterns);
   } catch {
-    cachedIgnorePatterns = [];
+    ignorePatternCache.set(root, []);
   }
-  return cachedIgnorePatterns;
+  return ignorePatternCache.get(root);
 }
 
 function isHardExcluded(relativePath) {
@@ -58,7 +61,7 @@ function isAgentIgnored(relativePath, patterns) {
 }
 
 export function resetIgnoreCache() {
-  cachedIgnorePatterns = null;
+  ignorePatternCache.clear();
 }
 
 export async function exists(targetPath) {
@@ -97,15 +100,21 @@ export async function walkFiles(root, { respectIgnore = false } = {}) {
         continue;
       }
       const fullPath = path.join(current, entry.name);
+      const rel = relative(root, fullPath);
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) {
           continue;
+        }
+        if (respectIgnore) {
+          const relDir = `${rel}/`;
+          if (isHardExcluded(relDir) || isAgentIgnored(rel, ignorePatterns) || isAgentIgnored(relDir, ignorePatterns)) {
+            continue;
+          }
         }
         await visit(fullPath);
         continue;
       }
       if (respectIgnore) {
-        const rel = relative(root, fullPath);
         if (isHardExcluded(rel) || isAgentIgnored(rel, ignorePatterns)) {
           continue;
         }

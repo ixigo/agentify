@@ -34,18 +34,23 @@ export async function updateManifest(cacheRoot, moduleId, blobRefs) {
   await writeJson(manifestPath, manifest);
 }
 
-export async function garbageCollect(cacheRoot, maxAgeDays = 7) {
+export async function garbageCollect(cacheRoot, maxAgeDays = 7, options = {}) {
   const manifestPath = path.join(cacheRoot, "manifest.json");
   if (!(await exists(manifestPath))) return { removed: 0 };
 
   const manifest = await readJson(manifestPath);
+  const nextManifest = {
+    ...manifest,
+    modules: { ...(manifest.modules || {}) }
+  };
   const referencedHashes = new Set();
   const cutoff = Date.now() - maxAgeDays * 86400000;
+  const dryRun = Boolean(options.dryRun);
 
-  for (const [moduleId, entry] of Object.entries(manifest.modules)) {
+  for (const [moduleId, entry] of Object.entries(nextManifest.modules)) {
     const updatedAt = new Date(entry.updated_at).getTime();
     if (updatedAt < cutoff) {
-      delete manifest.modules[moduleId];
+      delete nextManifest.modules[moduleId];
     } else {
       for (const hash of entry.blobs) referencedHashes.add(hash);
     }
@@ -66,14 +71,18 @@ export async function garbageCollect(cacheRoot, maxAgeDays = 7) {
       for (const file of files) {
         const hash = file.replace(".blob", "");
         if (!referencedHashes.has(hash)) {
-          await fs.unlink(path.join(prefixDir, file));
+          if (!dryRun) {
+            await fs.unlink(path.join(prefixDir, file));
+          }
           removed += 1;
         }
       }
     }
   }
 
-  await writeJson(manifestPath, manifest);
+  if (!dryRun) {
+    await writeJson(manifestPath, nextManifest);
+  }
   return { removed };
 }
 
