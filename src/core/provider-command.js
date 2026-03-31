@@ -14,7 +14,7 @@ function normalizePrompt(prompt) {
   return "Continue the task in this repository and keep changes minimal, tested, and documented.";
 }
 
-export function buildProviderTemplateCommand(provider, prompt, { root } = {}) {
+export function buildProviderTemplateCommand(provider, prompt, { root, interactive = false } = {}) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
 
@@ -23,6 +23,14 @@ export function buildProviderTemplateCommand(provider, prompt, { root } = {}) {
   }
 
   if (provider === "codex") {
+    if (interactive) {
+      const args = ["codex"];
+      if (root) {
+        args.push("--cd", root);
+      }
+      args.push(normalizedPrompt);
+      return args;
+    }
     return ["codex", "exec", normalizedPrompt];
   }
   if (provider === "claude") {

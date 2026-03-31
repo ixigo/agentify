@@ -25,6 +25,15 @@ function parseValue(raw) {
   return raw;
 }
 
+const BOOLEAN_FLAGS = new Set([
+  "dryRun",
+  "ghost",
+  "json",
+  "interactive",
+  "failOnStale",
+  "skipRefresh",
+]);
+
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
@@ -64,6 +73,19 @@ function getExecFlags(args) {
     failOnStale: args.failOnStale || false,
     timeout: args.timeout || null,
     skipRefresh: args.skipRefresh || false,
+  };
+}
+
+function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
+  const interactive = args.interactive || false;
+
+  if (interactive && usingTemplateCommand && provider !== "codex") {
+    throw new Error("--interactive is currently supported only with --provider codex.");
+  }
+
+  return {
+    root,
+    interactive,
   };
 }
 
@@ -128,6 +150,7 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
+    `    ${c("--interactive")}, ${c("-i")}       Launch Codex interactive CLI for run/sess`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     ``,
     `  ${bold("EXEC FLAGS")}`,
@@ -141,7 +164,9 @@ function printHelp() {
     `    ${d("$")} agentify init`,
     `    ${d("$")} agentify up --provider codex`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
+    `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
+    `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
   ];
@@ -164,6 +189,10 @@ export function parseArgs(argv) {
       args.version = true;
       continue;
     }
+    if (token === "-i") {
+      args.interactive = true;
+      continue;
+    }
 
     if (token === "--" && !seenDoubleDash) {
       seenDoubleDash = true;
@@ -180,6 +209,10 @@ export function parseArgs(argv) {
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
       args[key] = parseValue(inlineValue);
+      continue;
+    }
+    if (BOOLEAN_FLAGS.has(key)) {
+      args[key] = true;
       continue;
     }
 
@@ -262,9 +295,14 @@ export async function runCli(argv) {
 
     case "run": {
       const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
+      const usingTemplateCommand = !args._exec?.length;
       const agentCommand = args._exec?.length
         ? args._exec
-        : buildProviderTemplateCommand(config.provider, prompt, { root });
+        : buildProviderTemplateCommand(
+          config.provider,
+          prompt,
+          getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand),
+        );
 
       await runExec(root, config, agentCommand, getExecFlags(args));
       return;
@@ -322,9 +360,14 @@ export async function runCli(argv) {
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, 2));
+        const usingTemplateCommand = !args._exec?.length;
         const agentCommand = args._exec?.length
           ? args._exec
-          : buildProviderTemplateCommand(provider, prompt, { root });
+          : buildProviderTemplateCommand(
+            provider,
+            prompt,
+            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+          );
 
         if (!config.json) {
           success(`Session forked: ${result.manifest.session_id}`);
@@ -342,9 +385,14 @@ export async function runCli(argv) {
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, promptStartIndex));
+        const usingTemplateCommand = !args._exec?.length;
         const agentCommand = args._exec?.length
           ? args._exec
-          : buildProviderTemplateCommand(provider, prompt, { root });
+          : buildProviderTemplateCommand(
+            provider,
+            prompt,
+            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+          );
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
         return;
@@ -378,9 +426,14 @@ export async function runCli(argv) {
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
         const prompt = buildSessionPrompt(sessionResult.bootstrap, getPromptFromArgs(args, 2));
+        const usingTemplateCommand = !args._exec?.length;
         const agentCommand = args._exec?.length
           ? args._exec
-          : buildProviderTemplateCommand(provider, prompt, { root });
+          : buildProviderTemplateCommand(
+            provider,
+            prompt,
+            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+          );
 
         if (config.json && sessionDir) {
           console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));

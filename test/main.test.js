@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { parseArgs, runCli } from "../src/main.js";
 
@@ -24,6 +27,18 @@ test("parseArgs supports short help and version flags", () => {
   assert.equal(args.version, true);
 });
 
+test("parseArgs supports interactive flags", () => {
+  const shortArgs = parseArgs(["run", "-i"]);
+  assert.equal(shortArgs.interactive, true);
+
+  const longArgs = parseArgs(["run", "--interactive"]);
+  assert.equal(longArgs.interactive, true);
+
+  const promptArgs = parseArgs(["run", "--interactive", "implement login"]);
+  assert.equal(promptArgs.interactive, true);
+  assert.deepEqual(promptArgs._, ["run", "implement login"]);
+});
+
 test("runCli rejects removed legacy command names", async () => {
   await assert.rejects(() => runCli(["update"]), /Use "up"/);
   await assert.rejects(() => runCli(["validate"]), /Use "check"/);
@@ -32,4 +47,12 @@ test("runCli rejects removed legacy command names", async () => {
 
 test("runCli rejects removed --tool flag", async () => {
   await assert.rejects(() => runCli(["scan", "--tool", "codex"]), /--tool was removed/);
+});
+
+test("runCli rejects --interactive for non-codex provider templates", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-"));
+  await assert.rejects(
+    () => runCli(["run", "--root", root, "--provider", "claude", "--interactive", "implement login"]),
+    /--interactive is currently supported only with --provider codex/,
+  );
 });

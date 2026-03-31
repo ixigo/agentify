@@ -8,6 +8,14 @@ test("buildProviderTemplateCommand returns codex argv", () => {
   assert.deepEqual(argv, ["codex", "exec", "implement login"]);
 });
 
+test("buildProviderTemplateCommand returns interactive codex argv", () => {
+  const argv = buildProviderTemplateCommand("codex", "implement login", {
+    root: "/tmp/repo",
+    interactive: true,
+  });
+  assert.deepEqual(argv, ["codex", "--cd", "/tmp/repo", "implement login"]);
+});
+
 test("buildProviderTemplateCommand returns opencode argv with root", () => {
   const argv = buildProviderTemplateCommand("opencode", "implement login", { root: "/tmp/repo" });
   assert.deepEqual(argv, ["opencode", "run", "implement login", "--dir", "/tmp/repo"]);
