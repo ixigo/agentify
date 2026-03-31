@@ -13,6 +13,7 @@ import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
+import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
@@ -146,6 +147,7 @@ function printHelp() {
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
+    `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
@@ -177,6 +179,7 @@ function printHelp() {
     `  ${bold("EXAMPLES")}`,
     ``,
     `    ${d("$")} agentify init`,
+    `    ${d("$")} agentify this --provider codex`,
     `    ${d("$")} agentify up --provider codex`,
     `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
@@ -273,6 +276,11 @@ export async function runCli(argv) {
   }
   if (command === "session") {
     throw new Error("command \"session\" was removed. Use \"sess\".");
+  }
+
+  if (command === "this") {
+    await runBootstrapCommand(args);
+    return;
   }
 
   const root = path.resolve(String(args.root || process.cwd()));

@@ -167,3 +167,41 @@ export function newline() {
   if (isSilent()) return;
   process.stderr.write("\n");
 }
+
+export function createInlineProgress({ enabled = !isSilent() && process.stderr.isTTY } = {}) {
+  let active = false;
+
+  function render(prefix, message, finalize = false) {
+    if (!enabled) {
+      return;
+    }
+    process.stderr.write(`\r\x1b[2K${prefix} ${message}${finalize ? "\n" : ""}`);
+    active = !finalize;
+  }
+
+  return {
+    update(percent, message) {
+      const prefix = hasColor() ? pc.cyan(`  ~ ${percent}%`) : `  ~ ${percent}%`;
+      render(prefix, message);
+    },
+    success(message) {
+      const prefix = hasColor() ? pc.green("  +") : "  +";
+      render(prefix, message, true);
+    },
+    warn(message) {
+      const prefix = hasColor() ? pc.yellow("  !") : "  !";
+      render(prefix, message, true);
+    },
+    error(message) {
+      const prefix = hasColor() ? pc.red("  x") : "  x";
+      render(prefix, message, true);
+    },
+    clear() {
+      if (!enabled || !active) {
+        return;
+      }
+      process.stderr.write("\r\x1b[2K");
+      active = false;
+    },
+  };
+}
