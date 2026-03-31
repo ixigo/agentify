@@ -64,6 +64,7 @@ function parseProject(root, project) {
   }
 
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath));
+  const allowedFiles = new Set((project.filePaths || []).map((filePath) => normalize(filePath)));
   return {
     options: {
       ...parsed.options,
@@ -72,7 +73,10 @@ function parseProject(root, project) {
       jsx: parsed.options.jsx ?? ts.JsxEmit.ReactJSX,
       baseUrl: parsed.options.baseUrl || root,
     },
-    fileNames: parsed.fileNames.filter((filePath) => isRepoOwned(root, filePath) && isTsJsFile(filePath)).filter(shouldTreatAsOwned),
+    fileNames: parsed.fileNames
+      .filter((filePath) => isRepoOwned(root, filePath) && isTsJsFile(filePath))
+      .filter(shouldTreatAsOwned)
+      .filter((filePath) => allowedFiles.size === 0 || allowedFiles.has(normalize(path.relative(root, filePath)))),
   };
 }
 

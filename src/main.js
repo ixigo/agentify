@@ -303,12 +303,24 @@ export async function runCli(argv) {
     case "init":
       await writeDefaultConfig(root, config, { dryRun: config.dryRun });
       await ensureBaselineArtifacts(root, config);
-      success("Initialized agentify artifacts");
+      if (config.json) {
+        console.log(JSON.stringify({
+          command: "init",
+          root,
+          dry_run: Boolean(config.dryRun),
+          wrote: config.dryRun ? [] : [".agentify.yaml", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+        }, null, 2));
+      } else {
+        success("Initialized agentify artifacts");
+      }
       return;
 
     case "index":
+      await runScan(root, config, { commandName: "index" });
+      return;
+
     case "scan":
-      await runScan(root, config);
+      await runScan(root, config, { commandName: "scan" });
       return;
 
     case "doc":

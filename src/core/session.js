@@ -64,7 +64,7 @@ function summarizeModules(moduleIds, maxItems) {
   }
 
   return remaining > 0
-    ? `${visible.join(", ")}, +${remaining} more (see .agents/index.db)`
+    ? `${visible.join(", ")}, +${remaining} more (host shell index: .agents/index.db)`
     : visible.join(", ");
 }
 
@@ -134,7 +134,11 @@ function fitContext(manifest, index, checklist, options, config) {
 function fitBootstrap(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
-  const baseStartHere = options.startHere || "- Inspect .agents/index.db via `agentify query` or `agentify plan` for module routing.";
+  const baseStartHere = options.startHere || [
+    "- Read `AGENTIFY.md` for the current repo snapshot and module guidance.",
+    "- Use `docs/repo-map.md` and `docs/modules/` for deterministic structure before reaching for provider tools.",
+    "- Treat `.agents/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
+  ].join("\n");
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, startHereBytes: 1200 },
     { moduleLimit: 32, checklistLimit: 16, checklistTextBytes: 180, startHereBytes: 720 },
@@ -158,13 +162,13 @@ function fitBootstrap(manifest, index, checklist, options, config) {
 - HEAD: ${manifest.head_commit_at_creation}
 - Module count: ${moduleIds.length}
 - Module preview: ${summarizeModules(moduleIds, attempt.moduleLimit)}
-- Full routing: .agents/index.db
+- Full routing: host shell -> .agents/index.db
 
 ## Checklist Status
 ${renderChecklistMarkdown(manifest.session_id, previewChecklist, checklist.length)}
 
 ## Start Here
-${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect .agents/index.db and session checklist for full context."}
+${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect the session checklist and generated markdown docs for full context."}
 `;
 
     selected = candidate;
@@ -184,7 +188,7 @@ export async function forkSession(root, config, options = {}) {
   const headCommit = await getHeadCommit(root);
   let index = null;
   if (await exists(path.join(root, ".agents", "index.db"))) {
-    const db = openIndexDatabase(root);
+    const db = openIndexDatabase(root, { readOnly: true });
     try {
       index = {
         modules: loadModules(db).map((moduleInfo) => ({ id: moduleInfo.id })),

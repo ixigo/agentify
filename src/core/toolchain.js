@@ -74,6 +74,15 @@ function getInstallHint(name) {
 export async function runDoctor(root, config) {
   const caps = await detectCapabilities(config);
 
+  if (config.json) {
+    const result = {
+      command: "doctor",
+      ...caps,
+    };
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+
   const tierBadge =
     caps.tier === 2 ? ui.green(`Tier ${caps.tier}`)
     : caps.tier === 1 ? ui.yellow(`Tier ${caps.tier}`)
@@ -103,7 +112,7 @@ export async function runDoctor(root, config) {
   if (config.semantic?.tsjs?.enabled && root) {
     const dbPath = `${root}/.agents/index.db`;
     if (await exists(dbPath)) {
-      const db = openIndexDatabase(root);
+      const db = openIndexDatabase(root, { readOnly: true });
       try {
         const semanticProjects = listSemanticProjects(db);
         ui.newline();

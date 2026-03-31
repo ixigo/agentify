@@ -13,7 +13,7 @@ agentify check
 const POST_MERGE_TEMPLATE = `#!/bin/sh
 ${AGENTIFY_MARKER} post-merge hook
 # Refreshes index and metadata after merge
-agentify scan --skip-finalize 2>/dev/null || true
+agentify scan --json >/dev/null 2>&1 || true
 `;
 
 async function safeRead(filePath) {

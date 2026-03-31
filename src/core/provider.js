@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { sanitizeManagerPlan, sanitizeModuleResponse } from "./agent-contract.js";
 import { buildManagerPrompt, buildManagerSchema, buildModulePrompt, buildModuleSchema } from "./prompts.js";
 
-function summarizeModule(moduleInfo, files, semantic = null) {
+export function summarizeModule(moduleInfo, files, semantic = null) {
   const examples = files.slice(0, 5).join(", ");
   const semanticLead = semantic?.surfaces?.length
     ? `Semantic surfaces: ${semantic.surfaces.slice(0, 3).map((item) => item.display_name || item.surface_key || item.path).join(", ")}. `
@@ -100,7 +100,7 @@ ${runtimeDeps}
 ${typeDeps}`;
 }
 
-function renderModuleMarkdown(moduleInfo, metadata) {
+export function renderModuleMarkdown(moduleInfo, metadata) {
   const publicSurface = metadata.public_api.length > 0
     ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
     : "- No explicit export surface detected.";

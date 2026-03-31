@@ -8,7 +8,7 @@ import { ensureDir, exists, readJson, relative, walkFiles, writeJson, writeText 
 import { getHeadCommit } from "./git.js";
 import { buildDependencyGraph, rankKeyFiles } from "./graph.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
-import { createProvider } from "./provider.js";
+import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
@@ -1143,11 +1143,11 @@ function renderAgentsMd(index) {
   return `# AGENTS.md
 
 ## Overview
-This repository is Agentify-enabled. Start with \`agentify plan "<task>"\` or \`agentify query search --term <term>\`, then inspect \`.agents/index.db\` for machine-readable routing.
+This repository is Agentify-enabled. Start with \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/\`. From the host shell, \`agentify plan "<task>"\` or \`agentify query search --term <term>\` can provide deeper routing.
 
 ## Conventions
 - Generated docs live under \`docs/\`
-- Indexed metadata lives under \`.agents/index.db\`
+- Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
 - Code headers marked with \`@agentify\` are safe to refresh
 - Repo guardrails live in \`.guardrails\`
 - Local working RFCs and notes live under \`.agentify/work/\`
@@ -1212,7 +1212,7 @@ ${sharedConventions}
 ## Artifacts
 - Root guidance: \`AGENTS.md\`
 - Repo map: \`docs/repo-map.md\`
-- Machine index: \`.agents/index.db\`
+- Machine index: \`.agents/index.db\` (host shell access is the most reliable path)
 - Run report: \`.agents/runs/${runReport.run_id}.json\`
 
 ## Run Metrics
@@ -1529,15 +1529,15 @@ async function _runScanInner(root, config, options, progress) {
   progress.log("scan: wrote SQLite index and repo guidance");
 
   const result = {
-    command: "scan",
+    command: options.commandName || "scan",
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
     wrote: config.dryRun ? [] : [".agents/index.db", "AGENTS.md", "docs/repo-map.md"],
   };
-  progress.setCommand("scan");
+  progress.setCommand(options.commandName || "scan");
   progress.setScan(result);
-  if (config.json || !config._suppressProgress) {
+  if (!options.skipOutput && (config.json || !config._suppressProgress)) {
     progress.json(result);
   }
   if (!options.skipFinalize) {
@@ -1800,20 +1800,33 @@ async function _runDocInner(root, config, options, progress) {
       config.moduleConcurrency,
       async ({ moduleInfo, context, fingerprint, cachedArtifact }) => {
       if (cachedArtifact) {
+        const refreshedMetadata = withFreshness({
+          ...cachedArtifact.metadata,
+          module: {
+            ...(cachedArtifact.metadata?.module || {}),
+            id: moduleInfo.id,
+            name: moduleInfo.name,
+            root_path: moduleInfo.rootPath,
+            stack: moduleInfo.stack,
+          },
+          summary: summarizeModule(moduleInfo, context.files.map((item) => item.path), context.semantic),
+          docs: [`docs/modules/${moduleInfo.slug}.md`],
+          tags: Array.from(new Set([...(cachedArtifact.metadata?.tags || []), moduleInfo.stack])),
+        }, {
+          now,
+          headCommit,
+          fingerprint,
+        });
         return {
           moduleInfo,
           fingerprint,
           reused: true,
           result: {
-            markdown: cachedArtifact.markdown,
-            metadata: withFreshness(cachedArtifact.metadata, {
-              now,
-              headCommit,
-              fingerprint,
-            }),
+            markdown: renderModuleMarkdown(moduleInfo, refreshedMetadata),
+            metadata: refreshedMetadata,
             headers: context.keyFiles.map((file) => ({
               path: file,
-              summary: cachedArtifact.metadata.summary,
+              summary: refreshedMetadata.summary,
             })),
             tokenUsage: {
               input_tokens: 0,
@@ -2004,7 +2017,7 @@ async function _runDocInner(root, config, options, progress) {
     };
     progress.setCommand("doc");
     progress.setDoc(result);
-    if (config.json || !config._suppressProgress) {
+    if (!options.skipOutput && (config.json || !config._suppressProgress)) {
       progress.json(result);
     }
     if (!options.skipFinalize) {
@@ -2057,9 +2070,9 @@ export async function runUpdate(root, config) {
   const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
   progress.setCommand("up");
   progress.percent("up", 0, "starting");
-  await runScan(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanSnapshot });
+  await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
   progress.percent("up", 33, "scan complete");
-  await runDoc(root, config, { reporter: progress, skipFinalize: true, ghostRunId, scanSnapshot });
+  await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
   progress.percent("up", 67, "doc complete");
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);

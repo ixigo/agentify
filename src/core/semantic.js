@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import ts from "typescript";
 
 import {
   closeIndexDatabase,
@@ -42,6 +43,138 @@ function isConfigCandidate(filePath) {
   return base === "tsconfig.json" || base === "jsconfig.json" || /^tsconfig\..+\.json$/.test(base);
 }
 
+function isRepoOwned(root, filePath) {
+  const resolved = path.resolve(filePath);
+  const rootPrefix = `${path.resolve(root)}${path.sep}`;
+  return resolved.startsWith(rootPrefix) && !resolved.includes(`${path.sep}node_modules${path.sep}`);
+}
+
+function shouldTreatAsOwned(filePath) {
+  if (filePath.endsWith(".d.ts")) {
+    return false;
+  }
+  if (/(^|\/)(dist|build|coverage|generated|__generated__)\//i.test(filePath)) {
+    return false;
+  }
+  return true;
+}
+
+function isSupportPath(filePath) {
+  return /(^|\/)(__tests__|__mocks__|fixtures?|examples?|stories)\//i.test(filePath)
+    || /\.(test|spec|stories)\.[^.]+$/i.test(filePath);
+}
+
+function isTestOwnedPath(filePath) {
+  return isSupportPath(filePath)
+    || /(^|\/)(test|tests)\//i.test(filePath)
+    || /(^|\/)(vitest|jest|playwright|cypress)[^/]*\.[^.]+$/i.test(filePath)
+    || /(^|\/)test-extend\.[^.]+$/i.test(filePath);
+}
+
+function isToolingPath(filePath) {
+  return /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro|jest)\.config\.[^.]+$/i.test(filePath)
+    || /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro)[^/]*\.[^.]+$/i.test(path.basename(filePath));
+}
+
+function hasExplicitProjectInputs(rawConfig) {
+  return Array.isArray(rawConfig?.files)
+    || Array.isArray(rawConfig?.include)
+    || Array.isArray(rawConfig?.references);
+}
+
+function classifyProjectIntent(configPath, rawConfig) {
+  const tokens = [
+    configPath,
+    ...(rawConfig?.include || []),
+    ...(rawConfig?.files || []),
+    ...(rawConfig?.exclude || []),
+    ...(rawConfig?.compilerOptions?.types || []),
+  ].join("\n").toLowerCase();
+
+  if (/(^|[^a-z])(test|spec|vitest|jest|playwright|cypress)([^a-z]|$)/.test(tokens)) {
+    return "test";
+  }
+  if (/(^|[^a-z])(node|vite|webpack|rollup|tailwind|eslint|postcss|babel|scripts?)([^a-z]|$)/.test(tokens)) {
+    return "tooling";
+  }
+  return "runtime";
+}
+
+function projectPriority(intent) {
+  if (intent === "runtime") {
+    return 30;
+  }
+  if (intent === "tooling") {
+    return 20;
+  }
+  return 10;
+}
+
+function filePriority(project, filePath) {
+  let score = projectPriority(project.intent);
+  if (project.intent === "test") {
+    score += isTestOwnedPath(filePath) ? 40 : -10;
+  } else if (isTestOwnedPath(filePath)) {
+    score -= 20;
+  }
+
+  if (project.intent === "tooling") {
+    score += isToolingPath(filePath) ? 30 : -10;
+  }
+
+  score += project.projectRoot === "." ? 0 : project.projectRoot.split("/").length;
+  score -= project.filePaths.length / 1000;
+  return score;
+}
+
+function resolveExtendedConfigPath(configPath, extendsValue, knownConfigs) {
+  if (typeof extendsValue !== "string" || extendsValue.length === 0) {
+    return null;
+  }
+  if (!extendsValue.startsWith(".") && !extendsValue.startsWith("/")) {
+    return null;
+  }
+
+  const baseDir = path.posix.dirname(normalizeRepoPath(configPath));
+  const candidateBase = extendsValue.startsWith("/")
+    ? extendsValue.replace(/^\/+/, "")
+    : path.posix.normalize(path.posix.join(baseDir, extendsValue));
+  const candidates = [
+    candidateBase,
+    `${candidateBase}.json`,
+    path.posix.join(candidateBase, "tsconfig.json"),
+  ];
+
+  return candidates.find((candidate) => knownConfigs.has(candidate)) || null;
+}
+
+async function loadConfiguredProject(root, configPath) {
+  const absoluteConfigPath = path.join(root, configPath);
+  const configFile = ts.readConfigFile(absoluteConfigPath, ts.sys.readFile);
+  if (configFile.error) {
+    return null;
+  }
+
+  const rawConfig = configFile.config || {};
+  const parsed = ts.parseJsonConfigFileContent(rawConfig, ts.sys, path.dirname(absoluteConfigPath));
+  const filePaths = parsed.fileNames
+    .filter((filePath) => isRepoOwned(root, filePath))
+    .map((filePath) => normalizeRepoPath(path.relative(root, filePath)))
+    .filter((filePath) => isTsJsFile(filePath) && shouldTreatAsOwned(filePath))
+    .sort();
+  const normalizedConfigPath = normalizeRepoPath(configPath);
+
+  return {
+    id: `config:${normalizedConfigPath}`,
+    configPath: normalizedConfigPath,
+    projectRoot: normalizeRepoPath(path.dirname(normalizedConfigPath)),
+    inferred: false,
+    intent: classifyProjectIntent(normalizedConfigPath, rawConfig),
+    filePaths,
+    rawConfig,
+  };
+}
+
 function defaultCompilerConfig(root, filePaths) {
   return {
     id: "inferred:root",
@@ -68,29 +201,80 @@ async function computeFingerprint(root, filePaths) {
 export async function discoverSemanticProjects(root) {
   const relFiles = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
   const tsJsFiles = relFiles.filter(isTsJsFile);
-  const configFiles = relFiles.filter(isConfigCandidate);
-  const projects = [];
-  const coveredFiles = new Set();
+  const configFiles = relFiles.filter(isConfigCandidate).map(normalizeRepoPath).sort();
+  const knownConfigs = new Set(configFiles);
+  const parsedProjects = [];
 
   for (const configPath of configFiles) {
-    const projectRoot = path.dirname(configPath);
-    const projectFiles = tsJsFiles.filter((filePath) => projectRoot === "." || filePath.startsWith(`${projectRoot}/`));
-    if (projectFiles.length === 0) {
+    const project = await loadConfiguredProject(root, configPath);
+    if (!project) {
       continue;
     }
-    for (const filePath of projectFiles) {
-      coveredFiles.add(filePath);
+    parsedProjects.push(project);
+  }
+
+  const extendedConfigs = new Set();
+  for (const project of parsedProjects) {
+    const extended = resolveExtendedConfigPath(project.configPath, project.rawConfig?.extends, knownConfigs);
+    if (extended) {
+      extendedConfigs.add(extended);
     }
+  }
+
+  const configuredProjects = [];
+  for (const project of parsedProjects) {
+    if (project.filePaths.length === 0) {
+      continue;
+    }
+    if (extendedConfigs.has(project.configPath) && !hasExplicitProjectInputs(project.rawConfig)) {
+      continue;
+    }
+    configuredProjects.push(project);
+  }
+
+  const candidatesByFile = new Map();
+  for (const project of configuredProjects) {
+    for (const filePath of project.filePaths) {
+      if (!candidatesByFile.has(filePath)) {
+        candidatesByFile.set(filePath, []);
+      }
+      candidatesByFile.get(filePath).push(project);
+    }
+  }
+
+  const assignedFiles = new Set();
+  const projects = [];
+  for (const project of configuredProjects) {
+    const ownedFiles = project.filePaths.filter((filePath) => {
+      const candidates = candidatesByFile.get(filePath) || [];
+      const winner = [...candidates].sort((left, right) => {
+        const scoreDelta = filePriority(right, filePath) - filePriority(left, filePath);
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        const sizeDelta = left.filePaths.length - right.filePaths.length;
+        if (sizeDelta !== 0) {
+          return sizeDelta;
+        }
+        return left.configPath.localeCompare(right.configPath);
+      })[0];
+      return winner?.id === project.id;
+    });
+
+    if (ownedFiles.length === 0) {
+      continue;
+    }
+    ownedFiles.forEach((filePath) => assignedFiles.add(filePath));
     projects.push({
-      id: `config:${configPath}`,
-      configPath,
-      projectRoot,
+      id: project.id,
+      configPath: project.configPath,
+      projectRoot: project.projectRoot,
       inferred: false,
-      filePaths: projectFiles,
+      filePaths: ownedFiles,
     });
   }
 
-  const uncovered = tsJsFiles.filter((filePath) => !coveredFiles.has(filePath));
+  const uncovered = tsJsFiles.filter((filePath) => !assignedFiles.has(filePath));
   if (uncovered.length > 0) {
     projects.push(defaultCompilerConfig(root, uncovered));
   }
@@ -161,7 +345,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
       skipped_projects: [],
       reason: "semantic.tsjs.enabled is false",
     };
-    if (config.json || !options.silent) {
+    if (!options.skipOutput && (config.json || !options.silent)) {
       console.log(JSON.stringify(result, null, 2));
     }
     return result;
@@ -216,7 +400,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
       projects: buildStatusSummary(projects, refreshedIds),
     };
     closeIndexDatabase(db);
-    if (config.json || (!options.silent && !options.skipOutput)) {
+    if (!options.skipOutput && (config.json || !options.silent)) {
       console.log(JSON.stringify(result, null, 2));
     }
   }

@@ -239,6 +239,39 @@ test("runBootstrapCommand bootstraps a repo and persists provider", async () => 
   await assert.doesNotReject(() => fs.access(path.join(root, "docs", "modules")));
 });
 
+test("runBootstrapCommand bootstraps the exact requested root inside a larger git repository", async () => {
+  const gitRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-bootstrap-subdir-"));
+  const targetRoot = path.join(gitRoot, "apps", "metro-ticket-booking");
+  await fs.mkdir(path.join(gitRoot, ".git"));
+  await fs.mkdir(targetRoot, { recursive: true });
+  const runtime = createExecMock({
+    repoRoot: gitRoot,
+    initialBinaries: ["brew", "npm"],
+    auth: { codex: "ready" },
+  });
+
+  const result = await withSilent(() =>
+    runBootstrapCommand(
+      { _: ["this"], provider: "codex", root: targetRoot },
+      {
+        exec: runtime.exec,
+        platform: "darwin",
+        canPrompt: false,
+        progressEnabled: false,
+        cwd: targetRoot,
+      },
+    )
+  );
+
+  const config = await loadConfig(targetRoot);
+  assert.equal(result.status, "ready");
+  assert.equal(result.root, targetRoot);
+  assert.equal(result.git_root, gitRoot);
+  assert.equal(config.provider, "codex");
+  await assert.doesNotReject(() => fs.access(path.join(targetRoot, ".agentify.yaml")));
+  await assert.rejects(() => fs.access(path.join(gitRoot, ".agentify.yaml")));
+});
+
 test("runBootstrapCommand reports login required when auth cannot be verified", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-bootstrap-login-"));
   await fs.mkdir(path.join(root, ".git"));

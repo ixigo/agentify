@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { parseArgs, runCli } from "../src/main.js";
+import { setSilent } from "../src/core/ui.js";
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
   const args = parseArgs([
@@ -76,4 +77,48 @@ test("runCli init writes baseline local work and guardrail files", async () => {
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "work")));
+});
+
+test("runCli init --json emits a single machine-readable payload", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-json-"));
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["init", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    setSilent(false);
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "init");
+  assert.equal(payload.root, root);
+  assert.equal(payload.dry_run, false);
+});
+
+test("runCli doctor --json emits a single machine-readable payload", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-json-"));
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    setSilent(false);
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "doctor");
+  assert.ok(typeof payload.tier === "number");
+  assert.ok(payload.tools && typeof payload.tools === "object");
 });

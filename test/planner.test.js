@@ -135,3 +135,32 @@ func HandleLogin(raw string) string {
   assert.ok(plan.selected_modules.some((moduleInfo) => moduleInfo.root_path === "internal/auth"));
   assert.ok(plan.selected_files.some((fileInfo) => fileInfo.path === "internal/auth/token.go"));
 });
+
+test("planner uses a read-only index and warns providers away from nested Agentify commands", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-readonly-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "app.ts"),
+    "export function describeEntryPoint() { return 'app'; }\n",
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+
+  const dbPath = path.join(root, ".agents", "index.db");
+  const dbDir = path.join(root, ".agents");
+  await fs.chmod(dbPath, 0o444);
+  await fs.chmod(dbDir, 0o555);
+
+  try {
+    const plan = await buildExecutionPlan(root, config, "summarize the app entry point");
+    assert.ok(plan.selected_files.some((fileInfo) => fileInfo.path === "src/app.ts"));
+    assert.match(plan.prompt, /Do not invoke nested `agentify plan`, `agentify query`, or raw SQLite inspection/);
+    assert.match(plan.prompt, /AGENTIFY\.md/);
+  } finally {
+    await fs.chmod(dbDir, 0o755);
+    await fs.chmod(dbPath, 0o644);
+  }
+});

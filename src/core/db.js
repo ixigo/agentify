@@ -1,24 +1,49 @@
 import path from "node:path";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
+import process from "node:process";
 
 const require = createRequire(import.meta.url);
 const DB_SCHEMA_VERSION = "3.0";
 
 let driver = null;
 
-function openWithBetterSqlite3(filename) {
+function openWithBetterSqlite3(filename, options = {}) {
   const BetterSqlite3 = require("better-sqlite3");
   return {
     name: "better-sqlite3",
-    db: new BetterSqlite3(filename),
+    db: new BetterSqlite3(filename, {
+      readonly: Boolean(options.readOnly),
+      fileMustExist: Boolean(options.readOnly),
+    }),
   };
 }
 
-function openWithNodeSqlite(filename) {
-  const { DatabaseSync } = require("node:sqlite");
+function openWithNodeSqlite(filename, options = {}) {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = function wrappedEmitWarning(warning, ...args) {
+    const message = typeof warning === "string" ? warning : warning?.message;
+    const warningType = typeof args[0] === "string" ? args[0] : warning?.name;
+    if (
+      warningType === "ExperimentalWarning"
+      && String(message || "").includes("SQLite is an experimental feature")
+    ) {
+      return;
+    }
+    return originalEmitWarning.call(process, warning, ...args);
+  };
+
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = require("node:sqlite"));
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
+
   return {
     name: "node:sqlite",
-    db: new DatabaseSync(filename),
+    db: new DatabaseSync(filename, options.readOnly ? { readOnly: true } : {}),
   };
 }
 
@@ -50,37 +75,73 @@ export function getIndexDbPath(root) {
   return path.join(root, ".agents", "index.db");
 }
 
-export function openIndexDatabase(root) {
-  const dbPath = getIndexDbPath(root);
+function createIndexSnapshot(dbPath) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentify-index-"));
+  const snapshotPath = path.join(tempDir, "index.db");
+  fs.chmodSync(tempDir, 0o755);
+  fs.copyFileSync(dbPath, snapshotPath);
+  fs.chmodSync(snapshotPath, 0o644);
+
+  for (const suffix of ["-wal", "-shm"]) {
+    const sourcePath = `${dbPath}${suffix}`;
+    if (fs.existsSync(sourcePath)) {
+      const snapshotSidecarPath = `${snapshotPath}${suffix}`;
+      fs.copyFileSync(sourcePath, snapshotSidecarPath);
+      fs.chmodSync(snapshotSidecarPath, 0o644);
+    }
+  }
+
+  return { tempDir, snapshotPath };
+}
+
+export function openIndexDatabase(root, options = {}) {
+  const sourceDbPath = getIndexDbPath(root);
+  const readOnly = Boolean(options.readOnly);
+  let dbPath = sourceDbPath;
+  let tempDir = null;
+  if (!readOnly) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  } else if (!fs.existsSync(sourceDbPath)) {
+    throw new Error(`missing index database at ${sourceDbPath}`);
+  } else {
+    const snapshot = createIndexSnapshot(sourceDbPath);
+    dbPath = snapshot.snapshotPath;
+    tempDir = snapshot.tempDir;
+  }
+  const openOptions = tempDir ? { ...options, readOnly: false } : options;
   let implementation = driver;
   let db = null;
 
   if (implementation?.name === "better-sqlite3") {
     try {
-      db = openWithBetterSqlite3(dbPath).db;
+      db = openWithBetterSqlite3(dbPath, openOptions).db;
     } catch {
       implementation = null;
     }
   }
 
   if (!db && implementation?.name === "node:sqlite") {
-    db = openWithNodeSqlite(dbPath).db;
+    db = openWithNodeSqlite(dbPath, openOptions).db;
   }
 
   if (!db) {
     try {
-      const opened = openWithBetterSqlite3(dbPath);
+      const opened = openWithBetterSqlite3(dbPath, openOptions);
       implementation = { name: opened.name };
       db = opened.db;
     } catch {
-      const opened = openWithNodeSqlite(dbPath);
+      const opened = openWithNodeSqlite(dbPath, openOptions);
       implementation = { name: opened.name };
       db = opened.db;
     }
   }
 
   driver = implementation;
+  if (tempDir) {
+    db.__agentifyTempDir = tempDir;
+  }
 
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
 
@@ -300,6 +361,9 @@ export function openIndexDatabase(root) {
 
 export function closeIndexDatabase(db) {
   db.close();
+  if (db?.__agentifyTempDir) {
+    fs.rmSync(db.__agentifyTempDir, { recursive: true, force: true });
+  }
 }
 
 export function inTransaction(db, fn) {
@@ -477,6 +541,9 @@ export function loadModules(db) {
     ORDER BY m.root_path
   `).all()).map((row) => ({
     ...row,
+    rootPath: row.root_path,
+    packageName: row.package_name,
+    docPath: row.doc_path,
     entry_files: fromJson(row.entry_files_json, []),
     key_files: fromJson(row.key_files_json, []),
   }));

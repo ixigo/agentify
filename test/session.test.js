@@ -108,7 +108,7 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   assert.ok(Buffer.byteLength(JSON.stringify(resumed.context), "utf8") <= 1024);
   assert.equal(result.manifest.metadata.bootstrap_truncated, true);
   assert.equal(result.manifest.metadata.context_truncated, true);
-  assert.match(resumed.bootstrap, /\.agents\/index\.db/);
+  assert.match(resumed.bootstrap, /host shell -> \.agents\/index\.db/);
   assert.ok((resumed.context.index_snapshot.truncated_module_ids || 0) > 0);
   assert.ok((resumed.context.checklist_summary.remaining_items || 0) > 0);
 });

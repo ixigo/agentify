@@ -259,6 +259,11 @@ export function renderExecutionPrompt(plan) {
 
   return `You are working in a repository prepared by Agentify. Use the selected context first and avoid broad repo scans unless the context is clearly insufficient.
 
+Execution rules:
+- Prefer the selected file slices and generated markdown docs before running new discovery commands.
+- Do not invoke nested \`agentify plan\`, \`agentify query\`, or raw SQLite inspection from inside the provider session unless the selected context is clearly insufficient; those host-side artifacts may be unavailable in sandboxed providers.
+- If you still need more context, read \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/*.md\` before widening further.
+
 Task:
 ${plan.task}
 
@@ -292,7 +297,7 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
   const tokens = tokenizeTask(taskText);
   const changedFiles = await getChangedFiles(root);
   const changedPaths = new Set(changedFiles.map((item) => item.path));
-  const db = openIndexDatabase(options.artifactRoot || root);
+  const db = openIndexDatabase(options.artifactRoot || root, { readOnly: true });
 
   try {
     const meta = getRepoMeta(db);

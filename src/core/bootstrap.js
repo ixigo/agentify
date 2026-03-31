@@ -215,7 +215,7 @@ function groupInstallPlan(steps) {
   return grouped;
 }
 
-function buildConfirmationSummary({ installPlan, provider, repoRoot }) {
+function buildConfirmationSummary({ installPlan, provider, targetRoot }) {
   const grouped = groupInstallPlan(installPlan);
   const actions = [];
 
@@ -227,7 +227,7 @@ function buildConfirmationSummary({ installPlan, provider, repoRoot }) {
   }
 
   actions.push(`set provider to ${provider}`);
-  actions.push(`initialize ${repoRoot}`);
+  actions.push(`initialize ${targetRoot}`);
 
   return `Will ${actions.join("; ")}`;
 }
@@ -404,12 +404,13 @@ export async function probeProviderReadiness(provider, runtime = {}) {
   throw new Error(`unsupported provider "${provider}"`);
 }
 
-function buildBlockedResult({ provider, requestedRoot, repoRoot = null, reason, detail = null }) {
+function buildBlockedResult({ provider, requestedRoot, root = null, gitRoot = null, reason, detail = null }) {
   return {
     status: "blocked",
     provider,
     requested_root: requestedRoot,
-    root: repoRoot,
+    root: root || requestedRoot,
+    git_root: gitRoot,
     reason,
     detail,
   };
@@ -445,6 +446,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
     const result = buildBlockedResult({
       provider,
       requestedRoot,
+      root: requestedRoot,
       reason: "unsupported_platform",
       detail: `agentify this currently supports macOS only; detected ${mergedRuntime.platform}.`,
     });
@@ -461,6 +463,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
     const result = buildBlockedResult({
       provider,
       requestedRoot,
+      root: requestedRoot,
       reason: "missing_path",
       detail: `path does not exist: ${requestedRoot}`,
     });
@@ -492,6 +495,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
     const result = buildBlockedResult({
       provider,
       requestedRoot,
+      root: requestedRoot,
       reason: "missing_homebrew",
       detail,
     });
@@ -506,9 +510,10 @@ export async function runBootstrapCommand(args, runtime = {}) {
     const result = buildBlockedResult({
       provider,
       requestedRoot,
+      root: requestedRoot,
       reason: "not_git_repo",
       detail: `path is not inside a Git repository: ${requestedRoot}`,
-      repoRoot: null,
+      gitRoot: null,
     });
     progress.error("blocked: target is not a git repository");
     if (args.json) {
@@ -517,8 +522,8 @@ export async function runBootstrapCommand(args, runtime = {}) {
     return result;
   }
 
-  const installPlan = await buildBootstrapInstallPlan(provider, { ...mergedRuntime, cwd: repoRoot });
-  const summary = buildConfirmationSummary({ installPlan, provider, repoRoot });
+  const installPlan = await buildBootstrapInstallPlan(provider, { ...mergedRuntime, cwd: requestedRoot });
+  const summary = buildConfirmationSummary({ installPlan, provider, targetRoot: requestedRoot });
 
   if (!args.json) {
     progress.clear();
@@ -543,7 +548,8 @@ export async function runBootstrapCommand(args, runtime = {}) {
       const result = buildBlockedResult({
         provider,
         requestedRoot,
-        repoRoot,
+        root: requestedRoot,
+        gitRoot: repoRoot,
         reason: "cancelled",
         detail: "bootstrap cancelled by user",
       });
@@ -574,7 +580,8 @@ export async function runBootstrapCommand(args, runtime = {}) {
         const blocked = buildBlockedResult({
           provider,
           requestedRoot,
-          repoRoot,
+          root: requestedRoot,
+          gitRoot: repoRoot,
           reason: "install_failed",
           detail: `${command}${detail ? `\n${detail}` : ""}`,
         });
@@ -588,7 +595,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
 
   progress.update(85, args.dryRun ? "previewing repository initialization" : "initializing repository");
 
-  const config = await loadConfig(repoRoot, {
+  const config = await loadConfig(requestedRoot, {
     provider,
     dryRun: Boolean(args.dryRun),
     json: Boolean(args.json),
@@ -597,20 +604,21 @@ export async function runBootstrapCommand(args, runtime = {}) {
   config.dryRun = Boolean(args.dryRun);
   config.json = Boolean(args.json);
 
-  await writeDefaultConfig(repoRoot, config, { dryRun: config.dryRun });
-  await persistProviderPreference(repoRoot, provider, { dryRun: config.dryRun });
-  await ensureBaselineArtifacts(repoRoot, config);
+  await writeDefaultConfig(requestedRoot, config, { dryRun: config.dryRun });
+  await persistProviderPreference(requestedRoot, provider, { dryRun: config.dryRun });
+  await ensureBaselineArtifacts(requestedRoot, config);
 
   const auth = await probeProviderReadiness(provider, {
     ...mergedRuntime,
-    cwd: repoRoot,
+    cwd: requestedRoot,
   });
 
   const result = {
     status: auth.state === "ready" ? "ready" : "login_required",
     provider,
     requested_root: requestedRoot,
-    root: repoRoot,
+    root: requestedRoot,
+    git_root: repoRoot,
     dry_run: Boolean(args.dryRun),
     installs: installPlan.map((step) => ({
       id: step.id,
@@ -627,12 +635,12 @@ export async function runBootstrapCommand(args, runtime = {}) {
   }
 
   if (config.dryRun) {
-    progress.success(`100% dry-run complete for ${provider} in ${repoRoot}`);
+    progress.success(`100% dry-run complete for ${provider} in ${requestedRoot}`);
     return result;
   }
 
   if (result.status === "ready") {
-    progress.success(`100% ready: ${provider} configured in ${repoRoot}`);
+    progress.success(`100% ready: ${provider} configured in ${requestedRoot}`);
   } else {
     const nextStep = auth.nextStep || PROVIDER_BOOTSTRAP[provider].loginCommand;
     progress.warn(`85% login required: run ${nextStep}`);

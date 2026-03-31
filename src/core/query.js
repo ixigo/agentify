@@ -32,7 +32,7 @@ function findOwningModule(modules, filePath) {
 }
 
 export async function queryOwner(root, filePath) {
-  const db = openIndexDatabase(root);
+  const db = openIndexDatabase(root, { readOnly: true });
   try {
     const modules = loadModules(db);
     const owner = findOwningModule(modules, filePath);
@@ -57,7 +57,7 @@ export async function queryOwner(root, filePath) {
 }
 
 export async function queryDeps(root, moduleId) {
-  const db = openIndexDatabase(root);
+  const db = openIndexDatabase(root, { readOnly: true });
   try {
     const modules = loadModules(db);
     const moduleInfo = modules.find((item) => item.id === moduleId);
@@ -79,7 +79,7 @@ export async function queryDeps(root, moduleId) {
 }
 
 export async function queryChanged(root, sinceCommit) {
-  const db = openIndexDatabase(root);
+  const db = openIndexDatabase(root, { readOnly: true });
   try {
     const modules = loadModules(db);
     const changed = await getChangedFilesSince(root, sinceCommit);
@@ -113,7 +113,7 @@ export async function queryChanged(root, sinceCommit) {
 }
 
 export async function querySearch(root, term) {
-  const db = openIndexDatabase(root);
+  const db = openIndexDatabase(root, { readOnly: true });
   try {
     const semantic = searchSemanticIndex(db, term);
     return {
