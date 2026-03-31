@@ -68,3 +68,12 @@ test("runCli supports skill install with provider all", async () => {
     fs.access(path.join(root, ".opencode", "skills", "worktree-verifier", "SKILL.md"))
   );
 });
+
+test("runCli init writes baseline local work and guardrail files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-"));
+  await runCli(["init", "--root", root]);
+
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "work")));
+});

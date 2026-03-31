@@ -6,7 +6,19 @@ import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
 import { closeIndexDatabase, getRepoMeta, loadModules, openIndexDatabase } from "./db.js";
 
-const ALLOWED_DOC_PATHS = [/^AGENTS\.md$/, /^AGENTIFY\.md$/, /^output\.txt$/, /^agentify-report\.html$/, /^\.agentify\.yaml$/, /^docs\//, /^\.agents\//, /^\.current_session(\/|$)/];
+const ALLOWED_DOC_PATHS = [
+  /^AGENTS\.md$/,
+  /^AGENTIFY\.md$/,
+  /^output\.txt$/,
+  /^agentify-report\.html$/,
+  /^\.agentify\.yaml$/,
+  /^\.agentignore$/,
+  /^\.guardrails$/,
+  /^\.agentify\/work\//,
+  /^docs\//,
+  /^\.agents\//,
+  /^\.current_session(\/|$)/,
+];
 const ALLOWED_CODE_EXTENSIONS = /\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/;
 
 export const FAILURE_CATEGORIES = {
@@ -18,7 +30,7 @@ export const FAILURE_CATEGORIES = {
 
 const REMEDIATION_HINTS = {
   [FAILURE_CATEGORIES.UNSAFE_PATH]:
-    "Only doc paths (.agents/, docs/, AGENTS.md) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
+    "Only recognized Agentify paths (.agents/, docs/, .agentify/work/, .guardrails, .agentignore, AGENTS.md) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
   [FAILURE_CATEGORIES.FRESHNESS_STALE]:

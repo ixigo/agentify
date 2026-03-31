@@ -11,7 +11,7 @@ test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
 
-  assert.deepEqual(names.sort(), ["grill-me", "worktree-verifier"]);
+  assert.deepEqual(names.sort(), ["grill-me", "improve-codebase-architecture", "worktree-verifier"]);
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-verifier");
 });
 
@@ -51,6 +51,22 @@ test("installBuiltinSkill copies codex skill bundle into project scope", async (
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies architecture skill references into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-arch-"));
+  const result = await installBuiltinSkill(root, {
+    name: "improve-codebase-architecture",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "improve-codebase-architecture", "SKILL.md");
+  const referencePath = path.join(root, ".codex", "skills", "improve-codebase-architecture", "REFERENCE.md");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(referencePath), true);
 });
 
 test("installBuiltinSkill installs canonical skill name for alias across all providers", async () => {

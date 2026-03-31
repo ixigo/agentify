@@ -1147,6 +1147,9 @@ This repository is Agentify-enabled. Start with \`agentify plan "<task>"\` or \`
 - Generated docs live under \`docs/\`
 - Indexed metadata lives under \`.agents/index.db\`
 - Code headers marked with \`@agentify\` are safe to refresh
+- Repo guardrails live in \`.guardrails\`
+- Local working RFCs and notes live under \`.agentify/work/\`
+- Use \`.agentignore\` to keep local-only artifacts out of scans
 
 ## Modules
 ${index.modules.map((moduleInfo) => `- \`${moduleInfo.name}\`: \`${moduleInfo.root_path}\``).join("\n")}
@@ -1245,13 +1248,54 @@ async function writeRunReport(root, report) {
   return runPath;
 }
 
+function renderDefaultAgentignore() {
+  return `# Keep local Agentify work artifacts out of repo scans
+.agentify/work/**
+`;
+}
+
+function renderDefaultGuardrails() {
+  return `# Agentify Guardrails
+
+## Git Safety
+- Do not run \`git reset --hard\`, \`git checkout -- <path>\`, \`git clean -fd\`, or other destructive history or workspace resets unless the user explicitly asks.
+- Do not force-push, rewrite unrelated history, or delete branches unless the user explicitly asks.
+
+## Commit Quality
+- Use clear commit messages that describe the change.
+- Do not create placeholder commits like \`wip\`, \`fix\`, or \`misc\` unless the user explicitly asks.
+- Do not commit knowingly broken code just to checkpoint progress.
+
+## Protected Paths
+- Do not edit \`.agents/\`, \`docs/modules/\`, \`AGENTS.md\`, \`AGENTIFY.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
+- Do not edit provider-installed skill directories under \`.codex/\`, \`.claude/\`, \`.gemini/\`, or \`.opencode/\` unless the task is specifically about those files.
+- Put local architecture RFCs, notes, and scratch outputs under \`.agentify/work/\`.
+
+## Files To Avoid Touching Without Intent
+- \`node_modules/\`
+- lockfiles unless the task changes dependencies
+- repo config such as \`.agentify.yaml\`, \`.agentignore\`, and \`.guardrails\` unless the task is about repo policy or tooling
+`;
+}
+
+async function writeTextIfMissing(targetPath, text) {
+  if (await exists(targetPath)) {
+    return false;
+  }
+  await writeText(targetPath, text);
+  return true;
+}
+
 export async function ensureBaselineArtifacts(root, config) {
   if (config.dryRun) {
     return;
   }
   await ensureDir(path.join(root, ".agents"));
   await ensureDir(path.join(root, ".agents", "runs"));
+  await ensureDir(path.join(root, ".agentify", "work"));
   await ensureDir(path.join(root, "docs", "modules"));
+  await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
+  await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
 }
 
 function resolveArtifactRoot(root, config, runId) {

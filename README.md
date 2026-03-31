@@ -18,13 +18,14 @@ Requires **Node.js >= 20**.
 
 ```bash
 cd /path/to/your/repo
-agentify init
-agentify up --provider codex
+agentify this --provider codex
 agentify skill install grill-me --provider codex --scope project
 agentify clean
 agentify check
 agentify run "implement retry logic for checkout"
 ```
+
+`agentify this` is the macOS bootstrap path. It defaults to the current working directory, can prompt for provider/path when flags are omitted, verifies/install required local tools, writes the repo-local provider, and initializes missing Agentify artifacts.
 
 ## Day-to-Day Workflow
 
@@ -91,6 +92,7 @@ agentify run "task B"     # uses codex in the same repo
 | `plan` | Preview the planner-selected context for a task |
 | `run` | Provider-template execution with auto-refresh |
 | `exec` | Advanced wrapper for custom command after `--` |
+| `this` | Bootstrap the current macOS repo for a provider-backed workflow |
 | `skill` | List and install built-in agent skills for supported providers |
 | `sess` | Session lifecycle commands (`run`, `list`, `resume`, `fork`) |
 | `query` | Query index (`owner`, `deps`, `changed`, `search`) |
@@ -125,6 +127,7 @@ agentify skill install worktree-verifier --provider codex --scope user
 Built-in skills:
 
 - `grill-me`
+- `improve-codebase-architecture`
 - `worktree-verifier` (alias: `god-mode`)
 
 Notes:
@@ -145,6 +148,22 @@ Supported providers:
 - `opencode`
 
 `local` is valid for scan/doc/up/check workflows, but `run` / `sess *` require an external provider (`codex|claude|gemini|opencode`) because they execute provider CLIs.
+
+## Bootstrap Command
+
+```bash
+agentify this
+agentify this --provider codex
+agentify this --provider codex --root /path/to/repo
+```
+
+Notes:
+
+- `this` currently supports macOS only.
+- The command uses the current working directory when `--root` is omitted.
+- Supported bootstrap providers are `codex`, `claude`, `gemini`, and `opencode`.
+- Homebrew is required for macOS package installation.
+- Normal TTY mode keeps bootstrap progress to a single compact line and suppresses installer logs unless something fails.
 
 ## Options
 
@@ -220,6 +239,9 @@ docs/repo-map.md
 docs/modules/*.md
 .agents/index.db
 .agents/runs/*.json
+.agentignore
+.guardrails
+.agentify/work/*
 .agents/session/*
 ```
 
