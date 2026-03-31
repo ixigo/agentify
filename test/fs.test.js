@@ -13,10 +13,14 @@ test("walkFiles respects hard excludes and does not leak ignore cache across roo
   await fs.writeFile(path.join(rootA, ".agentignore"), "ignored.js\n", "utf8");
   await fs.mkdir(path.join(rootA, "docs"), { recursive: true });
   await fs.mkdir(path.join(rootA, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(rootA, ".codex", "skills"), { recursive: true });
+  await fs.mkdir(path.join(rootA, ".claude", "skills"), { recursive: true });
   await fs.mkdir(path.join(rootA, "src"), { recursive: true });
   await fs.writeFile(path.join(rootA, "ignored.js"), "export const ignored = true;\n", "utf8");
   await fs.writeFile(path.join(rootA, "docs", "manual.md"), "# generated\n", "utf8");
   await fs.writeFile(path.join(rootA, ".agents", "index.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(rootA, ".codex", "skills", "helper.md"), "# hidden\n", "utf8");
+  await fs.writeFile(path.join(rootA, ".claude", "skills", "helper.md"), "# hidden\n", "utf8");
   await fs.writeFile(path.join(rootA, "src", "index.ts"), "export const ok = true;\n", "utf8");
 
   const filesA = (await walkFiles(rootA, { respectIgnore: true })).map((file) => relative(rootA, file));

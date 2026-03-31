@@ -4,3 +4,4 @@ node_modules/
 .agents/cache/
 .agents/.lock
 *.tmp
+.codex

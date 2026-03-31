@@ -12,6 +12,7 @@ import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
+import { installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
@@ -59,6 +60,10 @@ function normalizeProvider(value) {
 }
 
 async function maybePersistProvider(root, config, args, command, subcommand) {
+  if (command === "skill" || command === "skills") {
+    return;
+  }
+
   if (!hasOwn(args, "provider")) {
     return;
   }
@@ -142,6 +147,7 @@ function printHelp() {
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
+    `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
@@ -151,6 +157,7 @@ function printHelp() {
     `  ${bold("OPTIONS")}`,
     ``,
     `    ${c("--provider")} ${d(`<${SUPPORTED_PROVIDERS.join("|")}>`)}`,
+    `                         ${d("skill install also accepts comma lists and all")}`,
     `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
     `    ${c("--languages")} ${d("<auto|ts|python|go|rust|dotnet|java|kotlin|swift>")}`,
     `    ${c("--dry-run")}                   Report planned changes without writing`,
@@ -159,6 +166,7 @@ function printHelp() {
     `    ${c("--interactive")}, ${c("-i")}       Launch Codex interactive CLI for run/sess`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
+    `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,
     ``,
     `  ${bold("EXEC FLAGS")}`,
     ``,
@@ -173,6 +181,9 @@ function printHelp() {
     `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
+    `    ${d("$")} agentify skill list`,
+    `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
+    `    ${d("$")} agentify skill install god-mode --provider all --scope project`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
@@ -359,6 +370,59 @@ export async function runCli(argv) {
       }
       console.log(JSON.stringify(result, null, 2));
       return;
+    }
+
+    case "skill":
+    case "skills": {
+      if (subcommand === "list") {
+        const skills = listBuiltinSkills();
+        if (config.json) {
+          console.log(JSON.stringify({ skills }, null, 2));
+        } else if (skills.length === 0) {
+          log("No built-in skills available.");
+        } else {
+          for (const skill of skills) {
+            const aliases = skill.aliases.length > 0 ? ` aliases: ${skill.aliases.join(", ")}` : "";
+            log(`${bold(skill.name)} ${dim(`[${skill.providers.join(", ")}]`)}${aliases ? ` ${dim(aliases)}` : ""}`);
+            log(skill.description);
+          }
+        }
+        return;
+      }
+
+      if (subcommand === "install") {
+        const skillName = args._[2];
+        if (!skillName) {
+          throw new Error("skill install requires a skill name: agentify skill install <name>");
+        }
+        const result = await installBuiltinSkill(root, {
+          name: skillName,
+          provider: args.provider,
+          scope: args.scope,
+          force: args.force,
+          dryRun: config.dryRun,
+          defaultProvider: config.provider,
+        });
+
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          if (result.skill.requested_name !== result.skill.name) {
+            log(`Resolved alias ${result.skill.requested_name} -> ${result.skill.name}`);
+          }
+          if (config.dryRun) {
+            log(`Skill install dry-run for ${bold(result.skill.name)} (${result.scope} scope).`);
+          } else {
+            success(`Skill ready: ${result.skill.name}`);
+          }
+          for (const item of result.results) {
+            log(`${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+          }
+        }
+        return;
+      }
+
+      throw new Error("skill requires a subcommand: list or install");
     }
 
     case "sess": {

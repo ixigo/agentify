@@ -1,0 +1,1745 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify Explained</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+    :root {
+      color-scheme: light;
+      --bg: #f8fafc;
+      --bg-strong: #eef3f9;
+      --surface: rgba(255, 255, 255, 0.84);
+      --surface-strong: #ffffff;
+      --surface-tint: rgba(237, 242, 249, 0.88);
+      --text: #1e293b;
+      --muted: #475569;
+      --muted-strong: #334155;
+      --line: rgba(71, 85, 105, 0.18);
+      --line-strong: rgba(71, 85, 105, 0.28);
+      --accent: #2563eb;
+      --accent-strong: #1d4ed8;
+      --accent-soft: rgba(37, 99, 235, 0.12);
+      --accent-soft-strong: rgba(37, 99, 235, 0.2);
+      --success: #0f766e;
+      --warning: #b45309;
+      --danger: #be123c;
+      --shadow-lg: 0 28px 80px rgba(30, 41, 59, 0.12);
+      --shadow-md: 0 16px 42px rgba(30, 41, 59, 0.08);
+      --shadow-sm: 0 8px 18px rgba(30, 41, 59, 0.06);
+      --radius-xl: 34px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --max-width: 1220px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(37, 99, 235, 0.18), transparent 28%),
+        radial-gradient(circle at 88% 12%, rgba(100, 116, 139, 0.12), transparent 22%),
+        linear-gradient(180deg, #fdfefe 0%, var(--bg) 40%, #edf3f8 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 70%);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    code,
+    pre,
+    .mono {
+      font-family: "JetBrains Mono", monospace;
+    }
+
+    .skip-link {
+      position: absolute;
+      top: -100px;
+      left: 16px;
+      z-index: 1000;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #ffffff;
+      transition: top 180ms ease;
+    }
+
+    .skip-link:focus {
+      top: 16px;
+    }
+
+    .shell {
+      width: min(var(--max-width), calc(100vw - 32px));
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 12px;
+      z-index: 30;
+      padding-top: 12px;
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, var(--accent), #7dd3fc);
+      box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.12);
+      flex: 0 0 auto;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-title,
+    .eyebrow,
+    .section-kicker,
+    .chip,
+    .metric-label,
+    .nav-link,
+    .table-label {
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .brand-subtitle {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .nav-link {
+      padding: 10px 12px;
+      border-radius: 999px;
+      font-size: 0.79rem;
+      color: var(--muted);
+      transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .nav-link:hover,
+    .nav-link:focus-visible,
+    .nav-link.is-active {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      box-shadow: inset 0 0 0 1px var(--accent-soft-strong);
+      outline: none;
+    }
+
+    main {
+      padding: 28px 0 72px;
+      display: grid;
+      gap: 22px;
+    }
+
+    section {
+      position: relative;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    section::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    }
+
+    .hero {
+      padding: clamp(28px, 4vw, 44px);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(242, 247, 253, 0.86)),
+        linear-gradient(135deg, rgba(37, 99, 235, 0.06), transparent 55%);
+    }
+
+    .hero-grid,
+    .overview-grid,
+    .artifacts-grid,
+    .adoption-grid,
+    .case-grid,
+    .stakeholder-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .hero-grid {
+      grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.9fr);
+      align-items: start;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    .section-head > div:first-child {
+      max-width: 68ch;
+    }
+
+    .eyebrow,
+    .section-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .section-kicker {
+      margin-bottom: 12px;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    p {
+      margin-top: 0;
+    }
+
+    h1,
+    h2,
+    h3 {
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(2.5rem, 6vw, 4.8rem);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+      margin: 18px 0 16px;
+      max-width: 12ch;
+    }
+
+    h2 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(1.45rem, 2.4vw, 2.2rem);
+      line-height: 1.05;
+      margin-bottom: 10px;
+    }
+
+    h3 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 1.04rem;
+      line-height: 1.2;
+      margin-bottom: 10px;
+    }
+
+    .lede,
+    .section-copy,
+    .card-copy,
+    .detail-copy,
+    .footer-copy {
+      color: var(--muted);
+      line-height: 1.72;
+    }
+
+    .lede {
+      font-size: 1.08rem;
+      max-width: 60ch;
+      margin-bottom: 22px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 12px 18px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-weight: 600;
+      transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease;
+      cursor: pointer;
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      transform: translateY(-1px);
+      outline: none;
+    }
+
+    .button-primary {
+      background: linear-gradient(135deg, var(--accent), #3b82f6);
+      color: #ffffff;
+      box-shadow: 0 16px 36px rgba(37, 99, 235, 0.24);
+    }
+
+    .button-secondary {
+      background: rgba(255, 255, 255, 0.72);
+      border-color: var(--line);
+      color: var(--muted-strong);
+    }
+
+    .chip-row,
+    .quick-points,
+    .metric-grid,
+    .artifact-list,
+    .stack-list,
+    .command-stack,
+    .faq-grid,
+    .limitation-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted-strong);
+      font-size: 0.8rem;
+    }
+
+    .chip strong {
+      color: var(--text);
+    }
+
+    .hero-aside,
+    .summary-panel,
+    .card,
+    .artifact-card,
+    .case-card,
+    .stakeholder-card,
+    .workflow-step,
+    .architecture-card,
+    .metric-card,
+    .detail-card,
+    .faq-card,
+    .table-wrap,
+    .code-panel,
+    .tree-panel {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-strong);
+      box-shadow: var(--shadow-sm);
+      min-width: 0;
+    }
+
+    .hero-aside {
+      padding: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 243, 249, 0.9));
+    }
+
+    .hero-aside h3 {
+      margin-bottom: 8px;
+    }
+
+    .summary-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      align-items: start;
+    }
+
+    .summary-row:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .summary-label {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .summary-value {
+      color: var(--muted-strong);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+
+    .overview-grid {
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr);
+    }
+
+    .card,
+    .artifact-card,
+    .case-card,
+    .stakeholder-card,
+    .workflow-step,
+    .architecture-card,
+    .metric-card,
+    .detail-card,
+    .faq-card,
+    .tree-panel,
+    .code-panel {
+      padding: 18px;
+    }
+
+    .card-copy:last-child,
+    .detail-copy:last-child {
+      margin-bottom: 0;
+    }
+
+    .metric-grid {
+      margin-top: 16px;
+    }
+
+    .metric-card {
+      flex: 1 1 180px;
+      min-height: 150px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 253, 0.96));
+    }
+
+    .metric-value {
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+      line-height: 1;
+      margin: 10px 0 10px;
+      color: var(--accent-strong);
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .workflow {
+      padding-left: 24px;
+      border-left: 2px solid var(--accent-soft-strong);
+      display: grid;
+      gap: 16px;
+    }
+
+    .workflow-step::before {
+      content: "";
+      position: absolute;
+      left: -34px;
+      top: 20px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--surface-strong);
+      border: 3px solid var(--accent);
+      box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.08);
+    }
+
+    .step-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .callout-list,
+    .mini-list,
+    .artifact-definitions,
+    .stakeholder-list,
+    .limitation-list,
+    .detail-list,
+    .comparison-list {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .callout-list li,
+    .mini-list li,
+    .artifact-definitions li,
+    .stakeholder-list li,
+    .limitation-list li,
+    .detail-list li,
+    .comparison-list li {
+      padding-left: 18px;
+      position: relative;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .callout-list li::before,
+    .mini-list li::before,
+    .artifact-definitions li::before,
+    .stakeholder-list li::before,
+    .limitation-list li::before,
+    .detail-list li::before,
+    .comparison-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.72em;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .architecture-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .architecture-card {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+    }
+
+    .card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: var(--bg-strong);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.77rem;
+    }
+
+    .artifacts-grid {
+      grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr);
+      align-items: start;
+    }
+
+    .tree-panel {
+      background: #132033;
+      color: #dbe8ff;
+      border-color: rgba(125, 211, 252, 0.18);
+      box-shadow: 0 22px 52px rgba(15, 23, 42, 0.3);
+    }
+
+    .tree-panel h3,
+    .code-panel h3 {
+      color: #ffffff;
+    }
+
+    .tree-panel .section-copy,
+    .tree-panel .card-copy {
+      color: rgba(219, 232, 255, 0.8);
+    }
+
+    .file-tree {
+      margin: 14px 0 0;
+      padding: 0;
+      overflow-x: auto;
+      white-space: pre;
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+
+    .artifact-columns {
+      display: grid;
+      gap: 16px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .detail-card {
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      line-height: 1.6;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: rgba(248, 250, 252, 0.95);
+      color: var(--muted-strong);
+      font-size: 0.84rem;
+      z-index: 1;
+    }
+
+    td code,
+    .inline-code {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: var(--bg-strong);
+      color: var(--accent-strong);
+      font-size: 0.88em;
+    }
+
+    .code-panel {
+      background: #0f172a;
+      color: #dbeafe;
+      border-color: rgba(148, 163, 184, 0.18);
+      overflow: hidden;
+    }
+
+    .code-panel pre {
+      margin: 0;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.92);
+      overflow-x: auto;
+      color: #dbeafe;
+      line-height: 1.7;
+    }
+
+    .case-grid,
+    .stakeholder-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .case-card,
+    .stakeholder-card {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 245, 251, 0.92));
+    }
+
+    .case-title,
+    .stakeholder-title {
+      margin-bottom: 8px;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .comparison > div {
+      padding: 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .comparison h3 {
+      margin-bottom: 8px;
+    }
+
+    .adoption-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.9);
+      overflow: hidden;
+    }
+
+    details + details {
+      margin-top: 12px;
+    }
+
+    summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 18px;
+      font-weight: 600;
+      min-height: 44px;
+      transition: background-color 180ms ease;
+    }
+
+    summary:hover,
+    summary:focus-visible {
+      background: var(--accent-soft);
+      outline: none;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-body {
+      padding: 0 18px 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .footer {
+      margin-top: 8px;
+      padding: 24px 0 0;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .footer-copy {
+      max-width: 72ch;
+      margin-bottom: 0;
+    }
+
+    .status-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    .status-note strong {
+      color: var(--text);
+    }
+
+    .accent {
+      color: var(--accent-strong);
+    }
+
+    .success {
+      color: var(--success);
+    }
+
+    .warning {
+      color: var(--warning);
+    }
+
+    .danger {
+      color: var(--danger);
+    }
+
+    :focus-visible {
+      outline: 3px solid rgba(37, 99, 235, 0.32);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 1120px) {
+      .hero-grid,
+      .overview-grid,
+      .artifacts-grid,
+      .adoption-grid,
+      .case-grid,
+      .stakeholder-grid,
+      .architecture-grid,
+      .detail-grid,
+      .comparison {
+        grid-template-columns: 1fr;
+      }
+
+      .nav {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(var(--max-width), calc(100vw - 20px));
+      }
+
+      .topbar {
+        top: 8px;
+      }
+
+      .topbar-inner,
+      section {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      section {
+        padding-top: 18px;
+        padding-bottom: 18px;
+      }
+
+      .hero {
+        padding: 20px 16px;
+      }
+
+      .workflow {
+        padding-left: 18px;
+      }
+
+      .workflow-step::before {
+        left: -28px;
+      }
+
+      .summary-row {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-actions,
+      .chip-row,
+      .quick-points {
+        gap: 8px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+
+  <div class="shell">
+    <header class="topbar" aria-label="Primary">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-copy">
+            <div class="brand-title">Agentify Explained</div>
+            <p class="brand-subtitle">A detailed, repo-grounded explainer page for this project.</p>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Section links">
+          <a class="nav-link" href="#overview">Overview</a>
+          <a class="nav-link" href="#workflow">Workflow</a>
+          <a class="nav-link" href="#architecture">Architecture</a>
+          <a class="nav-link" href="#artifacts">Artifacts</a>
+          <a class="nav-link" href="#commands">Commands</a>
+          <a class="nav-link" href="#benefits">Benefits</a>
+          <a class="nav-link" href="#faq">FAQ</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content">
+      <section class="hero" id="top">
+        <div class="hero-grid">
+          <div>
+            <span class="eyebrow">Repository Intelligence Layer</span>
+            <h1>How Agentify works inside a codebase</h1>
+            <p class="lede">
+              Agentify is not another coding model. It is the orchestration layer around agent-driven work:
+              it scans a repository, writes a structured SQLite index, plans bounded context for a task,
+              wraps external provider CLIs, refreshes documentation after changes, validates safety rules,
+              and preserves session continuity.
+            </p>
+
+            <div class="hero-actions">
+              <a class="button button-primary" href="#workflow">See the workflow</a>
+              <a class="button button-secondary" href="#benefits">Make the case for it</a>
+            </div>
+
+            <div class="chip-row" aria-label="Quick summary">
+              <span class="chip"><strong>Supports:</strong> Codex, Claude, Gemini, OpenCode</span>
+              <span class="chip"><strong>Indexes:</strong> modules, files, symbols, imports, tests, commands</span>
+              <span class="chip"><strong>Writes:</strong> docs, headers, reports, sessions</span>
+            </div>
+
+            <div class="metric-grid" aria-label="Key facts">
+              <article class="metric-card">
+                <div class="metric-label">What It Replaces</div>
+                <div class="metric-value">Ad hoc context</div>
+                <p class="card-copy">Instead of manually pasting files into prompts, Agentify routes the task through an index and planner.</p>
+              </article>
+
+              <article class="metric-card">
+                <div class="metric-label">What It Adds</div>
+                <div class="metric-value">Repo memory</div>
+                <p class="card-copy">It stores repository structure, generated docs, session snapshots, and queryable metadata beside the codebase.</p>
+              </article>
+
+              <article class="metric-card">
+                <div class="metric-label">Why It Matters</div>
+                <div class="metric-value">Safer automation</div>
+                <p class="card-copy">Execution is paired with refresh, validation, caching, and cleanup rather than leaving generated state to drift.</p>
+              </article>
+            </div>
+          </div>
+
+          <aside class="hero-aside" aria-label="Project summary">
+            <h3>What this project actually is</h3>
+            <p class="card-copy">
+              A CLI that coordinates repository indexing, task planning, provider execution, documentation generation,
+              validation, cleanup, and resumable sessions for AI-assisted engineering work.
+            </p>
+
+            <div class="summary-list">
+              <div class="summary-row">
+                <div class="summary-label">Entry</div>
+                <div class="summary-value"><span class="inline-code">src/cli.js</span> forwards commands into <span class="inline-code">src/main.js</span>.</div>
+              </div>
+
+              <div class="summary-row">
+                <div class="summary-label">Index</div>
+                <div class="summary-value">Repository facts are written into <span class="inline-code">.agents/index.db</span> with tables for modules, files, symbols, imports, tests, commands, and cached artifacts.</div>
+              </div>
+
+              <div class="summary-row">
+                <div class="summary-label">Planner</div>
+                <div class="summary-value">A task is scored against module names, file paths, symbols, changed files, tests, and commands to build a bounded execution prompt.</div>
+              </div>
+
+              <div class="summary-row">
+                <div class="summary-label">Execution</div>
+                <div class="summary-value"><span class="inline-code">run</span>, <span class="inline-code">exec</span>, and <span class="inline-code">sess</span> launch provider commands, then refresh scan and docs and run validation.</div>
+              </div>
+
+              <div class="summary-row">
+                <div class="summary-label">Safety</div>
+                <div class="summary-value">Validation checks freshness and uses a strict allowlist for generated paths and header-only code changes.</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="overview">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Overview</span>
+            <h2>What problem it solves and why the design matters</h2>
+            <p class="section-copy">
+              The main issue with AI coding in real repositories is not code generation itself. The real issues are context sprawl,
+              stale repo knowledge, vendor lock-in, and the lack of a durable project memory. Agentify addresses those by turning
+              the repository into a structured system the agent can query and refresh.
+            </p>
+          </div>
+          <div class="status-note"><strong>Key idea:</strong> orchestration over improvisation</div>
+        </div>
+
+        <div class="overview-grid">
+          <article class="card">
+            <h3>Without a layer like this</h3>
+            <ul class="comparison-list">
+              <li>An agent scans too broadly or too narrowly because every prompt starts from scratch.</li>
+              <li>Repository docs go stale the moment the code changes.</li>
+              <li>One provider's CLI conventions leak into the whole workflow.</li>
+              <li>Long tasks lose continuity between sessions and branches.</li>
+              <li>The repo accumulates metadata and run artifacts with no lifecycle.</li>
+            </ul>
+          </article>
+
+          <article class="card">
+            <h3>With Agentify in the middle</h3>
+            <ul class="comparison-list">
+              <li>The repo is indexed once into a reusable knowledge base, then queried for each task.</li>
+              <li>Prompt context is selected from modules, files, symbols, tests, and commands instead of by guesswork.</li>
+              <li>Provider execution is abstracted, so the workflow stays stable even if the model vendor changes.</li>
+              <li>Sessions preserve bootstrap context and checklist state for resume and fork flows.</li>
+              <li>Cleanup, cache management, and validation keep generated artifacts from rotting.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Workflow</span>
+            <h2>How the project works from command to checked result</h2>
+            <p class="section-copy">
+              The system is easiest to understand as a staged pipeline. The important detail is that each stage produces state
+              the next stage can trust, rather than passing around an unstructured prompt.
+            </p>
+          </div>
+        </div>
+
+        <div class="workflow" aria-label="Workflow timeline">
+          <article class="workflow-step">
+            <div class="step-index">1</div>
+            <h3>Initialization</h3>
+            <p class="detail-copy">
+              <span class="inline-code">agentify init</span> writes baseline artifacts and config so the repo has a standard place for index,
+              docs, runs, cache, and session state.
+            </p>
+            <ul class="detail-list">
+              <li>Repo-local defaults live in <span class="inline-code">.agentify.yaml</span>.</li>
+              <li>Sticky provider preference is persisted per repository, not globally.</li>
+            </ul>
+          </article>
+
+          <article class="workflow-step">
+            <div class="step-index">2</div>
+            <h3>Deterministic scan and index</h3>
+            <p class="detail-copy">
+              <span class="inline-code">scan</span> walks the repository, detects stacks and modules, fingerprints files, and writes a SQLite index.
+            </p>
+            <ul class="detail-list">
+              <li>TypeScript and JavaScript get AST-based symbol and import extraction.</li>
+              <li>Python, .NET, Java, Kotlin, Go, Rust, and Swift are also detected, with more generic import and symbol heuristics.</li>
+              <li>The scan also identifies tests, config files, entrypoints, key files, and inferred runnable commands.</li>
+            </ul>
+          </article>
+
+          <article class="workflow-step">
+            <div class="step-index">3</div>
+            <h3>Bounded planning for a task</h3>
+            <p class="detail-copy">
+              <span class="inline-code">plan</span> and <span class="inline-code">run</span> use the index to score modules, files, symbols, changed files,
+              related tests, and verification commands against the task text.
+            </p>
+            <ul class="detail-list">
+              <li>The planner works under byte budgets, so it can hand providers only the most relevant excerpts.</li>
+              <li>Dependency edges boost neighboring modules when a strong match is found.</li>
+            </ul>
+          </article>
+
+          <article class="workflow-step">
+            <div class="step-index">4</div>
+            <h3>Provider execution</h3>
+            <p class="detail-copy">
+              Agentify builds a provider-specific command for Codex, Claude, Gemini, or OpenCode, or wraps a custom command via <span class="inline-code">exec</span>.
+            </p>
+            <ul class="detail-list">
+              <li><span class="inline-code">run</span> is the opinionated path that uses the planner prompt.</li>
+              <li><span class="inline-code">exec</span> is the lower-level wrapper if you want your own command after <span class="inline-code">--</span>.</li>
+            </ul>
+          </article>
+
+          <article class="workflow-step">
+            <div class="step-index">5</div>
+            <h3>Automatic refresh after changes</h3>
+            <p class="detail-copy">
+              After an execution finishes, Agentify compares pre and post git snapshots. If changes were made, it refreshes scan and docs, then validates the repository.
+            </p>
+            <ul class="detail-list">
+              <li>This is the part that keeps metadata synchronized with code instead of leaving it stale.</li>
+              <li>Full <span class="inline-code">up</span> also runs project tests and writes an HTML run report.</li>
+            </ul>
+          </article>
+
+          <article class="workflow-step">
+            <div class="step-index">6</div>
+            <h3>Session continuity and maintenance</h3>
+            <p class="detail-copy">
+              <span class="inline-code">sess run</span>, <span class="inline-code">sess resume</span>, and <span class="inline-code">sess fork</span> store context and bootstrap state
+              under <span class="inline-code">.agents/session/</span>. Cleanup and cache commands keep this state from growing forever.
+            </p>
+            <ul class="detail-list">
+              <li>Context and bootstrap are clipped to byte limits to stay practical for agent handoff.</li>
+              <li>Cleanup prunes stale docs, dead sessions, old run reports, and orphaned cache blobs.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Architecture</span>
+            <h2>What each major subsystem does, how it works, and why it helps</h2>
+            <p class="section-copy">
+              These are the core moving parts in the repo. Each one exists to convert an unreliable manual workflow into something
+              queryable, repeatable, and maintainable.
+            </p>
+          </div>
+        </div>
+
+        <div class="architecture-grid">
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Detection</span>
+              <span class="tag">Indexer</span>
+              <span class="tag">Multi-language</span>
+            </div>
+            <h3>1. Stack and module detection</h3>
+            <p class="card-copy">
+              The detection layer inspects repo signals such as <span class="inline-code">package.json</span>, workspace files, Gradle files, Swift package structure,
+              Go modules, Rust manifests, and language extensions to determine the most likely stack and module layout.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> infer stacks and module boundaries without hardcoding one framework.</li>
+              <li><strong>How:</strong> file-system heuristics plus workspace-aware logic, especially for TypeScript monorepos.</li>
+              <li><strong>Why it helps:</strong> the planner and docs operate on modules, so large repos stop looking like one flat file pile.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">SQLite</span>
+              <span class="tag">Structured data</span>
+            </div>
+            <h3>2. Repository index database</h3>
+            <p class="card-copy">
+              The index lives in <span class="inline-code">.agents/index.db</span> and stores repo metadata, modules, files, symbols, imports, tests, commands,
+              artifacts, and index events. It runs with WAL mode and foreign keys enabled.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> a stable, queryable memory of the repo.</li>
+              <li><strong>How:</strong> scans write normalized rows into tables rather than serializing one giant JSON blob.</li>
+              <li><strong>Why it helps:</strong> owner lookup, dependency queries, change tracking, and planning become cheap and deterministic.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Planner</span>
+              <span class="tag">Budgets</span>
+            </div>
+            <h3>3. Task-aware execution planning</h3>
+            <p class="card-copy">
+              The planner tokenizes the task, scores modules, files, and symbols, applies dependency boosts, reads bounded excerpts,
+              and outputs a focused prompt with relevant tests and verification commands.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> turn a user task into a constrained context packet.</li>
+              <li><strong>How:</strong> weighted scoring from names, paths, symbols, changed files, entrypoints, key files, and tests.</li>
+              <li><strong>Why it helps:</strong> better prompts with less noise means less wandering, fewer broad repo scans, and cheaper execution.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Provider adapters</span>
+              <span class="tag">CLI wrapping</span>
+            </div>
+            <h3>4. Provider abstraction</h3>
+            <p class="card-copy">
+              Provider commands are mapped centrally. Codex, Claude, Gemini, and OpenCode each get a command template, while
+              <span class="inline-code">local</span> remains valid for deterministic scan, doc, and check flows.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> separate repo orchestration from model vendor choice.</li>
+              <li><strong>How:</strong> build provider-specific command arrays from one common interface.</li>
+              <li><strong>Why it helps:</strong> teams can switch providers without rewriting the whole repo workflow.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Documentation</span>
+              <span class="tag">Caching</span>
+            </div>
+            <h3>5. Documentation and metadata generation</h3>
+            <p class="card-copy">
+              The doc phase prepares repo context, optionally asks an external provider for a manager plan and per-module artifacts,
+              caches by fingerprint, writes module docs, updates key-file headers, and produces <span class="inline-code">AGENTIFY.md</span>.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> durable documentation tied to indexed repo state.</li>
+              <li><strong>How:</strong> fingerprinted module contexts, cache hits, concurrency, and structured provider output.</li>
+              <li><strong>Why it helps:</strong> code understanding becomes an asset in the repo, not a one-time chat transcript.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Validation</span>
+              <span class="tag">Guardrails</span>
+            </div>
+            <h3>6. Freshness and safety checks</h3>
+            <p class="card-copy">
+              Validation checks that the stored index matches the current git head and that generated changes stay within allowed paths.
+              For code files, it compares content with the HEAD version after stripping Agentify headers, so it can detect body changes.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> fail-closed guardrails around generated repo state.</li>
+              <li><strong>How:</strong> git diffs, allowlisted paths, header-only comparison, and index freshness checks.</li>
+              <li><strong>Why it helps:</strong> the tool is opinionated about metadata safety instead of pretending all automated output is trustworthy.</li>
+            </ul>
+          </article>
+
+          <article class="architecture-card">
+            <div class="card-meta">
+              <span class="tag">Sessions</span>
+              <span class="tag">Cleanup</span>
+              <span class="tag">Cache</span>
+            </div>
+            <h3>7. Continuity and hygiene</h3>
+            <p class="card-copy">
+              Sessions package bootstrap context, checklist state, and lineage so work can be resumed or forked. Cleanup removes orphaned docs,
+              stale run reports, invalid sessions, ghost runs, and unreferenced cache blobs.
+            </p>
+            <ul class="mini-list">
+              <li><strong>What:</strong> lifecycle management for agent-generated state.</li>
+              <li><strong>How:</strong> retained-file pruning, invalid-directory detection, content-addressed blobs, and age-based GC.</li>
+              <li><strong>Why it helps:</strong> long-running adoption stays manageable instead of turning into hidden repo clutter.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="artifacts">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Artifacts</span>
+            <h2>What it writes into the repository and why those outputs matter</h2>
+            <p class="section-copy">
+              The value of Agentify is not just command execution. It is the durable state it creates around that execution:
+              index, docs, reports, sessions, and cleanup boundaries.
+            </p>
+          </div>
+        </div>
+
+        <div class="artifacts-grid">
+          <article class="tree-panel">
+            <h3>Generated footprint</h3>
+            <p class="card-copy">These are the main artifacts the repo now expects or produces.</p>
+<pre class="file-tree">AGENTS.md
+AGENTIFY.md
+docs/
+  repo-map.md
+  modules/
+    *.md
+.agents/
+  index.db
+  runs/
+    *.json
+  session/
+    &lt;session-id&gt;/
+      session-manifest.json
+      context.json
+      bootstrap.md
+      checklist.json
+  cache/
+    manifest.json
+    blobs/
+.current_session/
+  ghost_*/
+output.txt
+agentify-report.html</pre>
+          </article>
+
+          <div class="artifact-columns">
+            <article class="artifact-card">
+              <h3>Index and query surface</h3>
+              <ul class="artifact-definitions">
+                <li><span class="inline-code">.agents/index.db</span> is the operational source of truth for modules, files, symbols, imports, tests, commands, and artifacts.</li>
+                <li><span class="inline-code">agentify query owner|deps|changed|search</span> reads directly from that index.</li>
+                <li>This is what makes the tool useful for real navigation and planning, not just documentation.</li>
+              </ul>
+            </article>
+
+            <article class="artifact-card">
+              <h3>Human-readable repo documentation</h3>
+              <ul class="artifact-definitions">
+                <li><span class="inline-code">AGENTS.md</span> and <span class="inline-code">docs/repo-map.md</span> summarize structure after scan.</li>
+                <li><span class="inline-code">AGENTIFY.md</span> and <span class="inline-code">docs/modules/*.md</span> capture module-level understanding and start-here guidance.</li>
+                <li>This converts agent reasoning into documentation another engineer can inspect later.</li>
+              </ul>
+            </article>
+
+            <article class="artifact-card">
+              <h3>Runs, reports, and ghost mode</h3>
+              <ul class="artifact-definitions">
+                <li>Run reports store token usage, module counts, validation status, and test status.</li>
+                <li><span class="inline-code">agentify-report.html</span> is a rendered snapshot of one run's health.</li>
+                <li>Ghost mode writes under <span class="inline-code">.current_session/</span> so you can inspect planned output without touching the main artifact path.</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <article class="detail-card">
+            <h3>SQLite tables that matter</h3>
+            <ul class="detail-list">
+              <li><span class="inline-code">repo_meta</span> stores root facts such as detected stack and head commit.</li>
+              <li><span class="inline-code">modules</span>, <span class="inline-code">files</span>, <span class="inline-code">symbols</span>, and <span class="inline-code">imports</span> represent the structural graph.</li>
+              <li><span class="inline-code">tests</span> and <span class="inline-code">commands</span> connect code to runnable verification.</li>
+              <li><span class="inline-code">artifacts</span> caches reusable outputs by fingerprint.</li>
+              <li><span class="inline-code">index_events</span> records scan history details.</li>
+            </ul>
+          </article>
+
+          <article class="detail-card">
+            <h3>What makes the docs generation stronger</h3>
+            <ul class="detail-list">
+              <li>There is a repo-level manager plan plus per-module artifacts instead of one flat summary.</li>
+              <li>Module context is fingerprinted, so unchanged modules can be reused from cache.</li>
+              <li>The provider output is expected to match a schema, and fallback artifacts exist when external generation fails.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="commands">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Commands</span>
+            <h2>How the command surface is organized</h2>
+            <p class="section-copy">
+              The command set is split between repository preparation, execution, continuity, querying, and maintenance.
+              That matters because it keeps routine work separate from deeper orchestration concerns.
+            </p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>What it does</th>
+                <th>When to use it</th>
+                <th>Why it matters</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>init</code></td>
+                <td>Create baseline Agentify artifacts and config.</td>
+                <td>First-time setup in a repo.</td>
+                <td>Standardizes the operating layout.</td>
+              </tr>
+              <tr>
+                <td><code>scan</code> / <code>index</code></td>
+                <td>Build the repository index and repo map.</td>
+                <td>Before planning, querying, or doc generation.</td>
+                <td>Turns the repo into structured data.</td>
+              </tr>
+              <tr>
+                <td><code>doc</code></td>
+                <td>Generate module docs, metadata, and headers.</td>
+                <td>When you want repo memory and navigable docs.</td>
+                <td>Keeps knowledge in the repo, not only in chats.</td>
+              </tr>
+              <tr>
+                <td><code>plan</code></td>
+                <td>Preview the selected modules, files, symbols, tests, and commands for a task.</td>
+                <td>Before running an agent when you want to inspect scope.</td>
+                <td>Gives visibility into context routing.</td>
+              </tr>
+              <tr>
+                <td><code>run</code></td>
+                <td>Build a planner prompt, run a provider template command, then refresh and validate.</td>
+                <td>Default path for task execution.</td>
+                <td>Combines planning and post-change hygiene.</td>
+              </tr>
+              <tr>
+                <td><code>exec</code></td>
+                <td>Wrap any command after <code>--</code> and optionally refresh afterward.</td>
+                <td>Advanced usage with custom provider commands.</td>
+                <td>Keeps refresh logic even when you customize execution.</td>
+              </tr>
+              <tr>
+                <td><code>sess</code></td>
+                <td>Create, resume, list, or fork session state.</td>
+                <td>Long tasks, alternate branches, or handoff workflows.</td>
+                <td>Adds continuity and lineage.</td>
+              </tr>
+              <tr>
+                <td><code>query</code></td>
+                <td>Answer owner, dependency, changed-module, and search questions from the index.</td>
+                <td>When you need routing information fast.</td>
+                <td>Makes the index operational, not decorative.</td>
+              </tr>
+              <tr>
+                <td><code>check</code></td>
+                <td>Validate freshness and safety rules.</td>
+                <td>Before trusting generated artifacts.</td>
+                <td>Prevents silent drift.</td>
+              </tr>
+              <tr>
+                <td><code>up</code></td>
+                <td>Run scan, doc, validation, and tests as a full pipeline.</td>
+                <td>When you want a complete refreshed snapshot.</td>
+                <td>Gives one reproducible repo refresh path.</td>
+              </tr>
+              <tr>
+                <td><code>clean</code> / <code>cache</code></td>
+                <td>Prune stale outputs and inspect cache health.</td>
+                <td>Ongoing maintenance.</td>
+                <td>Stops long-term artifact sprawl.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="adoption-grid" style="margin-top: 16px;">
+          <article class="code-panel">
+            <h3>Typical workflow</h3>
+<pre><code>agentify init
+agentify up --provider codex
+agentify run "implement retry logic for checkout"
+agentify sess run --provider codex --name "payments-v2" "continue implementation"
+agentify query owner --file src/core/planner.js
+agentify clean</code></pre>
+          </article>
+
+          <article class="card">
+            <h3>Important operational detail</h3>
+            <ul class="mini-list">
+              <li><strong>Sticky provider:</strong> explicit <span class="inline-code">--provider</span> updates the repo-local default.</li>
+              <li><strong>Interactive mode:</strong> currently the template interactive flow is specific to the Codex provider.</li>
+              <li><strong>Run versus exec:</strong> <span class="inline-code">run</span> chooses context for you; <span class="inline-code">exec</span> assumes you already know the command you want.</li>
+              <li><strong>Up versus doc:</strong> <span class="inline-code">up</span> is the full pipeline; <span class="inline-code">doc</span> is the documentation and metadata slice.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="benefits">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Benefits</span>
+            <h2>Why this is better for almost any codebase</h2>
+            <p class="section-copy">
+              The strongest case for Agentify is not that it writes docs or launches an agent. The strongest case is that it gives
+              a codebase a reusable operating model for AI work: structured context, queryability, continuity, and maintenance.
+            </p>
+          </div>
+          <div class="status-note"><strong>Pitch:</strong> repo knowledge becomes infrastructure</div>
+        </div>
+
+        <div class="case-grid">
+          <article class="case-card">
+            <h3 class="case-title">Large or modular repos</h3>
+            <p class="card-copy">Module detection, dependency mapping, owner lookup, and ranked context are immediately useful once the repo is bigger than a handful of files.</p>
+            <ul class="mini-list">
+              <li>Better task routing.</li>
+              <li>Lower prompt noise.</li>
+              <li>Clearer start-here guidance.</li>
+            </ul>
+          </article>
+
+          <article class="case-card">
+            <h3 class="case-title">Teams using more than one provider</h3>
+            <p class="card-copy">Agentify keeps the workflow stable while the provider command changes. That avoids rewriting internal habits every time the preferred model changes.</p>
+            <ul class="mini-list">
+              <li>Less vendor lock-in.</li>
+              <li>Stable operational commands.</li>
+              <li>Provider choice becomes a config detail.</li>
+            </ul>
+          </article>
+
+          <article class="case-card">
+            <h3 class="case-title">Repos that need durable docs</h3>
+            <p class="card-copy">Most agent sessions produce transient understanding. Agentify pushes that understanding back into the repo as index-backed docs and metadata.</p>
+            <ul class="mini-list">
+              <li>Better onboarding.</li>
+              <li>Faster change reviews.</li>
+              <li>Shared understanding across sessions.</li>
+            </ul>
+          </article>
+
+          <article class="case-card">
+            <h3 class="case-title">Long-running implementation work</h3>
+            <p class="card-copy">Session bootstrap, checklist carryover, and forkable session IDs give the work memory beyond one chat window.</p>
+            <ul class="mini-list">
+              <li>Resume where you left off.</li>
+              <li>Try alternate designs safely.</li>
+              <li>Keep a lineage of attempts.</li>
+            </ul>
+          </article>
+
+          <article class="case-card">
+            <h3 class="case-title">Safety-conscious engineering orgs</h3>
+            <p class="card-copy">Freshness validation, allowlisted generated paths, and conservative file-change rules create friction in the right place: before stale or unsafe artifacts are trusted.</p>
+            <ul class="mini-list">
+              <li>Better auditability.</li>
+              <li>Clear failure categories.</li>
+              <li>Less silent metadata drift.</li>
+            </ul>
+          </article>
+
+          <article class="case-card">
+            <h3 class="case-title">Any repo that accumulates AI output</h3>
+            <p class="card-copy">Once a team starts generating indexes, docs, reports, and sessions, lifecycle management becomes necessary. Cleanup and cache GC make adoption sustainable.</p>
+            <ul class="mini-list">
+              <li>Less artifact clutter.</li>
+              <li>Controlled retention.</li>
+              <li>More predictable disk use.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="comparison">
+          <div>
+            <h3>Best argument to engineering leadership</h3>
+            <ul class="stakeholder-list">
+              <li>It reduces the hidden cost of repeated repo re-discovery for every AI task.</li>
+              <li>It makes agent work observable through index data, docs, reports, and validation.</li>
+              <li>It creates one internal workflow that can survive changes in model vendors.</li>
+            </ul>
+          </div>
+
+          <div>
+            <h3>Best argument to individual developers</h3>
+            <ul class="stakeholder-list">
+              <li>You get faster navigation, better prompts, and resumable context.</li>
+              <li>You do less manual explanation of the repo on each task.</li>
+              <li>You can inspect why the planner chose certain files instead of trusting a black box.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="adoption">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Adoption</span>
+            <h2>How to explain it internally without overselling it</h2>
+            <p class="section-copy">
+              The strongest explanation is honest: Agentify does not magically make every agent smarter. It makes the repo easier
+              for agents and humans to work in by giving them structure, memory, and guardrails.
+            </p>
+          </div>
+        </div>
+
+        <div class="stakeholder-grid">
+          <article class="stakeholder-card">
+            <h3 class="stakeholder-title">For platform teams</h3>
+            <ul class="stakeholder-list">
+              <li>Standardize one repository operating model for AI workflows.</li>
+              <li>Keep generated state under named directories and retention rules.</li>
+              <li>Make provider switching a policy choice rather than a repo rewrite.</li>
+            </ul>
+          </article>
+
+          <article class="stakeholder-card">
+            <h3 class="stakeholder-title">For leads and reviewers</h3>
+            <ul class="stakeholder-list">
+              <li>Use the planner and docs as a first-pass view into what changed and why.</li>
+              <li>Use validation as a freshness and safety gate before trusting generated artifacts.</li>
+              <li>Use sessions to preserve decision context across long implementation threads.</li>
+            </ul>
+          </article>
+
+          <article class="stakeholder-card">
+            <h3 class="stakeholder-title">For contributors</h3>
+            <ul class="stakeholder-list">
+              <li>Run <span class="inline-code">plan</span> before a complex task to inspect scope.</li>
+              <li>Use <span class="inline-code">run</span> for normal task execution and <span class="inline-code">sess</span> for continuity.</li>
+              <li>Use <span class="inline-code">query</span> when you need ownership or dependency answers quickly.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="detail-grid" style="margin-top: 16px;">
+          <article class="detail-card">
+            <h3>Where it is strongest</h3>
+            <ul class="limitation-list">
+              <li>TypeScript and JavaScript repos, especially workspaces and monorepos.</li>
+              <li>Teams that want multi-provider support without workflow churn.</li>
+              <li>Codebases large enough that repo understanding needs to be stored, not rediscovered.</li>
+            </ul>
+          </article>
+
+          <article class="detail-card">
+            <h3>Where the story should stay honest</h3>
+            <ul class="limitation-list">
+              <li>It is an orchestration tool, not a replacement for tests, review, or engineering judgment.</li>
+              <li>Non-TypeScript stacks are supported, but the deepest semantic extraction is in the TS/JS path.</li>
+              <li>The validation model is intentionally strict, so teams need to adopt it with clear expectations.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="faq">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">FAQ</span>
+            <h2>Direct answers to the questions people usually ask</h2>
+          </div>
+        </div>
+
+        <details open>
+          <summary>Is Agentify itself an AI agent?</summary>
+          <div class="faq-body">
+            No. It is the orchestration layer around agent use. The codebase analysis, indexing, planning, session handling,
+            validation, and artifact lifecycle are Agentify's job. The actual coding model is an external provider such as Codex,
+            Claude, Gemini, or OpenCode.
+          </div>
+        </details>
+
+        <details>
+          <summary>Why not just call the provider CLI directly?</summary>
+          <div class="faq-body">
+            You can, but then you lose the index, planner-selected context, structured docs, repo-local provider preference,
+            auto-refresh, validation, sessions, cache reuse, and cleanup workflow. Direct CLI execution is usually the shortest path;
+            Agentify is the repeatable path.
+          </div>
+        </details>
+
+        <details>
+          <summary>Does it work only for JavaScript or TypeScript?</summary>
+          <div class="faq-body">
+            No. The repo shows support for TypeScript/JavaScript, Python, .NET, Java, Kotlin, Go, Rust, and Swift.
+            The TypeScript path is deeper because it uses the TypeScript compiler APIs for imports and symbols. Other stacks
+            still benefit from module detection, indexing, tests, commands, sessions, and cleanup.
+          </div>
+        </details>
+
+        <details>
+          <summary>What is the best reason to adopt it in a mature codebase?</summary>
+          <div class="faq-body">
+            Mature codebases already have the main failure modes this tool targets: too much context, too many modules, stale docs,
+            repeated rediscovery work, and mixed human plus AI contributions. Agentify turns those into first-class repo state that
+            can be refreshed, queried, and pruned.
+          </div>
+        </details>
+
+        <details>
+          <summary>What is the most realistic limitation?</summary>
+          <div class="faq-body">
+            It does not remove the need for engineering review. It improves context, structure, and continuity around AI work.
+            The quality of the final code still depends on the provider, the tests, the task framing, and the team's standards.
+          </div>
+        </details>
+
+        <footer class="footer">
+          <p class="footer-copy">
+            This explainer page was written from the current repo structure and command flow, including the README,
+            command router, indexer, planner, provider adapters, validation logic, sessions, cache, and cleanup modules.
+          </p>
+        </footer>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const links = Array.from(document.querySelectorAll(".nav-link"));
+    const sections = links
+      .map((link) => document.querySelector(link.getAttribute("href")))
+      .filter(Boolean);
+
+    if ("IntersectionObserver" in window && sections.length > 0) {
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+        if (!visible) return;
+
+        links.forEach((link) => {
+          const active = link.getAttribute("href") === "#" + visible.target.id;
+          link.classList.toggle("is-active", active);
+        });
+      }, {
+        rootMargin: "-20% 0px -55% 0px",
+        threshold: [0.1, 0.2, 0.4, 0.6]
+      });
+
+      sections.forEach((section) => observer.observe(section));
+    }
+  </script>
+</body>
+</html>

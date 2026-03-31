@@ -56,3 +56,15 @@ test("runCli rejects --interactive for non-codex provider templates", async () =
     /--interactive is currently supported only with --provider codex/,
   );
 });
+
+test("runCli supports skill install with provider all", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-"));
+  await runCli(["skill", "install", "god-mode", "--root", root, "--provider", "all", "--scope", "project"]);
+
+  await assert.doesNotReject(() =>
+    fs.access(path.join(root, ".claude", "skills", "worktree-verifier", "SKILL.md"))
+  );
+  await assert.doesNotReject(() =>
+    fs.access(path.join(root, ".opencode", "skills", "worktree-verifier", "SKILL.md"))
+  );
+});

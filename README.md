@@ -20,6 +20,7 @@ Requires **Node.js >= 20**.
 cd /path/to/your/repo
 agentify init
 agentify up --provider codex
+agentify skill install grill-me --provider codex --scope project
 agentify clean
 agentify check
 agentify run "implement retry logic for checkout"
@@ -90,6 +91,7 @@ agentify run "task B"     # uses codex in the same repo
 | `plan` | Preview the planner-selected context for a task |
 | `run` | Provider-template execution with auto-refresh |
 | `exec` | Advanced wrapper for custom command after `--` |
+| `skill` | List and install built-in agent skills for supported providers |
 | `sess` | Session lifecycle commands (`run`, `list`, `resume`, `fork`) |
 | `query` | Query index (`owner`, `deps`, `changed`, `search`) |
 | `hooks` | Install/remove/status git hooks |
@@ -110,6 +112,27 @@ Notes:
 
 - `sess resume` also accepts positional id: `agentify sess resume <id> "task"`.
 - Session manifests now store `provider` (legacy `tool` is still read for old sessions).
+
+## Skill Commands
+
+```bash
+agentify skill list
+agentify skill install grill-me --provider claude --scope project
+agentify skill install god-mode --provider all --scope project
+agentify skill install worktree-verifier --provider codex --scope user
+```
+
+Built-in skills:
+
+- `grill-me`
+- `worktree-verifier` (alias: `god-mode`)
+
+Notes:
+
+- `--provider` accepts `codex`, `claude`, `gemini`, `opencode`, comma-separated lists, or `all`.
+- `--scope project` installs inside the current repo using provider-specific directories such as `.codex/skills/`, `.claude/skills/`, `.gemini/skills/`, and `.opencode/skills/`.
+- `--scope user` installs into the provider's user-level skill directory.
+- Skill installs do not update the repo's sticky execution provider.
 
 ## Providers
 
@@ -133,6 +156,7 @@ Supported providers:
 --ghost
 --json
 --interactive, -i
+--scope <project|user>
 --root <path>
 ```
 
