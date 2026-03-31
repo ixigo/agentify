@@ -4,7 +4,7 @@ import path from "node:path";
 import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
-import { closeIndexDatabase, getRepoMeta, loadModules, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, getRepoMeta, listSemanticProjects, loadModules, openIndexDatabase } from "./db.js";
 
 const ALLOWED_DOC_PATHS = [
   /^AGENTS\.md$/,
@@ -115,6 +115,30 @@ async function validateFreshness(root, failures, options = {}) {
         );
       }
     }
+
+    if (options.config?.semantic?.tsjs?.enabled) {
+      const semanticProjects = listSemanticProjects(db);
+      for (const projectInfo of semanticProjects) {
+        if (projectInfo.status !== "ready") {
+          failures.push(
+            createFailure(
+              FAILURE_CATEGORIES.FRESHNESS_STALE,
+              ".agents/index.db",
+              `semantic project ${projectInfo.project_id} is ${projectInfo.status}`
+            )
+          );
+        }
+        if (Number(projectInfo.coverage_ratio || 0) < 1) {
+          failures.push(
+            createFailure(
+              FAILURE_CATEGORIES.FRESHNESS_STALE,
+              ".agents/index.db",
+              `semantic project ${projectInfo.project_id} has partial coverage`
+            )
+          );
+        }
+      }
+    }
   } finally {
     closeIndexDatabase(db);
   }
@@ -169,7 +193,7 @@ async function validateChangedFiles(root, config, failures) {
 export async function validateRepo(root, config, options = {}) {
   const failures = [];
   if (!options.skipFreshness) {
-    await validateFreshness(root, failures, options);
+    await validateFreshness(root, failures, { ...options, config });
   }
   await validateChangedFiles(root, config, failures);
 

@@ -17,3 +17,15 @@ test("persistProviderPreference creates and updates .agentify.yaml", async () =>
   config = await loadConfig(root);
   assert.equal(config.provider, "gemini");
 });
+
+test("loadConfig applies nested semantic flags", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-semantic-"));
+
+  const config = await loadConfig(root, {
+    "semantic.tsjs.enabled": true,
+    "semantic.tsjs.worker-concurrency": 2,
+  });
+
+  assert.equal(config.semantic.tsjs.enabled, true);
+  assert.equal(config.semantic.tsjs.workerConcurrency, 2);
+});

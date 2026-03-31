@@ -67,12 +67,45 @@ export function stripLeadingAgentifyHeader(text) {
 }
 
 export function renderHeader({ moduleName, summary, relativePath, stack, eol = "\n" }) {
+  const summaryPayload = summary && typeof summary === "object" ? summary : { summary };
+  const summaryLines = [
+    `module: ${moduleName}`,
+    `path: ${relativePath}`,
+  ];
+
+  if (summaryPayload.schema) {
+    summaryLines.push(`schema: ${summaryPayload.schema}`);
+  }
+  if (summaryPayload.project) {
+    summaryLines.push(`project: ${summaryPayload.project}`);
+  }
+  if (summaryPayload.surface?.kind) {
+    summaryLines.push(`surface: ${summaryPayload.surface.kind}`);
+  }
+  if (summaryPayload.surface?.role) {
+    summaryLines.push(`role: ${summaryPayload.surface.role}`);
+  }
+  if (summaryPayload.surface?.surfaceKey) {
+    summaryLines.push(`surfaceKey: ${summaryPayload.surface.surfaceKey}`);
+  }
+  if (Array.isArray(summaryPayload.exports) && summaryPayload.exports.length > 0) {
+    summaryLines.push(`exports: ${summaryPayload.exports.join(", ")}`);
+  }
+  if (Array.isArray(summaryPayload.runtimeDeps) && summaryPayload.runtimeDeps.length > 0) {
+    summaryLines.push(`runtimeDeps: ${summaryPayload.runtimeDeps.join(", ")}`);
+  }
+  if (Array.isArray(summaryPayload.typeDeps) && summaryPayload.typeDeps.length > 0) {
+    summaryLines.push(`typeDeps: ${summaryPayload.typeDeps.join(", ")}`);
+  }
+  if (summaryPayload.freshness) {
+    summaryLines.push(`freshness: ${summaryPayload.freshness}`);
+  }
+  summaryLines.push(`summary: ${summaryPayload.summary || ""}`);
+
   if (stack === "python") {
     return [
       "\"\"\"@agentify",
-      `module: ${moduleName}`,
-      `path: ${relativePath}`,
-      `summary: ${summary}`,
+      ...summaryLines,
       "\"\"\"",
       "",
       ""
@@ -82,9 +115,7 @@ export function renderHeader({ moduleName, summary, relativePath, stack, eol = "
   if (stack === "dotnet") {
     return [
       "/* @agentify",
-      ` * module: ${moduleName}`,
-      ` * path: ${relativePath}`,
-      ` * summary: ${summary}`,
+      ...summaryLines.map((line) => ` * ${line}`),
       " */",
       "",
       ""
@@ -93,9 +124,7 @@ export function renderHeader({ moduleName, summary, relativePath, stack, eol = "
 
   return [
     "/** @agentify",
-    ` * module: ${moduleName}`,
-    ` * path: ${relativePath}`,
-    ` * summary: ${summary}`,
+    ...summaryLines.map((line) => ` * ${line}`),
     " */",
     "",
     ""

@@ -2,7 +2,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const DB_SCHEMA_VERSION = "2.0";
+const DB_SCHEMA_VERSION = "3.0";
 
 let driver = null;
 
@@ -180,6 +180,96 @@ export function openIndexDatabase(root) {
       import_count INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS semantic_meta (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_projects (
+      project_id TEXT PRIMARY KEY,
+      config_path TEXT,
+      project_root TEXT NOT NULL,
+      inferred INTEGER NOT NULL DEFAULT 0,
+      analyzer_version TEXT NOT NULL,
+      schema_version TEXT NOT NULL,
+      status TEXT NOT NULL,
+      coverage_ratio REAL NOT NULL DEFAULT 1,
+      file_count INTEGER NOT NULL DEFAULT 0,
+      symbol_count INTEGER NOT NULL DEFAULT 0,
+      surface_count INTEGER NOT NULL DEFAULT 0,
+      edge_count INTEGER NOT NULL DEFAULT 0,
+      content_fingerprint TEXT NOT NULL,
+      public_fingerprint TEXT NOT NULL,
+      refreshed_at TEXT NOT NULL,
+      last_error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_project_files (
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      is_header_target INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_id, file_path),
+      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_external_packages (
+      project_id TEXT NOT NULL,
+      package_name TEXT NOT NULL,
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_id, package_name),
+      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_symbols (
+      symbol_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      export_name TEXT,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      is_exported INTEGER NOT NULL DEFAULT 0,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      domain TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_surfaces (
+      surface_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      symbol_id TEXT,
+      kind TEXT NOT NULL,
+      role TEXT NOT NULL,
+      surface_key TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      is_header_target INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY (symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS semantic_symbol_edges (
+      edge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      from_symbol_id TEXT,
+      to_symbol_id TEXT,
+      from_file_path TEXT,
+      to_file_path TEXT,
+      to_external_package TEXT,
+      edge_kind TEXT NOT NULL,
+      edge_domain TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1,
+      source TEXT NOT NULL,
+      metadata_json TEXT,
+      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY (from_symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL,
+      FOREIGN KEY (to_symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_modules_root_path ON modules(root_path);
     CREATE INDEX IF NOT EXISTS idx_files_module_id ON files(module_id);
     CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
@@ -189,6 +279,15 @@ export function openIndexDatabase(root) {
     CREATE INDEX IF NOT EXISTS idx_imports_to_module_id ON imports(to_module_id);
     CREATE INDEX IF NOT EXISTS idx_tests_module_id ON tests(module_id);
     CREATE INDEX IF NOT EXISTS idx_commands_module_id ON commands(module_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_projects_status ON semantic_projects(status);
+    CREATE INDEX IF NOT EXISTS idx_semantic_project_files_file_path ON semantic_project_files(file_path);
+    CREATE INDEX IF NOT EXISTS idx_semantic_symbols_file_path ON semantic_symbols(file_path);
+    CREATE INDEX IF NOT EXISTS idx_semantic_symbols_project_id ON semantic_symbols(project_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_file_path ON semantic_surfaces(file_path);
+    CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_kind ON semantic_surfaces(kind);
+    CREATE INDEX IF NOT EXISTS idx_semantic_edges_project_id ON semantic_symbol_edges(project_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_edges_from_file_path ON semantic_symbol_edges(from_file_path);
+    CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_file_path ON semantic_symbol_edges(to_file_path);
   `);
 
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
@@ -227,8 +326,22 @@ export function clearIndexedState(db) {
   `);
 }
 
+export function clearSemanticProjectState(db, projectId) {
+  db.prepare("DELETE FROM semantic_symbol_edges WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM semantic_surfaces WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM semantic_symbols WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM semantic_external_packages WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM semantic_project_files WHERE project_id = ?").run(projectId);
+  db.prepare("DELETE FROM semantic_projects WHERE project_id = ?").run(projectId);
+}
+
 export function setRepoMeta(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
+    .run(key, toJson(value));
+}
+
+export function upsertSemanticMeta(db, key, value) {
+  db.prepare("INSERT OR REPLACE INTO semantic_meta (key, value_json) VALUES (?, ?)")
     .run(key, toJson(value));
 }
 
@@ -241,6 +354,15 @@ export function getRepoMetaValue(db, key, fallback = null) {
 
 export function getRepoMeta(db) {
   const rows = normalizeRows(db.prepare("SELECT key, value_json FROM repo_meta").all());
+  const meta = {};
+  for (const row of rows) {
+    meta[row.key] = fromJson(row.value_json);
+  }
+  return meta;
+}
+
+export function getSemanticMeta(db) {
+  const rows = normalizeRows(db.prepare("SELECT key, value_json FROM semantic_meta").all());
   const meta = {};
   for (const row of rows) {
     meta[row.key] = fromJson(row.value_json);
@@ -528,6 +650,173 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
   );
 }
 
+export function replaceSemanticProjectSnapshot(db, snapshot) {
+  clearSemanticProjectState(db, snapshot.project.project_id);
+
+  db.prepare(`
+    INSERT INTO semantic_projects (
+      project_id,
+      config_path,
+      project_root,
+      inferred,
+      analyzer_version,
+      schema_version,
+      status,
+      coverage_ratio,
+      file_count,
+      symbol_count,
+      surface_count,
+      edge_count,
+      content_fingerprint,
+      public_fingerprint,
+      refreshed_at,
+      last_error
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    snapshot.project.project_id,
+    snapshot.project.config_path || null,
+    snapshot.project.project_root,
+    snapshot.project.inferred,
+    snapshot.project.analyzer_version,
+    snapshot.project.schema_version,
+    snapshot.project.status,
+    snapshot.project.coverage_ratio,
+    snapshot.project.file_count,
+    snapshot.project.symbol_count,
+    snapshot.project.surface_count,
+    snapshot.project.edge_count,
+    snapshot.project.content_fingerprint,
+    snapshot.project.public_fingerprint,
+    snapshot.project.refreshed_at,
+    snapshot.project.last_error || null
+  );
+
+  const insertFile = db.prepare(`
+    INSERT INTO semantic_project_files (
+      project_id,
+      file_path,
+      domain,
+      is_header_target
+    ) VALUES (?, ?, ?, ?)
+  `);
+  for (const fileInfo of snapshot.files || []) {
+    insertFile.run(
+      fileInfo.project_id,
+      fileInfo.file_path,
+      fileInfo.domain,
+      fileInfo.is_header_target || 0
+    );
+  }
+
+  const insertPackage = db.prepare(`
+    INSERT INTO semantic_external_packages (
+      project_id,
+      package_name,
+      usage_count
+    ) VALUES (?, ?, ?)
+  `);
+  for (const packageInfo of snapshot.externalPackages || []) {
+    insertPackage.run(
+      packageInfo.project_id,
+      packageInfo.package_name,
+      packageInfo.usage_count || 0
+    );
+  }
+
+  const insertSymbol = db.prepare(`
+    INSERT INTO semantic_symbols (
+      symbol_id,
+      project_id,
+      file_path,
+      name,
+      display_name,
+      kind,
+      export_name,
+      start_line,
+      end_line,
+      is_exported,
+      is_default,
+      domain
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const symbolInfo of snapshot.symbols || []) {
+    insertSymbol.run(
+      symbolInfo.symbol_id,
+      symbolInfo.project_id,
+      symbolInfo.file_path,
+      symbolInfo.name,
+      symbolInfo.display_name,
+      symbolInfo.kind,
+      symbolInfo.export_name || null,
+      symbolInfo.start_line,
+      symbolInfo.end_line,
+      symbolInfo.is_exported || 0,
+      symbolInfo.is_default || 0,
+      symbolInfo.domain
+    );
+  }
+
+  const insertSurface = db.prepare(`
+    INSERT INTO semantic_surfaces (
+      surface_id,
+      project_id,
+      file_path,
+      symbol_id,
+      kind,
+      role,
+      surface_key,
+      display_name,
+      domain,
+      is_header_target
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const surfaceInfo of snapshot.surfaces || []) {
+    insertSurface.run(
+      surfaceInfo.surface_id,
+      surfaceInfo.project_id,
+      surfaceInfo.file_path,
+      surfaceInfo.symbol_id || null,
+      surfaceInfo.kind,
+      surfaceInfo.role,
+      surfaceInfo.surface_key,
+      surfaceInfo.display_name,
+      surfaceInfo.domain,
+      surfaceInfo.is_header_target || 0
+    );
+  }
+
+  const insertEdge = db.prepare(`
+    INSERT INTO semantic_symbol_edges (
+      project_id,
+      from_symbol_id,
+      to_symbol_id,
+      from_file_path,
+      to_file_path,
+      to_external_package,
+      edge_kind,
+      edge_domain,
+      confidence,
+      source,
+      metadata_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const edgeInfo of snapshot.symbolEdges || []) {
+    insertEdge.run(
+      edgeInfo.project_id,
+      edgeInfo.from_symbol_id || null,
+      edgeInfo.to_symbol_id || null,
+      edgeInfo.from_file_path || null,
+      edgeInfo.to_file_path || null,
+      edgeInfo.to_external_package || null,
+      edgeInfo.edge_kind,
+      edgeInfo.edge_domain,
+      edgeInfo.confidence ?? 1,
+      edgeInfo.source,
+      edgeInfo.metadata_json || null
+    );
+  }
+}
+
 export function loadFiles(db, moduleId = null) {
   const rows = moduleId
     ? normalizeRows(db.prepare(`
@@ -619,6 +908,136 @@ export function loadModuleDependencies(db, moduleId) {
   `).all(moduleId, moduleId)).map((row) => row.module_id);
 
   return { dependsOn, usedBy };
+}
+
+export function listSemanticProjects(db) {
+  return normalizeRows(db.prepare(`
+    SELECT
+      project_id,
+      config_path,
+      project_root,
+      inferred,
+      analyzer_version,
+      schema_version,
+      status,
+      coverage_ratio,
+      file_count,
+      symbol_count,
+      surface_count,
+      edge_count,
+      content_fingerprint,
+      public_fingerprint,
+      refreshed_at,
+      last_error
+    FROM semantic_projects
+    ORDER BY coalesce(config_path, project_root), project_id
+  `).all());
+}
+
+export function loadSemanticRouteSurfaces(db) {
+  return normalizeRows(db.prepare(`
+    SELECT surface_key, role, file_path, display_name
+    FROM semantic_surfaces
+    WHERE kind = 'route'
+    ORDER BY surface_key, role, file_path
+  `).all());
+}
+
+export function loadSemanticReactSurfaces(db) {
+  return normalizeRows(db.prepare(`
+    SELECT display_name, role, file_path
+    FROM semantic_surfaces
+    WHERE kind LIKE 'react-%'
+    ORDER BY display_name, file_path
+  `).all());
+}
+
+export function loadSemanticProjectFactsByFile(db) {
+  const fileRows = normalizeRows(db.prepare(`
+    SELECT
+      f.project_id,
+      f.file_path,
+      f.domain,
+      f.is_header_target,
+      p.status,
+      p.config_path
+    FROM semantic_project_files f
+    JOIN semantic_projects p ON p.project_id = f.project_id
+    WHERE f.is_header_target = 1
+      AND p.status = 'ready'
+    ORDER BY f.file_path
+  `).all());
+
+  const exportRows = normalizeRows(db.prepare(`
+    SELECT file_path, export_name
+    FROM semantic_symbols
+    WHERE is_exported = 1
+      AND export_name IS NOT NULL
+    ORDER BY file_path, export_name
+  `).all());
+  const surfaceRows = normalizeRows(db.prepare(`
+    SELECT file_path, kind, role, surface_key, display_name
+    FROM semantic_surfaces
+    ORDER BY file_path, kind, role
+  `).all());
+  const edgeRows = normalizeRows(db.prepare(`
+    SELECT from_file_path, to_file_path, to_external_package, edge_domain
+    FROM semantic_symbol_edges
+    WHERE from_file_path IS NOT NULL
+    ORDER BY from_file_path
+  `).all());
+
+  const exportsByFile = new Map();
+  for (const row of exportRows) {
+    const list = exportsByFile.get(row.file_path) || [];
+    list.push(row.export_name);
+    exportsByFile.set(row.file_path, list);
+  }
+
+  const surfacesByFile = new Map();
+  for (const row of surfaceRows) {
+    const list = surfacesByFile.get(row.file_path) || [];
+    list.push(row);
+    surfacesByFile.set(row.file_path, list);
+  }
+
+  const runtimeDepsByFile = new Map();
+  const typeDepsByFile = new Map();
+  for (const row of edgeRows) {
+    const label = row.to_external_package || row.to_file_path;
+    if (!label) {
+      continue;
+    }
+    const targetMap = row.edge_domain === "type" ? typeDepsByFile : runtimeDepsByFile;
+    const list = targetMap.get(row.from_file_path) || [];
+    list.push(label);
+    targetMap.set(row.from_file_path, list);
+  }
+
+  return fileRows.map((row) => {
+    const surfaces = surfacesByFile.get(row.file_path) || [];
+    const preferredSurface = surfaces.find((surface) => surface.kind === "route") || surfaces[0] || null;
+
+    return {
+      project_id: row.project_id,
+      file_path: row.file_path,
+      domain: row.domain,
+      is_header_target: Boolean(row.is_header_target),
+      status: row.status,
+      project_label: row.config_path || "inferred",
+      exports: exportsByFile.get(row.file_path) || [],
+      runtimeDeps: runtimeDepsByFile.get(row.file_path) || [],
+      typeDeps: typeDepsByFile.get(row.file_path) || [],
+      surface: preferredSurface
+        ? {
+            kind: preferredSurface.kind,
+            role: preferredSurface.role,
+            surfaceKey: preferredSurface.surface_key,
+            displayName: preferredSurface.display_name,
+          }
+        : null,
+    };
+  });
 }
 
 export function searchIndex(db, term, limit = 20) {

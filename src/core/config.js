@@ -55,6 +55,15 @@ const DEFAULT_CONFIG = {
     maxSourceBytes: 24000,
     maxInstructionBytes: 6000,
   },
+  semantic: {
+    tsjs: {
+      enabled: false,
+      workerConcurrency: 1,
+      timeoutMs: 45000,
+      memoryMb: 1536,
+      analyzerVersion: "semantic-tsjs-v1",
+    },
+  },
 };
 
 function parseConfigFile(text) {
@@ -83,15 +92,31 @@ function deepMerge(target, source) {
 
 function applyNestedFlags(config, flags) {
   const result = { ...config };
+
+  function setNested(target, parts, value) {
+    if (parts.length === 0) {
+      return;
+    }
+
+    if (parts.length === 1) {
+      target[parts[0]] = value;
+      return;
+    }
+
+    const [head, ...rest] = parts;
+    if (!target[head] || typeof target[head] !== "object" || Array.isArray(target[head])) {
+      target[head] = {};
+    }
+    setNested(target[head], rest, value);
+  }
+
   for (const [key, value] of Object.entries(flags)) {
     if (key === "_") continue;
-    const parts = key.split(/[-.]/).reduce((acc, part, i) => {
-      if (i === 0) return [part];
-      return [...acc.slice(0, -1), acc[acc.length - 1] + part.charAt(0).toUpperCase() + part.slice(1)];
-    }, []);
-    if (parts.length === 1) {
-      result[parts[0]] = value;
-    }
+    const parts = key
+      .split(".")
+      .filter(Boolean)
+      .map((part) => part.replace(/-([a-z])/g, (_, char) => char.toUpperCase()));
+    setNested(result, parts, value);
   }
   return result;
 }
@@ -141,6 +166,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     cleanup: config.cleanup,
     session: config.session,
     planner: config.planner,
+    semantic: config.semantic,
   };
 
   const yaml = stringifyYaml(output);

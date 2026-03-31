@@ -27,6 +27,7 @@ import {
   writeRepositoryIndex,
 } from "./db.js";
 import { buildRepositoryIndex } from "./indexer.js";
+import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
 
 function stableHash(value) {
@@ -1655,6 +1656,18 @@ async function _runDocInner(root, config, options, progress) {
     }
   }
 
+  const semanticEnabled = Boolean(config.semantic?.tsjs?.enabled);
+  if (semanticEnabled && !config.dryRun) {
+    progress.log("doc: refreshing semantic TS/JS facts");
+    progress.percent("doc", 5, "refreshing semantic TS/JS facts");
+    await runSemanticRefresh(root, config, {
+      artifactRoot,
+      silent: true,
+      skipOutput: true,
+    });
+    await writeSemanticRepoMap(root, artifactRoot);
+  }
+
   let indexData;
   let db = null;
   if (config.dryRun) {
@@ -1867,6 +1880,10 @@ async function _runDocInner(root, config, options, progress) {
           });
         }
 
+        if (semanticEnabled) {
+          continue;
+        }
+
         if (config.ghost || config.ghostMode) {
           for (const header of result.headers) {
             plannedHeaders.push({
@@ -1885,6 +1902,16 @@ async function _runDocInner(root, config, options, progress) {
           }
         }
       }
+    }
+
+    if (semanticEnabled && !config.dryRun) {
+      progress.log("doc: applying deterministic semantic headers");
+      const semanticHeaderResult = await applySemanticHeaders(root, artifactRoot, config, {
+        ghost: Boolean(config.ghost || config.ghostMode),
+      });
+      filesWithHeaders += semanticHeaderResult.changed;
+      plannedHeaders.push(...semanticHeaderResult.plannedHeaders);
+      await writeSemanticRepoMap(root, artifactRoot);
     }
 
     const runReport = {

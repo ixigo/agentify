@@ -11,6 +11,7 @@ import { forkSession, listSessions, resolveSessionProvider, resumeSession } from
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
+import { runSemanticRefresh } from "./core/semantic.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
@@ -153,6 +154,7 @@ function printHelp() {
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
+    `    ${c("semantic")}        ${d("Refresh semantic TS/JS project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
     ``,
@@ -576,7 +578,14 @@ export async function runCli(argv) {
     }
 
     case "doctor":
-      await runDoctor(config);
+      await runDoctor(root, config);
+      return;
+
+    case "semantic":
+      if (subcommand && subcommand !== "refresh") {
+        throw new Error("semantic requires the refresh subcommand: agentify semantic refresh");
+      }
+      await runSemanticRefresh(root, config);
       return;
 
     case "clean": {

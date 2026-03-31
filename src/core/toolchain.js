@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+
+import { closeIndexDatabase, listSemanticProjects, openIndexDatabase } from "./db.js";
+import { exists } from "./fs.js";
 import * as ui from "./ui.js";
 
 const execFileAsync = promisify(execFile);
@@ -68,7 +71,7 @@ function getInstallHint(name) {
   return hints[name] || `install ${name}`;
 }
 
-export async function runDoctor(config) {
+export async function runDoctor(root, config) {
   const caps = await detectCapabilities(config);
 
   const tierBadge =
@@ -96,6 +99,32 @@ export async function runDoctor(config) {
 
   ui.log(ui.label("Node.js", process.version));
   ui.log(ui.label("Platform", `${process.platform} ${process.arch}`));
+
+  if (config.semantic?.tsjs?.enabled && root) {
+    const dbPath = `${root}/.agents/index.db`;
+    if (await exists(dbPath)) {
+      const db = openIndexDatabase(root);
+      try {
+        const semanticProjects = listSemanticProjects(db);
+        ui.newline();
+        ui.log(ui.bold("Semantic TS/JS"));
+        if (semanticProjects.length === 0) {
+          ui.log(ui.dim("No semantic projects indexed yet. Run `agentify semantic refresh`."));
+        } else {
+          const semanticRows = semanticProjects.map((project) => [
+            project.config_path || "inferred",
+            project.status,
+            String(project.file_count),
+            `${project.surface_count}/${project.edge_count}`,
+          ]);
+          const semanticTable = ui.table(["Project", "Status", "Files", "Surfaces / Edges"], semanticRows);
+          process.stderr.write(semanticTable + "\n");
+        }
+      } finally {
+        closeIndexDatabase(db);
+      }
+    }
+  }
 
   if (caps.tier < 2) {
     ui.newline();
