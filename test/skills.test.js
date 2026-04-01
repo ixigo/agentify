@@ -11,7 +11,7 @@ test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
 
-  assert.deepEqual(names.sort(), ["grill-me", "improve-codebase-architecture", "worktree-verifier"]);
+  assert.deepEqual(names.sort(), ["gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "worktree-verifier"]);
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-verifier");
 });
 
@@ -67,6 +67,22 @@ test("installBuiltinSkill copies architecture skill references into project scop
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(referencePath), true);
+});
+
+test("installBuiltinSkill copies gh issue autopilot skill bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-gh-auto-"));
+  const result = await installBuiltinSkill(root, {
+    name: "gh-issue-autopilot",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "gh-issue-autopilot", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "gh-issue-autopilot", "agents", "openai.yaml");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
 });
 
 test("installBuiltinSkill installs canonical skill name for alias across all providers", async () => {
