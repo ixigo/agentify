@@ -34,12 +34,26 @@ export function buildProviderTemplateCommand(provider, prompt, { root, interacti
     return ["codex", "exec", normalizedPrompt];
   }
   if (provider === "claude") {
+    if (interactive) {
+      return ["claude", normalizedPrompt];
+    }
     return ["claude", "-p", normalizedPrompt];
   }
   if (provider === "gemini") {
+    if (interactive) {
+      return ["gemini", normalizedPrompt];
+    }
     return ["gemini", "-p", normalizedPrompt];
   }
   if (provider === "opencode") {
+    if (interactive) {
+      const args = ["opencode"];
+      if (root) {
+        args.push("--dir", root);
+      }
+      args.push(normalizedPrompt);
+      return args;
+    }
     const args = ["opencode", "run", normalizedPrompt];
     if (root) {
       args.push("--dir", root);

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { parseArgs, runCli } from "../src/main.js";
+import { getProviderTemplateOptions, parseArgs, runCli } from "../src/main.js";
 import { setSilent } from "../src/core/ui.js";
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
@@ -50,12 +50,14 @@ test("runCli rejects removed --tool flag", async () => {
   await assert.rejects(() => runCli(["scan", "--tool", "codex"]), /--tool was removed/);
 });
 
-test("runCli rejects --interactive for non-codex provider templates", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-"));
-  await assert.rejects(
-    () => runCli(["run", "--root", root, "--provider", "claude", "--interactive", "implement login"]),
-    /--interactive is currently supported only with --provider codex/,
-  );
+test("getProviderTemplateOptions defaults codex template commands to interactive", () => {
+  const options = getProviderTemplateOptions({}, "/tmp/repo", "codex", true);
+  assert.equal(options.interactive, true);
+});
+
+test("getProviderTemplateOptions defaults non-codex template commands to interactive", () => {
+  const options = getProviderTemplateOptions({}, "/tmp/repo", "claude", true);
+  assert.equal(options.interactive, true);
 });
 
 test("runCli supports skill install with provider all", async () => {

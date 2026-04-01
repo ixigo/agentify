@@ -214,13 +214,15 @@ After the first sticky Codex run, the repo keeps `codex` as its default provider
 agentify run "add tests for retry backoff"
 ```
 
-### Run inside the interactive Codex CLI
+### Run inside the interactive provider CLI
 
 ```bash
-agentify run --provider codex --interactive "fix auth bug in Codex TUI"
+agentify run --provider codex "fix auth bug in Codex TUI"
+agentify run --provider claude "fix auth bug in Claude CLI"
 ```
 
-`--interactive` currently applies only to Codex.
+Template runs are interactive by default across providers.
+`--interactive` is still accepted as an explicit override.
 
 ### Use sessions for longer work
 

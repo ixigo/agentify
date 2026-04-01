@@ -86,12 +86,9 @@ function getExecFlags(args) {
   };
 }
 
-function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
-  const interactive = args.interactive || false;
-
-  if (interactive && usingTemplateCommand && provider !== "codex") {
-    throw new Error("--interactive is currently supported only with --provider codex.");
-  }
+export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
+  const interactiveByDefault = usingTemplateCommand;
+  const interactive = args.interactive === true ? true : interactiveByDefault;
 
   return {
     root,
@@ -167,7 +164,7 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
-    `    ${c("--interactive")}, ${c("-i")}       Launch Codex interactive CLI for run/sess`,
+    `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,

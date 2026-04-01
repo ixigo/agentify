@@ -34,7 +34,7 @@ agentify run "implement retry logic for checkout"
 ```bash
 agentify run --provider codex "implement payment retries"
 agentify run "add tests for retry backoff"   # reuses sticky provider in this repo
-agentify run --provider codex --interactive "fix auth bug in Codex TUI"
+agentify run --provider codex "fix auth bug in Codex TUI"
 ```
 
 `run` executes your provider command and then automatically refreshes scan + doc + check.
@@ -50,7 +50,8 @@ agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try altern
 ```
 
 `sess run`, `sess resume`, and `sess fork` launch the provider directly using session context.
-Pass `--interactive` to launch the interactive Codex CLI instead of `codex exec`. This currently applies only to the `codex` provider.
+For template commands, Agentify now defaults to launching the provider CLI in interactive mode.
+`--interactive` remains supported as an explicit override.
 
 ### 3) Run full pipeline when needed
 
