@@ -13,7 +13,7 @@ import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { runSemanticRefresh } from "./core/semantic.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
-import { installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
+import { installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
@@ -187,6 +187,7 @@ function printHelp() {
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
     `    ${d("$")} agentify skill list`,
+    `    ${d("$")} agentify skill install all --provider codex --scope project`,
     `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
     `    ${d("$")} agentify skill install god-mode --provider all --scope project`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
@@ -415,30 +416,50 @@ export async function runCli(argv) {
       if (subcommand === "install") {
         const skillName = args._[2];
         if (!skillName) {
-          throw new Error("skill install requires a skill name: agentify skill install <name>");
+          throw new Error("skill install requires a skill name: agentify skill install <name|all>");
         }
-        const result = await installBuiltinSkill(root, {
-          name: skillName,
+        const installOptions = {
           provider: args.provider,
           scope: args.scope,
           force: args.force,
           dryRun: config.dryRun,
           defaultProvider: config.provider,
-        });
+        };
+        const installingAll = String(skillName).trim().toLowerCase() === "all";
+        const result = installingAll
+          ? await installAllBuiltinSkills(root, installOptions)
+          : await installBuiltinSkill(root, {
+            ...installOptions,
+            name: skillName,
+          });
 
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          if (result.skill.requested_name !== result.skill.name) {
-            log(`Resolved alias ${result.skill.requested_name} -> ${result.skill.name}`);
-          }
-          if (config.dryRun) {
-            log(`Skill install dry-run for ${bold(result.skill.name)} (${result.scope} scope).`);
+          if (installingAll) {
+            const label = config.dryRun ? "Skill install dry-run for all built-ins" : "All built-in skills ready";
+            if (config.dryRun) {
+              log(`${label} (${result.scope} scope).`);
+            } else {
+              success(`${label} (${result.scope} scope).`);
+            }
+            for (const skillResult of result.results) {
+              for (const item of skillResult.results) {
+                log(`${bold(skillResult.skill.name)} ${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+              }
+            }
           } else {
-            success(`Skill ready: ${result.skill.name}`);
-          }
-          for (const item of result.results) {
-            log(`${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+            if (result.skill.requested_name !== result.skill.name) {
+              log(`Resolved alias ${result.skill.requested_name} -> ${result.skill.name}`);
+            }
+            if (config.dryRun) {
+              log(`Skill install dry-run for ${bold(result.skill.name)} (${result.scope} scope).`);
+            } else {
+              success(`Skill ready: ${result.skill.name}`);
+            }
+            for (const item of result.results) {
+              log(`${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+            }
           }
         }
         return;
