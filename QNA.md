@@ -240,3 +240,141 @@ The project is building a **deterministic AI coding operations layer** for real 
 - repeatable autonomous workflows (skills + sessions).
 
 The goal is not replacing provider intelligence; it is making AI-assisted engineering workflows **reliable, inspectable, and team-scalable**.
+
+---
+
+## 21) What are the biggest current problems/gaps to solve next?
+
+The biggest practical gaps today are mostly around **depth, visibility, and feedback loops**:
+
+1. **Semantic coverage is TS/JS-first**
+   - Deep semantic graphing is strongest for TypeScript/JavaScript projects.
+   - Python/Go/Java/C# repositories get structural indexing, but not equivalent semantic richness yet.
+
+2. **Semantic internals are not obvious to new users**
+   - Users can run `scan/plan/query`, but often do not understand which tables/facts are driving ranking decisions.
+   - This creates a “black box” feel when context selection seems surprising.
+
+3. **Limited explainability in planner outputs**
+   - Planner picks are deterministic, but the “why this file, why this symbol” rationale can still be too compact.
+   - Users want score breakdowns tied to token matches, dependency distance, and semantic edge strength.
+
+4. **Optional semantic mode can be underused**
+   - Because semantic refresh is optional, teams may skip it and unknowingly lose high-value context quality.
+   - We need better defaults, prompts, and diagnostics to signal when semantic mode would materially help.
+
+5. **LSP-style parity is partial**
+   - Agentify stores persisted navigation facts similar in spirit to LSP capabilities, but does not yet expose full “IDE-like” operations uniformly across all languages.
+
+6. **Agent handoff ergonomics can improve**
+   - Sessions and docs are strong, but cross-agent collaboration still benefits from richer “next best action” artifacts and stronger conflict detection for parallel changes.
+
+---
+
+## 22) Concrete feature roadmap to address those issues
+
+High-impact features to add next:
+
+1. **Multi-language semantic adapters**
+   - Add analyzers for Python, Go, Java, and .NET with normalized symbol/edge tables.
+   - Goal: same query/planner quality profile regardless of language stack.
+
+2. **Explainable planning mode**
+   - Add `agentify plan --explain` to print per-file/per-symbol scoring contributions:
+     - lexical match score,
+     - dependency proximity score,
+     - semantic edge score,
+     - recency/changed-file score.
+
+3. **Semantic health diagnostics**
+   - Add `agentify doctor --semantic` to report:
+     - discovered projects,
+     - parse failures,
+     - stale project fingerprints,
+     - symbol/edge counts and coverage trends.
+
+4. **LSP-bridge query commands**
+   - Add query subcommands aligned with common IDE navigation:
+     - `query def --symbol <name>`
+     - `query refs --symbol <name>`
+     - `query callers --symbol <name>`
+     - `query impacts --file <path>`
+
+5. **Agent handoff bundle generation**
+   - Add `agentify handoff` to package:
+     - top-ranked context,
+     - semantic neighborhood of touched symbols,
+     - recommended test commands,
+     - unresolved risks and TODOs.
+
+6. **PR-risk and regression prediction**
+   - Use dependency + semantic edges to estimate blast radius and prioritize test suites automatically.
+
+---
+
+## 23) How semantic AST + LSP-style analysis actually works (detailed)
+
+Think of Agentify analysis as a layered pipeline:
+
+1. **File discovery + module detection**
+   - Classifies files into modules and identifies project roots.
+
+2. **AST extraction (structural layer)**
+   - Parses source files and records symbols/imports with stable spans.
+   - Produces deterministic base facts for ownership and dependency queries.
+
+3. **Semantic project build (TS/JS today)**
+   - Discovers `tsconfig`/`jsconfig` roots.
+   - Builds project-level semantic model and symbol graph.
+
+4. **LSP-style relationships persisted in DB**
+   - Stores “navigation-like” facts (symbol edges, surfaces, external package links).
+   - Unlike transient IDE memory, these artifacts are persisted and queryable by CLI.
+
+5. **Planner consumption**
+   - Planner combines lexical relevance + graph proximity + semantic edges.
+   - Returns bounded context to provider execution with test hints.
+
+### Example walkthrough
+
+Task: **“harden checkout retries and propagate timeout errors correctly”**
+
+1. AST layer finds likely lexical matches:
+   - `CheckoutService`, `RetryPolicy`, `TimeoutError`, `httpClient`.
+2. Semantic layer resolves deeper links:
+   - `CheckoutService.submitOrder` -> calls `PaymentGateway.charge`.
+   - `PaymentGateway.charge` -> wraps `httpClient.post` and maps transport errors.
+   - tests referencing `PaymentGateway.charge` and retry behavior are connected by symbol edges.
+3. Planner ranks context:
+   - includes checkout and payment modules,
+   - includes retry utility,
+   - includes highest-impact tests,
+   - excludes unrelated modules despite broad keyword overlap.
+
+Result: agents start with tighter, higher-signal context and spend fewer turns rediscovering architecture.
+
+---
+
+## 24) How agents benefit when a codebase is “Agentify-up”
+
+When a repo is kept fresh with `agentify up`, agents gain:
+
+1. **Faster onboarding per task**
+   - prebuilt map/docs/index reduce discovery overhead.
+
+2. **Higher precision context windows**
+   - planner pulls likely-impact files/symbols/tests instead of naive keyword chunks.
+
+3. **Lower hallucination risk**
+   - responses can anchor to indexed structure and generated docs rather than assumptions.
+
+4. **More reliable edits**
+   - semantic edges expose hidden coupling and call impacts before patching.
+
+5. **Better test targeting**
+   - dependency + symbol neighborhood narrows which tests should run first.
+
+6. **Auditable execution trail**
+   - run manifests/session artifacts make autonomous behavior inspectable and reproducible.
+
+In practice, this means better first-pass patches, fewer corrective loops, and easier multi-agent collaboration in large repositories.

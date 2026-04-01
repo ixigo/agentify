@@ -119,6 +119,7 @@ Notes:
 
 ```bash
 agentify skill list
+agentify skill install all --provider codex --scope project
 agentify skill install grill-me --provider claude --scope project
 agentify skill install god-mode --provider all --scope project
 agentify skill install worktree-verifier --provider codex --scope user
@@ -134,6 +135,7 @@ Built-in skills:
 Notes:
 
 - `--provider` accepts `codex`, `claude`, `gemini`, `opencode`, comma-separated lists, or `all`.
+- `agentify skill install all` installs every built-in skill in one command.
 - `--scope project` installs inside the current repo using provider-specific directories such as `.codex/skills/`, `.claude/skills/`, `.gemini/skills/`, and `.opencode/skills/`.
 - `--scope user` installs into the provider's user-level skill directory.
 - Skill installs do not update the repo's sticky execution provider.
@@ -287,6 +289,8 @@ cd agentify
 pnpm install
 pnpm test
 ```
+
+For advanced rollout patterns (single-command skill bootstrap + low-maintenance update flow), see `ADVANCED_ONBOARDING.md`.
 
 ## License
 

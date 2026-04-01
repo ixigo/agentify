@@ -5,7 +5,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { exists } from "../src/core/fs.js";
-import { installBuiltinSkill, listBuiltinSkills, resolveBuiltinSkill, resolveSkillInstallTargets } from "../src/core/skills.js";
+import {
+  installAllBuiltinSkills,
+  installBuiltinSkill,
+  listBuiltinSkills,
+  resolveBuiltinSkill,
+  resolveSkillInstallTargets,
+} from "../src/core/skills.js";
 
 test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
@@ -124,4 +130,22 @@ test("installBuiltinSkill skips existing targets without force", async () => {
   });
 
   assert.equal(result.results[0].status, "skipped_exists");
+});
+
+test("installAllBuiltinSkills installs every built-in skill for codex project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-install-all-"));
+  const result = await installAllBuiltinSkills(root, {
+    provider: "codex",
+    scope: "project",
+  });
+
+  assert.deepEqual(
+    result.installed_skills.sort(),
+    ["gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "worktree-verifier"]
+  );
+
+  for (const skillName of result.installed_skills) {
+    const skillPath = path.join(root, ".codex", "skills", skillName, "SKILL.md");
+    assert.equal(await exists(skillPath), true);
+  }
 });
