@@ -15,13 +15,19 @@ const BUILTIN_SKILLS = [
     name: "grill-me",
     aliases: [],
     description:
-      'Interview the user relentlessly about a plan or design until reaching shared understanding. Use when the user wants to stress-test a plan, get grilled on their design, or says "grill me".',
+      'Interview the user relentlessly about a plan or design until reaching shared understanding, then map the final plan to GitHub issues via gh CLI when requested. Use when the user wants to stress-test a plan, get grilled on their design, or says "grill me".',
   },
   {
     name: "improve-codebase-architecture",
     aliases: [],
     description:
       "Explore a codebase to find architectural refactors that deepen shallow modules, improve testability, and draft a local architecture RFC. Use when the user wants refactoring opportunities, tighter boundaries, or more AI-navigable modules.",
+  },
+  {
+    name: "gh-issue-autopilot",
+    aliases: [],
+    description:
+      "Select the first or latest open GitHub issue via gh CLI, implement it autonomously, run validation/test loops, and commit once checks pass.",
   },
   {
     name: "worktree-verifier",

@@ -128,6 +128,7 @@ Built-in skills:
 
 - `grill-me`
 - `improve-codebase-architecture`
+- `gh-issue-autopilot`
 - `worktree-verifier` (alias: `god-mode`)
 
 Notes:

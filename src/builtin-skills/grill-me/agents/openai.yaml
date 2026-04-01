@@ -1,4 +1,4 @@
 interface:
   display_name: "Grill Me"
-  short_description: "Stress-test a plan with tough questions"
-  default_prompt: "Use $grill-me to interrogate this plan one decision at a time."
+  short_description: "Stress-test a plan and publish GitHub issues"
+  default_prompt: "Use $grill-me to interrogate this plan, produce a final roadmap, and map it to issue types for gh issue creation."
