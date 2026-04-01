@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { parseArgs, runCli } from "../src/main.js";
+import { getProviderTemplateOptions, parseArgs, runCli } from "../src/main.js";
 import { setSilent } from "../src/core/ui.js";
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
@@ -50,12 +50,14 @@ test("runCli rejects removed --tool flag", async () => {
   await assert.rejects(() => runCli(["scan", "--tool", "codex"]), /--tool was removed/);
 });
 
-test("runCli rejects --interactive for non-codex provider templates", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-"));
-  await assert.rejects(
-    () => runCli(["run", "--root", root, "--provider", "claude", "--interactive", "implement login"]),
-    /--interactive is currently supported only with --provider codex/,
-  );
+test("getProviderTemplateOptions defaults codex template commands to interactive", () => {
+  const options = getProviderTemplateOptions({}, "/tmp/repo", "codex", true);
+  assert.equal(options.interactive, true);
+});
+
+test("getProviderTemplateOptions defaults non-codex template commands to interactive", () => {
+  const options = getProviderTemplateOptions({}, "/tmp/repo", "claude", true);
+  assert.equal(options.interactive, true);
 });
 
 test("runCli supports skill install with provider all", async () => {
@@ -68,6 +70,17 @@ test("runCli supports skill install with provider all", async () => {
   await assert.doesNotReject(() =>
     fs.access(path.join(root, ".opencode", "skills", "worktree-verifier", "SKILL.md"))
   );
+});
+
+test("runCli supports skill install all for codex project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-all-codex-"));
+  await runCli(["skill", "install", "all", "--root", root, "--provider", "codex", "--scope", "project"]);
+
+  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-issue-autopilot", "worktree-verifier"]) {
+    await assert.doesNotReject(() =>
+      fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
+    );
+  }
 });
 
 test("runCli init writes baseline local work and guardrail files", async () => {

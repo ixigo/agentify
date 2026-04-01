@@ -251,3 +251,25 @@ export async function installBuiltinSkill(rootDir, options = {}) {
     results,
   };
 }
+
+export async function installAllBuiltinSkills(rootDir, options = {}) {
+  const skills = listBuiltinSkills();
+  const results = [];
+
+  for (const skill of skills) {
+    const installed = await installBuiltinSkill(rootDir, {
+      ...options,
+      name: skill.name,
+    });
+    results.push(installed);
+  }
+
+  return {
+    command: "skill-install-all",
+    scope: results[0]?.scope || String(options.scope || "project"),
+    provider_selection: String(options.provider || ""),
+    default_provider: String(options.defaultProvider || "codex"),
+    installed_skills: results.map((item) => item.skill.name),
+    results,
+  };
+}

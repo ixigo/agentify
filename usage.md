@@ -214,13 +214,15 @@ After the first sticky Codex run, the repo keeps `codex` as its default provider
 agentify run "add tests for retry backoff"
 ```
 
-### Run inside the interactive Codex CLI
+### Run inside the interactive provider CLI
 
 ```bash
-agentify run --provider codex --interactive "fix auth bug in Codex TUI"
+agentify run --provider codex "fix auth bug in Codex TUI"
+agentify run --provider claude "fix auth bug in Claude CLI"
 ```
 
-`--interactive` currently applies only to Codex.
+Template runs are interactive by default across providers.
+`--interactive` is still accepted as an explicit override.
 
 ### Use sessions for longer work
 
@@ -258,6 +260,12 @@ This adds:
 - a `post-merge` hook that refreshes the scan
 
 ### 2. Install project-local skills for Codex
+
+```bash
+agentify skill install all --provider codex --scope project
+```
+
+This installs all built-in skills in one shot and is the recommended baseline for advanced teams.
 
 ```bash
 agentify skill install worktree-verifier --provider codex --scope project
