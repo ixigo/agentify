@@ -17,7 +17,7 @@ test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
 
-  assert.deepEqual(names.sort(), ["gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "worktree-verifier"]);
+  assert.deepEqual(names.sort(), ["commit-creator", "gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-verifier"]);
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-verifier");
 });
 
@@ -91,6 +91,38 @@ test("installBuiltinSkill copies gh issue autopilot skill bundle into project sc
   assert.equal(await exists(uiPath), true);
 });
 
+test("installBuiltinSkill copies pr creator skill bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-pr-creator-"));
+  const result = await installBuiltinSkill(root, {
+    name: "pr-creator",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "pr-creator", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "pr-creator", "agents", "openai.yaml");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies commit creator skill bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-commit-creator-"));
+  const result = await installBuiltinSkill(root, {
+    name: "commit-creator",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "commit-creator", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "commit-creator", "agents", "openai.yaml");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+});
+
 test("installBuiltinSkill installs canonical skill name for alias across all providers", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-all-"));
   const result = await installBuiltinSkill(root, {
@@ -141,7 +173,7 @@ test("installAllBuiltinSkills installs every built-in skill for codex project sc
 
   assert.deepEqual(
     result.installed_skills.sort(),
-    ["gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "worktree-verifier"]
+    ["commit-creator", "gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-verifier"]
   );
 
   for (const skillName of result.installed_skills) {

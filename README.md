@@ -132,6 +132,8 @@ Built-in skills:
 - `improve-codebase-architecture`
 - `gh-issue-autopilot`
 - `worktree-verifier` (alias: `god-mode`)
+- `pr-creator`
+- `commit-creator`
 
 Notes:
 

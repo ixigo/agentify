@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Creator"
+  short_description: "Create clean conventional commits"
+  default_prompt: "Use $commit-creator to group changes into atomic commits with conventional prefixes and clear messages."
