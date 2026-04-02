@@ -35,6 +35,18 @@ const BUILTIN_SKILLS = [
     description:
       "Run an autonomous coding workflow in the current repository or worktree with minimal human interaction, including verification and commit.",
   },
+  {
+    name: "pr-creator",
+    aliases: [],
+    description:
+      "Guide pull request creation across GitHub, GitLab, or Azure DevOps by checking CLI prerequisites/auth first, then opening a draft PR and returning the link.",
+  },
+  {
+    name: "commit-creator",
+    aliases: [],
+    description:
+      "Create focused, high-quality commits using conventional prefixes (feat/fix/chore/refactor/docs/test/etc.) with clear summaries.",
+  },
 ];
 
 const BUILTIN_SKILL_INDEX = new Map();
