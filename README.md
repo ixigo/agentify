@@ -143,6 +143,33 @@ Notes:
 - `--scope user` installs into the provider's user-level skill directory.
 - Skill installs do not update the repo's sticky execution provider.
 
+## Codex Codebase Auditor Setup
+
+Use `setup_codex_issue_agents.sh` when you want Codex to run a multi-agent, issue-first repository audit and publish evidence-backed GitHub issues via `gh`.
+
+```bash
+./setup_codex_issue_agents.sh
+codex "$(cat run_codex-codebase-auditor.txt)"
+```
+
+When to use this workflow:
+
+- You want a fresh, repository-wide audit before planning a larger refactor.
+- You need high-signal GitHub issues generated from concrete repository evidence.
+- You want specialized auditor agents (performance, reliability, maintainability, devex, security) plus an issue-authoring agent.
+
+What it creates:
+
+- `.codex/config.toml` agent thread/depth limits
+- `.codex/agents/*.toml` role-specific Codex subagents
+- `AGENTS.md` repository mission and issue quality requirements
+- `run_codex-codebase-auditor.txt` a ready-to-run Codex orchestration prompt
+
+Prerequisites:
+
+- GitHub CLI authenticated (`gh auth status`)
+- Codex CLI installed and available on `PATH`
+
 ## Providers
 
 Supported providers:
