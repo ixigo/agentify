@@ -1,0 +1,26 @@
+Use project subagents from .codex/agents.
+
+First spawn:
+- one repo_cartographer
+- one performance_auditor
+- one reliability_auditor
+- one maintainability_auditor
+- one developer_experience_auditor
+- one security_hygiene_auditor
+
+Wait for all of them and consolidate the findings.
+
+Then rank findings by:
+1. impact
+2. evidence quality
+3. how well-scoped they are for a follow-up coding agent
+4. value to future engineering work in this repository
+
+For the best finding, spawn github_issue_author and have it create one GitHub issue with gh.
+
+Then continue one issue at a time for the next best findings.
+Only create evidence-backed, non-duplicate, high-signal issues.
+Each issue must be detailed enough that a future coding agent can start without asking a human any questions.
+
+Adapt to whatever stack this repository uses.
+Do not assume web, backend, frontend, CLI, library, or monorepo unless the repository shows it.
