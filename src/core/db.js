@@ -6,6 +6,8 @@ import process from "node:process";
 
 const require = createRequire(import.meta.url);
 const DB_SCHEMA_VERSION = "3.0";
+const SNAPSHOT_DIR_MODE = 0o700;
+const SNAPSHOT_FILE_MODE = 0o600;
 
 let driver = null;
 
@@ -78,16 +80,16 @@ export function getIndexDbPath(root) {
 function createIndexSnapshot(dbPath) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentify-index-"));
   const snapshotPath = path.join(tempDir, "index.db");
-  fs.chmodSync(tempDir, 0o755);
+  fs.chmodSync(tempDir, SNAPSHOT_DIR_MODE);
   fs.copyFileSync(dbPath, snapshotPath);
-  fs.chmodSync(snapshotPath, 0o644);
+  fs.chmodSync(snapshotPath, SNAPSHOT_FILE_MODE);
 
   for (const suffix of ["-wal", "-shm"]) {
     const sourcePath = `${dbPath}${suffix}`;
     if (fs.existsSync(sourcePath)) {
       const snapshotSidecarPath = `${snapshotPath}${suffix}`;
       fs.copyFileSync(sourcePath, snapshotSidecarPath);
-      fs.chmodSync(snapshotSidecarPath, 0o644);
+      fs.chmodSync(snapshotSidecarPath, SNAPSHOT_FILE_MODE);
     }
   }
 
