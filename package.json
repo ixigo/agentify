@@ -37,11 +37,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/user/agentify.git"
+    "url": "git+https://github.com/ixigo/agentify.git"
   },
-  "homepage": "https://github.com/user/agentify",
+  "homepage": "https://github.com/ixigo/agentify",
   "bugs": {
-    "url": "https://github.com/user/agentify/issues"
+    "url": "https://github.com/ixigo/agentify/issues"
   },
   "dependencies": {
     "agentify": "link:../../.local/share/pnpm/global/5/node_modules/agentify",

@@ -314,7 +314,7 @@ agentify clean --dry-run
 ## Development
 
 ```bash
-git clone https://github.com/user/agentify.git
+git clone https://github.com/ixigo/agentify.git
 cd agentify
 pnpm install
 pnpm test
