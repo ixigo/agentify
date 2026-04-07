@@ -4,16 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  agentify: link:../../.local/share/pnpm/global/5/node_modules/agentify
-
 importers:
 
   .:
     dependencies:
-      agentify:
-        specifier: link:../../.local/share/pnpm/global/5/node_modules/agentify
-        version: link:../../.local/share/pnpm/global/5/node_modules/agentify
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
