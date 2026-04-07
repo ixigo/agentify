@@ -1,10 +1,23 @@
-# agentify
+```text
+    _                    _   _  __
+   / \   __ _  ___ _ __ | |_(_)/ _|_   _
+  / _ \ / _` |/ _ \ '_ \| __| | |_| | | |
+ / ___ \ (_| |  __/ | | | |_| |  _| |_| |
+/_/   \_\__, |\___|_| |_|\__|_|_|  \__, |
+        |___/                      |___/
+```
+
+# Agentify
 
 [![npm version](https://img.shields.io/npm/v/agentify)](https://www.npmjs.com/package/agentify)
 [![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
 [![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-Agent orchestration CLI for repository indexing, context planning, docs generation, validation, and session continuity across **Codex**, **Claude**, **Gemini**, and **OpenCode**.
+Agentify is a repository orchestration CLI for AI coding workflows. It builds a searchable repo index, generates AI-facing docs, validates repository state, and wraps provider CLIs so the repository stays fresh while agents work.
+
+Supported providers: `local`, `codex`, `claude`, `gemini`, `opencode`.
+
+License: [MIT](./LICENSE)
 
 ## Install
 
@@ -12,97 +25,110 @@ Agent orchestration CLI for repository indexing, context planning, docs generati
 npm install -g agentify
 ```
 
-Requires **Node.js >= 20**.
+Requires `Node.js >= 20`.
 
 ## Quick Start
+
+### Fastest path on macOS
 
 ```bash
 cd /path/to/your/repo
 agentify this --provider codex
-agentify skill install grill-me --provider codex --scope project
-agentify clean
-agentify check
-agentify run "implement retry logic for checkout"
-```
-
-`agentify this` is the macOS bootstrap path. It defaults to the current working directory, can prompt for provider/path when flags are omitted, verifies/install required local tools, writes the repo-local provider, and initializes missing Agentify artifacts.
-
-## Day-to-Day Workflow
-
-### 1) Use `run` for normal task execution
-
-```bash
-agentify run --provider codex "implement payment retries"
-agentify run "add tests for retry backoff"   # reuses sticky provider in this repo
-agentify run --provider codex "fix auth bug in Codex TUI"
-```
-
-`run` executes your provider command and then automatically refreshes scan + doc + check.
-
-### 2) Use `sess` for continuity
-
-```bash
-agentify sess run --provider codex --name "payments-v2" "implement initial module"
-agentify sess run --provider codex --interactive --name "payments-v2" "continue in interactive Codex"
-agentify sess list
-agentify sess resume --session sess_20260331_ab12cd "continue from previous checkpoint"
-agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"
-```
-
-`sess run`, `sess resume`, and `sess fork` launch the provider directly using session context.
-For template commands, Agentify now defaults to launching the provider CLI in interactive mode.
-`--interactive` remains supported as an explicit override.
-
-### 3) Run full pipeline when needed
-
-```bash
 agentify up
+agentify check
 ```
 
-Runs: `index -> doc -> check -> tests`.
+Use this when you want Agentify to bootstrap the current Git repo, verify/install local tooling, and prepare a provider-backed workflow with the fewest manual steps.
 
-## Sticky Provider Behavior
-
-Provider defaults are repo-local and persisted in `.agentify.yaml`.
-
-- Any explicit `--provider` on these commands updates repo default:
-  - `run`
-  - `exec`
-  - `sess run`
-  - `sess resume`
-  - `sess fork`
-- Commands without `--provider` reuse the stored repo default.
-
-Example:
+### Manual path on any platform
 
 ```bash
-agentify run --provider codex "task A"
-agentify run "task B"     # uses codex in the same repo
+cd /path/to/your/repo
+agentify init --provider codex
+agentify up
+agentify check
 ```
 
-## Commands
+Use this when you already manage local dependencies yourself or when `agentify this` is not available.
 
-| Command | Description |
-| --- | --- |
-| `init` | Create baseline Agentify artifacts |
-| `index` | Build the SQLite repository index |
-| `scan` | Alias for `index` |
-| `doc` | Generate docs, metadata, and key-file headers |
-| `up` | Full pipeline (`index -> doc -> check -> tests`) |
-| `check` | Validate freshness, schemas, and safety rules |
-| `plan` | Preview the planner-selected context for a task |
-| `run` | Provider-template execution with auto-refresh |
-| `exec` | Advanced wrapper for custom command after `--` |
-| `this` | Bootstrap the current macOS repo for a provider-backed workflow |
-| `skill` | List and install built-in agent skills for supported providers |
-| `sess` | Session lifecycle commands (`run`, `list`, `resume`, `fork`) |
-| `query` | Query index (`owner`, `deps`, `changed`, `search`) |
-| `hooks` | Install/remove/status git hooks |
-| `doctor` | Toolchain and capability diagnostics |
-| `clean` | Prune stale generated artifacts and dead Agentify folders |
-| `cache` | Cache maintenance (`gc`, `status`) |
+## How To Think About The CLI
 
-## Session Commands
+- `init` creates the baseline repo files Agentify needs.
+- `index` and `scan` build the SQLite index used for planner and query features.
+- `doc` turns the index into markdown docs, summaries, and file headers.
+- `check` verifies freshness, schema health, and safety rules.
+- `up` runs the full maintenance pipeline in one command.
+- `plan` and `query` help you inspect the indexed repo before you hand work to an agent.
+- `run`, `exec`, and `sess` launch provider workflows and keep the repo refreshed afterward.
+
+## Command Guide
+
+### Core Repo Commands
+
+| Command | What it does | Why and when to use it | Example |
+| --- | --- | --- | --- |
+| `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/work/`, `.agents/`, and `docs/modules/`. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
+| `agentify index` | Scans the repo and writes the SQLite index. | Use when you want the machine-readable repo graph refreshed but do not need markdown docs yet. | `agentify index` |
+| `agentify scan` | Alias for `index`. | Use it when you prefer the word "scan" in scripts or team docs. Functionally it is the same as `index`. | `agentify scan` |
+| `agentify doc` | Generates `AGENTIFY.md`, module docs, repo map updates, and refreshes eligible file headers. | Use after indexing when you want human-readable and agent-readable documentation updated. | `agentify doc` |
+| `agentify up` | Runs the full pipeline: `index -> doc -> check -> tests` when a runnable test command is detected. | Use as the default maintenance command when you want the whole repo refreshed and validated in one step. | `agentify up` |
+| `agentify check` | Validates freshness, schema state, and guardrail/safety expectations. | Use before committing, after a large refresh, or inside hooks/CI to confirm Agentify artifacts are consistent. | `agentify check` |
+| `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
+| `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
+| `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
+
+### Planning, Execution, And Continuity
+
+| Command | What it does | Why and when to use it | Example |
+| --- | --- | --- | --- |
+| `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. | Use before `run` when you want to inspect the exact prompt context and file selection Agentify will choose. | `agentify plan "add retry logic to checkout"` |
+| `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex "implement payment retries"` |
+| `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
+| `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
+| `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. | Use for work that will span multiple agent runs and needs durable context under `.agents/session/`. | `agentify sess run --provider codex --name "payments-v2" "add tests"` |
+| `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
+| `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
+| `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
+
+### Query, Skills, Hooks, And Cache
+
+| Command | What it does | Why and when to use it | Example |
+| --- | --- | --- | --- |
+| `agentify query owner` | Shows ownership/context for a file from the index. | Use when you need to know which module or indexed context owns a file before changing it. | `agentify query owner --file src/payments/index.ts` |
+| `agentify query deps` | Shows module dependency relationships from the index. | Use when you want to understand how a module depends on others before refactoring it. | `agentify query deps --module payments` |
+| `agentify query changed` | Lists indexed items changed since a commit. | Use when you are auditing changes across a range or building context for recent work. | `agentify query changed --since HEAD~5` |
+| `agentify query search` | Searches the index for matching files, symbols, and semantic surfaces. | Use when you need a repo-aware search that goes beyond raw grep, especially after indexing and semantic refresh. | `agentify query search --term retry` |
+| `agentify skill list` | Lists built-in skills available for installation. | Use when you want to see what behavior bundles Agentify can install for a provider. | `agentify skill list` |
+| `agentify skill install` | Installs one built-in skill or all built-ins into project or user scope. | Use when you want repeatable agent behavior shared at the repo level or available globally for a provider. | `agentify skill install all --provider codex --scope project` |
+| `agentify hooks install` | Installs Agentify git hooks. | Use when you want automatic validation or refresh behavior tied to Git events. | `agentify hooks install` |
+| `agentify hooks status` | Shows whether Agentify hooks are installed. | Use when you are verifying local setup or debugging why hook-driven behavior is missing. | `agentify hooks status` |
+| `agentify hooks remove` | Removes Agentify git hooks. | Use when you want to disable Agentify-managed hook behavior cleanly. | `agentify hooks remove` |
+| `agentify cache status` | Shows cache blob counts and total size. | Use when you want to understand cache growth before cleanup. | `agentify cache status` |
+| `agentify cache gc` | Garbage-collects old cache blobs. | Use when the cache should be trimmed without touching other generated repo artifacts. | `agentify cache gc --max-age 14` |
+
+### Utility Commands
+
+| Command | What it does | Why and when to use it | Example |
+| --- | --- | --- | --- |
+| `agentify --help` | Prints the CLI command summary and examples. | Use when you need a quick reminder of syntax from the terminal. | `agentify --help` |
+| `agentify --version` | Prints the installed CLI version. | Use when debugging environment drift or reporting a bug. | `agentify --version` |
+
+## Command Families In More Detail
+
+### `run` vs `exec`
+
+- Use `run` when you want Agentify to build the provider prompt for you.
+- Use `exec` when you already know the exact provider command you want to run after `--`.
+- Both commands support post-execution refresh behavior.
+
+Examples:
+
+```bash
+agentify run --provider codex "implement retry logic"
+agentify exec --timeout 600 -- codex exec "implement retry logic"
+```
+
+### `sess` Commands
 
 ```bash
 agentify sess run [--provider <name>] [--name <label>] [--from <parent-id>] "task"
@@ -111,19 +137,24 @@ agentify sess resume --session <id> "task"
 agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 ```
 
-Notes:
+Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
 
-- `sess resume` also accepts positional id: `agentify sess resume <id> "task"`.
-- Session manifests now store `provider` (legacy `tool` is still read for old sessions).
+### `query` Commands
 
-## Skill Commands
+```bash
+agentify query owner --file <path>
+agentify query deps --module <id>
+agentify query changed --since <commit>
+agentify query search --term <value>
+```
+
+Use `query` when you want answers from Agentify's indexed understanding of the repo rather than raw filesystem output.
+
+### `skill` Commands
 
 ```bash
 agentify skill list
-agentify skill install all --provider codex --scope project
-agentify skill install grill-me --provider claude --scope project
-agentify skill install god-mode --provider all --scope project
-agentify skill install worktree-verifier --provider codex --scope user
+agentify skill install <name|all> --provider <name|all> --scope <project|user>
 ```
 
 Built-in skills:
@@ -135,54 +166,129 @@ Built-in skills:
 - `pr-creator`
 - `commit-creator`
 
-Notes:
+Use `--scope project` when you want the repository to carry its own provider skill setup under directories like `.codex/skills/`. Use `--scope user` when you want skills installed globally for your local account.
 
-- `--provider` accepts `codex`, `claude`, `gemini`, `opencode`, comma-separated lists, or `all`.
-- `agentify skill install all` installs every built-in skill in one command.
-- `--scope project` installs inside the current repo using provider-specific directories such as `.codex/skills/`, `.claude/skills/`, `.gemini/skills/`, and `.opencode/skills/`.
-- `--scope user` installs into the provider's user-level skill directory.
-- Skill installs do not update the repo's sticky execution provider.
-
-## Codex Codebase Auditor Setup
-
-Use `setup_codex_issue_agents.sh` when you want Codex to run a multi-agent, issue-first repository audit and publish evidence-backed GitHub issues via `gh`.
+### `hooks` Commands
 
 ```bash
-./setup_codex_issue_agents.sh
-codex "$(cat run_codex-codebase-auditor.txt)"
+agentify hooks install
+agentify hooks status
+agentify hooks remove
 ```
 
-When to use this workflow:
+Use hooks when you want Agentify checks and refreshes to happen automatically around Git operations instead of relying on people to remember them manually.
 
-- You want a fresh, repository-wide audit before planning a larger refactor.
-- You need high-signal GitHub issues generated from concrete repository evidence.
-- You want specialized auditor agents (performance, reliability, maintainability, devex, security) plus an issue-authoring agent.
+### `cache` Commands
 
-What it creates:
+```bash
+agentify cache status
+agentify cache gc
+```
 
-- `.codex/config.toml` agent thread/depth limits
-- `.codex/agents/*.toml` role-specific Codex subagents
-- `AGENTS.md` repository mission and issue quality requirements
-- `run_codex-codebase-auditor.txt` a ready-to-run Codex orchestration prompt
+Use `cache status` to inspect cache growth. Use `cache gc` when you want to reclaim space without deleting the full Agentify index or docs.
 
-Prerequisites:
+## Sticky Provider Behavior
 
-- GitHub CLI authenticated (`gh auth status`)
-- Codex CLI installed and available on `PATH`
+Provider defaults are repo-local and persisted in `.agentify.yaml`.
+
+- An explicit `--provider` on `run`, `exec`, `sess run`, `sess resume`, or `sess fork` updates the repo's sticky provider.
+- Commands like `up`, `doc`, `check`, and `skill install` do not change the sticky execution provider.
+
+Example:
+
+```bash
+agentify run --provider codex "task A"
+agentify run "task B"
+```
+
+In the second command, Agentify reuses `codex` for the same repo.
+
+## Important Flags
+
+### General Flags
+
+| Flag | Why and when to use it |
+| --- | --- |
+| `--provider <local|codex|claude|gemini|opencode>` | Choose the provider explicitly. Use this when setting or overriding the repo default for execution commands. |
+| `--strict <true|false>` | Tighten validation behavior. Use this when you want failures to stop the workflow instead of being treated leniently. |
+| `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection. Use this when auto-detection is wrong or too broad for the repo. |
+| `--dry-run` | Show what Agentify would do without writing changes. Use this before cleanup, installs, or config-affecting commands. |
+| `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
+| `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
+| `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
+| `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
+| `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
+| `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |
+
+### `exec`-Only Flags
+
+| Flag | Why and when to use it |
+| --- | --- |
+| `--fail-on-stale` | Exit with code `80` if post-refresh validation fails. Use this in automation where stale artifacts should fail the job. |
+| `--timeout <seconds>` | Kill the wrapped command after a time budget. Use this for long-running provider commands in CI or guarded local scripts. |
+| `--skip-refresh` | Skip the post-command refresh. Use this only when you intentionally want the custom command without Agentify's usual follow-up maintenance. |
 
 ## Providers
 
-Supported providers:
+- `local` is valid for maintenance workflows such as `index`, `doc`, `up`, and `check`.
+- `run` and `sess *` require an external provider CLI: `codex`, `claude`, `gemini`, or `opencode`.
+- `agentify this` supports provider-backed bootstrap on macOS and requires Homebrew for package installation.
 
-- `local`
-- `codex`
-- `claude`
-- `gemini`
-- `opencode`
+## Semantic TypeScript/JavaScript Indexing
 
-`local` is valid for scan/doc/up/check workflows, but `run` / `sess *` require an external provider (`codex|claude|gemini|opencode`) because they execute provider CLIs.
+Semantic indexing is optional, but it is one of the more important newer capabilities in the repo.
 
-## Bootstrap Command
+Enable it in `.agentify.yaml`:
+
+```yaml
+provider: codex
+semantic:
+  tsjs:
+    enabled: true
+    workerConcurrency: 2
+```
+
+Then refresh it with:
+
+```bash
+agentify semantic refresh
+```
+
+Why use it:
+
+- richer planner context for TS/JS repos
+- semantic surfaces in `query search`
+- better repo-map output
+- deterministic semantic headers during doc generation
+
+Use it when the repository is TypeScript- or JavaScript-heavy and raw dependency scanning is not enough.
+
+## Recommended Workflows
+
+### Day-to-day execution
+
+```bash
+agentify run --provider codex "implement payment retries"
+agentify run "add tests for retry backoff"
+agentify sess list
+```
+
+### Full refresh before or after a larger change
+
+```bash
+agentify up
+agentify check
+```
+
+### Cheap deterministic maintenance without changing the sticky provider
+
+```bash
+agentify up --provider local
+```
+
+Use this when you want the repo refreshed without switching the repo's execution provider away from `codex`, `claude`, `gemini`, or `opencode`.
+
+## Bootstrap Notes
 
 ```bash
 agentify this
@@ -190,80 +296,42 @@ agentify this --provider codex
 agentify this --provider codex --root /path/to/repo
 ```
 
-Notes:
+- `this` is macOS-only.
+- In non-interactive mode, `--provider` is required.
+- The default root is the current working directory.
+- Use it when you want Agentify to verify Homebrew, provider CLI availability, and recommended local tooling automatically.
 
-- `this` currently supports macOS only.
-- The command uses the current working directory when `--root` is omitted.
-- Supported bootstrap providers are `codex`, `claude`, `gemini`, and `opencode`.
-- Homebrew is required for macOS package installation.
-- Normal TTY mode keeps bootstrap progress to a single compact line and suppresses installer logs unless something fails.
+## Codex Codebase Auditor Setup
 
-## Options
+This repository also ships a repo-local audit workflow for Codex that is separate from the published `agentify` CLI.
 
-```txt
---provider <local|codex|claude|gemini|opencode>
---strict <true|false>
---languages <auto|ts|python|dotnet|java|kotlin|swift>
---dry-run
---ghost
---json
---interactive, -i
---scope <project|user>
---root <path>
-```
-
-### Exec Flags
-
-```txt
---fail-on-stale
---timeout <seconds>
---skip-refresh
-```
-
-`exec` usage:
+Commands:
 
 ```bash
-agentify exec [flags] -- <command...>
-agentify exec --provider codex -- codex exec "fix auth bug"
+./setup_codex_issue_agents.sh
+codex "$(cat run_codex-codebase-auditor.txt)"
 ```
 
-## Migration (Hard Cutover)
+Why and when to use it:
 
-| Removed | Replacement |
-| --- | --- |
-| `agentify update` | `agentify up` |
-| `agentify validate` | `agentify check` |
-| `agentify session ...` | `agentify sess ...` |
-| `--tool` | `--provider` |
+- Use `./setup_codex_issue_agents.sh` when you want to scaffold the `.codex/` multi-agent audit configuration in the current repository.
+- Use `codex "$(cat run_codex-codebase-auditor.txt)"` when you want Codex to run the issue-first repository audit and create evidence-backed GitHub issues one at a time with `gh`.
 
-Old command/flag names now fail fast with migration errors.
+What it prepares:
 
-## Recommended Tools
+- `.codex/config.toml`
+- `.codex/agents/*.toml`
+- `run_codex-codebase-auditor.txt`
+- alignment with the repo's `AGENTS.md` issue-quality rules
 
-```bash
-# Tier 1
-brew install ripgrep fd
+Prerequisites:
 
-# Tier 2
-brew install ast-grep
-npm install -g tree-sitter-cli
-```
-
-Run diagnostics:
-
-```bash
-agentify doctor
-```
-
-## Ghost Mode
-
-```bash
-agentify up --ghost --provider local
-```
-
-Outputs are written under `.current_session/`.
+- `codex` CLI installed and authenticated
+- `gh auth status` already passing
 
 ## Generated Artifacts
+
+Common generated paths:
 
 ```txt
 AGENTS.md
@@ -276,40 +344,16 @@ docs/modules/*.md
 .guardrails
 .agentify/work/*
 .agents/session/*
+.current_session/*
 ```
 
-## Configuration
+What creates them:
 
-Create `.agentify.yaml` in repo root:
-
-```yaml
-provider: local
-strict: true
-languages: auto
-maxFilesPerModule: 20
-moduleConcurrency: 4
-tokenReport: true
-cleanup:
-  keepRuns: 20
-  maxRunAgeDays: 14
-  keepGhostRuns: 3
-  maxGhostAgeDays: 3
-```
-
-Cleanup workflow:
-
-```bash
-agentify clean
-agentify clean --dry-run
-```
-
-`clean` safely removes:
-
-- orphaned `docs/modules/*.md`
-- stale legacy `.agents/modules/*.json`
-- stale `.agents/runs/*.json`
-- stale `.current_session/ghost_*` folders
-- invalid `.agents/session/*` folders without manifests
+- `init` creates baseline config and working directories.
+- `index` or `scan` writes the SQLite index and refreshes repo map basics.
+- `doc` writes markdown docs, run reports, and eligible headers.
+- `sess *` writes session manifests and bootstrap context under `.agents/session/`.
+- `--ghost` writes isolated outputs under `.current_session/`.
 
 ## Development
 
@@ -320,8 +364,19 @@ pnpm install
 pnpm test
 ```
 
-For advanced rollout patterns (single-command skill bootstrap + low-maintenance update flow), see `ADVANCED_ONBOARDING.md`.
+`package.json` currently exposes:
+
+```bash
+npm test
+```
+
+Both forms run Node's built-in test runner for this repository.
+
+## More Docs
+
+- [usage.md](./usage.md) for a step-by-step Codex-oriented operating guide
+- [ADVANCED_ONBOARDING.md](./ADVANCED_ONBOARDING.md) for more opinionated rollout patterns
 
 ## License
 
-[MIT](./LICENSE)
+MIT. See [LICENSE](./LICENSE).
