@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { getChangedFiles } from "./git.js";
+import { getChangedFiles, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { validateRepo } from "./validate.js";
 import * as ui from "./ui.js";
@@ -38,6 +38,7 @@ function runWrappedCommand(argv, options) {
 }
 
 export async function runExec(root, config, agentCommand, flags) {
+  const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
 
   const exitCode = await runWrappedCommand(agentCommand, {
@@ -54,9 +55,11 @@ export async function runExec(root, config, agentCommand, flags) {
     return { phase: "complete", exitCode: 0, skippedRefresh: true };
   }
 
+  const postHeadCommit = await getHeadCommit(root);
   const postFiles = await getChangedFiles(root);
   const agentChanges = diffSnapshots(preFiles, postFiles);
-  if (agentChanges.length === 0) {
+  const headChanged = postHeadCommit !== preHeadCommit;
+  if (agentChanges.length === 0 && !headChanged) {
     const validation = await validateRepo(root, config);
     if (!validation.passed && flags.failOnStale) {
       process.exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
