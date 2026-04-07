@@ -11,6 +11,7 @@ import { loadConfig } from "../src/core/config.js";
 import { getRepoMeta, openIndexDatabase, closeIndexDatabase } from "../src/core/db.js";
 import { runExec } from "../src/core/exec.js";
 import { getHeadCommit } from "../src/core/git.js";
+import { forkSession } from "../src/core/session.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,4 +62,48 @@ test("runExec refreshes when the wrapped command commits and exits clean", async
   } finally {
     closeIndexDatabase(db);
   }
+});
+
+test("runExec writes MemPalace-compatible session memory artifacts when recording is enabled", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-memory-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  const session = await forkSession(root, config, { name: "memory" });
+  const result = await runExec(
+    root,
+    config,
+    ["node", "--input-type=module", "-e", "process.stdout.write('assistant says hello\\n')"],
+    {
+      captureOutput: true,
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider: "codex",
+        prompt: "Continue this session using the remembered context.",
+        task: "Verify transcript persistence.",
+        command: ["node", "--input-type=module", "-e", "process.stdout.write('assistant says hello\\n')"],
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
+        },
+        captureMode: "captured-pipe",
+      },
+    }
+  );
+
+  const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
+  const memoryContext = await fs.readFile(path.join(session.sessionDir, "memory-context.md"), "utf8");
+  const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.match(transcript, /> Current task/);
+  assert.match(transcript, /assistant says hello/);
+  assert.match(transcript, /> Run status/);
+  assert.match(memoryContext, /Automatic Session Memory/);
+  assert.match(launches, /captured-pipe/);
+  assert.match(launches, /Continue this session using the remembered context/);
 });

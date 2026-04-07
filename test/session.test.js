@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
 import { forkSession, resolveSessionProvider, resumeSession } from "../src/core/session.js";
+import { getSessionArtifactPaths, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -111,4 +112,38 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   assert.match(resumed.bootstrap, /host shell -> \.agents\/index\.db/);
   assert.ok((resumed.context.index_snapshot.truncated_module_ids || 0) > 0);
   assert.ok((resumed.context.checklist_summary.remaining_items || 0) > 0);
+});
+
+test("loadAutomaticSessionMemory reuses the parent transcript automatically", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-memory-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const parent = await forkSession(root, config, { name: "parent" });
+  const paths = getSessionArtifactPaths(root, parent.sessionId);
+  await fs.writeFile(paths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Investigate why refresh after commits misses the new HEAD.",
+    "",
+    "> Provider response",
+    "The wrapped command updates HEAD before Agentify rescans, so the index still points at the old commit.",
+    "",
+    "> Current task",
+    "Choose the smallest fix.",
+    "",
+    "> Provider response",
+    "Refresh after the wrapped command commit lands, then validate against the new HEAD.",
+    ""
+  ].join("\n"), "utf8");
+
+  const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
+  const memory = await loadAutomaticSessionMemory(root, child.manifest, config);
+
+  assert.equal(memory.sourceSessionId, parent.sessionId);
+  assert.match(memory.markdown, /Automatic Session Memory/);
+  assert.match(memory.markdown, /Refresh after the wrapped command commit lands/);
+  assert.match(memory.markdown, new RegExp(parent.sessionId));
 });

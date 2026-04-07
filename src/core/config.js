@@ -46,6 +46,9 @@ const DEFAULT_CONFIG = {
   session: {
     bootstrapMaxKb: 4,
     contextMaxKb: 16,
+    memoryPromptMaxKb: 4,
+    memoryTurns: 6,
+    captureMaxKb: 48,
   },
   planner: {
     maxModules: 6,

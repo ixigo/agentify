@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { getChangedFiles, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { validateRepo } from "./validate.js";
+import { finalizeSessionMemoryRun, prepareSessionMemoryRun } from "./session-memory.js";
 import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
@@ -15,11 +16,24 @@ function diffSnapshots(preFiles, postFiles) {
 function runWrappedCommand(argv, options) {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;
+    const stdoutChunks = [];
+    const stderrChunks = [];
     const child = spawn(cmd, args, {
       cwd: options.cwd,
-      stdio: "inherit",
+      stdio: options.captureOutput ? ["inherit", "pipe", "pipe"] : "inherit",
       env: process.env,
     });
+
+    if (options.captureOutput) {
+      child.stdout.on("data", (chunk) => {
+        stdoutChunks.push(Buffer.from(chunk));
+        process.stdout.write(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderrChunks.push(Buffer.from(chunk));
+        process.stderr.write(chunk);
+      });
+    }
 
     let timer;
     if (options.timeout) {
@@ -32,7 +46,11 @@ function runWrappedCommand(argv, options) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      resolve(code ?? 1);
+      resolve({
+        exitCode: code ?? 1,
+        stdout: options.captureOutput ? Buffer.concat(stdoutChunks).toString("utf8") : "",
+        stderr: options.captureOutput ? Buffer.concat(stderrChunks).toString("utf8") : "",
+      });
     });
   });
 }
@@ -40,19 +58,50 @@ function runWrappedCommand(argv, options) {
 export async function runExec(root, config, agentCommand, flags) {
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
+  const preparedSessionMemory = flags.sessionRecord
+    ? await prepareSessionMemoryRun(root, flags.sessionRecord)
+    : null;
 
-  const exitCode = await runWrappedCommand(agentCommand, {
-    cwd: root,
-    timeout: flags.timeout ? flags.timeout * 1000 : undefined,
-  });
+  let commandResult;
+  try {
+    commandResult = await runWrappedCommand(agentCommand, {
+      cwd: root,
+      timeout: flags.timeout ? flags.timeout * 1000 : undefined,
+      captureOutput: flags.captureOutput || false,
+    });
+  } catch (error) {
+    if (preparedSessionMemory) {
+      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, {
+        phase: "spawn-error",
+        exitCode: 1,
+        stderr: error.message,
+      }, config);
+    }
+    throw error;
+  }
+  const exitCode = commandResult.exitCode;
 
   if (exitCode !== 0) {
     process.exitCode = exitCode;
-    return { phase: "command", exitCode };
+    const result = { phase: "command", exitCode, stdout: commandResult.stdout, stderr: commandResult.stderr };
+    if (preparedSessionMemory) {
+      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+    }
+    return result;
   }
 
   if (flags.skipRefresh) {
-    return { phase: "complete", exitCode: 0, skippedRefresh: true };
+    const result = {
+      phase: "complete",
+      exitCode: 0,
+      skippedRefresh: true,
+      stdout: commandResult.stdout,
+      stderr: commandResult.stderr,
+    };
+    if (preparedSessionMemory) {
+      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+    }
+    return result;
   }
 
   const postHeadCommit = await getHeadCommit(root);
@@ -68,7 +117,18 @@ export async function runExec(root, config, agentCommand, flags) {
         process.stderr.write(ui.formatFailure(f) + "\n");
       }
     }
-    return { phase: "complete", exitCode: process.exitCode || 0, validation, skippedRefresh: true };
+    const result = {
+      phase: "complete",
+      exitCode: process.exitCode || 0,
+      validation,
+      skippedRefresh: true,
+      stdout: commandResult.stdout,
+      stderr: commandResult.stderr,
+    };
+    if (preparedSessionMemory) {
+      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+    }
+    return result;
   }
 
   try {
@@ -78,7 +138,16 @@ export async function runExec(root, config, agentCommand, flags) {
     ui.error(`refresh error: ${error.message}`);
     if (flags.failOnStale) {
       process.exitCode = AGENTIFY_EXIT_REFRESH_ERROR;
-      return { phase: "refresh-error", exitCode: AGENTIFY_EXIT_REFRESH_ERROR };
+      const result = {
+        phase: "refresh-error",
+        exitCode: AGENTIFY_EXIT_REFRESH_ERROR,
+        stdout: commandResult.stdout,
+        stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
+      };
+      if (preparedSessionMemory) {
+        await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+      }
+      return result;
     }
   }
 
@@ -94,5 +163,15 @@ export async function runExec(root, config, agentCommand, flags) {
     }
   }
 
-  return { phase: "complete", exitCode: process.exitCode || 0, validation };
+  const result = {
+    phase: "complete",
+    exitCode: process.exitCode || 0,
+    validation,
+    stdout: commandResult.stdout,
+    stderr: commandResult.stderr,
+  };
+  if (preparedSessionMemory) {
+    await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+  }
+  return result;
 }

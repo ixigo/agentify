@@ -8,6 +8,7 @@ import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
 import { buildExecutionPlan } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession } from "./core/session.js";
+import { loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
@@ -78,11 +79,12 @@ async function maybePersistProvider(root, config, args, command, subcommand) {
   }
 }
 
-function getExecFlags(args) {
+function getExecFlags(args, extras = {}) {
   return {
     failOnStale: args.failOnStale || false,
     timeout: args.timeout || null,
     skipRefresh: args.skipRefresh || false,
+    ...extras,
   };
 }
 
@@ -107,15 +109,18 @@ function buildRunPrompt(userPrompt) {
   return "Continue implementation in this repository using small, validated changes.";
 }
 
-function buildSessionPrompt(bootstrap, userPrompt) {
+export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
   const task = userPrompt || "Continue this session from the latest repository state.";
-  return [
+  const sections = [
     "You are continuing an Agentify session.",
     "",
     bootstrap.trim(),
-    "",
-    `Current task: ${task}`,
-  ].join("\n");
+  ];
+  if (memoryMarkdown.trim()) {
+    sections.push("", memoryMarkdown.trim());
+  }
+  sections.push("", `Current task: ${task}`);
+  return sections.join("\n");
 }
 
 function resolveSessionIdForResume(args) {
@@ -486,17 +491,20 @@ export async function runCli(argv) {
           provider: args.provider || null,
           name: args.name || null,
         });
+        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config);
         const provider = hasOwn(args, "provider")
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-        const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, 2));
         const usingTemplateCommand = !args._exec?.length;
+        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const task = getPromptFromArgs(args, 2);
+        const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
             provider,
             prompt,
-            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+            providerOptions,
           );
 
         if (!config.json) {
@@ -504,27 +512,52 @@ export async function runCli(argv) {
           log(`Path: ${dim(result.sessionDir)}`);
         }
 
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+          captureOutput: !providerOptions.interactive,
+          sessionRecord: {
+            sessionId: result.manifest.session_id,
+            provider,
+            prompt,
+            task: task || "Continue this session from the latest repository state.",
+            command: agentCommand,
+            memoryContext,
+            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+          },
+        }));
         return;
       }
 
       if (subcommand === "resume") {
         const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
         const result = await resumeSession(root, sessionId);
+        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config);
         const provider = hasOwn(args, "provider")
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-        const prompt = buildSessionPrompt(result.bootstrap, getPromptFromArgs(args, promptStartIndex));
         const usingTemplateCommand = !args._exec?.length;
+        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const task = getPromptFromArgs(args, promptStartIndex);
+        const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
             provider,
             prompt,
-            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+            providerOptions,
           );
 
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+          captureOutput: !providerOptions.interactive,
+          sessionRecord: {
+            sessionId: result.manifest.session_id,
+            provider,
+            prompt,
+            task: task || "Continue this session from the latest repository state.",
+            command: agentCommand,
+            memoryContext,
+            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+          },
+        }));
         return;
       }
 
@@ -555,21 +588,35 @@ export async function runCli(argv) {
         const provider = hasOwn(args, "provider")
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
-        const prompt = buildSessionPrompt(sessionResult.bootstrap, getPromptFromArgs(args, 2));
         const usingTemplateCommand = !args._exec?.length;
+        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config);
+        const task = getPromptFromArgs(args, 2);
+        const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
             provider,
             prompt,
-            getProviderTemplateOptions(args, root, provider, usingTemplateCommand),
+            providerOptions,
           );
 
         if (config.json && sessionDir) {
           console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
         }
 
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args));
+        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+          captureOutput: !providerOptions.interactive,
+          sessionRecord: {
+            sessionId: sessionResult.manifest.session_id,
+            provider,
+            prompt,
+            task: task || "Continue this session from the latest repository state.",
+            command: agentCommand,
+            memoryContext,
+            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+          },
+        }));
         return;
       }
 

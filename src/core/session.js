@@ -4,6 +4,7 @@ import path from "node:path";
 import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
 import { closeIndexDatabase, loadModules, openIndexDatabase } from "./db.js";
+import { getSessionArtifactPaths } from "./session-memory.js";
 
 function generateSessionId() {
   const now = new Date();
@@ -87,6 +88,10 @@ function fitContext(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const staleModules = [];
   const maxBytes = getSessionLimitKb(config, "contextMaxKb", 16) * 1024;
+  const memoryArtifacts = getSessionArtifactPaths(options.root || "", manifest.session_id);
+  const transcriptRef = options.root ? `.agents/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
+  const memoryContextRef = options.root ? `.agents/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
+  const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048 },
     { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024 },
@@ -118,6 +123,9 @@ function fitContext(manifest, index, checklist, options, config) {
         repo_index: ".agents/index.db",
         repo_docs: "docs/modules/",
         checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+        transcript: transcriptRef,
+        memory_context: memoryContextRef,
+        launches: launchesRef,
       },
       parent_summary: clipToBytes(options.parentSummary || "", attempt.parentSummaryBytes),
     };
@@ -209,10 +217,18 @@ export async function forkSession(root, config, options = {}) {
     status: "active",
     head_commit_at_creation: headCommit,
     index_snapshot: ".agents/index.db",
-    cache_refs: [],
+    cache_refs: [
+      `.agents/session/${sessionId}/bootstrap.md`,
+      `.agents/session/${sessionId}/context.json`,
+      `.agents/session/${sessionId}/checklist.json`,
+      `.agents/session/${sessionId}/transcript.md`,
+      `.agents/session/${sessionId}/memory-context.md`,
+      `.agents/session/${sessionId}/launches.jsonl`,
+    ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
       total_tokens_used: 0,
+      memory_adapter: "mempalace-compatible-session-v1",
     },
   };
 
@@ -225,7 +241,7 @@ export async function forkSession(root, config, options = {}) {
     }
   }
 
-  const contextResult = fitContext(manifest, index, parentChecklist, options, config);
+  const contextResult = fitContext(manifest, index, parentChecklist, { ...options, root }, config);
   const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, options, config);
   const context = contextResult.value;
   const bootstrap = bootstrapResult.value;
