@@ -8,7 +8,7 @@ import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
 import { buildExecutionPlan } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession } from "./core/session.js";
-import { loadAutomaticSessionMemory } from "./core/session-memory.js";
+import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
@@ -107,6 +107,14 @@ function buildRunPrompt(userPrompt) {
     return userPrompt;
   }
   return "Continue implementation in this repository using small, validated changes.";
+}
+
+export function buildExecutionPrompt(basePrompt, memoryMarkdown = "") {
+  const prompt = String(basePrompt || "").trim();
+  if (!memoryMarkdown.trim()) {
+    return prompt;
+  }
+  return [memoryMarkdown.trim(), prompt].filter(Boolean).join("\n\n");
 }
 
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
@@ -339,27 +347,29 @@ export async function runCli(argv) {
       return;
 
     case "plan": {
-      const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
-      const plan = await buildExecutionPlan(root, config, prompt);
+      const task = buildRunPrompt(getPromptFromArgs(args, 1));
+      const plan = await buildExecutionPlan(root, config, task);
       console.log(JSON.stringify(plan, null, 2));
       return;
     }
 
     case "run": {
-      const prompt = buildRunPrompt(getPromptFromArgs(args, 1));
+      const task = buildRunPrompt(getPromptFromArgs(args, 1));
+      const memoryContext = await loadAutomaticRunMemory(root, task, config);
       const usingTemplateCommand = !args._exec?.length;
       const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
       const plan = !args._exec?.length
-        ? await buildExecutionPlan(root, config, prompt)
+        ? await buildExecutionPlan(root, config, task)
         : null;
       if (args.explainPlan && plan) {
         console.log(JSON.stringify(plan, null, 2));
       }
+      const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown);
       const agentCommand = args._exec?.length
         ? args._exec
         : buildProviderTemplateCommand(
           config.provider,
-          plan.prompt,
+          prompt,
           providerOptions,
         );
 
@@ -491,13 +501,13 @@ export async function runCli(argv) {
           provider: args.provider || null,
           name: args.name || null,
         });
-        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config);
+        const task = getPromptFromArgs(args, 2);
+        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
         const provider = hasOwn(args, "provider")
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const task = getPromptFromArgs(args, 2);
         const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
@@ -530,13 +540,13 @@ export async function runCli(argv) {
       if (subcommand === "resume") {
         const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
         const result = await resumeSession(root, sessionId);
-        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config);
+        const task = getPromptFromArgs(args, promptStartIndex);
+        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
         const provider = hasOwn(args, "provider")
           ? normalizeProvider(args.provider)
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const task = getPromptFromArgs(args, promptStartIndex);
         const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
@@ -590,8 +600,8 @@ export async function runCli(argv) {
           : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config);
         const task = getPromptFromArgs(args, 2);
+        const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
         const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec

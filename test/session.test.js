@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
 import { forkSession, resolveSessionProvider, resumeSession } from "../src/core/session.js";
-import { getSessionArtifactPaths, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
+import { getSessionArtifactPaths, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +19,39 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
   await execFileAsync("git", ["add", "."], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+}
+
+async function installFakeMemPalace(binDir, logPath) {
+  const scriptPath = path.join(binDir, "mempalace");
+  await fs.writeFile(scriptPath, `#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "${logPath}"
+if [ "$1" = "mine" ]; then
+  mkdir -p "\${MEMPALACE_PALACE_PATH}"
+  echo "mined"
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  cat <<'EOF'
+============================================================
+  Results for: "jsonl transcript decision"
+============================================================
+
+  [1] agentify / decisions
+      Source: sess_memory.md
+      Match:  0.98
+
+      Source transcript: .agents/session/sess_memory/transcript.md
+      We chose JSONL transcripts because they are append-friendly for durable memory capture.
+
+  ────────────────────────────────────────────────────────
+EOF
+  exit 0
+fi
+exit 1
+`, "utf8");
+  await fs.chmod(scriptPath, 0o755);
+  return scriptPath;
 }
 
 test("forkSession writes provider in manifest and bootstrap", async () => {
@@ -146,4 +179,86 @@ test("loadAutomaticSessionMemory reuses the parent transcript automatically", as
   assert.match(memory.markdown, /Automatic Session Memory/);
   assert.match(memory.markdown, /Refresh after the wrapped command commit lands/);
   assert.match(memory.markdown, new RegExp(parent.sessionId));
+});
+
+test("loadAutomaticSessionMemory searches older sessions when the direct parent is not relevant", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-search-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const earlier = await forkSession(root, config, { name: "jsonl-decision" });
+  const earlierPaths = getSessionArtifactPaths(root, earlier.sessionId);
+  await fs.writeFile(earlierPaths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Choose a durable transcript format for session memory.",
+    "",
+    "> Provider response",
+    "Use JSONL transcripts because they append cleanly and are easier for memory miners to ingest later.",
+    "",
+  ].join("\n"), "utf8");
+
+  const parent = await forkSession(root, config, { name: "refresh-fix" });
+  const parentPaths = getSessionArtifactPaths(root, parent.sessionId);
+  await fs.writeFile(parentPaths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Fix refresh after commits.",
+    "",
+    "> Provider response",
+    "Refresh after the wrapped command exits.",
+    "",
+  ].join("\n"), "utf8");
+
+  const child = await forkSession(root, config, { from: parent.sessionId, name: "new-task" });
+  const memory = await loadAutomaticSessionMemory(root, child.manifest, config, "why did we choose JSONL transcripts");
+
+  assert.equal(memory.backend, "local-session-search");
+  assert.equal(memory.sourceSessionId, earlier.sessionId);
+  assert.match(memory.markdown, /Source transcript:/);
+  assert.match(memory.markdown, /JSONL transcripts because they append cleanly/);
+});
+
+test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is available", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-memory-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const session = await forkSession(root, config, { name: "memory" });
+  const paths = getSessionArtifactPaths(root, session.sessionId);
+  await fs.writeFile(paths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Pick a durable transcript format.",
+    "",
+    "> Provider response",
+    "Use JSONL transcripts because they are append-friendly for durable memory capture.",
+    "",
+  ].join("\n"), "utf8");
+
+  const binDir = path.join(root, "bin");
+  const logPath = path.join(root, "mempalace-calls.log");
+  await fs.mkdir(binDir, { recursive: true });
+  await installFakeMemPalace(binDir, logPath);
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "jsonl transcript decision", config);
+    const calls = await fs.readFile(logPath, "utf8");
+
+    assert.equal(memory.backend, "mempalace");
+    assert.match(memory.markdown, /Backend: mempalace/);
+    assert.match(memory.markdown, /repo-local MemPalace session export index/);
+    assert.match(memory.markdown, /append-friendly for durable memory capture/);
+    assert.match(calls, /^mine /m);
+    assert.match(calls, /^search /m);
+  } finally {
+    process.env.PATH = originalPath;
+  }
 });
