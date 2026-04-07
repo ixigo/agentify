@@ -28,6 +28,47 @@ function clipToBytes(value, maxBytes) {
   return "";
 }
 
+function stripAnsiSequences(text) {
+  return String(text || "")
+    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, "")
+    .replace(/\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+function stripBackspaces(text) {
+  let value = String(text || "");
+  let previous = "";
+  while (value !== previous) {
+    previous = value;
+    value = value.replace(/[^\n]\u0008/g, "");
+  }
+  return value.replace(/\u0008+/g, "");
+}
+
+export function normalizeInteractiveCapture(text) {
+  const cleaned = stripBackspaces(
+    stripAnsiSequences(String(text || ""))
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[\u0000-\u0007\u000B-\u001F\u007F]/g, "")
+  );
+
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return true;
+      }
+      return !trimmed.startsWith("Script started on ") && !trimmed.startsWith("Script done on ");
+    });
+
+  return lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function getSessionMemoryLimit(config, key, fallback) {
   const value = Number(config?.session?.[key]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -114,6 +155,7 @@ export function getSessionArtifactPaths(root, sessionId) {
     transcriptPath: path.join(sessionDir, "transcript.md"),
     memoryContextPath: path.join(sessionDir, "memory-context.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
+    rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
   };
 }
 
@@ -192,16 +234,18 @@ export async function prepareSessionMemoryRun(root, sessionRecord) {
     ""
   );
 
-  await fs.appendFile(paths.transcriptPath, `${transcriptLines.join("\n")}\n`, "utf8");
+  await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
   return { startedAt, paths };
 }
 
 export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, outcome, config) {
   const captureMaxBytes = getSessionMemoryLimit(config, "captureMaxKb", 48) * 1024;
-  const providerOutput = [outcome?.stdout, outcome?.stderr]
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  const providerOutput = outcome?.interactiveTranscript
+    ? String(outcome.interactiveTranscript).trim()
+    : [outcome?.stdout, outcome?.stderr]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
   const assistantText = providerOutput
     ? clipToBytes(providerOutput, captureMaxBytes)
     : "Agentify launched the provider in inherited interactive mode, so the full assistant transcript was not captured for this run. The prompt, bootstrap, memory context, and launch record were still persisted automatically.";
@@ -219,9 +263,11 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     `Command phase: ${phase}`,
     `Exit code: ${outcome?.exitCode ?? 1}`,
     `Validation: ${validationSummary}`,
+    `Capture mode used: ${sessionRecord.captureMode}`,
+    outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
     `Ended: ${endedAt}`,
     ""
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
 
   const launchRecord = {
@@ -236,6 +282,9 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     prompt: sessionRecord.prompt,
     transcript_path: relative(root, prepared.paths.transcriptPath),
     memory_context_path: relative(root, prepared.paths.memoryContextPath),
+    raw_interactive_log_path: outcome?.rawInteractiveLogPath
+      ? relative(root, outcome.rawInteractiveLogPath)
+      : null,
     memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
     memory_source_transcript: sessionRecord.memoryContext?.transcriptRelativePath || null,
     phase,

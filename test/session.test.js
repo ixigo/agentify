@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
 import { forkSession, resolveSessionProvider, resumeSession } from "../src/core/session.js";
-import { getSessionArtifactPaths, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
+import { getSessionArtifactPaths, loadAutomaticSessionMemory, normalizeInteractiveCapture } from "../src/core/session-memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -146,4 +146,9 @@ test("loadAutomaticSessionMemory reuses the parent transcript automatically", as
   assert.match(memory.markdown, /Automatic Session Memory/);
   assert.match(memory.markdown, /Refresh after the wrapped command commit lands/);
   assert.match(memory.markdown, new RegExp(parent.sessionId));
+});
+
+test("normalizeInteractiveCapture strips script noise and ANSI sequences", () => {
+  const normalized = normalizeInteractiveCapture("\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n");
+  assert.equal(normalized, "hello");
 });
