@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseCodexJsonl } from "../src/core/provider.js";
+import { parseCodexJsonl, runChild } from "../src/core/provider.js";
 
 test("parseCodexJsonl extracts token usage from turn.completed", () => {
   const usage = parseCodexJsonl([
@@ -16,4 +16,13 @@ test("parseCodexJsonl extracts token usage from turn.completed", () => {
     output_tokens: 45,
     total_tokens: 165
   });
+});
+
+test("runChild times out stalled provider subprocesses", async () => {
+  await assert.rejects(
+    () => runChild("node", ["-e", "setInterval(() => {}, 1000);"], {
+      timeoutMs: 50,
+    }),
+    /timed out after 50ms/,
+  );
 });

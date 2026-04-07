@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { sanitizeManagerPlan, sanitizeModuleResponse } from "./agent-contract.js";
 import { buildManagerPrompt, buildManagerSchema, buildModulePrompt, buildModuleSchema } from "./prompts.js";
 
+const DEFAULT_PROVIDER_TIMEOUT_MS = 120000;
+
 export function summarizeModule(moduleInfo, files, semantic = null) {
   const examples = files.slice(0, 5).join(", ");
   const semanticLead = semantic?.surfaces?.length
@@ -307,11 +309,30 @@ export function parseOpenCodeJsonl(text) {
   return { output, usage };
 }
 
-async function runChild(command, args, { cwd, env = {} } = {}) {
+export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS } = {}) {
   const stdoutChunks = [];
   const stderrChunks = [];
 
   await new Promise((resolve, reject) => {
+    let settled = false;
+    let timedOut = false;
+    let timeout = null;
+    let killTimer = null;
+
+    function finish(callback, value) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+      callback(value);
+    }
+
     const child = spawn(command, args, {
       cwd,
       env: {
@@ -319,6 +340,14 @@ async function runChild(command, args, { cwd, env = {} } = {}) {
         ...env
       }
     });
+
+    timeout = Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      }, timeoutMs)
+      : null;
 
     child.stdout.on("data", (chunk) => {
       stdoutChunks.push(String(chunk));
@@ -328,13 +357,18 @@ async function runChild(command, args, { cwd, env = {} } = {}) {
       stderrChunks.push(String(chunk));
     });
 
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
+    child.on("error", (error) => finish(reject, error));
+    child.on("close", (code, signal) => {
+      if (timedOut) {
+        const details = (stderrChunks.join("") || stdoutChunks.join("")).trim();
+        finish(reject, new Error(`${command} timed out after ${timeoutMs}ms${details ? `: ${details}` : ""}`));
         return;
       }
-      reject(new Error(`${command} failed with code ${code}: ${stderrChunks.join("") || stdoutChunks.join("")}`));
+      if (code === 0) {
+        finish(resolve);
+        return;
+      }
+      finish(reject, new Error(`${command} failed with code ${code}${signal ? ` (signal ${signal})` : ""}: ${stderrChunks.join("") || stdoutChunks.join("")}`));
     });
   });
 
