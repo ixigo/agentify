@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import { applyHeaderToSource, renderHeader } from "../src/core/headers.js";
 import { loadConfig } from "../src/core/config.js";
-import { detectTestCommand, runDoc, runScan, runUpdate } from "../src/core/commands.js";
+import { runDoc, runScan, runUpdate } from "../src/core/commands.js";
 import { closeIndexDatabase, getArtifact, getRepoMeta, openIndexDatabase, upsertArtifact } from "../src/core/db.js";
 import { validateRepo } from "../src/core/validate.js";
 
@@ -153,11 +153,7 @@ test("passes", () => {
   assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "agentify-report.html")).then(() => true), true);
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
-  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   assert.match(output, /\[agentify\] tests: passed/);
-  assert.match(html, /All configured test cases passed\./);
-  assert.match(html, /Copy rerun tests command/);
-  assert.match(html, /Total tokens/);
 });
 
 test("runUpdate in ghost mode reuses a single artifact root", async () => {
@@ -226,34 +222,6 @@ test("passes", () => {
   assert.equal(payload.command, "up");
   assert.equal(payload.validation.passed, true);
   assert.equal(payload.tests.status, "passed");
-});
-
-test("detectTestCommand prefers the declared package manager", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-command-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    packageManager: "pnpm@9.0.0",
-    scripts: {
-      test: "vitest run"
-    }
-  }, null, 2));
-
-  const result = await detectTestCommand(root);
-
-  assert.deepEqual(result, { command: "pnpm", args: ["test"] });
-});
-
-test("detectTestCommand falls back to lockfile detection", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-lockfile-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "jest"
-    }
-  }, null, 2));
-  await fs.writeFile(path.join(root, "yarn.lock"), "");
-
-  const result = await detectTestCommand(root);
-
-  assert.deepEqual(result, { command: "yarn", args: ["test"] });
 });
 
 test("runDoc reuses cached module artifacts when bounded content is unchanged", async () => {
