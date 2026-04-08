@@ -241,3 +241,71 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
 });
+
+test("runCli sync tolerates --provider local while syncing detected project skill roots", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sync-local-provider-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), "provider: codex\n", "utf8");
+  await fs.mkdir(path.join(root, ".codex", "skills", "grill-me"), { recursive: true });
+  await fs.writeFile(path.join(root, ".codex", "skills", "grill-me", "SKILL.md"), "# stale skill\n", "utf8");
+  await initGitRepo(root);
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["sync", "--root", root, "--provider", "local", "--json"]);
+  } finally {
+    console.log = originalLog;
+    setSilent(false);
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "sync");
+  assert.equal(payload.validation.passed, true);
+  assert.deepEqual(payload.repo_sync.skills.providers, ["codex"]);
+
+  const configText = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
+  assert.match(configText, /^provider: codex$/m);
+});
+
+test("runCli doctor reports MemPalace available via AGENTIFY_MEMPALACE_CMD", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-mempalace-cmd-"));
+  const customBinDir = path.join(root, "custom-bin");
+  const mempalacePath = path.join(customBinDir, "mempalace-custom");
+  await fs.mkdir(customBinDir, { recursive: true });
+  await fs.writeFile(mempalacePath, "#!/bin/sh\nexit 0\n", "utf8");
+  await fs.chmod(mempalacePath, 0o755);
+
+  const output = [];
+  const originalLog = console.log;
+  const originalMemPalaceCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.AGENTIFY_MEMPALACE_CMD = mempalacePath;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    setSilent(false);
+    if (originalMemPalaceCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalMemPalaceCmd;
+    }
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "doctor");
+  assert.equal(payload.tools.mempalace.available, true);
+  assert.equal(payload.tools.mempalace.path, mempalacePath);
+});

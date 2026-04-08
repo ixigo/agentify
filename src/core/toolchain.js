@@ -12,18 +12,40 @@ const TOOLS = {
   fd: { minVersion: "8.0.0", tier: 1, purpose: "fast file enumeration" },
   "ast-grep": { minVersion: "0.20.0", tier: 2, purpose: "structural pattern queries" },
   "tree-sitter": { minVersion: "0.22.0", tier: 2, purpose: "parser-backed symbol extraction" },
-  mempalace: { minVersion: null, tier: "optional", purpose: "session memory recall", detectMode: "command-exists" },
+  mempalace: {
+    minVersion: null,
+    tier: "optional",
+    purpose: "session memory recall",
+    detectMode: "command-exists",
+    commandEnv: "AGENTIFY_MEMPALACE_CMD",
+  },
   zoekt: { minVersion: null, tier: "optional", purpose: "indexed code search at scale" },
 };
 
+function getConfiguredToolCommand(name, spec = {}) {
+  if (!spec.commandEnv) {
+    return name;
+  }
+
+  const configured = String(process.env[spec.commandEnv] || "").trim();
+  return configured || name;
+}
+
+async function resolveToolCommand(command) {
+  const { stdout } = await execFileAsync("sh", ["-lc", 'command -v -- "$0"', command]);
+  return stdout.trim() || command;
+}
+
 async function detectTool(name, spec = {}) {
+  const command = getConfiguredToolCommand(name, spec);
+
   if (spec.detectMode === "command-exists") {
     try {
-      const { stdout } = await execFileAsync("which", [name]);
+      const resolvedCommand = await resolveToolCommand(command);
       return {
         available: true,
         version: "unknown",
-        path: stdout.trim() || name,
+        path: resolvedCommand,
       };
     } catch {
       return { available: false, version: null, path: null };
@@ -31,12 +53,12 @@ async function detectTool(name, spec = {}) {
   }
 
   try {
-    const { stdout } = await execFileAsync(name, ["--version"]);
+    const { stdout } = await execFileAsync(command, ["--version"]);
     const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
     return {
       available: true,
       version: versionMatch ? versionMatch[1] : "unknown",
-      path: name,
+      path: command,
     };
   } catch {
     return { available: false, version: null, path: null };

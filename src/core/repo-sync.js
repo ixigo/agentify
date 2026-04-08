@@ -51,6 +51,10 @@ function logSyncSummary(result) {
 }
 
 export async function runRepoSync(root, config, options = {}) {
+  const skillProviderSelection =
+    typeof options.provider === "string" && options.provider.trim().toLowerCase() === "local"
+      ? undefined
+      : options.provider;
   const maintenanceConfig = {
     ...config,
     provider: "local",
@@ -64,7 +68,7 @@ export async function runRepoSync(root, config, options = {}) {
     baseline: await syncBaselineArtifacts(root, config),
     hooks: await syncManagedHooks(root, { dryRun: config.dryRun }),
     skills: await syncProjectBuiltinSkills(root, {
-      provider: options.provider,
+      provider: skillProviderSelection,
       dryRun: config.dryRun,
       defaultProvider: config.provider,
     }),
