@@ -148,7 +148,7 @@ agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 
 Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
 
-When a session is resumed or forked, Agentify automatically loads recent excerpts from the current or parent session transcript and appends them to the next provider prompt. The transcript format is compatible with MemPalace conversation mining, so external semantic memory remains optional rather than a manual prerequisite.
+When a session is resumed or forked, Agentify first tries an automatic MemPalace-backed search across prior session transcripts for the current repo, then falls back to Agentify's built-in ranked transcript search, and finally to direct lineage replay if no broader match is found. Normal `run` prompts use the same automatic recall path, so relevant older session decisions can surface even without a session id or explicit memory command.
 
 Choose `sess *` whenever the work spans multiple launches or you want Agentify to keep durable memory for later reuse.
 

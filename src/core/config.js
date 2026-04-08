@@ -48,6 +48,7 @@ const DEFAULT_CONFIG = {
     contextMaxKb: 16,
     memoryPromptMaxKb: 4,
     memoryTurns: 6,
+    memoryResults: 3,
     captureMaxKb: 48,
   },
   planner: {

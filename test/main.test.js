@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { buildSessionPrompt, getProviderTemplateOptions, parseArgs, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
 import { setSilent } from "../src/core/ui.js";
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
@@ -60,6 +60,32 @@ test("getProviderTemplateOptions defaults non-codex template commands to interac
   assert.equal(options.interactive, true);
 });
 
+test("getSessionCaptureSettings preserves inherited stdio for custom session commands", () => {
+  assert.deepEqual(
+    getSessionCaptureSettings(false, { interactive: false }),
+    {
+      captureOutputMode: "inherit",
+      captureMode: "interactive-inherit",
+    }
+  );
+
+  assert.deepEqual(
+    getSessionCaptureSettings(true, { interactive: false }),
+    {
+      captureOutputMode: "pipe",
+      captureMode: "captured-pipe",
+    }
+  );
+
+  assert.deepEqual(
+    getSessionCaptureSettings(true, { interactive: true }),
+    {
+      captureOutputMode: "pty",
+      captureMode: "interactive-pty",
+    }
+  );
+});
+
 test("buildSessionPrompt injects automatic memory excerpts before the current task", () => {
   const prompt = buildSessionPrompt(
     "# Session Context\n- Provider: codex",
@@ -70,6 +96,16 @@ test("buildSessionPrompt injects automatic memory excerpts before the current ta
   assert.match(prompt, /Automatic Session Memory/);
   assert.match(prompt, /Source session: sess_parent/);
   assert.match(prompt, /Current task: Fix the failing refresh path\./);
+});
+
+test("buildExecutionPrompt prepends automatic memory before a normal run prompt", () => {
+  const prompt = buildExecutionPrompt(
+    "Implement retry handling for checkout refresh.",
+    "## Automatic Session Memory\n- Backend: local-session-search\n- Source session: sess_parent"
+  );
+
+  assert.match(prompt, /Automatic Session Memory/);
+  assert.ok(prompt.indexOf("Automatic Session Memory") < prompt.indexOf("Implement retry handling"));
 });
 
 test("runCli supports skill install with provider all", async () => {
