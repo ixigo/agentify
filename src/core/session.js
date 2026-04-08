@@ -92,6 +92,7 @@ function fitContext(manifest, index, checklist, options, config) {
   const transcriptRef = options.root ? `.agents/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
   const memoryContextRef = options.root ? `.agents/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
   const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
+  const rawInteractiveLogRef = options.root ? `.agents/session/${manifest.session_id}/interactive.log` : memoryArtifacts.rawInteractiveLogPath;
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048 },
     { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024 },
@@ -126,6 +127,7 @@ function fitContext(manifest, index, checklist, options, config) {
         transcript: transcriptRef,
         memory_context: memoryContextRef,
         launches: launchesRef,
+        raw_interactive_log: rawInteractiveLogRef,
       },
       parent_summary: clipToBytes(options.parentSummary || "", attempt.parentSummaryBytes),
     };
@@ -224,6 +226,7 @@ export async function forkSession(root, config, options = {}) {
       `.agents/session/${sessionId}/transcript.md`,
       `.agents/session/${sessionId}/memory-context.md`,
       `.agents/session/${sessionId}/launches.jsonl`,
+      `.agents/session/${sessionId}/interactive.log`,
     ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,

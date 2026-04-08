@@ -90,7 +90,7 @@ Use this when you already manage local dependencies yourself or when `agentify t
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
 
-Session memory is automatic for `sess *` commands. Each run now writes MemPalace-compatible artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+Session memory is automatic for `sess *` commands. Each run now writes MemPalace-compatible artifacts such as `transcript.md`, `memory-context.md`, `launches.jsonl`, and, for interactive provider runs, a raw `interactive.log` under `.agents/session/<id>/`. `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
 
 ### Query, Skills, Hooks, And Cache
 
@@ -141,7 +141,7 @@ agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 
 Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
 
-When a session is resumed or forked, Agentify automatically loads recent excerpts from the current or parent session transcript and appends them to the next provider prompt. The transcript format is compatible with MemPalace conversation mining, so external semantic memory remains optional rather than a manual prerequisite.
+When a session is resumed or forked, Agentify automatically loads recent excerpts from the current or parent session transcript and appends them to the next provider prompt. Interactive session runs now keep both the raw PTY log and a normalized transcript section, so the MemPalace-compatible transcript stays searchable even when the provider runs in TUI mode.
 
 ### `query` Commands
 
