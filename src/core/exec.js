@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import { getChangedFiles, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { validateRepo } from "./validate.js";
-import { finalizeSessionMemoryRun, prepareSessionMemoryRun } from "./session-memory.js";
+import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun } from "./session-memory.js";
 import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
@@ -13,18 +14,45 @@ function diffSnapshots(preFiles, postFiles) {
   return postFiles.filter((f) => !preSet.has(`${f.status}:${f.path}`));
 }
 
+function posixShellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
+}
+
+function buildScriptCommand(argv, capturePath) {
+  const [cmd, ...args] = argv;
+  if (process.platform === "darwin") {
+    return {
+      cmd: "script",
+      args: ["-q", capturePath, cmd, ...args],
+    };
+  }
+
+  return {
+    cmd: "script",
+    args: ["-q", "-e", "-c", argv.map(posixShellQuote).join(" "), capturePath],
+  };
+}
+
 function runWrappedCommand(argv, options) {
   return new Promise((resolve, reject) => {
-    const [cmd, ...args] = argv;
+    const captureMode = options.captureOutputMode || "inherit";
+    const command = captureMode === "pty"
+      ? buildScriptCommand(argv, options.capturePath)
+      : { cmd: argv[0], args: argv.slice(1) };
+    const stdio = captureMode === "pipe"
+      ? ["inherit", "pipe", "pipe"]
+      : captureMode === "pty" && !process.stdin.isTTY
+        ? ["ignore", "inherit", "inherit"]
+        : "inherit";
     const stdoutChunks = [];
     const stderrChunks = [];
-    const child = spawn(cmd, args, {
+    const child = spawn(command.cmd, command.args, {
       cwd: options.cwd,
-      stdio: options.captureOutput ? ["inherit", "pipe", "pipe"] : "inherit",
+      stdio,
       env: process.env,
     });
 
-    if (options.captureOutput) {
+    if (captureMode === "pipe") {
       child.stdout.on("data", (chunk) => {
         stdoutChunks.push(Buffer.from(chunk));
         process.stdout.write(chunk);
@@ -44,13 +72,25 @@ function runWrappedCommand(argv, options) {
     }
 
     child.on("error", reject);
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       if (timer) clearTimeout(timer);
-      resolve({
-        exitCode: code ?? 1,
-        stdout: options.captureOutput ? Buffer.concat(stdoutChunks).toString("utf8") : "",
-        stderr: options.captureOutput ? Buffer.concat(stderrChunks).toString("utf8") : "",
-      });
+      try {
+        let interactiveTranscript = "";
+        if (captureMode === "pty" && options.capturePath) {
+          const raw = await fs.readFile(options.capturePath, "utf8");
+          interactiveTranscript = normalizeInteractiveCapture(raw);
+        }
+
+        resolve({
+          exitCode: code ?? 1,
+          stdout: captureMode === "pipe" ? Buffer.concat(stdoutChunks).toString("utf8") : "",
+          stderr: captureMode === "pipe" ? Buffer.concat(stderrChunks).toString("utf8") : "",
+          interactiveTranscript,
+          rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
+        });
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }
@@ -67,23 +107,42 @@ export async function runExec(root, config, agentCommand, flags) {
     commandResult = await runWrappedCommand(agentCommand, {
       cwd: root,
       timeout: flags.timeout ? flags.timeout * 1000 : undefined,
-      captureOutput: flags.captureOutput || false,
+      captureOutputMode: flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit"),
+      capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
     });
   } catch (error) {
-    if (preparedSessionMemory) {
-      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, {
-        phase: "spawn-error",
-        exitCode: 1,
-        stderr: error.message,
-      }, config);
+    if (flags.captureOutputMode === "pty" && error?.code === "ENOENT") {
+      if (flags.sessionRecord) {
+        flags.sessionRecord.captureMode = "interactive-fallback";
+      }
+      commandResult = await runWrappedCommand(agentCommand, {
+        cwd: root,
+        timeout: flags.timeout ? flags.timeout * 1000 : undefined,
+        captureOutputMode: "inherit",
+      });
+    } else {
+      if (preparedSessionMemory) {
+        await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, {
+          phase: "spawn-error",
+          exitCode: 1,
+          stderr: error.message,
+        }, config);
+      }
+      throw error;
     }
-    throw error;
   }
   const exitCode = commandResult.exitCode;
 
   if (exitCode !== 0) {
     process.exitCode = exitCode;
-    const result = { phase: "command", exitCode, stdout: commandResult.stdout, stderr: commandResult.stderr };
+    const result = {
+      phase: "command",
+      exitCode,
+      stdout: commandResult.stdout,
+      stderr: commandResult.stderr,
+      interactiveTranscript: commandResult.interactiveTranscript,
+      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
@@ -97,6 +156,8 @@ export async function runExec(root, config, agentCommand, flags) {
       skippedRefresh: true,
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
+      interactiveTranscript: commandResult.interactiveTranscript,
+      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -124,6 +185,8 @@ export async function runExec(root, config, agentCommand, flags) {
       skippedRefresh: true,
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
+      interactiveTranscript: commandResult.interactiveTranscript,
+      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -143,6 +206,8 @@ export async function runExec(root, config, agentCommand, flags) {
         exitCode: AGENTIFY_EXIT_REFRESH_ERROR,
         stdout: commandResult.stdout,
         stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
+        interactiveTranscript: commandResult.interactiveTranscript,
+        rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
       };
       if (preparedSessionMemory) {
         await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -169,6 +234,8 @@ export async function runExec(root, config, agentCommand, flags) {
     validation,
     stdout: commandResult.stdout,
     stderr: commandResult.stderr,
+    interactiveTranscript: commandResult.interactiveTranscript,
+    rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
   };
   if (preparedSessionMemory) {
     await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);

@@ -523,7 +523,7 @@ export async function runCli(argv) {
         }
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutput: !providerOptions.interactive,
+          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
           sessionRecord: {
             sessionId: result.manifest.session_id,
             provider,
@@ -531,7 +531,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
           },
         }));
         return;
@@ -557,7 +557,7 @@ export async function runCli(argv) {
           );
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutput: !providerOptions.interactive,
+          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
           sessionRecord: {
             sessionId: result.manifest.session_id,
             provider,
@@ -565,7 +565,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
           },
         }));
         return;
@@ -616,7 +616,7 @@ export async function runCli(argv) {
         }
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutput: !providerOptions.interactive,
+          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
           sessionRecord: {
             sessionId: sessionResult.manifest.session_id,
             provider,
@@ -624,7 +624,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-fallback" : "captured-pipe",
+            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
           },
         }));
         return;

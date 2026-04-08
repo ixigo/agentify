@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
 import { forkSession, resolveSessionProvider, resumeSession } from "../src/core/session.js";
-import { getSessionArtifactPaths, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
+import { getSessionArtifactPaths, loadAutomaticRunMemory,loadAutomaticSessionMemory, loadAutomaticSessionMemory } from "../src/core/session-memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -261,4 +261,7 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   } finally {
     process.env.PATH = originalPath;
   }
+test("normalizeInteractiveCapture strips script noise and ANSI sequences", () => {
+  const normalized = normalizeInteractiveCapture("\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n");
+  assert.equal(normalized, "hello");
 });
