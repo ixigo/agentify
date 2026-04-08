@@ -108,6 +108,48 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.match(launches, /Continue this session using the remembered context/);
 });
 
+test("runExec bounds captured stdout and stderr to the configured capture limit", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-buffer-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.session.captureMaxKb = 1;
+
+  const stdoutPayload = "a".repeat(1536);
+  const stderrPayload = "b".repeat(1536);
+  const script = [
+    `process.stdout.write(${JSON.stringify(stdoutPayload)});`,
+    `process.stderr.write(${JSON.stringify(stderrPayload)});`,
+  ].join("");
+
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+
+  try {
+    const result = await runExec(
+      root,
+      config,
+      ["node", "--input-type=module", "-e", script],
+      {
+        captureOutput: true,
+        skipRefresh: true,
+      }
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(Buffer.byteLength(result.stdout, "utf8"), 1024);
+    assert.equal(Buffer.byteLength(result.stderr, "utf8"), 1024);
+    assert.equal(result.stdout, stdoutPayload.slice(0, 1024));
+    assert.equal(result.stderr, stderrPayload.slice(0, 1024));
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+});
+
 test("runExec records interactive provider output into a raw PTY log and normalized transcript", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-interactive-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");

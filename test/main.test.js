@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, parseArgs, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
 import { setSilent } from "../src/core/ui.js";
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
@@ -58,6 +58,32 @@ test("getProviderTemplateOptions defaults codex template commands to interactive
 test("getProviderTemplateOptions defaults non-codex template commands to interactive", () => {
   const options = getProviderTemplateOptions({}, "/tmp/repo", "claude", true);
   assert.equal(options.interactive, true);
+});
+
+test("getSessionCaptureSettings preserves inherited stdio for custom session commands", () => {
+  assert.deepEqual(
+    getSessionCaptureSettings(false, { interactive: false }),
+    {
+      captureOutputMode: "inherit",
+      captureMode: "interactive-inherit",
+    }
+  );
+
+  assert.deepEqual(
+    getSessionCaptureSettings(true, { interactive: false }),
+    {
+      captureOutputMode: "pipe",
+      captureMode: "captured-pipe",
+    }
+  );
+
+  assert.deepEqual(
+    getSessionCaptureSettings(true, { interactive: true }),
+    {
+      captureOutputMode: "pty",
+      captureMode: "interactive-pty",
+    }
+  );
 });
 
 test("buildSessionPrompt injects automatic memory excerpts before the current task", () => {

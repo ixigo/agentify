@@ -305,11 +305,6 @@ function buildMemoryResult(backend, hits, extraBullets, maxBytes) {
     excerpt,
     hits,
     markdown: buildMemoryMarkdown(backend, hits, extraBullets, maxBytes),
-    sessionDir,
-    transcriptPath: path.join(sessionDir, "transcript.md"),
-    memoryContextPath: path.join(sessionDir, "memory-context.md"),
-    launchesPath: path.join(sessionDir, "launches.jsonl"),
-    rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
   };
 }
 
@@ -567,6 +562,7 @@ export function getSessionArtifactPaths(root, sessionId) {
     transcriptPath: path.join(sessionDir, "transcript.md"),
     memoryContextPath: path.join(sessionDir, "memory-context.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
+    rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
   };
 }
 

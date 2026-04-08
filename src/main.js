@@ -98,6 +98,25 @@ export function getProviderTemplateOptions(args, root, provider, usingTemplateCo
   };
 }
 
+export function getSessionCaptureSettings(usingTemplateCommand, providerOptions) {
+  if (!usingTemplateCommand) {
+    return {
+      captureOutputMode: "inherit",
+      captureMode: "interactive-inherit",
+    };
+  }
+
+  return providerOptions.interactive
+    ? {
+      captureOutputMode: "pty",
+      captureMode: "interactive-pty",
+    }
+    : {
+      captureOutputMode: "pipe",
+      captureMode: "captured-pipe",
+    };
+}
+
 function getPromptFromArgs(args, startIndex) {
   return args._.slice(startIndex).join(" ").trim();
 }
@@ -508,6 +527,7 @@ export async function runCli(argv) {
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
         const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
@@ -523,7 +543,7 @@ export async function runCli(argv) {
         }
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
+          captureOutputMode: captureSettings.captureOutputMode,
           sessionRecord: {
             sessionId: result.manifest.session_id,
             provider,
@@ -531,7 +551,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
+            captureMode: captureSettings.captureMode,
           },
         }));
         return;
@@ -547,6 +567,7 @@ export async function runCli(argv) {
           : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
         const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
         const agentCommand = args._exec?.length
           ? args._exec
@@ -557,7 +578,7 @@ export async function runCli(argv) {
           );
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
+          captureOutputMode: captureSettings.captureOutputMode,
           sessionRecord: {
             sessionId: result.manifest.session_id,
             provider,
@@ -565,7 +586,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
+            captureMode: captureSettings.captureMode,
           },
         }));
         return;
@@ -600,6 +621,7 @@ export async function runCli(argv) {
           : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
         const task = getPromptFromArgs(args, 2);
         const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
         const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
@@ -616,7 +638,7 @@ export async function runCli(argv) {
         }
 
         await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: providerOptions.interactive ? "pty" : "pipe",
+          captureOutputMode: captureSettings.captureOutputMode,
           sessionRecord: {
             sessionId: sessionResult.manifest.session_id,
             provider,
@@ -624,7 +646,7 @@ export async function runCli(argv) {
             task: task || "Continue this session from the latest repository state.",
             command: agentCommand,
             memoryContext,
-            captureMode: providerOptions.interactive ? "interactive-pty" : "captured-pipe",
+            captureMode: captureSettings.captureMode,
           },
         }));
         return;

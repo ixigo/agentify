@@ -8,6 +8,7 @@ import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
+const DEFAULT_CAPTURE_MAX_KB = 48;
 
 function diffSnapshots(preFiles, postFiles) {
   const preSet = new Set(preFiles.map((f) => `${f.status}:${f.path}`));
@@ -33,6 +34,34 @@ function buildScriptCommand(argv, capturePath) {
   };
 }
 
+function getCaptureBufferMaxBytes(config) {
+  const maxKb = Number(config?.session?.captureMaxKb);
+  const normalizedKb = Number.isFinite(maxKb) && maxKb > 0 ? maxKb : DEFAULT_CAPTURE_MAX_KB;
+  return normalizedKb * 1024;
+}
+
+function createBoundedCaptureBuffer(maxBytes) {
+  const chunks = [];
+  let totalBytes = 0;
+
+  return {
+    append(chunk) {
+      if (maxBytes <= 0 || totalBytes >= maxBytes || !chunk?.length) {
+        return;
+      }
+
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = maxBytes - totalBytes;
+      const slice = buffer.length <= remaining ? buffer : buffer.subarray(0, remaining);
+      chunks.push(Buffer.from(slice));
+      totalBytes += slice.length;
+    },
+    toString() {
+      return totalBytes > 0 ? Buffer.concat(chunks, totalBytes).toString("utf8") : "";
+    },
+  };
+}
+
 function runWrappedCommand(argv, options) {
   return new Promise((resolve, reject) => {
     const captureMode = options.captureOutputMode || "inherit";
@@ -44,8 +73,8 @@ function runWrappedCommand(argv, options) {
       : captureMode === "pty" && !process.stdin.isTTY
         ? ["ignore", "inherit", "inherit"]
         : "inherit";
-    const stdoutChunks = [];
-    const stderrChunks = [];
+    const stdoutCapture = createBoundedCaptureBuffer(options.captureBufferMaxBytes || 0);
+    const stderrCapture = createBoundedCaptureBuffer(options.captureBufferMaxBytes || 0);
     const child = spawn(command.cmd, command.args, {
       cwd: options.cwd,
       stdio,
@@ -54,11 +83,11 @@ function runWrappedCommand(argv, options) {
 
     if (captureMode === "pipe") {
       child.stdout.on("data", (chunk) => {
-        stdoutChunks.push(Buffer.from(chunk));
+        stdoutCapture.append(chunk);
         process.stdout.write(chunk);
       });
       child.stderr.on("data", (chunk) => {
-        stderrChunks.push(Buffer.from(chunk));
+        stderrCapture.append(chunk);
         process.stderr.write(chunk);
       });
     }
@@ -83,8 +112,8 @@ function runWrappedCommand(argv, options) {
 
         resolve({
           exitCode: code ?? 1,
-          stdout: captureMode === "pipe" ? Buffer.concat(stdoutChunks).toString("utf8") : "",
-          stderr: captureMode === "pipe" ? Buffer.concat(stderrChunks).toString("utf8") : "",
+          stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
+          stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
           interactiveTranscript,
           rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
         });
@@ -108,6 +137,7 @@ export async function runExec(root, config, agentCommand, flags) {
       cwd: root,
       timeout: flags.timeout ? flags.timeout * 1000 : undefined,
       captureOutputMode: flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit"),
+      captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
     });
   } catch (error) {
@@ -119,6 +149,7 @@ export async function runExec(root, config, agentCommand, flags) {
         cwd: root,
         timeout: flags.timeout ? flags.timeout * 1000 : undefined,
         captureOutputMode: "inherit",
+        captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       });
     } else {
       if (preparedSessionMemory) {
