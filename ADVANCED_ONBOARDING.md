@@ -48,14 +48,14 @@ agentify sess resume --session <session-id> "<next-step>"
 
 ## 4) Safe update workflow (repo-level)
 
-When Agentify adds/improves built-in skills, refresh local skill copies:
+When Agentify itself adds new repo-level features, sync the existing repository forward:
 
 ```bash
-agentify skill install all --provider codex --scope project --force
+agentify sync
 agentify check
 ```
 
-This keeps the repo on latest built-in skill content without manual per-skill updates.
+This refreshes repo-owned config defaults, missing baseline artifacts, already-managed hooks, and detected repo-scoped built-in skills before running the normal maintenance pipeline locally.
 
 ## 5) Team abstraction pattern
 
@@ -65,7 +65,7 @@ To keep usage generic for contributors:
 2. Add short wrapper docs in your own `AGENTS.md` that reference only:
    - `agentify run ...`
    - `agentify sess ...`
-   - `agentify skill install all ... --force` (for updates)
+   - `agentify sync` (for updates)
 3. Avoid requiring contributors to memorize internal indexing/semantic implementation details.
 
 Result: engineers and agents can use a stable interface, while maintainers can evolve internals independently.

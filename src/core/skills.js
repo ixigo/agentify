@@ -285,3 +285,57 @@ export async function installAllBuiltinSkills(rootDir, options = {}) {
     results,
   };
 }
+
+export async function detectProjectSkillProviders(rootDir) {
+  const detected = [];
+
+  for (const provider of SKILL_INSTALL_PROVIDERS) {
+    const baseDir = getSkillInstallBaseDir(rootDir, provider, "project");
+    if (await exists(baseDir)) {
+      detected.push(provider);
+    }
+  }
+
+  return detected;
+}
+
+export async function syncProjectBuiltinSkills(rootDir, options = {}) {
+  const detectedProviders = await detectProjectSkillProviders(rootDir);
+  const explicitSelection = options.provider !== undefined && options.provider !== null && options.provider !== false;
+  const providers = explicitSelection
+    ? parseProviderSelection(options.provider, options.defaultProvider)
+    : detectedProviders;
+
+  if (providers.length === 0) {
+    return {
+      command: "skill sync",
+      scope: "project",
+      explicit_selection: explicitSelection,
+      detected_project_providers: detectedProviders,
+      providers: [],
+      results: [],
+      status: "skipped_no_project_skill_roots",
+    };
+  }
+
+  const results = [];
+  for (const provider of providers) {
+    results.push(await installAllBuiltinSkills(rootDir, {
+      provider,
+      scope: "project",
+      force: true,
+      dryRun: options.dryRun,
+      defaultProvider: options.defaultProvider,
+    }));
+  }
+
+  return {
+    command: "skill sync",
+    scope: "project",
+    explicit_selection: explicitSelection,
+    detected_project_providers: detectedProviders,
+    providers,
+    results,
+    status: options.dryRun ? "would_sync" : "synced",
+  };
+}

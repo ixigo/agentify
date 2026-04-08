@@ -61,6 +61,12 @@ agentify check
 
 Use this when you already manage local dependencies yourself or when `agentify this` is not available.
 
+## Single-File LLM Instructions
+
+If you want one markdown file you can share as a URL or paste directly into Codex, Claude, Gemini, OpenCode, or another coding agent, use [LLM_PROMPT.md](./LLM_PROMPT.md).
+
+It is written so the model treats the current working directory as the target repo, runs `agentify doctor`, chooses `init` vs `sync`, suggests the right next steps from command output, and executes the normal maintenance flow.
+
 ## How To Think About The CLI
 
 - `init` creates the baseline repo files Agentify needs.
@@ -68,6 +74,7 @@ Use this when you already manage local dependencies yourself or when `agentify t
 - `doc` turns the index into markdown docs, summaries, and file headers.
 - `check` verifies freshness, schema health, and safety rules.
 - `up` runs the full maintenance pipeline in one command.
+- `sync` upgrades repo-owned Agentify files when the CLI adds new baseline features.
 - `plan` and `query` help you inspect the indexed repo before you hand work to an agent.
 - `run`, `exec`, and `sess` launch provider workflows and keep the repo refreshed afterward.
 
@@ -82,6 +89,7 @@ Use this when you already manage local dependencies yourself or when `agentify t
 | `agentify scan` | Alias for `index`. | Use it when you prefer the word "scan" in scripts or team docs. Functionally it is the same as `index`. | `agentify scan` |
 | `agentify doc` | Generates `AGENTIFY.md`, module docs, repo map updates, and refreshes eligible file headers. | Use after indexing when you want human-readable and agent-readable documentation updated. | `agentify doc` |
 | `agentify up` | Runs the full pipeline: `index -> doc -> check -> tests` when a runnable test command is detected. | Use as the default maintenance command when you want the whole repo refreshed and validated in one step. | `agentify up` |
+| `agentify sync` | Upgrades repo-owned Agentify files, refreshes repo-scoped built-in skills and managed hooks, then runs a local `scan -> doc -> check -> tests` pass. | Use after upgrading the Agentify CLI itself when you want an already-Agentified repo to pick up newly added config keys, baseline artifacts, hook templates, or built-in project skills. | `agentify sync` |
 | `agentify check` | Validates freshness, schema state, and guardrail/safety expectations. | Use before committing, after a large refresh, or inside hooks/CI to confirm Agentify artifacts are consistent. | `agentify check` |
 | `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
@@ -156,6 +164,8 @@ Use sessions when the work is multi-step, the prompt context is too expensive to
 
 When a session is resumed or forked, Agentify first tries an automatic MemPalace-backed search across prior session transcripts for the current repo, then falls back to Agentify's built-in ranked transcript search, and finally to direct lineage replay if no broader match is found. Normal `run` prompts use the same automatic recall path, so relevant older session decisions can surface even without a session id or explicit memory command.
 
+`agentify doctor` reports MemPalace explicitly as an optional capability, so missing session-memory acceleration shows up in setup diagnostics instead of only appearing as a silent fallback at runtime.
+
 Choose `sess *` whenever the work spans multiple launches or you want Agentify to keep durable memory for later reuse.
 
 ### `query` Commands
@@ -211,7 +221,7 @@ Use `cache status` to inspect cache growth. Use `cache gc` when you want to recl
 Provider defaults are repo-local and persisted in `.agentify.yaml`.
 
 - An explicit `--provider` on `run`, `exec`, `sess run`, `sess resume`, or `sess fork` updates the repo's sticky provider.
-- Commands like `up`, `doc`, `check`, and `skill install` do not change the sticky execution provider.
+- Commands like `up`, `sync`, `doc`, `check`, and `skill install` do not change the sticky execution provider.
 
 Example:
 
@@ -298,6 +308,15 @@ agentify sess list
 agentify up
 agentify check
 ```
+
+### Upgrade an already-Agentified repo after Agentify itself changes
+
+```bash
+agentify sync
+agentify check
+```
+
+Use this when the Agentify CLI adds new repo-level features and you want the existing codebase to adopt them. `sync` refreshes `.agentify.yaml` with newly added defaults, restores missing baseline artifacts, updates already-managed git hooks, refreshes repo-scoped built-in skills for detected project providers, and then runs the normal maintenance pipeline with the deterministic local provider so it does not depend on external provider auth.
 
 ### Cheap deterministic maintenance without changing the sticky provider
 

@@ -14,6 +14,7 @@ import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { runSemanticRefresh } from "./core/semantic.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
+import { runRepoSync } from "./core/repo-sync.js";
 import { installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
@@ -173,6 +174,7 @@ function printHelp() {
     `    ${c("scan")}            ${d("Alias for index")}`,
     `    ${c("doc")}             ${d("Generate docs, metadata, and key-file headers")}`,
     `    ${c("up")}              ${d("Run scan -> doc -> check -> test pipeline")}`,
+    `    ${c("sync")}            ${d("Upgrade repo-owned Agentify files, then run refresh")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
@@ -212,6 +214,7 @@ function printHelp() {
     `    ${d("$")} agentify init`,
     `    ${d("$")} agentify this --provider codex`,
     `    ${d("$")} agentify up --provider codex`,
+    `    ${d("$")} agentify sync`,
     `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
@@ -359,6 +362,10 @@ export async function runCli(argv) {
 
     case "up":
       await runUpdate(root, config);
+      return;
+
+    case "sync":
+      await runRepoSync(root, config, { provider: args.provider });
       return;
 
     case "check":
