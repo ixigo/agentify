@@ -61,6 +61,12 @@ agentify check
 
 Use this when you already manage local dependencies yourself or when `agentify this` is not available.
 
+## Single-File LLM Instructions
+
+If you want one markdown file you can share as a URL or paste directly into Codex, Claude, Gemini, OpenCode, or another coding agent, use [LLM_PROMPT.md](./LLM_PROMPT.md).
+
+It is written so the model treats the current working directory as the target repo, runs `agentify doctor`, chooses `init` vs `sync`, suggests the right next steps from command output, and executes the normal maintenance flow.
+
 ## How To Think About The CLI
 
 - `init` creates the baseline repo files Agentify needs.
