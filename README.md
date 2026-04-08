@@ -19,6 +19,10 @@ Supported providers: `local`, `codex`, `claude`, `gemini`, `opencode`.
 
 License: [MIT](./LICENSE)
 
+> [!WARNING]
+> Agentify is still under active development.
+> Use it for testing only, and do not run it against your main repository yet.
+
 ## Install
 
 ```bash
@@ -90,7 +94,9 @@ Use this when you already manage local dependencies yourself or when `agentify t
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
 
-Session memory is automatic for `sess *` commands. Each run now writes MemPalace-compatible artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+
+Normal `run` is intentionally lightweight. It does not persist durable session memory artifacts under `.agents/session/`; if you need reusable memory across multiple launches, use `sess *`.
 
 ### Query, Skills, Hooks, And Cache
 
@@ -122,6 +128,7 @@ Session memory is automatic for `sess *` commands. Each run now writes MemPalace
 - Use `run` when you want Agentify to build the provider prompt for you.
 - Use `exec` when you already know the exact provider command you want to run after `--`.
 - Both commands support post-execution refresh behavior.
+- `run` stays lightweight and does not persist durable session memory; use `sess *` when you want recallable history across launches.
 
 Examples:
 
@@ -142,6 +149,8 @@ agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
 
 When a session is resumed or forked, Agentify automatically loads recent excerpts from the current or parent session transcript and appends them to the next provider prompt. The transcript format is compatible with MemPalace conversation mining, so external semantic memory remains optional rather than a manual prerequisite.
+
+Choose `sess *` whenever the work spans multiple launches or you want Agentify to keep durable memory for later reuse.
 
 ### `query` Commands
 
