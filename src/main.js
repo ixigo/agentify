@@ -214,6 +214,7 @@ function printHelp() {
     `    ${d("$")} agentify init`,
     `    ${d("$")} agentify this --provider codex`,
     `    ${d("$")} agentify up --provider codex`,
+    `    ${d("$")} agentify sync`,
     `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
