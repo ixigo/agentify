@@ -12,7 +12,10 @@ This guide is for teams that want to drop Agentify into any repository with mini
 ## 1) One-time setup per machine
 
 ```bash
-npm install -g agentify
+git clone https://github.com/ixigo/agentify.git
+cd /path/to/agentify
+pnpm install
+pnpm link --global
 ```
 
 ## 2) One-time setup per repository
@@ -66,4 +69,3 @@ To keep usage generic for contributors:
 3. Avoid requiring contributors to memorize internal indexing/semantic implementation details.
 
 Result: engineers and agents can use a stable interface, while maintainers can evolve internals independently.
-

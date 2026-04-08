@@ -26,10 +26,16 @@ License: [MIT](./LICENSE)
 ## Install
 
 ```bash
-npm install -g agentify
+git clone https://github.com/ixigo/agentify.git
+cd agentify
+pnpm install
+pnpm link --global
+agentify --version
 ```
 
-Requires `Node.js >= 20`.
+Agentify is not published to npm yet, so the current setup path is a global link from a local checkout.
+
+Requires `Node.js >= 20` and `pnpm`.
 
 ## Quick Start
 

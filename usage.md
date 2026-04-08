@@ -19,7 +19,7 @@ Required:
 
 - A Git repository.
 - Node.js 20 or newer.
-- `agentify` installed globally.
+- `agentify` available on `PATH` from a local checkout.
 - Codex CLI installed and authenticated.
 
 Recommended local tools:
@@ -35,10 +35,13 @@ Agentify's macOS bootstrap command installs missing versions of those tools auto
 
 Use this path if you are on macOS and want the shortest reliable setup.
 
-### 1. Install Agentify
+### 1. Link Agentify from a local checkout
 
 ```bash
-npm install -g agentify
+git clone https://github.com/ixigo/agentify.git
+cd /path/to/agentify
+pnpm install
+pnpm link --global
 ```
 
 ### 2. Move into the repository
@@ -94,10 +97,14 @@ At this point the repo is Agentify + Codex ready.
 
 Use this when `agentify this` is not available or you want to manage dependencies yourself.
 
-### 1. Install Agentify and Codex CLI
+### 1. Link Agentify and install the Codex CLI
 
 ```bash
-npm install -g agentify @openai/codex tree-sitter-cli
+git clone https://github.com/ixigo/agentify.git
+cd /path/to/agentify
+pnpm install
+pnpm link --global
+pnpm add --global @openai/codex tree-sitter-cli
 ```
 
 ### 2. Install the recommended native tools with your OS package manager
@@ -329,7 +336,10 @@ budgets:
 If you want the shortest exact sequence for a fresh repo on macOS:
 
 ```bash
-npm install -g agentify
+git clone https://github.com/ixigo/agentify.git
+cd /path/to/agentify
+pnpm install
+pnpm link --global
 cd /path/to/your/repo
 agentify this --provider codex
 codex login            # only if bootstrap reports login_required
@@ -343,7 +353,11 @@ agentify skill install grill-me --provider codex --scope project
 If you want the shortest exact sequence for a fresh repo without bootstrap:
 
 ```bash
-npm install -g agentify @openai/codex tree-sitter-cli
+git clone https://github.com/ixigo/agentify.git
+cd /path/to/agentify
+pnpm install
+pnpm link --global
+pnpm add --global @openai/codex tree-sitter-cli
 codex login
 cd /path/to/your/repo
 agentify init --provider codex
