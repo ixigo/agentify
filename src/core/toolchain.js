@@ -12,10 +12,24 @@ const TOOLS = {
   fd: { minVersion: "8.0.0", tier: 1, purpose: "fast file enumeration" },
   "ast-grep": { minVersion: "0.20.0", tier: 2, purpose: "structural pattern queries" },
   "tree-sitter": { minVersion: "0.22.0", tier: 2, purpose: "parser-backed symbol extraction" },
+  mempalace: { minVersion: null, tier: "optional", purpose: "session memory recall", detectMode: "command-exists" },
   zoekt: { minVersion: null, tier: "optional", purpose: "indexed code search at scale" },
 };
 
-async function detectTool(name) {
+async function detectTool(name, spec = {}) {
+  if (spec.detectMode === "command-exists") {
+    try {
+      const { stdout } = await execFileAsync("which", [name]);
+      return {
+        available: true,
+        version: "unknown",
+        path: stdout.trim() || name,
+      };
+    } catch {
+      return { available: false, version: null, path: null };
+    }
+  }
+
   try {
     const { stdout } = await execFileAsync(name, ["--version"]);
     const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
@@ -36,7 +50,7 @@ export async function detectCapabilities(config = {}) {
       results[name] = { ...spec, available: false, version: null, reason: "opt-in disabled" };
       continue;
     }
-    const detection = await detectTool(name);
+    const detection = await detectTool(name, spec);
     results[name] = { ...spec, ...detection };
   }
 
@@ -66,6 +80,7 @@ function getInstallHint(name) {
     fd: "brew install fd / cargo install fd-find",
     "ast-grep": "cargo install ast-grep / npm i -g @ast-grep/cli",
     "tree-sitter": "cargo install tree-sitter-cli / npm i -g tree-sitter-cli",
+    mempalace: "install MemPalace and keep `mempalace` on PATH, or set AGENTIFY_MEMPALACE_CMD",
     zoekt: "go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest",
   };
   return hints[name] || `install ${name}`;

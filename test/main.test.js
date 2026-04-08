@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
 import { setSilent } from "../src/core/ui.js";
+
+const execFileAsync = promisify(execFile);
+
+async function initGitRepo(root) {
+  await execFileAsync("git", ["init"], { cwd: root });
+  await execFileAsync("git", ["config", "user.name", "Agentify Tests"], { cwd: root });
+  await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
+  await execFileAsync("git", ["add", "."], { cwd: root });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+}
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
   const args = parseArgs([
@@ -182,4 +194,50 @@ test("runCli doctor --json emits a single machine-readable payload", async () =>
   assert.equal(payload.command, "doctor");
   assert.ok(typeof payload.tier === "number");
   assert.ok(payload.tools && typeof payload.tools === "object");
+  assert.ok(payload.tools.mempalace && typeof payload.tools.mempalace.available === "boolean");
+});
+
+test("runCli sync upgrades repo-owned Agentify assets and emits sync json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sync-json-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), "provider: codex\n", "utf8");
+  await fs.mkdir(path.join(root, ".codex", "skills", "grill-me"), { recursive: true });
+  await fs.writeFile(path.join(root, ".codex", "skills", "grill-me", "SKILL.md"), "# stale skill\n", "utf8");
+  await initGitRepo(root);
+  await fs.writeFile(path.join(root, ".git", "hooks", "post-merge"), "#!/bin/sh\n# @agentify post-merge hook\nagentify scan\n", "utf8");
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["sync", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    setSilent(false);
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "sync");
+  assert.equal(payload.validation.passed, true);
+  assert.equal(payload.repo_sync.config.status, "updated");
+  assert.deepEqual(payload.repo_sync.skills.providers, ["codex"]);
+  assert.equal(payload.repo_sync.hooks.results.find((item) => item.name === "post-merge")?.status, "updated");
+  assert.equal(payload.repo_sync.baseline.some((item) => item.status === "created"), true);
+
+  const configText = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
+  const skillText = await fs.readFile(path.join(root, ".codex", "skills", "grill-me", "SKILL.md"), "utf8");
+  const hookText = await fs.readFile(path.join(root, ".git", "hooks", "post-merge"), "utf8");
+
+  assert.match(configText, /^semantic:/m);
+  assert.match(configText, /^toolchain:/m);
+  assert.match(skillText, /Interview the user relentlessly/);
+  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
 });

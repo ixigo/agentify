@@ -181,6 +181,44 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
   return configPath;
 }
 
+export async function syncConfigFile(root, config, { dryRun = false } = {}) {
+  const configPath = path.join(root, ".agentify.yaml");
+  let existing = null;
+  let fileConfig = {};
+
+  try {
+    existing = await fs.readFile(configPath, "utf8");
+    fileConfig = parseConfigFile(existing);
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const merged = deepMerge(DEFAULT_CONFIG, fileConfig);
+  if (!existing && config?.provider) {
+    merged.provider = config.provider;
+  }
+
+  const yaml = stringifyYaml(merged);
+  const changed = !existing || JSON.stringify(fileConfig) !== JSON.stringify(merged);
+
+  if (changed && !dryRun) {
+    await fs.writeFile(configPath, yaml, "utf8");
+  }
+
+  return {
+    path: configPath,
+    existed: Boolean(existing),
+    changed,
+    status: !existing
+      ? dryRun ? "would_create" : "created"
+      : changed
+        ? dryRun ? "would_update" : "updated"
+        : "unchanged",
+  };
+}
+
 export async function persistProviderPreference(root, provider, { dryRun = false } = {}) {
   const configPath = path.join(root, ".agentify.yaml");
   let fileConfig = {};

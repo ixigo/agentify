@@ -1085,27 +1085,28 @@ export async function runValidate(root, config, options = {}) {
   }
 }
 
-export async function runUpdate(root, config) {
+export async function runUpdate(root, config, options = {}) {
+  const commandName = options.commandName || "up";
   const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const progress = createRunReporter(artifactRoot);
   const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
-  progress.setCommand("up");
-  progress.percent("up", 0, "starting");
+  progress.setCommand(commandName);
+  progress.percent(commandName, 0, "starting");
   await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
-  progress.percent("up", 33, "scan complete");
+  progress.percent(commandName, 33, "scan complete");
   await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
-  progress.percent("up", 67, "doc complete");
+  progress.percent(commandName, 67, "doc complete");
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
-  progress.percent("up", 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
+  progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);
     const meta = getRepoMeta(db);
     closeIndexDatabase(db);
     const runReport = {
-      run_id: `${Date.now()}-up`,
+      run_id: `${Date.now()}-${commandName}`,
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
       provider: config.provider,
@@ -1127,14 +1128,15 @@ export async function runUpdate(root, config) {
     await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
-    command: "up",
+    command: commandName,
     validation: result,
     tests: {
       status: testResult.status,
       passed: testResult.passed,
       command: testResult.command,
       exit_code: testResult.exit_code
-    }
+    },
+    ...(options.preflight ? { repo_sync: options.preflight } : {}),
   };
   progress.json(finalOutput);
   await progress.finalize();
@@ -1142,10 +1144,11 @@ export async function runUpdate(root, config) {
     if (config.strict) {
       process.exitCode = 1;
     } else {
-      progress.log("up: validation warnings found but --strict is false, continuing");
+      progress.log(`${commandName}: validation warnings found but --strict is false, continuing`);
     }
   }
   if (testResult.status === "failed") {
     process.exitCode = 1;
   }
+  return finalOutput;
 }
