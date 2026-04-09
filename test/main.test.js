@@ -7,7 +7,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
-import { setSilent } from "../src/core/ui.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -164,7 +163,6 @@ test("runCli init --json emits a single machine-readable payload", async () => {
     await runCli(["init", "--root", root, "--json"]);
   } finally {
     console.log = originalLog;
-    setSilent(false);
   }
 
   assert.equal(output.length, 1);
@@ -186,7 +184,6 @@ test("runCli doctor --json emits a single machine-readable payload", async () =>
     await runCli(["doctor", "--root", root, "--json"]);
   } finally {
     console.log = originalLog;
-    setSilent(false);
   }
 
   assert.equal(output.length, 1);
@@ -218,7 +215,6 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
     await runCli(["sync", "--root", root, "--json"]);
   } finally {
     console.log = originalLog;
-    setSilent(false);
   }
 
   assert.equal(output.length, 1);
@@ -262,7 +258,6 @@ test("runCli sync tolerates --provider local while syncing detected project skil
     await runCli(["sync", "--root", root, "--provider", "local", "--json"]);
   } finally {
     console.log = originalLog;
-    setSilent(false);
   }
 
   assert.equal(output.length, 1);
@@ -295,7 +290,6 @@ test("runCli doctor reports MemPalace available via AGENTIFY_MEMPALACE_CMD", asy
     await runCli(["doctor", "--root", root, "--json"]);
   } finally {
     console.log = originalLog;
-    setSilent(false);
     if (originalMemPalaceCmd === undefined) {
       delete process.env.AGENTIFY_MEMPALACE_CMD;
     } else {
@@ -308,4 +302,29 @@ test("runCli doctor reports MemPalace available via AGENTIFY_MEMPALACE_CMD", asy
   assert.equal(payload.command, "doctor");
   assert.equal(payload.tools.mempalace.available, true);
   assert.equal(payload.tools.mempalace.path, mempalacePath);
+});
+
+test("runCli restores stderr output after a failing json invocation", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-json-reset-"));
+  const stderrChunks = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
+
+  process.stderr.write = ((chunk, encoding, callback) => {
+    stderrChunks.push(String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  });
+
+  try {
+    await assert.rejects(() => runCli(["exec", "--root", root, "--json"]), /exec requires a command after --/);
+    await runCli(["init", "--root", root]);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  assert.match(stderrChunks.join(""), /Initialized agentify artifacts/);
 });
