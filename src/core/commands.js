@@ -161,25 +161,6 @@ async function buildScanState(root, config) {
   };
 }
 
-function renderAgentsMd(index) {
-  return `# AGENTS.md
-
-## Overview
-This repository is Agentify-enabled. Start with \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/\`. From the host shell, \`agentify plan "<task>"\` or \`agentify query search --term <term>\` can provide deeper routing.
-
-## Conventions
-- Generated docs live under \`docs/\`
-- Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
-- Code headers marked with \`@agentify\` are safe to refresh
-- Repo guardrails live in \`.guardrails\`
-- Local working RFCs and notes live under \`.agentify/work/\`
-- Use \`.agentignore\` to keep local-only artifacts out of scans
-
-## Modules
-${index.modules.map((moduleInfo) => `- \`${moduleInfo.name}\`: \`${moduleInfo.root_path}\``).join("\n")}
-`;
-}
-
 function renderAgentifyMd({ index, metadataByModule, runReport, managerPlan }) {
   const detectedStacks = index.repo.detected_stacks.map((stack) => `- \`${stack.name}\` (${stack.confidence})`).join("\n");
   const moduleBlocks = index.modules.map((moduleInfo) => {
@@ -231,8 +212,15 @@ ${detectedStacks}
 ## Shared Conventions
 ${sharedConventions}
 
+## Conventions
+- Generated docs live under \`docs/\`
+- Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
+- Repo guardrails live in \`.guardrails\`
+- Local working RFCs and notes live under \`.agentify/work/\`
+- Use \`.agentignore\` to keep local-only artifacts out of scans
+- From the host shell, \`agentify plan "<task>"\` or \`agentify query search --term <term>\` can provide deeper routing
+
 ## Artifacts
-- Root guidance: \`AGENTS.md\`
 - Repo map: \`docs/repo-map.md\`
 - Machine index: \`.agents/index.db\` (host shell access is the most reliable path)
 - Run report: \`.agents/runs/${runReport.run_id}.json\`
@@ -291,7 +279,7 @@ function renderDefaultGuardrails() {
 - Do not commit knowingly broken code just to checkpoint progress.
 
 ## Protected Paths
-- Do not edit \`.agents/\`, \`docs/modules/\`, \`AGENTS.md\`, \`AGENTIFY.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
+- Do not edit \`.agents/\`, \`docs/modules/\`, \`AGENTIFY.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
 - Do not edit provider-installed skill directories under \`.codex/\`, \`.claude/\`, \`.gemini/\`, or \`.opencode/\` unless the task is specifically about those files.
 - Put local architecture RFCs, notes, and scratch outputs under \`.agentify/work/\`.
 
@@ -542,7 +530,6 @@ async function _runScanInner(root, config, options, progress) {
         });
       });
       const index = buildRenderableIndex(root, getRepoMeta(db), loadModules(db));
-      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(index));
       await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
     } finally {
       closeIndexDatabase(db);
@@ -555,7 +542,7 @@ async function _runScanInner(root, config, options, progress) {
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
-    wrote: config.dryRun ? [] : [".agents/index.db", "AGENTS.md", "docs/repo-map.md"],
+    wrote: config.dryRun ? [] : [".agents/index.db", "docs/repo-map.md"],
   };
   progress.setCommand(options.commandName || "scan");
   progress.setScan(result);
@@ -672,7 +659,6 @@ async function _runDocInner(root, config, options, progress) {
         });
       });
       const renderable = buildRenderableIndex(root, getRepoMeta(writeDb), loadModules(writeDb));
-      await writeText(path.join(artifactRoot, "AGENTS.md"), renderAgentsMd(renderable));
       await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(renderable));
     } finally {
       closeIndexDatabase(writeDb);
@@ -924,27 +910,29 @@ async function _runDocInner(root, config, options, progress) {
           continue;
         }
 
-        if (config.ghost || config.ghostMode) {
-          for (const header of result.headers) {
-            plannedHeaders.push({
-              path: header.path,
-              module: moduleInfo.name,
-              summary: header.summary,
-              action: "would_update",
-            });
-          }
-        } else {
-          for (const header of result.headers) {
-            const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
-            if (update.changed) {
-              filesWithHeaders += 1;
+        if (config.headers) {
+          if (config.ghost || config.ghostMode) {
+            for (const header of result.headers) {
+              plannedHeaders.push({
+                path: header.path,
+                module: moduleInfo.name,
+                summary: header.summary,
+                action: "would_update",
+              });
+            }
+          } else {
+            for (const header of result.headers) {
+              const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
+              if (update.changed) {
+                filesWithHeaders += 1;
+              }
             }
           }
         }
       }
     }
 
-    if (semanticEnabled && !config.dryRun) {
+    if (config.headers && semanticEnabled && !config.dryRun) {
       progress.log("doc: applying deterministic semantic headers");
       const semanticHeaderResult = await applySemanticHeaders(root, artifactRoot, config, {
         ghost: Boolean(config.ghost || config.ghostMode),

@@ -10,7 +10,7 @@ A repository is ready when all of these are true:
 - `codex login status` shows Codex is logged in.
 - `.agentify.yaml` exists and the repo provider is `codex`.
 - Baseline repo artifacts exist: `.agentignore`, `.guardrails`, `.agentify/work/`.
-- Generated Agentify artifacts exist: `.agents/index.db`, `AGENTS.md`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/*.md`.
+- Generated Agentify artifacts exist: `.agents/index.db`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/*.md`.
 - `agentify check` passes.
 
 ## Prerequisites
@@ -175,7 +175,6 @@ After `agentify this` or `agentify init`:
 After `agentify scan`:
 
 - `.agents/index.db`
-- `AGENTS.md`
 - `docs/repo-map.md`
 
 After `agentify doc`:
@@ -202,7 +201,6 @@ agentify query search --term auth
 
 You should also confirm:
 
-- `AGENTS.md` exists at the repo root.
 - `AGENTIFY.md` exists at the repo root.
 - `.agents/index.db` exists.
 - `docs/repo-map.md` exists.

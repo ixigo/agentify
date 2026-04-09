@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
   maxFilesPerModule: 20,
   moduleConcurrency: 4,
   tokenReport: true,
+  headers: false,
   headerWindow: 80,
   topKeyFilesPerModule: 15,
   budgets: {
@@ -161,6 +162,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     maxFilesPerModule: config.maxFilesPerModule,
     moduleConcurrency: config.moduleConcurrency,
     tokenReport: config.tokenReport,
+    headers: config.headers,
     headerWindow: config.headerWindow,
     topKeyFilesPerModule: config.topKeyFilesPerModule,
     budgets: config.budgets,

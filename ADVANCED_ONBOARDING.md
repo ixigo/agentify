@@ -62,7 +62,7 @@ This refreshes repo-owned config defaults, missing baseline artifacts, already-m
 To keep usage generic for contributors:
 
 1. Commit the `.codex/skills/` directory in the repo.
-2. Add short wrapper docs in your own `AGENTS.md` that reference only:
+2. Add short wrapper docs in your own `AGENTIFY.md` that reference only:
    - `agentify run ...`
    - `agentify sess ...`
    - `agentify sync` (for updates)

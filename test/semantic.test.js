@@ -168,6 +168,7 @@ test("doc uses semantic repo map and deterministic semantic headers when enabled
   const config = await loadConfig(root, {
     provider: "local",
     dryRun: false,
+    headers: true,
     "semantic.tsjs.enabled": true,
   });
 

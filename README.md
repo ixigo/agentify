@@ -477,7 +477,7 @@ What it prepares:
 - `.codex/config.toml`
 - `.codex/agents/*.toml`
 - `run_codex-codebase-auditor.txt`
-- alignment with the repo's `AGENTS.md` issue-quality rules
+- alignment with the repo's `AGENTIFY.md` issue-quality rules
 
 Prerequisites:
 
@@ -489,7 +489,6 @@ Prerequisites:
 Common generated paths:
 
 ```txt
-AGENTS.md
 AGENTIFY.md
 docs/repo-map.md
 docs/modules/*.md
