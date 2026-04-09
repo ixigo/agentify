@@ -1,0 +1,4 @@
+interface:
+  display_name: "GLab Issues Autopilot"
+  short_description: "Pick a GitLab issue and implement it autonomously"
+  default_prompt: "Use $glab-issues-autopilot to select the latest open issue authored by me, implement it, run checks in a loop, and commit once green."
