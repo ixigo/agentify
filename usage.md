@@ -28,6 +28,7 @@ Recommended local tools:
 - `fd`
 - `ast-grep`
 - `tree-sitter`
+- `mempalace` for optional session-memory acceleration
 
 Agentify's macOS bootstrap command installs missing versions of those tools automatically.
 
@@ -53,6 +54,7 @@ cd /path/to/your/repo
 ### 3. Bootstrap the repo for Codex
 
 ```bash
+agentify doctor
 agentify this --provider codex
 ```
 
@@ -134,6 +136,7 @@ cd /path/to/your/repo
 For a fresh repo with no existing Agentify config:
 
 ```bash
+agentify doctor
 agentify init --provider codex
 ```
 
@@ -255,6 +258,19 @@ agentify query deps --module <module-id>
 
 ## How To Get The Most Out Of Agentify + Codex
 
+### 0. Run doctor and verify the capability tier
+
+```bash
+agentify doctor
+```
+
+Look for:
+
+- missing required tier tools such as `rg` and `fd`
+- whether `ast-grep` and `tree-sitter` are available
+- whether MemPalace is detected as an optional accelerator
+- whether semantic TS/JS projects have already been indexed
+
 ### 1. Install hooks
 
 ```bash
@@ -315,7 +331,32 @@ semantic:
 
 This improves semantic surfaces, deterministic headers, and repo-map quality for TS/JS projects.
 
-### 6. Tune budgets for large repos
+After enabling it:
+
+```bash
+agentify semantic refresh
+agentify up
+agentify check
+```
+
+Use `agentify doctor` afterward to confirm semantic projects are being reported.
+
+### 6. Enable MemPalace-backed session-memory acceleration
+
+MemPalace is optional, but it is the most useful add-on when you use `sess *` frequently.
+
+How to turn it on:
+
+- install `mempalace` and keep it on `PATH`, or set `AGENTIFY_MEMPALACE_CMD`
+- run `agentify doctor` and confirm MemPalace is detected
+- prefer `agentify sess run`, `sess resume`, and `sess fork` for multi-step work so Agentify has durable session transcripts to mine
+
+Important:
+
+- normal `run` can reuse existing session history, but `run` does not create durable session history
+- `sess *` is the right workflow when you want future recall and continuity
+
+### 7. Tune budgets for large repos
 
 If the codebase is large, tune `.agentify.yaml` instead of letting context sprawl:
 
@@ -376,5 +417,7 @@ agentify skill install grill-me --provider codex --scope project
 - `init --provider codex` only sets the provider when `.agentify.yaml` does not already exist.
 - Sticky provider updates happen on `run`, `exec`, `sess run`, `sess resume`, and `sess fork`.
 - `local` is valid for `scan`, `doc`, `up`, and `check`, but not for `run` or `sess *`.
+- MemPalace is optional acceleration, not a hard requirement.
+- `run` is lightweight; use `sess *` when you want durable memory artifacts under `.agents/session/`.
 
 If those points are handled, the repository is ready for normal Agentify + Codex use.

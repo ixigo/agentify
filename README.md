@@ -61,6 +61,48 @@ agentify check
 
 Use this when you already manage local dependencies yourself or when `agentify this` is not available.
 
+## Recommended Setup For Best Results
+
+If you want Agentify to reach its full potential, do more than `init -> up -> check`.
+The highest-leverage setup is:
+
+1. verify the toolchain and optional accelerators
+2. enable the repo with the right provider
+3. install repo-scoped skills and hooks
+4. turn on semantic indexing for TS/JS repos
+5. use `run` for bounded work and `sess *` for longer streams
+
+Recommended sequence:
+
+```bash
+cd /path/to/your/repo
+agentify doctor
+agentify init --provider codex
+agentify skill install all --provider codex --scope project
+agentify hooks install
+agentify up
+agentify check
+```
+
+If you are on macOS and want bootstrap automation instead of manual init:
+
+```bash
+cd /path/to/your/repo
+agentify doctor
+agentify this --provider codex
+agentify skill install all --provider codex --scope project
+agentify hooks install
+agentify up
+agentify check
+```
+
+Why this is better than a minimal setup:
+
+- `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
+- project-scoped skills make provider behavior more repeatable across contributors and sessions.
+- hooks keep the repo healthier between manual runs.
+- `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts.
+
 ## Single-File LLM Instructions
 
 If you want one markdown file you can share as a URL or paste directly into Codex, Claude, Gemini, OpenCode, or another coding agent, use [LLM_PROMPT.md](./LLM_PROMPT.md).
@@ -265,7 +307,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 
 ## Semantic TypeScript/JavaScript Indexing
 
-Semantic indexing is optional, but it is one of the more important newer capabilities in the repo.
+Semantic indexing is optional, but it is one of the highest-value features for TypeScript and JavaScript repositories.
 
 Enable it in `.agentify.yaml`:
 
@@ -275,12 +317,17 @@ semantic:
   tsjs:
     enabled: true
     workerConcurrency: 2
+    timeoutMs: 45000
+    memoryMb: 1536
 ```
 
 Then refresh it with:
 
 ```bash
+agentify doctor
 agentify semantic refresh
+agentify up
+agentify check
 ```
 
 Why use it:
@@ -292,22 +339,75 @@ Why use it:
 
 Use it when the repository is TypeScript- or JavaScript-heavy and raw dependency scanning is not enough.
 
+How to verify it is active:
+
+- `agentify doctor` shows a `Semantic TS/JS` section when semantic indexing is enabled and the repo has been indexed.
+- `agentify query search --term <term>` starts returning semantic surfaces in addition to structural matches.
+- `docs/repo-map.md` and module docs become richer after refreshes.
+
+## MemPalace Session Memory Acceleration
+
+MemPalace is optional, but it is the best way to accelerate session-memory recall once you start using `sess *` workflows heavily.
+
+How to enable it:
+
+1. install `mempalace` and keep it on `PATH`, or set `AGENTIFY_MEMPALACE_CMD`
+2. run `agentify doctor` and confirm MemPalace is detected
+3. use `agentify sess run`, `sess resume`, and `sess fork` so Agentify has durable session transcripts to mine
+
+Example:
+
+```bash
+export AGENTIFY_MEMPALACE_CMD=/absolute/path/to/mempalace
+agentify doctor
+agentify sess run --provider codex --name "payments-v2" "implement retries"
+agentify sess resume --session <session-id> "continue from the last checkpoint"
+```
+
+Important behavior:
+
+- Agentify tries MemPalace-backed recall first, then local transcript search, then direct lineage replay.
+- `run` can benefit from existing session history, but `run` itself does not create durable session artifacts.
+- Use `sess *` whenever you want future recall, auditability, or multi-launch continuity.
+
 ## Recommended Workflows
 
-### Day-to-day execution
+### One-off bounded work
 
 ```bash
 agentify run --provider codex "implement payment retries"
 agentify run "add tests for retry backoff"
-agentify sess list
 ```
 
-### Full refresh before or after a larger change
+Use this for focused tasks where you want Agentify to build context and refresh the repo afterward, but you do not need a named durable workstream.
+
+If the task is large or you want to inspect the selected context first:
+
+```bash
+agentify plan "add retry logic to checkout"
+agentify query search --term retry
+agentify run "add retry logic to checkout"
+```
+
+### Long-running work with durable memory
+
+```bash
+agentify sess run --provider codex --name "payments-v2" "implement initial module"
+agentify sess list
+agentify sess resume --session <session-id> "finish the remaining tests"
+agentify sess fork --from <session-id> --name "payments-alt" "try a simpler design"
+```
+
+Use this when the work spans multiple launches, you want a durable audit trail under `.agents/session/`, or you want later runs to reuse prior context automatically.
+
+### Deterministic maintenance before or after larger changes
 
 ```bash
 agentify up
 agentify check
 ```
+
+Use this when you want the repo refreshed and validated independent of any provider session.
 
 ### Upgrade an already-Agentified repo after Agentify itself changes
 
@@ -325,6 +425,23 @@ agentify up --provider local
 ```
 
 Use this when you want the repo refreshed without switching the repo's execution provider away from `codex`, `claude`, `gemini`, or `opencode`.
+
+### Recommended daily loop
+
+```bash
+agentify run "implement <task>"
+agentify check
+```
+
+For longer initiatives:
+
+```bash
+agentify sess run --provider codex --name "<stream>" "<task>"
+agentify sess resume --session <session-id> "<next-step>"
+agentify check
+```
+
+This keeps the repo fresh, validated, and ready for the next launch instead of treating Agentify as a one-time bootstrap tool.
 
 ## Bootstrap Notes
 
