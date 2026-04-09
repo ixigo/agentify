@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { getChangedFiles, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { validateRepo } from "./validate.js";
@@ -10,9 +12,73 @@ const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
 const DEFAULT_CAPTURE_MAX_KB = 48;
 
-function diffSnapshots(preFiles, postFiles) {
-  const preSet = new Set(preFiles.map((f) => `${f.status}:${f.path}`));
-  return postFiles.filter((f) => !preSet.has(`${f.status}:${f.path}`));
+function getSnapshotKey(file) {
+  return `${file.status}:${file.path}`;
+}
+
+function getTrackedDirtyPaths(files) {
+  return [...new Set(
+    files
+      .filter((file) => file?.path && file.status !== "??")
+      .map((file) => file.path)
+  )];
+}
+
+async function hashFile(root, filePath) {
+  try {
+    const content = await fs.readFile(path.join(root, filePath));
+    return createHash("sha1").update(content).digest("hex");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function captureDirtyFileDigests(root, files) {
+  const filePaths = getTrackedDirtyPaths(files);
+  if (filePaths.length === 0) {
+    return new Map();
+  }
+
+  const digestEntries = await Promise.all(
+    filePaths.map(async (filePath) => [filePath, await hashFile(root, filePath)])
+  );
+  return new Map(digestEntries);
+}
+
+function diffSnapshots(preFiles, postFiles, preDigests = new Map(), postDigests = new Map()) {
+  const preSet = new Set(preFiles.map(getSnapshotKey));
+  const changes = [];
+  const seen = new Set();
+
+  function recordChange(file) {
+    const key = getSnapshotKey(file);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    changes.push(file);
+  }
+
+  for (const file of postFiles) {
+    const key = getSnapshotKey(file);
+    if (!preSet.has(key)) {
+      recordChange(file);
+      continue;
+    }
+
+    if (file.status === "??") {
+      continue;
+    }
+
+    if (preDigests.get(file.path) !== postDigests.get(file.path)) {
+      recordChange(file);
+    }
+  }
+
+  return changes;
 }
 
 function posixShellQuote(value) {
@@ -127,6 +193,7 @@ function runWrappedCommand(argv, options) {
 export async function runExec(root, config, agentCommand, flags) {
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
+  const preFileDigests = await captureDirtyFileDigests(root, preFiles);
   const preparedSessionMemory = flags.sessionRecord
     ? await prepareSessionMemoryRun(root, flags.sessionRecord)
     : null;
@@ -198,7 +265,8 @@ export async function runExec(root, config, agentCommand, flags) {
 
   const postHeadCommit = await getHeadCommit(root);
   const postFiles = await getChangedFiles(root);
-  const agentChanges = diffSnapshots(preFiles, postFiles);
+  const postFileDigests = await captureDirtyFileDigests(root, postFiles);
+  const agentChanges = diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests);
   const headChanged = postHeadCommit !== preHeadCommit;
   if (agentChanges.length === 0 && !headChanged) {
     const validation = await validateRepo(root, config);

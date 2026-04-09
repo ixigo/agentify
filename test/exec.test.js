@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { runScan } from "../src/core/commands.js";
+import { runDoc, runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
 import { getRepoMeta, openIndexDatabase, closeIndexDatabase } from "../src/core/db.js";
 import { runExec } from "../src/core/exec.js";
@@ -62,6 +62,37 @@ test("runExec refreshes when the wrapped command commits and exits clean", async
   } finally {
     closeIndexDatabase(db);
   }
+});
+
+test("runExec refreshes when the wrapped command edits an already-dirty tracked file", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-dirty-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const docPath = path.join(root, "AGENTIFY.md");
+  const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
+  await fs.appendFile(path.join(root, "src", "index.js"), "export const preexisting = true;\n", "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
+  ].join("");
+
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {});
+  const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.skippedRefresh, undefined);
+  assert.equal(afterDocMtime > beforeDocMtime, true);
+  assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
 });
 
 test("runExec writes MemPalace-compatible session memory artifacts when recording is enabled", async () => {
