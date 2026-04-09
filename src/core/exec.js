@@ -238,28 +238,14 @@ export async function runExec(root, config, agentCommand, flags) {
       throw error;
     }
   }
-  const exitCode = commandResult.exitCode;
-
-  if (exitCode !== 0) {
-    process.exitCode = exitCode;
-    const result = {
-      phase: "command",
-      exitCode,
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
-    };
-    if (preparedSessionMemory) {
-      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
-    }
-    return result;
-  }
+  let exitCode = commandResult.exitCode || 0;
+  const commandFailed = exitCode !== 0;
 
   if (flags.skipRefresh) {
+    process.exitCode = exitCode;
     const result = {
-      phase: "complete",
-      exitCode: 0,
+      phase: commandFailed ? "command" : "complete",
+      exitCode,
       skippedRefresh: true,
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
@@ -279,16 +265,17 @@ export async function runExec(root, config, agentCommand, flags) {
   const headChanged = postHeadCommit !== preHeadCommit;
   if (agentChanges.length === 0 && !headChanged) {
     const validation = await validateRepo(root, config);
-    if (!validation.passed && flags.failOnStale) {
-      process.exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
+    if (!validation.passed && flags.failOnStale && !commandFailed) {
+      exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
     } else if (!validation.passed) {
       for (const f of validation.failures) {
         process.stderr.write(ui.formatFailure(f) + "\n");
       }
     }
+    process.exitCode = exitCode;
     const result = {
       phase: "complete",
-      exitCode: process.exitCode || 0,
+      exitCode,
       validation,
       skippedRefresh: true,
       stdout: commandResult.stdout,
@@ -307,28 +294,29 @@ export async function runExec(root, config, agentCommand, flags) {
     await runDoc(root, config, { skipFinalize: true });
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);
-    if (flags.failOnStale) {
-      process.exitCode = AGENTIFY_EXIT_REFRESH_ERROR;
-      const result = {
-        phase: "refresh-error",
-        exitCode: AGENTIFY_EXIT_REFRESH_ERROR,
-        stdout: commandResult.stdout,
-        stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
-        interactiveTranscript: commandResult.interactiveTranscript,
-        rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
-      };
-      if (preparedSessionMemory) {
-        await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
-      }
-      return result;
+    if (flags.failOnStale && !commandFailed) {
+      exitCode = AGENTIFY_EXIT_REFRESH_ERROR;
     }
+    process.exitCode = exitCode;
+    const result = {
+      phase: "refresh-error",
+      exitCode,
+      stdout: commandResult.stdout,
+      stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
+      interactiveTranscript: commandResult.interactiveTranscript,
+      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    };
+    if (preparedSessionMemory) {
+      await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
+    }
+    return result;
   }
 
   const validation = await validateRepo(root, config);
 
   if (!validation.passed) {
-    if (flags.failOnStale) {
-      process.exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
+    if (flags.failOnStale && !commandFailed) {
+      exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
     } else {
       for (const f of validation.failures) {
         process.stderr.write(ui.formatFailure(f) + "\n");
@@ -336,9 +324,10 @@ export async function runExec(root, config, agentCommand, flags) {
     }
   }
 
+  process.exitCode = exitCode;
   const result = {
     phase: "complete",
-    exitCode: process.exitCode || 0,
+    exitCode,
     validation,
     stdout: commandResult.stdout,
     stderr: commandResult.stderr,
