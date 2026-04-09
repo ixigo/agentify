@@ -11,6 +11,16 @@ export function setSilent(value) {
   _silent = value;
 }
 
+export async function withSilent(value, action) {
+  const previousSilent = _silent;
+  _silent = value;
+  try {
+    return await action();
+  } finally {
+    _silent = previousSilent;
+  }
+}
+
 function isSilent() {
   return _silent;
 }

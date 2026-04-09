@@ -17,7 +17,7 @@ import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateComm
 import { runRepoSync } from "./core/repo-sync.js";
 import { installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
-import { VERSION, setSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
+import { VERSION, withSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
   if (raw === "true") {
@@ -324,433 +324,440 @@ export async function runCli(argv) {
   if (args.json) {
     config.json = true;
     config._suppressProgress = true;
-    setSilent(true);
   }
   if (args.ghost) {
     config.ghost = true;
   }
 
-  await maybePersistProvider(root, config, args, command, subcommand);
+  const dispatch = async () => {
+    await maybePersistProvider(root, config, args, command, subcommand);
 
-  switch (command) {
-    case "init":
-      await writeDefaultConfig(root, config, { dryRun: config.dryRun });
-      await ensureBaselineArtifacts(root, config);
-      if (config.json) {
-        console.log(JSON.stringify({
-          command: "init",
-          root,
-          dry_run: Boolean(config.dryRun),
-          wrote: config.dryRun ? [] : [".agentify.yaml", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
-        }, null, 2));
-      } else {
-        success("Initialized agentify artifacts");
-      }
-      return;
-
-    case "index":
-      await runScan(root, config, { commandName: "index" });
-      return;
-
-    case "scan":
-      await runScan(root, config, { commandName: "scan" });
-      return;
-
-    case "doc":
-      await runDoc(root, config);
-      return;
-
-    case "up":
-      await runUpdate(root, config);
-      return;
-
-    case "sync":
-      await runRepoSync(root, config, { provider: args.provider });
-      return;
-
-    case "check":
-      await runValidate(root, config);
-      return;
-
-    case "plan": {
-      const task = buildRunPrompt(getPromptFromArgs(args, 1));
-      const plan = await buildExecutionPlan(root, config, task);
-      console.log(JSON.stringify(plan, null, 2));
-      return;
-    }
-
-    case "run": {
-      const task = buildRunPrompt(getPromptFromArgs(args, 1));
-      const memoryContext = await loadAutomaticRunMemory(root, task, config);
-      const usingTemplateCommand = !args._exec?.length;
-      const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
-      const plan = !args._exec?.length
-        ? await buildExecutionPlan(root, config, task)
-        : null;
-      if (args.explainPlan && plan) {
-        console.log(JSON.stringify(plan, null, 2));
-      }
-      const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown);
-      const agentCommand = args._exec?.length
-        ? args._exec
-        : buildProviderTemplateCommand(
-          config.provider,
-          prompt,
-          providerOptions,
-        );
-
-      await runExec(root, config, agentCommand, getExecFlags(args));
-      return;
-    }
-
-    case "exec": {
-      const agentCommand = args._exec || [];
-      if (agentCommand.length === 0) {
-        throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
-      }
-      await runExec(root, config, agentCommand, getExecFlags(args));
-      return;
-    }
-
-    case "query": {
-      let result;
-      if (subcommand === "owner") {
-        if (!args.file) throw new Error("query owner requires --file <path>");
-        result = await queryOwner(root, args.file);
-      } else if (subcommand === "deps") {
-        if (!args.module) throw new Error("query deps requires --module <id>");
-        result = await queryDeps(root, args.module);
-      } else if (subcommand === "changed") {
-        if (!args.since) throw new Error("query changed requires --since <commit>");
-        result = await queryChanged(root, args.since);
-      } else if (subcommand === "search") {
-        if (!args.term) throw new Error("query search requires --term <value>");
-        result = await querySearch(root, args.term);
-      } else {
-        throw new Error("query requires a subcommand: owner, deps, changed, or search");
-      }
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-
-    case "skill":
-    case "skills": {
-      if (subcommand === "list") {
-        const skills = listBuiltinSkills();
+    switch (command) {
+      case "init":
+        await writeDefaultConfig(root, config, { dryRun: config.dryRun });
+        await ensureBaselineArtifacts(root, config);
         if (config.json) {
-          console.log(JSON.stringify({ skills }, null, 2));
-        } else if (skills.length === 0) {
-          log("No built-in skills available.");
+          console.log(JSON.stringify({
+            command: "init",
+            root,
+            dry_run: Boolean(config.dryRun),
+            wrote: config.dryRun ? [] : [".agentify.yaml", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+          }, null, 2));
         } else {
-          for (const skill of skills) {
-            const aliases = skill.aliases.length > 0 ? ` aliases: ${skill.aliases.join(", ")}` : "";
-            log(`${bold(skill.name)} ${dim(`[${skill.providers.join(", ")}]`)}${aliases ? ` ${dim(aliases)}` : ""}`);
-            log(skill.description);
-          }
+          success("Initialized agentify artifacts");
         }
+        return;
+
+      case "index":
+        await runScan(root, config, { commandName: "index" });
+        return;
+
+      case "scan":
+        await runScan(root, config, { commandName: "scan" });
+        return;
+
+      case "doc":
+        await runDoc(root, config);
+        return;
+
+      case "up":
+        await runUpdate(root, config);
+        return;
+
+      case "sync":
+        await runRepoSync(root, config, { provider: args.provider });
+        return;
+
+      case "check":
+        await runValidate(root, config);
+        return;
+
+      case "plan": {
+        const task = buildRunPrompt(getPromptFromArgs(args, 1));
+        const plan = await buildExecutionPlan(root, config, task);
+        console.log(JSON.stringify(plan, null, 2));
         return;
       }
 
-      if (subcommand === "install") {
-        const skillName = args._[2];
-        if (!skillName) {
-          throw new Error("skill install requires a skill name: agentify skill install <name|all>");
+      case "run": {
+        const task = buildRunPrompt(getPromptFromArgs(args, 1));
+        const memoryContext = await loadAutomaticRunMemory(root, task, config);
+        const usingTemplateCommand = !args._exec?.length;
+        const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
+        const plan = !args._exec?.length
+          ? await buildExecutionPlan(root, config, task)
+          : null;
+        if (args.explainPlan && plan) {
+          console.log(JSON.stringify(plan, null, 2));
         }
-        const installOptions = {
-          provider: args.provider,
-          scope: args.scope,
-          force: args.force,
-          dryRun: config.dryRun,
-          defaultProvider: config.provider,
-        };
-        const installingAll = String(skillName).trim().toLowerCase() === "all";
-        const result = installingAll
-          ? await installAllBuiltinSkills(root, installOptions)
-          : await installBuiltinSkill(root, {
-            ...installOptions,
-            name: skillName,
-          });
+        const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown);
+        const agentCommand = args._exec?.length
+          ? args._exec
+          : buildProviderTemplateCommand(
+            config.provider,
+            prompt,
+            providerOptions,
+          );
 
-        if (config.json) {
-          console.log(JSON.stringify(result, null, 2));
+        await runExec(root, config, agentCommand, getExecFlags(args));
+        return;
+      }
+
+      case "exec": {
+        const agentCommand = args._exec || [];
+        if (agentCommand.length === 0) {
+          throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
+        }
+        await runExec(root, config, agentCommand, getExecFlags(args));
+        return;
+      }
+
+      case "query": {
+        let result;
+        if (subcommand === "owner") {
+          if (!args.file) throw new Error("query owner requires --file <path>");
+          result = await queryOwner(root, args.file);
+        } else if (subcommand === "deps") {
+          if (!args.module) throw new Error("query deps requires --module <id>");
+          result = await queryDeps(root, args.module);
+        } else if (subcommand === "changed") {
+          if (!args.since) throw new Error("query changed requires --since <commit>");
+          result = await queryChanged(root, args.since);
+        } else if (subcommand === "search") {
+          if (!args.term) throw new Error("query search requires --term <value>");
+          result = await querySearch(root, args.term);
         } else {
-          if (installingAll) {
-            const label = config.dryRun ? "Skill install dry-run for all built-ins" : "All built-in skills ready";
-            if (config.dryRun) {
-              log(`${label} (${result.scope} scope).`);
-            } else {
-              success(`${label} (${result.scope} scope).`);
+          throw new Error("query requires a subcommand: owner, deps, changed, or search");
+        }
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      case "skill":
+      case "skills": {
+        if (subcommand === "list") {
+          const skills = listBuiltinSkills();
+          if (config.json) {
+            console.log(JSON.stringify({ skills }, null, 2));
+          } else if (skills.length === 0) {
+            log("No built-in skills available.");
+          } else {
+            for (const skill of skills) {
+              const aliases = skill.aliases.length > 0 ? ` aliases: ${skill.aliases.join(", ")}` : "";
+              log(`${bold(skill.name)} ${dim(`[${skill.providers.join(", ")}]`)}${aliases ? ` ${dim(aliases)}` : ""}`);
+              log(skill.description);
             }
-            for (const skillResult of result.results) {
-              for (const item of skillResult.results) {
-                log(`${bold(skillResult.skill.name)} ${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+          }
+          return;
+        }
+
+        if (subcommand === "install") {
+          const skillName = args._[2];
+          if (!skillName) {
+            throw new Error("skill install requires a skill name: agentify skill install <name|all>");
+          }
+          const installOptions = {
+            provider: args.provider,
+            scope: args.scope,
+            force: args.force,
+            dryRun: config.dryRun,
+            defaultProvider: config.provider,
+          };
+          const installingAll = String(skillName).trim().toLowerCase() === "all";
+          const result = installingAll
+            ? await installAllBuiltinSkills(root, installOptions)
+            : await installBuiltinSkill(root, {
+              ...installOptions,
+              name: skillName,
+            });
+
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            if (installingAll) {
+              const label = config.dryRun ? "Skill install dry-run for all built-ins" : "All built-in skills ready";
+              if (config.dryRun) {
+                log(`${label} (${result.scope} scope).`);
+              } else {
+                success(`${label} (${result.scope} scope).`);
+              }
+              for (const skillResult of result.results) {
+                for (const item of skillResult.results) {
+                  log(`${bold(skillResult.skill.name)} ${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+                }
+              }
+            } else {
+              if (result.skill.requested_name !== result.skill.name) {
+                log(`Resolved alias ${result.skill.requested_name} -> ${result.skill.name}`);
+              }
+              if (config.dryRun) {
+                log(`Skill install dry-run for ${bold(result.skill.name)} (${result.scope} scope).`);
+              } else {
+                success(`Skill ready: ${result.skill.name}`);
+              }
+              for (const item of result.results) {
+                log(`${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
               }
             }
+          }
+          return;
+        }
+
+        throw new Error("skill requires a subcommand: list or install");
+      }
+
+      case "sess": {
+        if (subcommand === "list") {
+          const sessions = await listSessions(root);
+          if (config.json) {
+            console.log(JSON.stringify(sessions, null, 2));
+          } else if (sessions.length === 0) {
+            log("No sessions found.");
           } else {
-            if (result.skill.requested_name !== result.skill.name) {
-              log(`Resolved alias ${result.skill.requested_name} -> ${result.skill.name}`);
-            }
-            if (config.dryRun) {
-              log(`Skill install dry-run for ${bold(result.skill.name)} (${result.scope} scope).`);
-            } else {
-              success(`Skill ready: ${result.skill.name}`);
-            }
-            for (const item of result.results) {
-              log(`${bold(item.provider)} ${item.status} ${dim(item.target_dir)}`);
+            for (const s of sessions) {
+              log(`${bold(s.session_id)} ${dim(resolveSessionProvider(s, ""))} ${dim(s.created_at || "")}`);
             }
           }
-        }
-        return;
-      }
-
-      throw new Error("skill requires a subcommand: list or install");
-    }
-
-    case "sess": {
-      if (subcommand === "list") {
-        const sessions = await listSessions(root);
-        if (config.json) {
-          console.log(JSON.stringify(sessions, null, 2));
-        } else if (sessions.length === 0) {
-          log("No sessions found.");
-        } else {
-          for (const s of sessions) {
-            log(`${bold(s.session_id)} ${dim(resolveSessionProvider(s, ""))} ${dim(s.created_at || "")}`);
-          }
-        }
-        return;
-      }
-
-      if (subcommand === "fork") {
-        const result = await forkSession(root, config, {
-          from: args.from || null,
-          provider: args.provider || null,
-          name: args.name || null,
-        });
-        const task = getPromptFromArgs(args, 2);
-        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-        const provider = hasOwn(args, "provider")
-          ? normalizeProvider(args.provider)
-          : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-        const usingTemplateCommand = !args._exec?.length;
-        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-        const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
-        const agentCommand = args._exec?.length
-          ? args._exec
-          : buildProviderTemplateCommand(
-            provider,
-            prompt,
-            providerOptions,
-          );
-
-        if (!config.json) {
-          success(`Session forked: ${result.manifest.session_id}`);
-          log(`Path: ${dim(result.sessionDir)}`);
+          return;
         }
 
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: captureSettings.captureOutputMode,
-          sessionRecord: {
-            sessionId: result.manifest.session_id,
-            provider,
-            prompt,
-            task: task || "Continue this session from the latest repository state.",
-            command: agentCommand,
-            memoryContext,
-            captureMode: captureSettings.captureMode,
-          },
-        }));
-        return;
-      }
-
-      if (subcommand === "resume") {
-        const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
-        const result = await resumeSession(root, sessionId);
-        const task = getPromptFromArgs(args, promptStartIndex);
-        const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-        const provider = hasOwn(args, "provider")
-          ? normalizeProvider(args.provider)
-          : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-        const usingTemplateCommand = !args._exec?.length;
-        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-        const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
-        const agentCommand = args._exec?.length
-          ? args._exec
-          : buildProviderTemplateCommand(
-            provider,
-            prompt,
-            providerOptions,
-          );
-
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: captureSettings.captureOutputMode,
-          sessionRecord: {
-            sessionId: result.manifest.session_id,
-            provider,
-            prompt,
-            task: task || "Continue this session from the latest repository state.",
-            command: agentCommand,
-            memoryContext,
-            captureMode: captureSettings.captureMode,
-          },
-        }));
-        return;
-      }
-
-      if (subcommand === "run") {
-        let sessionResult;
-        let sessionDir;
-
-        if (args.session) {
-          sessionResult = await resumeSession(root, String(args.session));
-        } else {
-          const created = await forkSession(root, config, {
+        if (subcommand === "fork") {
+          const result = await forkSession(root, config, {
             from: args.from || null,
             provider: args.provider || null,
             name: args.name || null,
           });
-          sessionResult = {
-            manifest: created.manifest,
-            context: created.context,
-            bootstrap: created.bootstrap,
-          };
-          sessionDir = created.sessionDir;
+          const task = getPromptFromArgs(args, 2);
+          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
+          const provider = hasOwn(args, "provider")
+            ? normalizeProvider(args.provider)
+            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
+          const usingTemplateCommand = !args._exec?.length;
+          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
+          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
+          const agentCommand = args._exec?.length
+            ? args._exec
+            : buildProviderTemplateCommand(
+              provider,
+              prompt,
+              providerOptions,
+            );
+
           if (!config.json) {
-            success(`Session created: ${created.manifest.session_id}`);
-            log(`Path: ${dim(created.sessionDir)}`);
+            success(`Session forked: ${result.manifest.session_id}`);
+            log(`Path: ${dim(result.sessionDir)}`);
           }
+
+          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+            captureOutputMode: captureSettings.captureOutputMode,
+            sessionRecord: {
+              sessionId: result.manifest.session_id,
+              provider,
+              prompt,
+              task: task || "Continue this session from the latest repository state.",
+              command: agentCommand,
+              memoryContext,
+              captureMode: captureSettings.captureMode,
+            },
+          }));
+          return;
         }
 
-        const provider = hasOwn(args, "provider")
-          ? normalizeProvider(args.provider)
-          : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
-        const usingTemplateCommand = !args._exec?.length;
-        const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-        const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-        const task = getPromptFromArgs(args, 2);
-        const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
-        const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
-        const agentCommand = args._exec?.length
-          ? args._exec
-          : buildProviderTemplateCommand(
-            provider,
-            prompt,
-            providerOptions,
-          );
+        if (subcommand === "resume") {
+          const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
+          const result = await resumeSession(root, sessionId);
+          const task = getPromptFromArgs(args, promptStartIndex);
+          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
+          const provider = hasOwn(args, "provider")
+            ? normalizeProvider(args.provider)
+            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
+          const usingTemplateCommand = !args._exec?.length;
+          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
+          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
+          const agentCommand = args._exec?.length
+            ? args._exec
+            : buildProviderTemplateCommand(
+              provider,
+              prompt,
+              providerOptions,
+            );
 
-        if (config.json && sessionDir) {
-          console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
+          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+            captureOutputMode: captureSettings.captureOutputMode,
+            sessionRecord: {
+              sessionId: result.manifest.session_id,
+              provider,
+              prompt,
+              task: task || "Continue this session from the latest repository state.",
+              command: agentCommand,
+              memoryContext,
+              captureMode: captureSettings.captureMode,
+            },
+          }));
+          return;
         }
 
-        await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-          captureOutputMode: captureSettings.captureOutputMode,
-          sessionRecord: {
-            sessionId: sessionResult.manifest.session_id,
-            provider,
-            prompt,
-            task: task || "Continue this session from the latest repository state.",
-            command: agentCommand,
-            memoryContext,
-            captureMode: captureSettings.captureMode,
-          },
-        }));
+        if (subcommand === "run") {
+          let sessionResult;
+          let sessionDir;
+
+          if (args.session) {
+            sessionResult = await resumeSession(root, String(args.session));
+          } else {
+            const created = await forkSession(root, config, {
+              from: args.from || null,
+              provider: args.provider || null,
+              name: args.name || null,
+            });
+            sessionResult = {
+              manifest: created.manifest,
+              context: created.context,
+              bootstrap: created.bootstrap,
+            };
+            sessionDir = created.sessionDir;
+            if (!config.json) {
+              success(`Session created: ${created.manifest.session_id}`);
+              log(`Path: ${dim(created.sessionDir)}`);
+            }
+          }
+
+          const provider = hasOwn(args, "provider")
+            ? normalizeProvider(args.provider)
+            : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
+          const usingTemplateCommand = !args._exec?.length;
+          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
+          const task = getPromptFromArgs(args, 2);
+          const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
+          const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
+          const agentCommand = args._exec?.length
+            ? args._exec
+            : buildProviderTemplateCommand(
+              provider,
+              prompt,
+              providerOptions,
+            );
+
+          if (config.json && sessionDir) {
+            console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
+          }
+
+          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
+            captureOutputMode: captureSettings.captureOutputMode,
+            sessionRecord: {
+              sessionId: sessionResult.manifest.session_id,
+              provider,
+              prompt,
+              task: task || "Continue this session from the latest repository state.",
+              command: agentCommand,
+              memoryContext,
+              captureMode: captureSettings.captureMode,
+            },
+          }));
+          return;
+        }
+
+        throw new Error("sess requires a subcommand: run, fork, list, or resume");
+      }
+
+      case "hooks": {
+        if (subcommand === "install") {
+          const installed = await installHooks(root);
+          if (installed.length > 0) {
+            success(`Installed hooks: ${installed.join(", ")}`);
+          } else {
+            log("All hooks already installed.");
+          }
+        } else if (subcommand === "remove") {
+          const removed = await removeHooks(root);
+          if (removed.length > 0) {
+            success(`Removed hooks: ${removed.join(", ")}`);
+          } else {
+            log("No Agentify hooks found.");
+          }
+        } else if (subcommand === "status") {
+          const status = await statusHooks(root);
+          if (config.json) {
+            console.log(JSON.stringify(status, null, 2));
+          } else {
+            for (const [hook, installed] of Object.entries(status)) {
+              const st = installed ? green("installed") : dim("not installed");
+              log(`${bold(hook)}: ${st}`);
+            }
+          }
+        } else {
+          throw new Error("hooks requires a subcommand: install, remove, or status");
+        }
         return;
       }
 
-      throw new Error("sess requires a subcommand: run, fork, list, or resume");
-    }
+      case "doctor":
+        await runDoctor(root, config);
+        return;
 
-    case "hooks": {
-      if (subcommand === "install") {
-        const installed = await installHooks(root);
-        if (installed.length > 0) {
-          success(`Installed hooks: ${installed.join(", ")}`);
-        } else {
-          log("All hooks already installed.");
+      case "semantic":
+        if (subcommand && subcommand !== "refresh") {
+          throw new Error("semantic requires the refresh subcommand: agentify semantic refresh");
         }
-      } else if (subcommand === "remove") {
-        const removed = await removeHooks(root);
-        if (removed.length > 0) {
-          success(`Removed hooks: ${removed.join(", ")}`);
-        } else {
-          log("No Agentify hooks found.");
-        }
-      } else if (subcommand === "status") {
-        const status = await statusHooks(root);
+        await runSemanticRefresh(root, config);
+        return;
+
+      case "clean": {
+        const result = await runClean(root, config);
         if (config.json) {
-          console.log(JSON.stringify(status, null, 2));
+          console.log(JSON.stringify(result, null, 2));
         } else {
-          for (const [hook, installed] of Object.entries(status)) {
-            const st = installed ? green("installed") : dim("not installed");
-            log(`${bold(hook)}: ${st}`);
+          if (config.dryRun) {
+            log(`Cleanup dry-run: ${result.removed_count} item(s) would be pruned.`);
+          } else {
+            success(`Cleanup removed ${result.removed_count} item(s).`);
+          }
+          if (result.removed_paths.length > 0) {
+            for (const item of result.removed_paths) {
+              log(item);
+            }
+          }
+          if (result.removed_cache_blobs > 0) {
+            log(`Cache blobs removed: ${result.removed_cache_blobs}`);
+          }
+          if (result.skipped.length > 0) {
+            for (const item of result.skipped) {
+              log(`Skipped ${item}`);
+            }
           }
         }
-      } else {
-        throw new Error("hooks requires a subcommand: install, remove, or status");
+        return;
       }
-      return;
-    }
 
-    case "doctor":
-      await runDoctor(root, config);
-      return;
-
-    case "semantic":
-      if (subcommand && subcommand !== "refresh") {
-        throw new Error("semantic requires the refresh subcommand: agentify semantic refresh");
-      }
-      await runSemanticRefresh(root, config);
-      return;
-
-    case "clean": {
-      const result = await runClean(root, config);
-      if (config.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        if (config.dryRun) {
-          log(`Cleanup dry-run: ${result.removed_count} item(s) would be pruned.`);
-        } else {
-          success(`Cleanup removed ${result.removed_count} item(s).`);
-        }
-        if (result.removed_paths.length > 0) {
-          for (const item of result.removed_paths) {
-            log(item);
+      case "cache": {
+        const cacheRoot = path.join(root, ".agents", "cache");
+        if (subcommand === "gc") {
+          const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
+          const result = await garbageCollect(cacheRoot, maxAge);
+          success(`Garbage collected ${result.removed} blob(s).`);
+        } else if (subcommand === "status") {
+          const status = await cacheStatus(cacheRoot);
+          if (config.json) {
+            console.log(JSON.stringify(status, null, 2));
+          } else {
+            log(`Blobs: ${bold(String(status.blobs))}  Size: ${bold(status.totalSize || "0 B")}`);
           }
-        }
-        if (result.removed_cache_blobs > 0) {
-          log(`Cache blobs removed: ${result.removed_cache_blobs}`);
-        }
-        if (result.skipped.length > 0) {
-          for (const item of result.skipped) {
-            log(`Skipped ${item}`);
-          }
-        }
-      }
-      return;
-    }
-
-    case "cache": {
-      const cacheRoot = path.join(root, ".agents", "cache");
-      if (subcommand === "gc") {
-        const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
-        const result = await garbageCollect(cacheRoot, maxAge);
-        success(`Garbage collected ${result.removed} blob(s).`);
-      } else if (subcommand === "status") {
-        const status = await cacheStatus(cacheRoot);
-        if (config.json) {
-          console.log(JSON.stringify(status, null, 2));
         } else {
-          log(`Blobs: ${bold(String(status.blobs))}  Size: ${bold(status.totalSize || "0 B")}`);
+          throw new Error("cache requires a subcommand: gc or status");
         }
-      } else {
-        throw new Error("cache requires a subcommand: gc or status");
+        return;
       }
-      return;
-    }
 
-    default:
-      throw new Error(`unknown command "${command}"`);
+      default:
+        throw new Error(`unknown command "${command}"`);
+    }
+  };
+
+  if (config.json) {
+    return withSilent(true, dispatch);
   }
+
+  return dispatch();
 }
