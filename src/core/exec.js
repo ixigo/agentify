@@ -25,9 +25,18 @@ function getTrackedDirtyPaths(files) {
 }
 
 async function hashFile(root, filePath) {
+  const fullPath = path.join(root, filePath);
   try {
-    const content = await fs.readFile(path.join(root, filePath));
-    return createHash("sha1").update(content).digest("hex");
+    const stats = await fs.lstat(fullPath);
+    if (stats.isSymbolicLink()) {
+      return `symlink:${await fs.readlink(fullPath)}`;
+    }
+    if (!stats.isFile()) {
+      return `kind:${stats.mode}`;
+    }
+
+    const content = await fs.readFile(fullPath);
+    return `file:${createHash("sha1").update(content).digest("hex")}`;
   } catch (error) {
     if (error?.code === "ENOENT") {
       return null;

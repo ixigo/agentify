@@ -23,6 +23,18 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 }
 
+async function addLocalSubmodule(root, submodulePath) {
+  const source = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-submodule-source-"));
+  await fs.writeFile(path.join(source, "readme.md"), "v1\n", "utf8");
+  await initGitRepo(source);
+  await execFileAsync(
+    "git",
+    ["-c", "protocol.file.allow=always", "submodule", "add", source, submodulePath],
+    { cwd: root }
+  );
+  await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
+}
+
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-commit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
@@ -93,6 +105,24 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
   assert.equal(result.skippedRefresh, undefined);
   assert.equal(afterDocMtime > beforeDocMtime, true);
   assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+});
+
+test("runExec tolerates dirty submodules when capturing dirty-path digests", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-submodule-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await addLocalSubmodule(root, ".codex/submod");
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await fs.appendFile(path.join(root, ".codex", "submod", "readme.md"), "dirty\n", "utf8");
+
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", ""], {});
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.skippedRefresh, true);
+  assert.equal(result.validation?.passed, true);
 });
 
 test("runExec writes MemPalace-compatible session memory artifacts when recording is enabled", async () => {
