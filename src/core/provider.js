@@ -432,7 +432,18 @@ async function runClaudeExec({ root, prompt, schema, model }) {
   return parseClaudeJson(stdout);
 }
 
-async function runGeminiExec({ root, prompt, model }) {
+function buildGeminiExecEnv(env = process.env, homeDir = os.homedir()) {
+  const credentialHome = env.GEMINI_CLI_HOME || homeDir;
+  if (!credentialHome) {
+    return { ...env };
+  }
+  return {
+    ...env,
+    HOME: credentialHome
+  };
+}
+
+async function runGeminiExec({ root, prompt, model, env = process.env, homeDir = os.homedir() }) {
   const args = [
     "-p",
     prompt,
@@ -444,12 +455,9 @@ async function runGeminiExec({ root, prompt, model }) {
     args.push("--model", model);
   }
 
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-gemini-home-"));
   const { stdout } = await runChild("gemini", args, {
     cwd: root,
-    env: {
-      HOME: home
-    }
+    env: buildGeminiExecEnv(env, homeDir)
   });
   return parseGeminiJson(stdout);
 }

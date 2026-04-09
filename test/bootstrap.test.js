@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { loadConfig } from "../src/core/config.js";
-import { resolveBootstrapInputs, runBootstrapCommand } from "../src/core/bootstrap.js";
+import { probeProviderReadiness, resolveBootstrapInputs, runBootstrapCommand } from "../src/core/bootstrap.js";
 import { setSilent } from "../src/core/ui.js";
 
 function ok(stdout = "", stderr = "") {
@@ -297,4 +297,21 @@ test("runBootstrapCommand reports login required when auth cannot be verified", 
 
   assert.equal(result.status, "login_required");
   assert.equal(result.auth.nextStep, "gemini");
+});
+
+test("probeProviderReadiness accepts cached Gemini OAuth under GEMINI_CLI_HOME", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-bootstrap-gemini-home-"));
+  const geminiHome = path.join(root, "gemini-home");
+  await fs.mkdir(path.join(geminiHome, ".gemini"), { recursive: true });
+  await fs.writeFile(path.join(geminiHome, ".gemini", "oauth_creds.json"), "{}\n", "utf8");
+
+  const auth = await probeProviderReadiness("gemini", {
+    cwd: root,
+    env: { GEMINI_CLI_HOME: geminiHome },
+    homeDir: path.join(root, "unused-home"),
+  });
+
+  assert.equal(auth.state, "ready");
+  assert.equal(auth.detail, "oauth credentials cached");
+  assert.equal(auth.nextStep, null);
 });
