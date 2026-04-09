@@ -107,6 +107,50 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
   assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
 });
 
+test("runExec refreshes and validates after a failing command mutates tracked files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-failed-refresh-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const docPath = path.join(root, "AGENTIFY.md");
+  const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "await fs.appendFile('src/index.js', 'export const failedRunExec = true;\\n', 'utf8');",
+    "process.exit(1);",
+  ].join("");
+
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    const result = await runExec(
+      root,
+      config,
+      ["node", "--input-type=module", "-e", script],
+      { failOnStale: true }
+    );
+    const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
+
+    assert.equal(result.phase, "complete");
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.skippedRefresh, undefined);
+    assert.equal(afterDocMtime > beforeDocMtime, true);
+    assert.equal(result.validation?.passed, false);
+    assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+  } finally {
+    process.exitCode = originalExitCode;
+  }
+});
+
 test("runExec tolerates dirty submodules when capturing dirty-path digests", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-submodule-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
