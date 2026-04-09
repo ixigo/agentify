@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { runScan } from "../src/core/commands.js";
+import { runDoc, runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
 import { getRepoMeta, openIndexDatabase, closeIndexDatabase } from "../src/core/db.js";
 import { runExec } from "../src/core/exec.js";
@@ -21,6 +21,18 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
   await execFileAsync("git", ["add", "."], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+}
+
+async function addLocalSubmodule(root, submodulePath) {
+  const source = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-submodule-source-"));
+  await fs.writeFile(path.join(source, "readme.md"), "v1\n", "utf8");
+  await initGitRepo(source);
+  await execFileAsync(
+    "git",
+    ["-c", "protocol.file.allow=always", "submodule", "add", source, submodulePath],
+    { cwd: root }
+  );
+  await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
 }
 
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
@@ -62,6 +74,55 @@ test("runExec refreshes when the wrapped command commits and exits clean", async
   } finally {
     closeIndexDatabase(db);
   }
+});
+
+test("runExec refreshes when the wrapped command edits an already-dirty tracked file", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-dirty-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const docPath = path.join(root, "AGENTIFY.md");
+  const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
+  await fs.appendFile(path.join(root, "src", "index.js"), "export const preexisting = true;\n", "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
+  ].join("");
+
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {});
+  const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.skippedRefresh, undefined);
+  assert.equal(afterDocMtime > beforeDocMtime, true);
+  assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+});
+
+test("runExec tolerates dirty submodules when capturing dirty-path digests", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-submodule-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await addLocalSubmodule(root, ".codex/submod");
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await fs.appendFile(path.join(root, ".codex", "submod", "readme.md"), "dirty\n", "utf8");
+
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", ""], {});
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.skippedRefresh, true);
+  assert.equal(result.validation?.passed, true);
 });
 
 test("runExec writes MemPalace-compatible session memory artifacts when recording is enabled", async () => {
