@@ -1,0 +1,4 @@
+interface:
+  display_name: "GH Issue Autopilot"
+  short_description: "Pick an issue and implement it autonomously"
+  default_prompt: "Use $gh-issue-autopilot to select the latest open issue, implement it, run checks in a loop, and commit once green."

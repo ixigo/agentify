@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Creator"
+  short_description: "Validate provider prerequisites and open a draft PR"
+  default_prompt: "Use $pr-creator to pick a provider, validate CLI/auth prerequisites, then create a draft PR and return the PR link."

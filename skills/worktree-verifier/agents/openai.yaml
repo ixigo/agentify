@@ -1,0 +1,4 @@
+interface:
+  display_name: "Worktree Verifier"
+  short_description: "Implement, verify, and commit in-worktree"
+  default_prompt: "Use $worktree-verifier to make the smallest verified change and commit it."

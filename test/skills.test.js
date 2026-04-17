@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { exists } from "../src/core/fs.js";
 import {
@@ -12,6 +13,29 @@ import {
   resolveBuiltinSkill,
   resolveSkillInstallTargets,
 } from "../src/core/skills.js";
+
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
+async function listRelativeFiles(rootDir) {
+  const results = [];
+
+  async function walk(currentDir, prefix = "") {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const relativePath = prefix ? path.join(prefix, entry.name) : entry.name;
+      const absolutePath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolutePath, relativePath);
+        continue;
+      }
+      results.push(relativePath);
+    }
+  }
+
+  await walk(rootDir);
+  return results;
+}
 
 test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
@@ -162,6 +186,21 @@ test("installBuiltinSkill skips existing targets without force", async () => {
   });
 
   assert.equal(result.results[0].status, "skipped_exists");
+});
+
+test("published skills mirror built-in skill bundles for external installers", async () => {
+  const builtinRoot = path.join(repoRoot, "src", "builtin-skills");
+  const publishedRoot = path.join(repoRoot, "skills");
+  const builtinFiles = await listRelativeFiles(builtinRoot);
+  const publishedFiles = await listRelativeFiles(publishedRoot);
+
+  assert.deepEqual(publishedFiles, builtinFiles);
+
+  for (const relativePath of builtinFiles) {
+    const builtinText = await fs.readFile(path.join(builtinRoot, relativePath), "utf8");
+    const publishedText = await fs.readFile(path.join(publishedRoot, relativePath), "utf8");
+    assert.equal(publishedText, builtinText, `published skills drifted for ${relativePath}`);
+  }
 });
 
 test("installAllBuiltinSkills installs every built-in skill for codex project scope", async () => {

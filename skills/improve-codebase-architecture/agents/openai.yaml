@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture RFC"
+  short_description: "Find deep-module refactors and draft a local RFC"
+  default_prompt: "Use $improve-codebase-architecture to explore this repo, compare deep-module refactors, and write the chosen RFC to .agentify/work/."

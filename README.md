@@ -228,6 +228,8 @@ agentify skill list
 agentify skill install <name|all> --provider <name|all> --scope <project|user>
 ```
 
+Published built-in skill bundles also live under the repository-level [`skills/`](./skills/) directory so external skill installers that scan GitHub repositories for `skills/*/SKILL.md` can discover Agentify's built-ins directly.
+
 Built-in skills:
 
 - `grill-me`
