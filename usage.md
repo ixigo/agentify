@@ -289,7 +289,7 @@ agentify skill install all --provider codex --scope project
 This installs all built-in skills in one shot and is the recommended baseline for advanced teams.
 
 ```bash
-agentify skill install worktree-verifier --provider codex --scope project
+agentify skill install worktree-autopilot --provider codex --scope project
 agentify skill install grill-me --provider codex --scope project
 ```
 
@@ -385,7 +385,7 @@ codex login            # only if bootstrap reports login_required
 agentify up
 agentify check
 agentify hooks install
-agentify skill install worktree-verifier --provider codex --scope project
+agentify skill install worktree-autopilot --provider codex --scope project
 agentify skill install grill-me --provider codex --scope project
 ```
 
@@ -403,7 +403,7 @@ agentify init --provider codex
 agentify up
 agentify check
 agentify hooks install
-agentify skill install worktree-verifier --provider codex --scope project
+agentify skill install worktree-autopilot --provider codex --scope project
 agentify skill install grill-me --provider codex --scope project
 ```
 

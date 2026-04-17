@@ -41,8 +41,10 @@ test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
 
-  assert.deepEqual(names.sort(), ["commit-creator", "gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-verifier"]);
-  assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-verifier");
+  assert.deepEqual(names.sort(), ["commit-creator", "copy-mode", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]);
+  assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
 });
 
 test("resolveSkillInstallTargets expands provider all for project scope", () => {
@@ -54,15 +56,15 @@ test("resolveSkillInstallTargets expands provider all for project scope", () => 
     defaultProvider: "local",
   });
 
-  assert.equal(result.skill.name, "worktree-verifier");
+  assert.equal(result.skill.name, "worktree-autopilot");
   assert.deepEqual(result.providers, ["codex", "claude", "gemini", "opencode"]);
   assert.deepEqual(
     result.targets.map((target) => target.targetDir),
     [
-      path.join(root, ".codex", "skills", "worktree-verifier"),
-      path.join(root, ".claude", "skills", "worktree-verifier"),
-      path.join(root, ".gemini", "skills", "worktree-verifier"),
-      path.join(root, ".opencode", "skills", "worktree-verifier"),
+      path.join(root, ".codex", "skills", "worktree-autopilot"),
+      path.join(root, ".claude", "skills", "worktree-autopilot"),
+      path.join(root, ".gemini", "skills", "worktree-autopilot"),
+      path.join(root, ".opencode", "skills", "worktree-autopilot"),
     ]
   );
 });
@@ -99,16 +101,16 @@ test("installBuiltinSkill copies architecture skill references into project scop
   assert.equal(await exists(referencePath), true);
 });
 
-test("installBuiltinSkill copies gh issue autopilot skill bundle into project scope", async () => {
+test("installBuiltinSkill copies gh autopilot skill bundle into project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-gh-auto-"));
   const result = await installBuiltinSkill(root, {
-    name: "gh-issue-autopilot",
+    name: "gh-autopilot",
     provider: "codex",
     scope: "project",
   });
 
-  const skillPath = path.join(root, ".codex", "skills", "gh-issue-autopilot", "SKILL.md");
-  const uiPath = path.join(root, ".codex", "skills", "gh-issue-autopilot", "agents", "openai.yaml");
+  const skillPath = path.join(root, ".codex", "skills", "gh-autopilot", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "gh-autopilot", "agents", "openai.yaml");
 
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
@@ -155,7 +157,7 @@ test("installBuiltinSkill installs canonical skill name for alias across all pro
     scope: "project",
   });
 
-  assert.equal(result.skill.name, "worktree-verifier");
+  assert.equal(result.skill.name, "worktree-autopilot");
   assert.equal(result.results.length, 4);
 
   for (const provider of ["codex", "claude", "gemini", "opencode"]) {
@@ -166,7 +168,7 @@ test("installBuiltinSkill installs canonical skill name for alias across all pro
         : provider === "gemini"
           ? path.join(root, ".gemini", "skills")
           : path.join(root, ".opencode", "skills");
-    const skillPath = path.join(baseDir, "worktree-verifier", "SKILL.md");
+    const skillPath = path.join(baseDir, "worktree-autopilot", "SKILL.md");
     assert.equal(await exists(skillPath), true);
   }
 });
@@ -212,7 +214,7 @@ test("installAllBuiltinSkills installs every built-in skill for codex project sc
 
   assert.deepEqual(
     result.installed_skills.sort(),
-    ["commit-creator", "gh-issue-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-verifier"]
+    ["commit-creator", "copy-mode", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]
   );
 
   for (const skillName of result.installed_skills) {

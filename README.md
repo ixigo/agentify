@@ -232,10 +232,11 @@ Published built-in skill bundles also live under the repository-level [`skills/`
 
 Built-in skills:
 
+- `copy-mode`
 - `grill-me`
 - `improve-codebase-architecture`
-- `gh-issue-autopilot`
-- `worktree-verifier` (alias: `god-mode`)
+- `gh-autopilot` (alias: `gh-issue-autopilot`)
+- `worktree-autopilot` (aliases: `worktree-verifier`, `god-mode`)
 - `pr-creator`
 - `commit-creator`
 

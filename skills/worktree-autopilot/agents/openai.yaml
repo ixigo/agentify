@@ -1,0 +1,4 @@
+interface:
+  display_name: "Worktree Autopilot"
+  short_description: "Create an isolated worktree, implement, verify, and hand back merge commands"
+  default_prompt: "Use $worktree-autopilot to detect the repo's worktree flow, create a fresh worktree, implement the task, verify it, commit it, and return the local merge-back commands."

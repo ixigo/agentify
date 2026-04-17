@@ -1,0 +1,4 @@
+interface:
+  display_name: "GH Autopilot"
+  short_description: "Orchestrate GitHub issues, PRs, reviews, and task execution"
+  default_prompt: "Use $gh-autopilot to resolve the GitHub task, perform the necessary gh operations, and invoke $worktree-autopilot if code changes are needed."

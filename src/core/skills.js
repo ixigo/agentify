@@ -24,16 +24,22 @@ const BUILTIN_SKILLS = [
       "Explore a codebase to find architectural refactors that deepen shallow modules, improve testability, and draft a local architecture RFC. Use when the user wants refactoring opportunities, tighter boundaries, or more AI-navigable modules.",
   },
   {
-    name: "gh-issue-autopilot",
-    aliases: [],
+    name: "gh-autopilot",
+    aliases: ["gh-issue-autopilot"],
     description:
-      "Select the first or latest open GitHub issue via gh CLI, implement it autonomously, run validation/test loops, and commit once checks pass.",
+      "Handle GitHub issue, PR, review, comment, and label workflows via gh CLI, and hand code changes off to worktree-autopilot when isolated implementation is needed.",
   },
   {
-    name: "worktree-verifier",
-    aliases: ["god-mode"],
+    name: "copy-mode",
+    aliases: [],
     description:
-      "Run an autonomous coding workflow in the current repository or worktree with minimal human interaction, including verification and commit.",
+      "Analyze a repository, extract architecture and conventions, and write agent-ready handoff docs to docs/architecture.md, prd.md, and summary.md.",
+  },
+  {
+    name: "worktree-autopilot",
+    aliases: ["god-mode", "worktree-verifier"],
+    description:
+      "Detect the repo's worktree workflow, create a fresh task worktree, implement and verify the change there, commit it, and return the local merge-back commands.",
   },
   {
     name: "pr-creator",

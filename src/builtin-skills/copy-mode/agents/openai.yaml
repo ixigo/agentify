@@ -1,0 +1,4 @@
+interface:
+  display_name: "Copy Mode"
+  short_description: "Analyze a repo and write agent-ready architecture and PRD docs"
+  default_prompt: "Use $copy-mode to analyze this repository, extract conventions, and write docs/architecture.md, prd.md, and summary.md for another implementation agent."
