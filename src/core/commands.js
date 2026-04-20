@@ -1083,8 +1083,13 @@ export async function runUpdate(root, config, options = {}) {
   progress.percent(commandName, 0, "starting");
   await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
   progress.percent(commandName, 33, "scan complete");
-  await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
-  progress.percent(commandName, 67, "doc complete");
+  if (config.docs) {
+    await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+    progress.percent(commandName, 67, "doc complete");
+  } else {
+    progress.log("doc: skipped (set --docs=true to generate docs during update)");
+    progress.percent(commandName, 67, "doc skipped");
+  }
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);

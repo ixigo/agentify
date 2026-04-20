@@ -42,7 +42,7 @@ test("runExec refreshes when the wrapped command commits and exits clean", async
   await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
   await initGitRepo(root);
 
-  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: true });
   await runScan(root, config);
   const initialHead = await getHeadCommit(root);
 
@@ -83,7 +83,7 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
   await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
   await initGitRepo(root);
 
-  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: true });
   await runScan(root, config);
   await runDoc(root, config);
 

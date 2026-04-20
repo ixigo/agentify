@@ -74,7 +74,7 @@ codex login
 codex login status
 ```
 
-### 5. Generate the index, docs, validation output, and run tests
+### 5. Generate the index, validation output, and run tests
 
 ```bash
 agentify up
@@ -83,9 +83,10 @@ agentify up
 `agentify up` runs:
 
 - `scan`
-- `doc`
 - `check`
 - repo tests when a runnable test command is detected
+
+`doc` is skipped by default in `up`. Pass `--docs=true` when you explicitly want docs refreshed as part of the pipeline.
 
 ### 6. Confirm the repo is ready
 
@@ -149,7 +150,7 @@ provider: codex
 ### 6. Generate repository artifacts
 
 ```bash
-agentify up
+agentify up --docs=true
 ```
 
 If you want the exact steps separately instead of the full pipeline:
