@@ -233,6 +233,7 @@ Published built-in skill bundles also live under the repository-level [`skills/`
 Built-in skills:
 
 - `copy-mode`
+- `copy-pr`
 - `grill-me`
 - `improve-codebase-architecture`
 - `gh-autopilot` (alias: `gh-issue-autopilot`)
