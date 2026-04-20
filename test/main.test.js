@@ -328,3 +328,37 @@ test("runCli restores stderr output after a failing json invocation", async () =
 
   assert.match(stderrChunks.join(""), /Initialized agentify artifacts/);
 });
+
+test("runCli exec refreshes stale artifacts after a failing command mutates tracked files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-exec-failed-refresh-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
+  await initGitRepo(root);
+
+  await runCli(["scan", "--root", root]);
+  await runCli(["doc", "--root", root]);
+
+  const docPath = path.join(root, "AGENTIFY.md");
+  const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "await fs.appendFile('src/index.js', 'export const failedViaCli = true;\\n', 'utf8');",
+    "process.exit(1);",
+  ].join("");
+
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    await runCli(["exec", "--root", root, "--fail-on-stale", "--", "node", "--input-type=module", "-e", script]);
+    const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
+
+    assert.equal(process.exitCode, 1);
+    assert.equal(afterDocMtime > beforeDocMtime, true);
+  } finally {
+    process.exitCode = originalExitCode;
+  }
+});
