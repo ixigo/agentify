@@ -36,6 +36,12 @@ const BUILTIN_SKILLS = [
       "Analyze a repository, extract architecture and conventions, and write agent-ready handoff docs to docs/architecture.md, prd.md, and summary.md.",
   },
   {
+    name: "copy-pr",
+    aliases: [],
+    description:
+      "Copy a GitHub or Azure DevOps PR URL onto a fresh local branch, verify diff parity, commit the recreated changes, and push automatically.",
+  },
+  {
     name: "worktree-autopilot",
     aliases: ["god-mode", "worktree-verifier"],
     description:

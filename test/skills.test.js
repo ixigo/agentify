@@ -41,7 +41,7 @@ test("listBuiltinSkills exposes built-in catalog and alias", () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
 
-  assert.deepEqual(names.sort(), ["commit-creator", "copy-mode", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]);
+  assert.deepEqual(names.sort(), ["commit-creator", "copy-mode", "copy-pr", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]);
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
@@ -214,7 +214,7 @@ test("installAllBuiltinSkills installs every built-in skill for codex project sc
 
   assert.deepEqual(
     result.installed_skills.sort(),
-    ["commit-creator", "copy-mode", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]
+    ["commit-creator", "copy-mode", "copy-pr", "gh-autopilot", "grill-me", "improve-codebase-architecture", "pr-creator", "worktree-autopilot"]
   );
 
   for (const skillName of result.installed_skills) {
