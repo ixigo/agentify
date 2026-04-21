@@ -151,6 +151,30 @@ test("runCli init writes baseline local work and guardrail files", async () => {
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "work")));
 });
 
+test("runCli plan reports actionable guidance when the index is missing", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-missing-index-"));
+  await runCli(["init", "--root", root]);
+
+  await assert.rejects(
+    () => runCli(["plan", "--root", root, "summarize setup"]),
+    new RegExp(`Agentify index missing for ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+  );
+  await assert.rejects(
+    () => runCli(["plan", "--root", root, "summarize setup"]),
+    /Run "agentify scan --root .*" or "agentify up --root .*" before using plan\/query commands\./,
+  );
+});
+
+test("runCli query reports actionable guidance when the index is missing", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-query-missing-index-"));
+  await runCli(["init", "--root", root]);
+
+  await assert.rejects(
+    () => runCli(["query", "owner", "--root", root, "--file", "src/app.ts"]),
+    /before using plan\/query commands\./,
+  );
+});
+
 test("runCli init --json emits a single machine-readable payload", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-json-"));
   const output = [];

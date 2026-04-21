@@ -91,6 +91,16 @@ function getExecFlags(args, extras = {}) {
   };
 }
 
+function isMissingIndexError(error) {
+  return error instanceof Error && /missing index database at /.test(error.message);
+}
+
+function createMissingIndexGuidance(root) {
+  return new Error(
+    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query commands.`
+  );
+}
+
 export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
   const interactiveByDefault = usingTemplateCommand;
   const interactive = args.interactive === true ? true : interactiveByDefault;
@@ -378,7 +388,15 @@ export async function runCli(argv) {
 
       case "plan": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
-        const plan = await buildExecutionPlan(root, config, task);
+        let plan;
+        try {
+          plan = await buildExecutionPlan(root, config, task);
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
+        }
         console.log(JSON.stringify(plan, null, 2));
         return;
       }
@@ -418,20 +436,27 @@ export async function runCli(argv) {
 
       case "query": {
         let result;
-        if (subcommand === "owner") {
-          if (!args.file) throw new Error("query owner requires --file <path>");
-          result = await queryOwner(root, args.file);
-        } else if (subcommand === "deps") {
-          if (!args.module) throw new Error("query deps requires --module <id>");
-          result = await queryDeps(root, args.module);
-        } else if (subcommand === "changed") {
-          if (!args.since) throw new Error("query changed requires --since <commit>");
-          result = await queryChanged(root, args.since);
-        } else if (subcommand === "search") {
-          if (!args.term) throw new Error("query search requires --term <value>");
-          result = await querySearch(root, args.term);
-        } else {
-          throw new Error("query requires a subcommand: owner, deps, changed, or search");
+        try {
+          if (subcommand === "owner") {
+            if (!args.file) throw new Error("query owner requires --file <path>");
+            result = await queryOwner(root, args.file);
+          } else if (subcommand === "deps") {
+            if (!args.module) throw new Error("query deps requires --module <id>");
+            result = await queryDeps(root, args.module);
+          } else if (subcommand === "changed") {
+            if (!args.since) throw new Error("query changed requires --since <commit>");
+            result = await queryChanged(root, args.since);
+          } else if (subcommand === "search") {
+            if (!args.term) throw new Error("query search requires --term <value>");
+            result = await querySearch(root, args.term);
+          } else {
+            throw new Error("query requires a subcommand: owner, deps, changed, or search");
+          }
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
         }
         console.log(JSON.stringify(result, null, 2));
         return;
