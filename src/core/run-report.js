@@ -16,776 +16,933 @@ function sanitizeForJsString(value) {
 }
 
 export function renderHtmlReport(summary) {
-  const artifacts = summary.artifacts.length > 0
-    ? summary.artifacts.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
-    : "<li>No generated artifacts recorded.</li>";
+  const artifactsRaw = summary.artifacts || [];
+  const artifacts = artifactsRaw.length > 0
+    ? artifactsRaw.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
+    : `<li class="empty">no generated artifacts recorded.</li>`;
+
   const tokenUsage = summary.doc?.token_usage || {
     input_tokens: 0,
     output_tokens: 0,
     total_tokens: 0,
     by_module: [],
   };
-  const validationStatus = summary.validation ? (summary.validation.passed ? "passed" : "failed") : "not-run";
+
+  const validationStatus = summary.validation
+    ? (summary.validation.passed ? "passed" : "failed")
+    : "not-run";
+  const testStatus = summary.tests?.status || "not-run";
+
+  const validationTone = validationStatus === "passed" ? "passed"
+    : validationStatus === "failed" ? "failed" : "skipped";
+  const testTone = testStatus === "passed" ? "passed"
+    : testStatus === "failed" ? "failed" : "skipped";
+
+  const validationGlyph = validationTone === "passed" ? "✓"
+    : validationTone === "failed" ? "✗" : "·";
+  const testGlyph = testTone === "passed" ? "✓"
+    : testTone === "failed" ? "✗" : "·";
+
   const validationFailures = summary.validation?.failures?.length
-    ? `<ul>${summary.validation.failures.map((item) => {
+    ? `<ul class="fail-list">${summary.validation.failures.map((item) => {
         const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
-        return `<li>${escapeHtml(msg)}</li>`;
+        const rem = typeof item === "object" && item.remediation
+          ? `<div class="fail-rem">${escapeHtml(item.remediation)}</div>`
+          : "";
+        return `<li><code>${escapeHtml(msg)}</code>${rem}</li>`;
       }).join("")}</ul>`
-    : summary.validation ? "<p>No validation failures.</p>" : "<p>Validation was not run for this command.</p>";
+    : summary.validation
+      ? `<p class="muted mono-sm">no validation failures.</p>`
+      : `<p class="muted mono-sm">validation was not run for this command.</p>`;
+
+  const testStderr = summary.tests?.stderr || "";
+  const testStdout = summary.tests?.stdout || "";
+  const testCombined = [testStdout, testStderr].filter(Boolean).join("\n");
   const testOutput = summary.tests
-    ? `<details><summary>Test output</summary><pre>${escapeHtml([summary.tests.stdout, summary.tests.stderr].filter(Boolean).join("\n"))}</pre></details>`
-    : "<p>No test run was recorded.</p>";
+    ? `<details class="term-details"><summary>test output · stdout/stderr</summary><pre class="term-body small">${escapeHtml(testCombined)}</pre></details>`
+    : `<p class="muted mono-sm">no test run was recorded.</p>`;
+
   const rerunUpdateCommand = sanitizeForJsString("agentify up --provider local");
   const rerunTestsCommand = sanitizeForJsString(summary.tests?.command || "npm test");
-  const testStatus = summary.tests?.status || "not-run";
+
   const testSummaryText = summary.tests?.status === "passed"
     ? "All configured test cases passed."
     : summary.tests?.status === "failed"
       ? "Some test cases failed. Use the rerun button and inspect the output below."
       : "Tests were skipped because no runnable test script was detected.";
+
   const validationCount = summary.validation?.failures?.length || 0;
-  const artifactCount = summary.artifacts.length || 0;
+  const artifactCount = artifactsRaw.length || 0;
   const moduleCount = summary.doc?.modules_processed ?? 0;
   const docsWritten = summary.doc?.docs_written ?? 0;
   const headersRefreshed = summary.doc?.files_with_headers ?? 0;
   const totalTokens = tokenUsage.total_tokens ?? 0;
-  const validationStatusClass = validationStatus === "passed" ? "passed" : validationStatus === "failed" ? "failed" : "skipped";
-  const testStatusClass = testStatus === "passed" ? "passed" : testStatus === "failed" ? "failed" : "skipped";
-  const validationTone = validationStatus === "passed" ? "passed" : validationStatus === "failed" ? "failed" : "skipped";
-  const testTone = testStatus === "passed" ? "passed" : testStatus === "failed" ? "failed" : "skipped";
+  const inputTokens = tokenUsage.input_tokens ?? 0;
+  const outputTokens = tokenUsage.output_tokens ?? 0;
+  const measuredModules = (tokenUsage.by_module || []).length;
+
+  const commandDisplay = summary.command || "unknown";
+
   const healthHeadline = validationStatus === "passed" && testStatus === "passed"
-    ? "Repository checks completed successfully."
+    ? "repository checks completed successfully."
     : validationStatus === "failed" || testStatus === "failed"
-      ? "One or more health checks need attention."
-      : "Some health checks were skipped.";
-  const healthCopy = validationStatus === "passed" && testStatus === "passed"
-    ? "The generated outputs, validation results, and test status are aligned for this run."
-    : validationStatus === "failed" || testStatus === "failed"
-      ? "Review the failed checks, rerun the relevant commands, and regenerate this report."
-      : "Run the skipped checks before treating this report as a trustworthy snapshot.";
-  const moduleUsageCards = (tokenUsage.by_module || []).length > 0
-    ? tokenUsage.by_module.map((moduleSummary) => `
-        <article class="module-card">
-          <div class="module-card-header">
-            <p class="card-label">Module</p>
-            <p class="module-id">${escapeHtml(moduleSummary.module_id || "module")}</p>
-          </div>
-          <p class="module-total">${escapeHtml(moduleSummary.total_tokens ?? 0)}</p>
-          <p class="muted">total tokens consumed</p>
-          <dl class="module-breakdown">
-            <div><dt>Input</dt><dd>${escapeHtml(moduleSummary.input_tokens ?? 0)}</dd></div>
-            <div><dt>Output</dt><dd>${escapeHtml(moduleSummary.output_tokens ?? 0)}</dd></div>
-          </dl>
-        </article>
+      ? "one or more health checks need attention."
+      : "some health checks were skipped.";
+
+  const moduleRows = (tokenUsage.by_module || []).length > 0
+    ? tokenUsage.by_module.map((m) => `
+        <tr>
+          <td><code>${escapeHtml(m.module_id || "module")}</code></td>
+          <td class="num">${escapeHtml(m.input_tokens ?? 0)}</td>
+          <td class="num">${escapeHtml(m.output_tokens ?? 0)}</td>
+          <td class="num total">${escapeHtml(m.total_tokens ?? 0)}</td>
+        </tr>
       `).join("")
-    : "<p class=\"muted\">No per-module token usage was recorded.</p>";
+    : `<tr><td colspan="4" class="muted mono-sm">no per-module token usage was recorded.</td></tr>`;
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify Run Report</title>
+  <title>agentify · run report</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
     :root {
-      color-scheme: light;
-      --bg: #fff8f4;
-      --bg-soft: #fff2eb;
-      --surface: rgba(255, 255, 255, 0.92);
-      --surface-strong: #ffffff;
-      --surface-code: #1c2430;
-      --ink: #1f2430;
-      --muted: #616a76;
-      --line: rgba(31, 36, 48, 0.1);
-      --line-strong: rgba(31, 36, 48, 0.18);
-      --brand: #f15a24;
-      --brand-strong: #d84b17;
-      --brand-soft: rgba(241, 90, 36, 0.1);
-      --brand-glow: rgba(241, 90, 36, 0.18);
-      --good: #0f8c6b;
-      --good-bg: rgba(15, 140, 107, 0.12);
+      color-scheme: light dark;
+      --bg: #f7f7f4;
+      --bg-elev: #ffffff;
+      --surface: #ffffff;
+      --panel: #0d0f12;
+      --panel-text: #d7dbe0;
+      --panel-dim: #8892a0;
+      --panel-line: #1c2026;
+      --text: #0f1012;
+      --muted: #5a5d64;
+      --faint: #8b8e95;
+      --line: #e3e1d9;
+      --line-strong: #cecbbf;
+      --accent: #2f6feb;
+      --accent-soft: rgba(47, 111, 235, 0.08);
+      --prompt: #137a53;
       --warn: #a65b10;
-      --warn-bg: rgba(166, 91, 16, 0.12);
-      --bad: #c44426;
-      --bad-bg: rgba(196, 68, 38, 0.12);
-      --shadow: 0 20px 55px rgba(82, 47, 34, 0.08);
-      --radius-xl: 28px;
-      --radius-lg: 24px;
-      --radius-md: 18px;
-      --radius-sm: 12px;
+      --danger: #b4391f;
+      --dot: rgba(15, 16, 18, 0.08);
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --step-1: 0.78rem;
+      --step-2: 0.88rem;
+      --step-3: 0.98rem;
+      --step-4: 1.15rem;
+      --step-5: 1.45rem;
+      --step-6: 2.1rem;
+      --step-7: clamp(2.2rem, 5vw, 3.2rem);
+      --radius-md: 6px;
+      --radius-sm: 4px;
+      --max: 1120px;
     }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b0c0e;
+        --bg-elev: #111316;
+        --surface: #111316;
+        --panel: #07080a;
+        --panel-text: #d7dbe0;
+        --panel-dim: #7a828f;
+        --panel-line: #171a1e;
+        --text: #e8e8e4;
+        --muted: #9ea1a8;
+        --faint: #72757c;
+        --line: #1d1f23;
+        --line-strong: #2a2d33;
+        --accent: #7aa7ff;
+        --accent-soft: rgba(122, 167, 255, 0.12);
+        --prompt: #6ad2a8;
+        --warn: #e2a552;
+        --danger: #ef6c50;
+        --dot: rgba(230, 232, 236, 0.06);
+      }
+    }
+
     * { box-sizing: border-box; }
-    html {
-      scroll-behavior: smooth;
-    }
+    html { scroll-behavior: smooth; }
+
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "Aptos", "Segoe UI Variable", "Helvetica Neue", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, rgba(241, 90, 36, 0.12), transparent 26%),
-        radial-gradient(circle at top right, rgba(241, 90, 36, 0.08), transparent 24%),
-        linear-gradient(180deg, #fffdfb 0%, var(--bg) 100%);
+      font-family: var(--sans);
+      font-size: var(--step-3);
+      line-height: 1.6;
+      color: var(--text);
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+      background-size: 24px 24px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 22%),
-        linear-gradient(120deg, rgba(241, 90, 36, 0.04), transparent 34%);
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover, a:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+
+    code, pre, .mono {
+      font-family: var(--mono);
+      font-feature-settings: "ss01", "cv02", "cv11";
+      font-variant-numeric: tabular-nums;
     }
-    main {
-      position: relative;
-      width: min(1120px, calc(100vw - 32px));
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    /* ---------- topbar ---------- */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: saturate(160%) blur(8px);
+    }
+    .topbar-inner {
+      max-width: var(--max);
       margin: 0 auto;
-      padding: 24px 0 48px;
-      display: grid;
-      gap: 20px;
-    }
-    section {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(12px);
-      overflow-x: hidden;
-    }
-    h1, h2, h3, p { margin-top: 0; }
-    h1 {
-      font-size: clamp(2.5rem, 6vw, 4.7rem);
-      line-height: 0.95;
-      letter-spacing: -0.055em;
-      text-wrap: balance;
-      margin-bottom: 16px;
-      max-width: 11ch;
-    }
-    h2 {
-      font-size: 0.82rem;
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: var(--muted);
-      margin-bottom: 14px;
-    }
-    p, li, summary, button {
-      font-size: 1rem;
-      line-height: 1.65;
-    }
-    a {
-      color: inherit;
-    }
-    .hero {
-      padding: clamp(24px, 4vw, 36px);
-      border-radius: var(--radius-xl);
-      background:
-        linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(255, 245, 239, 0.96)),
-        linear-gradient(180deg, rgba(241, 90, 36, 0.06), transparent 55%);
-      position: relative;
-    }
-    .hero::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto 0;
-      height: 6px;
-      background: linear-gradient(90deg, var(--brand), #ff8354);
-    }
-    .hero-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
-      gap: 20px;
-      align-items: start;
-    }
-    .hero-copy,
-    .hero-summary {
-      position: relative;
-      z-index: 1;
-    }
-    .brand-row,
-    .meta-row,
-    .action-row,
-    .summary-stack,
-    .panel-head,
-    .section-head {
+      padding: 10px 24px;
       display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    .brand-row {
       align-items: center;
-      margin-bottom: 18px;
+      gap: 12px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--muted);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-weight: 600;
     }
     .brand-mark {
-      width: 16px;
-      height: 16px;
-      border-radius: 5px;
-      background: linear-gradient(135deg, var(--brand), #ff8b5d);
-      box-shadow: 0 0 0 8px rgba(241, 90, 36, 0.1);
-      flex: 0 0 auto;
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      transform: rotate(45deg);
     }
-    .brand-label,
-    .meta-pill,
-    .section-note,
-    .card-label {
+    .brand-path { color: var(--faint); font-weight: 400; }
+    .topbar .sep { color: var(--line-strong); }
+    .topbar .stat-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+      margin-right: 6px;
+      vertical-align: 1px;
+    }
+    .topbar .stat-dot.passed { background: var(--prompt); }
+    .topbar .stat-dot.failed { background: var(--danger); }
+    .topbar .stat-dot.skipped { background: var(--warn); }
+
+    main {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    section { margin-top: 48px; }
+    section:first-of-type { margin-top: 0; }
+
+    h1, h2, h3 { margin: 0; font-weight: 600; }
+    h1 {
+      font-family: var(--mono);
+      font-size: var(--step-7);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      text-wrap: balance;
+    }
+    h2 {
+      font-family: var(--mono);
+      font-size: var(--step-5);
+      line-height: 1.15;
+      text-transform: lowercase;
+      letter-spacing: -0.01em;
+    }
+    h3 {
+      font-family: var(--mono);
+      font-size: var(--step-2);
+      text-transform: lowercase;
+      letter-spacing: 0.02em;
+    }
+    p { margin: 0 0 12px; }
+    p:last-child { margin-bottom: 0; }
+    .muted { color: var(--muted); }
+    .mono-sm { font-family: var(--mono); font-size: var(--step-1); }
+
+    .section-head {
+      margin-bottom: 20px;
+      display: grid;
+      gap: 6px;
+    }
+    .section-mark {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .section-mark .caret { color: var(--accent); margin-right: 6px; }
+    .section-mark .num { color: var(--faint); }
+    .section-mark .slash { color: var(--line-strong); margin: 0 6px; }
+    .dek {
+      color: var(--muted);
+      max-width: 68ch;
+      font-size: var(--step-3);
+    }
+
+    /* ---------- hero ---------- */
+    .hero {
+      padding: 32px 0 0;
+      display: grid;
+      gap: 24px;
+    }
+    .hero-tag {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 12px;
+    }
+    .hero-tag .dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--prompt);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--prompt) 18%, transparent);
+    }
+    .hero-tag.failed .dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
+    .hero-tag.skipped .dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+
+    .hero h1 { max-width: 24ch; }
+    .hero-lede {
+      color: var(--muted);
+      font-size: var(--step-4);
+      line-height: 1.55;
+      max-width: 64ch;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+    }
+    .chip {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
       border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.8);
-      white-space: normal;
       color: var(--muted);
-      font-size: 0.82rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      background: var(--bg-elev);
     }
-    .brand-label {
-      background: var(--brand-soft);
-      border-color: rgba(241, 90, 36, 0.14);
-      color: var(--brand-strong);
-    }
-    .meta-row {
-      margin: 0 0 22px;
-    }
-    .meta-pill strong {
-      color: var(--ink);
-      font-size: 0.84rem;
-      letter-spacing: 0;
-      text-transform: none;
-    }
-    .hero-summary,
-    .panel,
-    .metric-card,
-    .module-card,
-    .artifact-list li,
-    .failure-list li,
-    .detail-block {
-      border: 1px solid var(--line);
+    .chip .label { color: var(--faint); }
+    .chip strong { color: var(--text); font-weight: 500; }
+    .chip .glyph { font-weight: 600; }
+    .chip.passed .glyph { color: var(--prompt); }
+    .chip.failed .glyph { color: var(--danger); }
+    .chip.skipped .glyph { color: var(--warn); }
+
+    /* ---------- terminal panel ---------- */
+    .term {
+      background: var(--panel);
+      color: var(--panel-text);
+      border: 1px solid var(--panel-line);
       border-radius: var(--radius-md);
-      background: var(--surface-strong);
-      min-width: 0;
+      overflow: hidden;
     }
-    .hero-summary {
-      padding: 20px;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 242, 235, 0.92));
-      align-self: stretch;
-    }
-    .hero-summary::after {
-      content: "";
-      position: absolute;
-      inset: auto 20px 20px 20px;
-      height: 1px;
-      background: linear-gradient(90deg, rgba(241, 90, 36, 0.16), transparent);
-    }
-    .muted { color: var(--muted); }
-    .lede {
-      font-size: 1.08rem;
-      max-width: 60ch;
-      color: var(--muted);
-    }
-    .eyebrow {
-      margin-bottom: 8px;
-      color: var(--brand-strong);
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 0.76rem;
-      font-weight: 700;
-    }
-    .summary-title {
-      font-size: 1.45rem;
-      line-height: 1.2;
-      letter-spacing: -0.03em;
-      margin-bottom: 8px;
-    }
-    .summary-copy {
-      margin-bottom: 18px;
-      color: var(--muted);
-    }
-    .summary-item {
-      width: 100%;
+    .term-head {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 0;
-      border-top: 1px solid var(--line);
-    }
-    .summary-item:first-of-type {
-      border-top: 0;
-      padding-top: 0;
-    }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border-radius: 999px;
+      gap: 10px;
       padding: 8px 12px;
-      font-weight: 700;
-      text-transform: capitalize;
+      border-bottom: 1px solid var(--panel-line);
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      color: var(--panel-dim);
+      letter-spacing: 0.04em;
     }
-    .status::before {
-      content: "";
+    .dots {
+      display: inline-flex;
+      gap: 6px;
+    }
+    .dots span {
+      display: inline-block;
       width: 9px;
       height: 9px;
       border-radius: 50%;
-      background: currentColor;
-      flex: 0 0 auto;
+      background: #2a2d33;
     }
-    .status-passed { color: var(--good); }
-    .status-failed { color: var(--bad); }
-    .status-skipped { color: var(--warn); }
-    .tone-passed { background: var(--good-bg); }
-    .tone-failed { background: var(--bad-bg); }
-    .tone-skipped { background: var(--warn-bg); }
-    .section-head {
-      align-items: end;
-      justify-content: space-between;
-      margin-bottom: 18px;
-    }
-    .section-copy,
-    .panel-copy {
-      color: var(--muted);
-      margin-bottom: 0;
-      max-width: 62ch;
-    }
-    .section-note {
-      background: rgba(255, 255, 255, 0.72);
-    }
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 14px;
-    }
-    .metric-card {
-      padding: 18px;
-      position: relative;
-      overflow: hidden;
-    }
-    .metric-card::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 4px;
-      background: linear-gradient(180deg, var(--brand), transparent);
-    }
-    .metric-value {
-      font-size: clamp(1.9rem, 3vw, 2.5rem);
-      font-weight: 700;
-      margin: 0 0 4px;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.04em;
-    }
-    .metric-label {
-      color: var(--muted);
+    .term-title { margin-left: 4px; }
+    .term-title em { color: var(--panel-text); font-style: normal; }
+    .term-body {
       margin: 0;
-      font-size: 0.9rem;
-    }
-    ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-    li {
-      overflow-wrap: anywhere;
-    }
-    .artifact-list,
-    .failure-list {
-      display: grid;
-      gap: 12px;
-      padding-left: 0;
-      list-style: none;
-    }
-    .artifact-list li,
-    .failure-list li {
-      padding: 14px 16px;
-    }
-    .artifact-list code,
-    .failure-list code,
-    pre code {
-      word-break: break-word;
-    }
-    code, pre, .module-total, .module-id, .metric-value {
-      font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    pre {
-      overflow: auto;
-      background: var(--surface-code);
-      color: #eaf2ff;
-      padding: 18px;
-      border-radius: 14px;
-      font-size: 0.9rem;
-      line-height: 1.5;
-      max-width: 100%;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    button {
-      appearance: none;
-      border: 1px solid transparent;
-      border-radius: 999px;
-      padding: 12px 16px;
-      background: var(--brand);
-      color: white;
-      cursor: pointer;
-      font: inherit;
-      touch-action: manipulation;
-      transition: background-color 180ms ease, transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-    }
-    button:hover {
-      background: var(--brand-strong);
-      transform: translateY(-1px);
-      box-shadow: 0 14px 28px rgba(241, 90, 36, 0.18);
-    }
-    button:focus-visible,
-    summary:focus-visible {
-      outline: 3px solid rgba(241, 90, 36, 0.22);
-      outline-offset: 3px;
-    }
-    .secondary {
-      background: rgba(255, 255, 255, 0.86);
-      border-color: rgba(241, 90, 36, 0.18);
-      color: var(--brand-strong);
-    }
-    .secondary:hover {
-      background: var(--brand-soft);
-    }
-    .health-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-    }
-    .panel {
-      padding: 18px;
-    }
-    .panel-head {
-      align-items: start;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .panel-head p:last-child,
-    .section-head p:last-child {
-      margin-bottom: 0;
-    }
-    .module-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
-      margin-top: 18px;
-    }
-    .module-card {
-      padding: 16px;
-    }
-    .module-card-header {
-      display: grid;
-      gap: 4px;
-      margin-bottom: 14px;
-    }
-    .module-id {
-      margin: 0;
-      font-size: 0.92rem;
-      word-break: break-word;
-    }
-    .module-total {
-      font-size: 1.6rem;
-      font-weight: 700;
-      margin: 0 0 6px;
-    }
-    .module-breakdown {
-      display: grid;
-      gap: 8px;
-      margin: 12px 0 0;
-    }
-    .module-breakdown div {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      padding-top: 8px;
-      border-top: 1px solid var(--line);
-    }
-    .module-breakdown dt,
-    .module-breakdown dd {
-      margin: 0;
-      color: var(--muted);
-    }
-    details summary {
-      cursor: pointer;
-      font-weight: 700;
-    }
-    .detail-block {
       padding: 16px 18px;
-      margin-top: 18px;
-      background: rgba(255, 255, 255, 0.76);
+      font-family: var(--mono);
+      font-size: var(--step-2);
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--panel-text);
     }
-    .detail-block pre {
-      margin-top: 14px;
+    .term-body.small { font-size: var(--step-1); line-height: 1.6; }
+    .term-body .p { color: var(--prompt); }
+    .term-body .c { color: #6b7280; }
+    .term-body .k { color: #e2a552; }
+    .term-body .s { color: #98c379; }
+    .term-body .m { color: #7aa7ff; }
+    .term-body .r { color: #ef6c50; }
+    .term-body .w { color: #e2a552; }
+    .term-body .ok { color: #6ad2a8; }
+    .term-body .dim { color: var(--panel-dim); }
+
+    /* ---------- button row ---------- */
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
-    .empty-state {
-      color: var(--muted);
+    button.btn {
+      appearance: none;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--bg-elev);
+      color: var(--text);
+      transition: background-color 120ms, border-color 120ms, color 120ms;
     }
+    button.btn:hover,
+    button.btn:focus-visible {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+      outline: none;
+    }
+    button.btn::before { content: "[ "; color: var(--faint); }
+    button.btn::after { content: " ]"; color: var(--faint); }
+    button.btn:hover::before,
+    button.btn:hover::after,
+    button.btn:focus-visible::before,
+    button.btn:focus-visible::after { color: var(--accent); }
     .copy-feedback {
       min-height: 1.2rem;
       color: var(--muted);
-      margin-top: 12px;
-      font-size: 0.9rem;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      margin-top: 10px;
     }
-    small {
-      display: block;
-      margin-top: 8px;
+
+    /* ---------- metric rail ---------- */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .metric {
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+      display: grid;
+      gap: 6px;
+    }
+    .metric:last-child { border-right: 0; }
+    .metric-label {
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+    .metric-value {
+      font-family: var(--mono);
+      font-size: var(--step-6);
+      line-height: 1;
+      color: var(--text);
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+    .metric-value.warn { color: var(--warn); }
+    .metric-value.bad { color: var(--danger); }
+
+    /* ---------- health ---------- */
+    .health {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .health-col { padding: 20px 22px; }
+    .health-col + .health-col { border-left: 1px solid var(--line); }
+    .health-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .health-head h3 { color: var(--text); }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--bg);
+    }
+    .status-pill .glyph { font-weight: 700; }
+    .status-pill.passed { color: var(--prompt); border-color: color-mix(in srgb, var(--prompt) 35%, var(--line)); }
+    .status-pill.failed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+    .status-pill.skipped { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+    .health-col .btn-row { margin-top: 14px; }
+    .health-col p { color: var(--muted); }
+    .fail-list {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0 0;
+      display: grid;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+    }
+    .fail-list li {
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+      border-left: 3px solid var(--danger);
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      color: var(--text);
+    }
+    .fail-list li::before {
+      content: "✗ ";
+      color: var(--danger);
+      font-weight: 700;
+    }
+    .fail-list code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: inherit;
+    }
+    .fail-rem {
+      margin-top: 4px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--step-1);
+    }
+    .term-details {
+      margin-top: 16px;
+      border: 1px solid var(--panel-line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .term-details summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--panel-dim);
+      letter-spacing: 0.04em;
+      background: var(--panel);
+      border-bottom: 1px solid transparent;
+    }
+    .term-details summary::-webkit-details-marker { display: none; }
+    .term-details summary::before {
+      content: "+";
+      color: var(--accent);
+      margin-right: 8px;
+      font-weight: 700;
+    }
+    .term-details[open] summary { border-bottom-color: var(--panel-line); }
+    .term-details[open] summary::before { content: "−"; }
+
+    /* ---------- tokens table ---------- */
+    .token-wrap {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .token-scroll { overflow-x: auto; }
+    table.tokens {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: var(--step-2);
+      min-width: 520px;
+    }
+    table.tokens th {
+      text-align: left;
+      font-size: var(--step-1);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--faint);
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+    }
+    table.tokens td {
+      padding: 10px 14px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
       color: var(--muted);
     }
+    table.tokens tr:last-child td { border-bottom: 0; }
+    table.tokens td.num { text-align: right; color: var(--text); }
+    table.tokens td.num.total { color: var(--accent); font-weight: 500; }
+    table.tokens td code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: var(--text);
+    }
+
+    /* ---------- artifacts ---------- */
+    .artifact-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-elev);
+    }
+    .artifact-list li {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: var(--step-2);
+      color: var(--muted);
+    }
+    .artifact-list li:last-child { border-bottom: 0; }
+    .artifact-list li::before {
+      content: "→ ";
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .artifact-list li.empty::before { content: "· "; color: var(--faint); }
+    .artifact-list code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: var(--text);
+    }
+
+    /* inline code */
+    code.inline, :not(pre):not(.term-body) > code {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      padding: 1px 6px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--bg-elev);
+      color: var(--text);
+    }
+
+    /* ---------- raw ---------- */
+    .raw-note {
+      margin-top: 12px;
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: var(--step-1);
+    }
+
+    /* ---------- footer ---------- */
+    .foot {
+      margin-top: 48px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: var(--step-1);
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .foot span::before { content: "$ "; color: var(--accent); }
+
+    /* ---------- responsive ---------- */
     @media (max-width: 980px) {
-      .hero-grid,
-      .health-grid,
-      .metric-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-      .hero-grid {
-        grid-template-columns: 1fr;
-      }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .metric:nth-child(2n) { border-right: 0; }
+      .metric:nth-last-child(-n+1) { border-bottom: 0; }
+      .health { grid-template-columns: 1fr; }
+      .health-col + .health-col { border-left: 0; border-top: 1px solid var(--line); }
     }
-    @media (max-width: 720px) {
-      main {
-        width: min(100vw - 18px, 1120px);
-        padding-top: 16px;
-      }
-      section,
-      .hero {
-        padding: 20px;
-      }
-      .metric-grid,
-      .health-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    @media (max-width: 560px) {
-      body {
-        -webkit-text-size-adjust: 100%;
-      }
-      main {
-        width: calc(100vw - 12px);
-        gap: 12px;
-        padding-bottom: 32px;
-      }
-      section,
-      .hero {
-        padding: 16px;
-        border-radius: 18px;
-      }
-      .metric-grid,
-      .module-grid {
-        grid-template-columns: 1fr;
-      }
-      .action-row,
-      .meta-row,
-      .section-head {
-        display: grid;
-      }
-      button {
-        width: 100%;
-      }
+    @media (max-width: 640px) {
+      main { padding: 24px 16px 48px; }
+      section { margin-top: 40px; }
+      .topbar-inner { padding: 10px 16px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+      .topbar-inner::-webkit-scrollbar { display: none; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric { border-right: 0; }
+      .metric:last-child { border-bottom: 0; }
+      :root { --step-7: 1.9rem; }
+      .hero { padding-top: 20px; gap: 20px; }
+      .hero-lede { font-size: var(--step-3); }
+      .term-body { font-size: var(--step-1); padding: 12px 14px; }
     }
     @media (prefers-reduced-motion: reduce) {
-      html {
-        scroll-behavior: auto;
-      }
-      *,
-      *::before,
-      *::after {
-        transition: none !important;
-        animation: none !important;
-      }
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
     }
   </style>
 </head>
 <body>
+  <header class="topbar" role="banner">
+    <div class="topbar-inner">
+      <span class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>agentify</span>
+        <span class="brand-path" aria-hidden="true">/report</span>
+      </span>
+      <span class="sep" aria-hidden="true">·</span>
+      <span><code>${escapeHtml(commandDisplay)}</code></span>
+      <span class="sep" aria-hidden="true">·</span>
+      <span><span class="stat-dot ${escapeHtml(validationTone)}" aria-hidden="true"></span>validation: ${escapeHtml(validationStatus)}</span>
+      <span class="sep" aria-hidden="true">·</span>
+      <span><span class="stat-dot ${escapeHtml(testTone)}" aria-hidden="true"></span>tests: ${escapeHtml(testStatus)}</span>
+    </div>
+  </header>
+
   <main>
-    <section class="hero">
-      <div class="hero-grid">
-        <div class="hero-copy">
-          <p class="eyebrow">Agentify Run Report</p>
-          <div class="brand-row">
-            <span class="brand-mark" aria-hidden="true"></span>
-            <span class="brand-label">Ixigo-inspired minimal interface</span>
-          </div>
-          <div class="meta-row">
-            <p class="meta-pill">Command <strong>${escapeHtml(summary.command || "unknown")}</strong></p>
-            <p class="meta-pill">Validation <strong>${escapeHtml(validationStatus)}</strong></p>
-            <p class="meta-pill">Tests <strong>${escapeHtml(testStatus)}</strong></p>
-          </div>
-          <h1>Readable execution evidence for a single Agentify run.</h1>
-          <p class="lede">This file records what Agentify changed, how the repository health checks ended, and how much model usage the run consumed. The layout prioritizes scan speed, readable spacing, and a lightweight audit trail.</p>
-          <div class="action-row">
-            <button type="button" onclick="copyCommand(\`${rerunUpdateCommand}\`)">Copy rerun Agentify command</button>
-            <button type="button" class="secondary" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
-          </div>
-          <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
+    <!-- ===== HERO ===== -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <span class="hero-tag ${escapeHtml(validationTone === "passed" && testTone === "passed" ? "passed" : validationTone === "failed" || testTone === "failed" ? "failed" : "skipped")}">
+        <span class="dot" aria-hidden="true"></span>run report · ${escapeHtml(commandDisplay)}
+      </span>
+      <h1 id="hero-title">${escapeHtml(healthHeadline)}</h1>
+      <p class="hero-lede">
+        the file records what agentify changed, how repository health checks ended, and how much model usage the run consumed.
+        every number is preserved so the page works as both a handoff document and an audit trail.
+      </p>
+
+      <div class="term" role="group" aria-label="run summary">
+        <div class="term-head">
+          <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="term-title">agentify@report <em>—</em> zsh</span>
         </div>
-        <aside class="hero-summary">
-          <p class="eyebrow">Health Snapshot</p>
-          <p class="summary-title">${healthHeadline}</p>
-          <p class="summary-copy">${healthCopy}</p>
-          <div class="summary-stack">
-            <div class="summary-item">
-              <span>Validation</span>
-              <span class="status status-${escapeHtml(validationStatusClass)} tone-${escapeHtml(validationTone)}">${escapeHtml(validationStatus)}</span>
-            </div>
-            <div class="summary-item">
-              <span>Tests</span>
-              <span class="status status-${escapeHtml(testStatusClass)} tone-${escapeHtml(testTone)}">${escapeHtml(testStatus)}</span>
-            </div>
-            <div class="summary-item">
-              <span>Total tokens</span>
-              <strong>${escapeHtml(totalTokens)}</strong>
-            </div>
-          </div>
-        </aside>
+<pre class="term-body"><span class="p">$</span> agentify ${escapeHtml(commandDisplay)}
+<span class="c"># post-run summary</span>
+
+<span class="dim">→</span> validation  <span class="${validationTone === "passed" ? "ok" : validationTone === "failed" ? "r" : "w"}">${escapeHtml(validationStatus)}</span>   <span class="c">#</span> ${escapeHtml(validationCount)} failure${validationCount === 1 ? "" : "s"} recorded
+<span class="dim">→</span> tests       <span class="${testTone === "passed" ? "ok" : testTone === "failed" ? "r" : "w"}">${escapeHtml(testStatus)}</span>   <span class="c">#</span> <span class="s">${escapeHtml(summary.tests?.command || "not-run")}</span>
+<span class="dim">→</span> modules     <span class="m">${escapeHtml(moduleCount)}</span>        <span class="c">#</span> ${escapeHtml(docsWritten)} docs · ${escapeHtml(headersRefreshed)} headers
+<span class="dim">→</span> tokens      <span class="m">${escapeHtml(totalTokens)}</span>        <span class="c">#</span> in: ${escapeHtml(inputTokens)} · out: ${escapeHtml(outputTokens)} · modules: ${escapeHtml(measuredModules)}
+<span class="dim">→</span> artifacts   <span class="m">${escapeHtml(artifactCount)}</span>        <span class="c">#</span> files produced this run
+
+<span class="p">$</span> <span class="dim">ready.</span></pre>
+      </div>
+
+      <div class="chip-row" aria-label="quick status">
+        <span class="chip ${escapeHtml(validationTone)}"><span class="label">validation</span><span class="glyph" aria-hidden="true">${validationGlyph}</span><strong>${escapeHtml(validationStatus)}</strong></span>
+        <span class="chip ${escapeHtml(testTone)}"><span class="label">tests</span><span class="glyph" aria-hidden="true">${testGlyph}</span><strong>${escapeHtml(testStatus)}</strong></span>
+        <span class="chip"><span class="label">tokens</span><strong>${escapeHtml(totalTokens)}</strong></span>
+        <span class="chip"><span class="label">artifacts</span><strong>${escapeHtml(artifactCount)}</strong></span>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn" onclick="copyCommand(\`${rerunUpdateCommand}\`)">copy rerun agentify command</button>
+        <button type="button" class="btn" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
+      </div>
+      <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
+    </section>
+
+    <!-- ===== OVERVIEW ===== -->
+    <section id="overview" aria-labelledby="overview-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">01</span><span class="slash">/</span>overview</span>
+        <h2 id="overview-title">output footprint</h2>
+        <p class="dek">counts of what this run produced — kept first so the rest of the page only needs skimming to confirm.</p>
+      </header>
+
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric-label">modules processed</span>
+          <span class="metric-value">${escapeHtml(moduleCount)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">docs written</span>
+          <span class="metric-value">${escapeHtml(docsWritten)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">headers refreshed</span>
+          <span class="metric-value">${escapeHtml(headersRefreshed)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">validation issues</span>
+          <span class="metric-value${validationCount > 0 ? " bad" : ""}">${escapeHtml(validationCount)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Total tokens</span>
+          <span class="metric-value">${escapeHtml(totalTokens)}</span>
+        </div>
       </div>
     </section>
 
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Run Overview</h2>
-          <p class="section-copy">A compact summary of the output footprint for this run. Counts stay visible first so the report remains easy to scan before you read the detailed sections.</p>
+    <!-- ===== HEALTH ===== -->
+    <section id="health" aria-labelledby="health-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">02</span><span class="slash">/</span>health</span>
+        <h2 id="health-title">validation &amp; tests</h2>
+        <p class="dek">trust or reject the run from this block alone — unsafe writes, freshness drift, and test status sit side by side.</p>
+      </header>
+
+      <div class="health">
+        <div class="health-col">
+          <div class="health-head">
+            <h3>validation</h3>
+            <span class="status-pill ${escapeHtml(validationTone)}"><span class="glyph" aria-hidden="true">${validationGlyph}</span>${escapeHtml(validationStatus)}</span>
+          </div>
+          <p class="mono-sm">unsafe writes, freshness issues, and invalid generated state are surfaced here.</p>
+          ${validationFailures}
         </div>
-        <p class="section-note">${escapeHtml(artifactCount)} artifact${artifactCount === 1 ? "" : "s"} recorded</p>
-      </div>
-      <div class="metric-grid">
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(moduleCount)}</p>
-          <p class="metric-label">Modules processed</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(docsWritten)}</p>
-          <p class="metric-label">Docs written</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(headersRefreshed)}</p>
-          <p class="metric-label">Headers refreshed</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(validationCount)}</p>
-          <p class="metric-label">Validation issues</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(totalTokens)}</p>
-          <p class="metric-label">Total tokens</p>
-        </article>
+
+        <div class="health-col">
+          <div class="health-head">
+            <h3>tests</h3>
+            <span class="status-pill ${escapeHtml(testTone)}"><span class="glyph" aria-hidden="true">${testGlyph}</span>${escapeHtml(testStatus)}</span>
+          </div>
+          <p class="mono-sm">${escapeHtml(testSummaryText)}</p>
+          <div class="btn-row">
+            <button type="button" class="btn" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
+            <button type="button" class="btn" onclick="copyCommand(\`${rerunUpdateCommand}\`)">copy rerun agentify command</button>
+          </div>
+          ${testOutput}
+        </div>
       </div>
     </section>
 
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Generated Artifacts</h2>
-          <p class="section-copy">Every file listed here was recorded as part of the run output, which makes the report useful as both a handoff document and a quick operator checklist.</p>
+    <!-- ===== TOKENS ===== -->
+    <section id="tokens" aria-labelledby="tokens-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">03</span><span class="slash">/</span>tokens</span>
+        <h2 id="tokens-title">model usage</h2>
+        <p class="dek">totals first, per-module breakdown second — enough to audit cost and activity without opening raw JSON.</p>
+      </header>
+
+      <div class="metrics" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <div class="metric">
+          <span class="metric-label">input tokens</span>
+          <span class="metric-value">${escapeHtml(inputTokens)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">output tokens</span>
+          <span class="metric-value">${escapeHtml(outputTokens)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Total tokens</span>
+          <span class="metric-value">${escapeHtml(totalTokens)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">measured modules</span>
+          <span class="metric-value">${escapeHtml(measuredModules)}</span>
         </div>
       </div>
-      <ul class="artifact-list">${artifacts}</ul>
-    </section>
 
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Health Checks</h2>
-          <p class="section-copy">Validation and tests stay next to each other so the run can be trusted or rejected without hunting through the rest of the page.</p>
+      <div class="token-wrap" style="margin-top: 16px;">
+        <div class="token-scroll">
+          <table class="tokens">
+            <thead>
+              <tr>
+                <th scope="col">module</th>
+                <th scope="col" style="text-align:right;">input</th>
+                <th scope="col" style="text-align:right;">output</th>
+                <th scope="col" style="text-align:right;">total</th>
+              </tr>
+            </thead>
+            <tbody>${moduleRows}</tbody>
+          </table>
         </div>
       </div>
-      <div class="health-grid">
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="card-label">Validation</p>
-              <p class="panel-copy">Unsafe writes, freshness issues, and invalid generated state are surfaced here.</p>
-            </div>
-            <p class="status status-${escapeHtml(validationStatusClass)} tone-${escapeHtml(validationTone)}">${escapeHtml(validationStatus)}</p>
-          </div>
-          ${summary.validation?.failures?.length ? `<ul class="failure-list">${summary.validation.failures.map((item) => {
-            const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
-            const rem = typeof item === "object" && item.remediation ? `<br><small>${escapeHtml(item.remediation)}</small>` : "";
-            return `<li><code>${escapeHtml(msg)}</code>${rem}</li>`;
-          }).join("")}</ul>` : validationFailures}
-        </article>
 
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="card-label">Tests</p>
-              <p class="panel-copy">${escapeHtml(testSummaryText)}</p>
-            </div>
-            <p class="status status-${escapeHtml(testStatusClass)} tone-${escapeHtml(testTone)}">${escapeHtml(testStatus)}</p>
-          </div>
-          <div class="action-row">
-            <button type="button" onclick="copyCommand(\`${rerunTestsCommand}\`)">Copy rerun tests command</button>
-            <button type="button" class="secondary" onclick="copyCommand(\`${rerunUpdateCommand}\`)">Copy rerun Agentify command</button>
-          </div>
-          <div class="detail-block">
-            ${testOutput}
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Token Usage</h2>
-          <p class="section-copy">Model consumption is separated into totals and module-level breakdowns so you can audit cost and activity without reading raw JSON first.</p>
-        </div>
-      </div>
-      <div class="metric-grid">
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(tokenUsage.input_tokens ?? 0)}</p>
-          <p class="metric-label">Input tokens</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(tokenUsage.output_tokens ?? 0)}</p>
-          <p class="metric-label">Output tokens</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(tokenUsage.total_tokens ?? 0)}</p>
-          <p class="metric-label">Total tokens</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml((tokenUsage.by_module || []).length)}</p>
-          <p class="metric-label">Measured modules</p>
-        </article>
-        <article class="metric-card">
-          <p class="metric-value">${escapeHtml(artifactCount)}</p>
-          <p class="metric-label">Recorded artifacts</p>
-        </article>
-      </div>
-      <div class="module-grid">${moduleUsageCards}</div>
-      <details class="detail-block">
-        <summary>Raw per-module token usage</summary>
-        <pre>${escapeHtml(JSON.stringify(tokenUsage.by_module || [], null, 2))}</pre>
+      <details class="term-details" style="margin-top: 16px;">
+        <summary>raw per-module token usage · JSON</summary>
+        <pre class="term-body small">${escapeHtml(JSON.stringify(tokenUsage.by_module || [], null, 2))}</pre>
       </details>
     </section>
 
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Machine Summary</h2>
-          <p class="section-copy">The complete structured payload is preserved here for debugging, diffing, or downstream tooling.</p>
-        </div>
-      </div>
-      <pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
+    <!-- ===== ARTIFACTS ===== -->
+    <section id="artifacts" aria-labelledby="artifacts-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">04</span><span class="slash">/</span>artifacts</span>
+        <h2 id="artifacts-title">generated files</h2>
+        <p class="dek">every path agentify recorded for this run. useful as a handoff checklist.</p>
+      </header>
+      <ul class="artifact-list">${artifacts}</ul>
     </section>
+
+    <!-- ===== RAW ===== -->
+    <section id="raw" aria-labelledby="raw-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">05</span><span class="slash">/</span>raw</span>
+        <h2 id="raw-title">machine summary</h2>
+        <p class="dek">the complete structured payload — preserved for debugging, diffing, or downstream tooling.</p>
+      </header>
+      <div class="term">
+        <div class="term-head">
+          <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="term-title"><em>cat</em> summary.json</span>
+        </div>
+        <pre class="term-body small">${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
+      </div>
+      <p class="raw-note">this block preserves the exact shape consumed by tooling — do not reformat when copying.</p>
+    </section>
+
+    <footer class="foot">
+      <span>agentify · run report · ${escapeHtml(commandDisplay)}</span>
+      <span>${escapeHtml(artifactCount)} artifact${artifactCount === 1 ? "" : "s"} · ${escapeHtml(totalTokens)} tokens</span>
+    </footer>
   </main>
+
   <script>
     async function copyCommand(command) {
       const feedback = document.getElementById("copy-feedback");
       try {
         await navigator.clipboard.writeText(command);
         if (feedback) {
-          feedback.textContent = "Copied command to clipboard: " + command;
+          feedback.textContent = "copied to clipboard: " + command;
         }
       } catch {
         if (feedback) {
-          feedback.textContent = "Clipboard access failed. Command: " + command;
+          feedback.textContent = "clipboard access failed. command: " + command;
         }
       }
     }
