@@ -11,6 +11,7 @@
     "src/",
     "skills/",
     "README.md",
+    "DETAILED_README.md",
     "LICENSE"
   ],
   "exports": {
