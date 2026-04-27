@@ -139,6 +139,31 @@ It is written so the model treats the current working directory as the target re
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
 
+#### Project Test Environment
+
+`agentify up` (and any flow that runs the detected `package.json` test script) executes the repo-owned test command in a **sanitized environment by default**. The host shell's `process.env` is *not* passed through; instead Agentify constructs a minimal allowlist containing runtime essentials (`PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, locale `LANG`/`LC_*`, terminal `TERM`/`COLORTERM`, temp dirs `TMPDIR`/`TEMP`/`TMP`, Node version-manager paths such as `NVM_DIR`/`VOLTA_HOME`, `XDG_*` paths, and the equivalent Windows essentials). This prevents repository-controlled test scripts (e.g., `npm test`, `pnpm test`) from reading credentials or other sensitive variables that may be exported in the invoking shell.
+
+Configure overrides in `.agentify.yaml` under the `tests.env` key:
+
+```yaml
+tests:
+  env:
+    inherit: false        # set to true to forward the entire host environment (legacy behavior, not recommended)
+    passthrough: []       # list of additional env var names to forward from the host shell
+    extra: {}             # explicit key/value map injected into the test subprocess
+```
+
+For example, a project whose tests need `MY_TEST_DB_URL` from the shell and a fixed `NODE_ENV` should declare:
+
+```yaml
+tests:
+  env:
+    passthrough:
+      - MY_TEST_DB_URL
+    extra:
+      NODE_ENV: test
+```
+
 ### Planning, Execution, And Continuity
 
 | Command | What it does | Why and when to use it | Example |

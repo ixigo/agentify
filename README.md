@@ -95,6 +95,8 @@ agentify sess resume --session <session-id> "finish the implementation"
 | Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 
+> **Note** — `agentify up` runs the repo's detected `package.json` test script in a **sanitized environment** by default. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+
 ## What Agentify Creates
 
 Depending on the command, Agentify can create or refresh:

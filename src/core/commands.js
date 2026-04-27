@@ -1093,7 +1093,7 @@ export async function runUpdate(root, config, options = {}) {
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
-  const testResult = await runProjectTests(root, progress);
+  const testResult = await runProjectTests(root, progress, { config });
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);
     const meta = getRepoMeta(db);
