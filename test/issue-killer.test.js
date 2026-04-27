@@ -132,12 +132,33 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
     assert.ok(result.assignments[0].worktree_path.endsWith("wt-issue-101-fix-login-redirect"));
     assert.ok(result.assignments[1].worktree_path.endsWith("wt-issue-102-add-billing-retry"));
     assert.match(result.assignments[0].pane_command, /^'codex' '--cd'/);
+    assert.match(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
+    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell/);
 
     const tmuxCalls = await fs.readFile(tmuxLog, "utf8");
     assert.match(tmuxCalls, /new-session/);
     assert.match(tmuxCalls, /split-window/);
     assert.match(tmuxCalls, /select-layout/);
+  });
+});
+
+test("issue-killer launches claude with bypass permissions", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-issue-killer-claude-"));
+  await initGitRepo(root);
+
+  await withFakePath(root, async () => {
+    const result = await withQuietConsole(() =>
+      runIssueKiller(root, { provider: "claude", dryRun: false, json: true }, {
+        label: "agentify-ready",
+        limit: 1,
+        agentProvider: "claude",
+      })
+    );
+
+    assert.equal(result.agent_provider, "claude");
+    assert.match(result.assignments[0].pane_command, /^'claude' '--dangerously-skip-permissions' '--permission-mode' 'bypassPermissions'/);
+    assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
   });
 });
 

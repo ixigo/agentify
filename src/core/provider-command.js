@@ -14,7 +14,11 @@ function normalizePrompt(prompt) {
   return "Continue the task in this repository and keep changes minimal, tested, and documented.";
 }
 
-export function buildProviderTemplateCommand(provider, prompt, { root, interactive = false } = {}) {
+export function buildProviderTemplateCommand(provider, prompt, {
+  root,
+  interactive = false,
+  bypassPermissions = false,
+} = {}) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
 
@@ -28,16 +32,34 @@ export function buildProviderTemplateCommand(provider, prompt, { root, interacti
       if (root) {
         args.push("--cd", root);
       }
+      if (bypassPermissions) {
+        args.push("--dangerously-bypass-approvals-and-sandbox");
+      }
       args.push(normalizedPrompt);
       return args;
     }
-    return ["codex", "exec", normalizedPrompt];
+    const args = ["codex", "exec"];
+    if (bypassPermissions) {
+      args.push("--dangerously-bypass-approvals-and-sandbox");
+    }
+    args.push(normalizedPrompt);
+    return args;
   }
   if (provider === "claude") {
     if (interactive) {
-      return ["claude", normalizedPrompt];
+      const args = ["claude"];
+      if (bypassPermissions) {
+        args.push("--dangerously-skip-permissions", "--permission-mode", "bypassPermissions");
+      }
+      args.push(normalizedPrompt);
+      return args;
     }
-    return ["claude", "-p", normalizedPrompt];
+    const args = ["claude"];
+    if (bypassPermissions) {
+      args.push("--dangerously-skip-permissions", "--permission-mode", "bypassPermissions");
+    }
+    args.push("-p", normalizedPrompt);
+    return args;
   }
   if (provider === "gemini") {
     if (interactive) {

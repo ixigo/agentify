@@ -245,6 +245,8 @@ agentify sess fork --from <session-id> --name "payments-alt" "try an alternate d
 
 Use `issue-killer` when you want supervised parallel issue solving across Worktrunk worktrees. V1 supports GitHub only, requires either an opt-in label or explicit issue URLs, and opens interactive tmux panes for Codex or Claude.
 
+Issue-killer launches Codex and Claude with provider permission checks bypassed inside each isolated issue worktree. The pane prompt explicitly allows task-related shell, git, gh, package-manager, test, commit, push, and draft PR commands without asking for additional approval.
+
 ```bash
 agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 5
 agentify issue-killer --issue-provider github --issue-url https://github.com/org/repo/issues/123,https://github.com/org/repo/issues/124 --agent-provider claude --limit 2
