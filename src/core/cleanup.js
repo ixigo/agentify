@@ -34,6 +34,7 @@ async function listDirs(dirPath) {
 
 async function pruneOrphanedModuleArtifacts(root, dryRun) {
   const expectedDocs = new Set();
+  const expectedMetadata = new Set();
   if (await exists(path.join(root, ".agents", "index.db"))) {
     const db = openIndexDatabase(root);
     try {
@@ -47,6 +48,9 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
     const legacyIndex = await readJson(path.join(root, ".agents", "index.json"));
     for (const moduleInfo of legacyIndex.modules || []) {
       expectedDocs.add(path.basename(moduleInfo.doc_path || ""));
+      if (moduleInfo.metadata_path) {
+        expectedMetadata.add(path.basename(moduleInfo.metadata_path));
+      }
     }
   } else {
     return {
@@ -68,7 +72,7 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
 
   const metadataDir = path.join(root, ".agents", "modules");
   for (const file of await listFiles(metadataDir)) {
-    if (!file.endsWith(".json")) {
+    if (!file.endsWith(".json") || expectedMetadata.has(file)) {
       continue;
     }
     await removePath(path.join(metadataDir, file), dryRun);
