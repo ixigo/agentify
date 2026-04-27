@@ -1,6 +1,7 @@
 import path from "node:path";
 import process from "node:process";
 
+import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
@@ -46,6 +47,7 @@ const BOOLEAN_FLAGS = new Set([
   "allowPartial",
   "reuseSession",
   "hook",
+  "caveman",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -145,15 +147,13 @@ function buildRunPrompt(userPrompt) {
   return "Continue implementation in this repository using small, validated changes.";
 }
 
-export function buildExecutionPrompt(basePrompt, memoryMarkdown = "") {
+export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = {}) {
   const prompt = String(basePrompt || "").trim();
-  if (!memoryMarkdown.trim()) {
-    return prompt;
-  }
-  return [memoryMarkdown.trim(), prompt].filter(Boolean).join("\n\n");
+  const promptWithMemory = [memoryMarkdown.trim(), prompt].filter(Boolean).join("\n\n");
+  return applyCavemanPreamble(promptWithMemory, options.caveman, { promptKind: options.promptKind });
 }
 
-export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
+export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
   const task = userPrompt || "Continue this session from the latest repository state.";
   const sections = [
     "You are continuing an Agentify session.",
@@ -164,7 +164,7 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
     sections.push("", memoryMarkdown.trim());
   }
   sections.push("", `Current task: ${task}`);
-  return sections.join("\n");
+  return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
 }
 
 function resolveSessionIdForResume(args) {
@@ -199,6 +199,7 @@ function printHelp() {
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
+    `    ${c("memory")}          ${d("Manage agent memory helpers")}`,
     `    ${c("issue-killer")}    ${d("Launch labelled GitHub issues into supervised tmux worktrees")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
@@ -219,6 +220,7 @@ function printHelp() {
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
+    `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,
     `    ${c("--hook")}                      Hook-friendly check: skip changed-file body diffing (used by managed pre-commit)`,
@@ -237,11 +239,13 @@ function printHelp() {
     `    ${d("$")} agentify sync`,
     `    ${d("$")} agentify clean --dry-run`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
+    `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
     `    ${d("$")} agentify skill list`,
     `    ${d("$")} agentify skill install all --provider codex --scope project`,
     `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
     `    ${d("$")} agentify skill install god-mode --provider all --scope project`,
+    `    ${d("$")} agentify memory compress AGENTIFY.md`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
@@ -410,6 +414,7 @@ export async function runCli(argv) {
 
       case "run": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
+        const caveman = resolveCavemanLevel(args);
         const memoryContext = await loadAutomaticRunMemory(root, task, config);
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
@@ -419,7 +424,7 @@ export async function runCli(argv) {
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
-        const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown);
+        const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman });
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
@@ -546,6 +551,30 @@ export async function runCli(argv) {
         throw new Error("skill requires a subcommand: list or install");
       }
 
+      case "memory": {
+        if (subcommand === "compress") {
+          const target = args._[2];
+          if (!target) {
+            throw new Error("memory compress requires a file path: agentify memory compress <file>");
+          }
+          const result = {
+            command: "memory compress",
+            status: "not_implemented",
+            file: path.resolve(root, String(target)),
+            message:
+              "TODO: memory compression is reserved for the caveman-compress follow-up. Install the placeholder with `agentify skill install caveman-compress`.",
+          };
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            log(result.message);
+          }
+          return;
+        }
+
+        throw new Error("memory requires a subcommand: compress");
+      }
+
       case "sess": {
         if (subcommand === "list") {
           const sessions = await listSessions(root);
@@ -562,6 +591,7 @@ export async function runCli(argv) {
         }
 
         if (subcommand === "fork") {
+          const caveman = resolveCavemanLevel(args);
           const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
           const result = await forkSession(root, config, {
             from: fromId,
@@ -576,7 +606,7 @@ export async function runCli(argv) {
           const usingTemplateCommand = !args._exec?.length;
           const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
           const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
+          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown, { caveman });
           const agentCommand = args._exec?.length
             ? args._exec
             : buildProviderTemplateCommand(
@@ -606,6 +636,7 @@ export async function runCli(argv) {
         }
 
         if (subcommand === "resume") {
+          const caveman = resolveCavemanLevel(args);
           const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
           const result = await resumeSession(root, sessionId);
           const task = getPromptFromArgs(args, promptStartIndex);
@@ -616,7 +647,7 @@ export async function runCli(argv) {
           const usingTemplateCommand = !args._exec?.length;
           const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
           const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
+          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown, { caveman });
           const agentCommand = args._exec?.length
             ? args._exec
             : buildProviderTemplateCommand(
@@ -641,6 +672,7 @@ export async function runCli(argv) {
         }
 
         if (subcommand === "run") {
+          const caveman = resolveCavemanLevel(args);
           let sessionResult;
           let sessionDir;
 
@@ -673,7 +705,7 @@ export async function runCli(argv) {
           const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
           const task = getPromptFromArgs(args, 2);
           const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
-          const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
+          const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
           const agentCommand = args._exec?.length
             ? args._exec
             : buildProviderTemplateCommand(

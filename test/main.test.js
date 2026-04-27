@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
 import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
@@ -49,6 +50,22 @@ test("parseArgs supports interactive flags", () => {
   const promptArgs = parseArgs(["run", "--interactive", "implement login"]);
   assert.equal(promptArgs.interactive, true);
   assert.deepEqual(promptArgs._, ["run", "implement login"]);
+});
+
+test("parseArgs supports caveman flag forms", () => {
+  const bareArgs = parseArgs(["run", "--caveman", "summarize auth"]);
+  assert.equal(bareArgs.caveman, true);
+  assert.deepEqual(bareArgs._, ["run", "summarize auth"]);
+
+  const levelArgs = parseArgs(["run", "--caveman=ultra", "summarize auth"]);
+  assert.equal(levelArgs.caveman, "ultra");
+});
+
+test("resolveCavemanLevel uses CLI before environment", () => {
+  assert.equal(resolveCavemanLevel({ caveman: true }, {}), "full");
+  assert.equal(resolveCavemanLevel({ caveman: "ultra" }, { AGENTIFY_CAVEMAN: "lite" }), "ultra");
+  assert.equal(resolveCavemanLevel({}, { AGENTIFY_CAVEMAN: "full" }), "full");
+  assert.equal(resolveCavemanLevel({ caveman: "false" }, { AGENTIFY_CAVEMAN: "full" }), null);
 });
 
 test("runCli rejects removed legacy command names", async () => {
@@ -119,6 +136,31 @@ test("buildExecutionPrompt prepends automatic memory before a normal run prompt"
   assert.ok(prompt.indexOf("Automatic Session Memory") < prompt.indexOf("Implement retry handling"));
 });
 
+test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
+  const prompt = buildExecutionPrompt("Summarize the auth module.", "", { caveman: "ultra" });
+
+  assert.match(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.match(prompt, /Active level: ultra\./);
+  assert.ok(prompt.indexOf(CAVEMAN_PREAMBLE_MARKER) < prompt.indexOf("Summarize the auth module."));
+});
+
+test("buildExecutionPrompt excludes caveman preamble for commit-message prompts", () => {
+  const prompt = buildExecutionPrompt("Write a conventional commit message.", "", {
+    caveman: "full",
+    promptKind: "commit-message",
+  });
+
+  assert.doesNotMatch(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.equal(prompt, "Write a conventional commit message.");
+});
+
+test("buildSessionPrompt prepends caveman preamble for session prompts", () => {
+  const prompt = buildSessionPrompt("# Session Context\n- Provider: codex", "Map checkout flow.", "", { caveman: "lite" });
+
+  assert.match(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.match(prompt, /Active level: lite\./);
+});
+
 test("runCli supports skill install with provider all", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-"));
   await runCli(["skill", "install", "god-mode", "--root", root, "--provider", "all", "--scope", "project"]);
@@ -140,6 +182,27 @@ test("runCli supports skill install all for codex project scope", async () => {
       fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
     );
   }
+});
+
+test("runCli memory compress reports placeholder status", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-memory-compress-"));
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["memory", "compress", "AGENTIFY.md", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "memory compress");
+  assert.equal(payload.status, "not_implemented");
+  assert.match(payload.message, /^TODO:/);
 });
 
 test("runCli init writes baseline local work and guardrail files", async () => {

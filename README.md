@@ -79,6 +79,25 @@ agentify sess run --provider codex --name "checkout-retries" "map the current ch
 agentify sess resume --session <session-id> "finish the implementation"
 ```
 
+## Caveman Mode
+
+Caveman mode asks provider agents to answer tersely for lower output-token spend while keeping technical details exact.
+
+Install it as an opt-in skill:
+
+```bash
+agentify skill install caveman --provider codex --scope project
+```
+
+Or apply it to one run/session prompt:
+
+```bash
+agentify run --caveman=ultra "summarize the risky auth paths"
+AGENTIFY_CAVEMAN=full agentify run "map the checkout module"
+```
+
+Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, and `wenyan-ultra`. Commit messages, PR descriptions, code, and safety-critical confirmations stay normal prose. Rules adapted from the MIT-licensed [caveman](https://github.com/JuliusBrussee/caveman) project.
+
 ## Useful First Commands
 
 | Goal | Command |
