@@ -37,11 +37,20 @@ async function listRelativeFiles(rootDir) {
   return results;
 }
 
-test("listBuiltinSkills exposes built-in catalog and alias", () => {
+async function listSkillDirs(rootDir) {
+  const entries = await fs.readdir(rootDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
+  const expectedNames = await listSkillDirs(path.join(repoRoot, "src", "builtin-skills"));
 
-  assert.deepEqual(names.sort(), ["commit-creator", "copy-mode", "copy-pr", "gh-autopilot", "grill-me", "improve-codebase-architecture", "issue-killer", "pr-creator", "worktree-autopilot"]);
+  assert.deepEqual(names.sort(), expectedNames);
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
@@ -208,15 +217,13 @@ test("published skills mirror built-in skill bundles for external installers", a
 
 test("installAllBuiltinSkills installs every built-in skill for codex project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-install-all-"));
+  const expectedNames = await listSkillDirs(path.join(repoRoot, "src", "builtin-skills"));
   const result = await installAllBuiltinSkills(root, {
     provider: "codex",
     scope: "project",
   });
 
-  assert.deepEqual(
-    result.installed_skills.sort(),
-    ["commit-creator", "copy-mode", "copy-pr", "gh-autopilot", "grill-me", "improve-codebase-architecture", "issue-killer", "pr-creator", "worktree-autopilot"]
-  );
+  assert.deepEqual(result.installed_skills.sort(), expectedNames);
 
   for (const skillName of result.installed_skills) {
     const skillPath = path.join(root, ".codex", "skills", skillName, "SKILL.md");
