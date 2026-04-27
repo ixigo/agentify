@@ -1,4 +1,6 @@
-export const SUPPORTED_PROVIDERS = ["local", "codex", "claude", "gemini", "opencode"];
+import { EXECUTABLE_PROVIDER_NAMES, SUPPORTED_PROVIDERS, getProviderDefinition } from "./provider-registry.js";
+
+export { SUPPORTED_PROVIDERS };
 
 export function assertSupportedProvider(provider) {
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -21,67 +23,16 @@ export function buildProviderTemplateCommand(provider, prompt, {
 } = {}) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
+  const definition = getProviderDefinition(provider);
 
-  if (provider === "local") {
-    throw new Error('provider "local" cannot execute agent commands. Pass --provider codex|claude|gemini|opencode.');
-  }
-
-  if (provider === "codex") {
-    if (interactive) {
-      const args = ["codex"];
-      if (root) {
-        args.push("--cd", root);
-      }
-      if (bypassPermissions) {
-        args.push("--dangerously-bypass-approvals-and-sandbox");
-      }
-      args.push(normalizedPrompt);
-      return args;
-    }
-    const args = ["codex", "exec"];
-    if (bypassPermissions) {
-      args.push("--dangerously-bypass-approvals-and-sandbox");
-    }
-    args.push(normalizedPrompt);
-    return args;
-  }
-  if (provider === "claude") {
-    if (interactive) {
-      const args = ["claude"];
-      if (bypassPermissions) {
-        args.push("--dangerously-skip-permissions", "--permission-mode", "bypassPermissions");
-      }
-      args.push(normalizedPrompt);
-      return args;
-    }
-    const args = ["claude"];
-    if (bypassPermissions) {
-      args.push("--dangerously-skip-permissions", "--permission-mode", "bypassPermissions");
-    }
-    args.push("-p", normalizedPrompt);
-    return args;
-  }
-  if (provider === "gemini") {
-    if (interactive) {
-      return ["gemini", normalizedPrompt];
-    }
-    return ["gemini", "-p", normalizedPrompt];
-  }
-  if (provider === "opencode") {
-    if (interactive) {
-      const args = ["opencode"];
-      if (root) {
-        args.push("--dir", root);
-      }
-      args.push(normalizedPrompt);
-      return args;
-    }
-    const args = ["opencode", "run", normalizedPrompt];
-    if (root) {
-      args.push("--dir", root);
-    }
-    return args;
+  if (!definition.executable || !definition.buildTemplateCommand) {
+    throw new Error(`provider "${provider}" cannot execute agent commands. Pass --provider ${EXECUTABLE_PROVIDER_NAMES.join("|")}.`);
   }
 
-  throw new Error(`unsupported provider "${provider}"`);
+  return definition.buildTemplateCommand({
+    prompt: normalizedPrompt,
+    root,
+    interactive,
+    bypassPermissions,
+  });
 }
