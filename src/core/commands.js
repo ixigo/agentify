@@ -129,10 +129,10 @@ function findModuleDeps(modules, graph) {
 }
 
 async function buildScanState(root, config) {
-  const stacks = await detectStacks(root, config);
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  const stacks = await detectStacks(root, config, { relFiles: files });
   const defaultStack = stacks[0]?.name || "ts";
   const modules = await detectModules(root, config, defaultStack);
-  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   const graph = await buildDependencyGraph(root, defaultStack);
   const moduleDeps = findModuleDeps(modules, graph);
 
