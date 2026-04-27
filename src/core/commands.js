@@ -213,7 +213,8 @@ ${detectedStacks}
 ${sharedConventions}
 
 ## Conventions
-- Generated docs live under \`docs/\`
+- Generated repo docs live under \`docs/\`
+- Generated module docs live at each module root as \`AGENTIFY.md\` when the module is not the repository root
 - Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
 - Repo guardrails live in \`.guardrails\`
 - Local working RFCs and notes live under \`.agentify/work/\`
@@ -241,6 +242,12 @@ ${moduleBlocks}
 }
 
 function renderRepoMap(index) {
+  const moduleLink = (moduleInfo) => {
+    const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
+    const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+    return `- [${moduleInfo.name}](${href})`;
+  };
+
   return `# Repo Map
 
 ## Stacks
@@ -250,7 +257,7 @@ ${index.repo.detected_stacks.map((stack) => `- \`${stack.name}\` (${stack.confid
 ${index.entrypoints.length > 0 ? index.entrypoints.map((entry) => `- \`${entry}\``).join("\n") : "- No entrypoints detected."}
 
 ## Modules
-${index.modules.map((moduleInfo) => `- [${moduleInfo.name}](./modules/${path.basename(moduleInfo.doc_path)})`).join("\n")}
+${index.modules.map(moduleLink).join("\n")}
 `;
 }
 
@@ -279,7 +286,7 @@ function renderDefaultGuardrails() {
 - Do not commit knowingly broken code just to checkpoint progress.
 
 ## Protected Paths
-- Do not edit \`.agents/\`, \`docs/modules/\`, \`AGENTIFY.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
+- Do not edit \`.agents/\`, generated \`AGENTIFY.md\` files, \`docs/repo-map.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
 - Do not edit provider-installed skill directories under \`.codex/\`, \`.claude/\`, \`.gemini/\`, or \`.opencode/\` unless the task is specifically about those files.
 - Put local architecture RFCs, notes, and scratch outputs under \`.agentify/work/\`.
 
@@ -818,7 +825,7 @@ async function _runDocInner(root, config, options, progress) {
             stack: moduleInfo.stack,
           },
           summary: summarizeModule(moduleInfo, context.files.map((item) => item.path), context.semantic),
-          docs: [`docs/modules/${moduleInfo.slug}.md`],
+          docs: [moduleInfo.doc_path],
           tags: Array.from(new Set([...(cachedArtifact.metadata?.tags || []), moduleInfo.stack])),
         }, {
           now,
@@ -1023,7 +1030,7 @@ async function _runDocInner(root, config, options, progress) {
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agents/index.db", ".agents/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);
@@ -1087,7 +1094,7 @@ export async function runUpdate(root, config, options = {}) {
     await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
     progress.percent(commandName, 67, "doc complete");
   } else {
-    progress.log("doc: skipped (set --docs=true to generate docs during update)");
+    progress.log("doc: skipped because --docs=false");
     progress.percent(commandName, 67, "doc skipped");
   }
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });

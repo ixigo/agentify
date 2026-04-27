@@ -177,7 +177,7 @@ function fallbackArtifacts(moduleInfo, context) {
     },
     side_effects: ["none"],
     tests: context.files.filter((file) => /test|spec/.test(file)).slice(0, 10),
-    docs: [`docs/modules/${moduleInfo.slug}.md`],
+    docs: [moduleInfo.doc_path],
     tags: [moduleInfo.stack],
     semantic: buildSemanticMetadata(context),
     freshness: {
@@ -504,7 +504,7 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
     },
     side_effects: response.side_effects.length > 0 ? response.side_effects : ["none"],
     tests: context.files.map((file) => file.path).filter((file) => /test|spec/.test(file)).slice(0, 10),
-    docs: [`docs/modules/${moduleInfo.slug}.md`],
+    docs: [moduleInfo.doc_path],
     tags: [moduleInfo.stack],
     semantic: buildSemanticMetadata(context),
     freshness: {

@@ -108,8 +108,8 @@ Depending on the command, Agentify can create or refresh:
 .agents/runs/
 .agents/session/
 AGENTIFY.md
+<module-root>/AGENTIFY.md
 docs/repo-map.md
-docs/modules/
 ```
 
 These files give agents a stable map of the repo, guardrails for safe edits, durable session context, and validation evidence.

@@ -13,7 +13,7 @@ const DEFAULT_CONFIG = {
   maxFilesPerModule: 20,
   moduleConcurrency: 4,
   tokenReport: true,
-  docs: false,
+  docs: true,
   headers: false,
   headerWindow: 80,
   topKeyFilesPerModule: 15,

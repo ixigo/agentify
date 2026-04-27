@@ -441,7 +441,11 @@ ${(meta.detected_stacks || []).map((stack) => `- \`${stack.name}\` (${stack.conf
 ${structuralEntrypoints.length > 0 ? structuralEntrypoints.map((entry) => `- \`${entry}\``).join("\n") : "- No entrypoints detected."}
 
 ## Modules
-${modules.map((moduleInfo) => `- [${moduleInfo.name}](./modules/${path.basename(moduleInfo.doc_path)})`).join("\n")}
+${modules.map((moduleInfo) => {
+  const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
+  const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+  return `- [${moduleInfo.name}](${href})`;
+}).join("\n")}
 
 ## Semantic Projects
 ${projectLines.join("\n")}

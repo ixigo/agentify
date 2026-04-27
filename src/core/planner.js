@@ -262,7 +262,7 @@ export function renderExecutionPrompt(plan) {
 Execution rules:
 - Prefer the selected file slices and generated markdown docs before running new discovery commands.
 - Do not invoke nested \`agentify plan\`, \`agentify query\`, or raw SQLite inspection from inside the provider session unless the selected context is clearly insufficient; those host-side artifacts may be unavailable in sandboxed providers.
-- If you still need more context, read \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/*.md\` before widening further.
+- If you still need more context, read root \`AGENTIFY.md\`, \`docs/repo-map.md\`, and module-root \`AGENTIFY.md\` files before widening further.
 
 Task:
 ${plan.task}

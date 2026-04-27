@@ -122,7 +122,7 @@ function fitContext(manifest, index, checklist, options, config) {
       },
       cache_refs: {
         repo_index: ".agents/index.db",
-        repo_docs: "docs/modules/",
+        repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
         checklist: `.agents/session/${manifest.session_id}/checklist.json`,
         transcript: transcriptRef,
         memory_context: memoryContextRef,
@@ -145,8 +145,8 @@ function fitBootstrap(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
   const baseStartHere = options.startHere || [
-    "- Read `AGENTIFY.md` for the current repo snapshot and module guidance.",
-    "- Use `docs/repo-map.md` and `docs/modules/` for deterministic structure before reaching for provider tools.",
+    "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
+    "- Use `docs/repo-map.md` and module-root `AGENTIFY.md` files for deterministic structure before reaching for provider tools.",
     "- Treat `.agents/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
   ].join("\n");
   const attempts = [

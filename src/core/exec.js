@@ -294,7 +294,7 @@ export async function runExec(root, config, agentCommand, flags) {
     if (config.docs) {
       await runDoc(root, config, { skipFinalize: true });
     } else {
-      ui.log("doc: skipped (set --docs=true to generate docs during refresh)");
+      ui.log("doc: skipped because --docs=false");
     }
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);

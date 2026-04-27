@@ -35,7 +35,7 @@ test("scan and doc generate required artifacts", async () => {
 
   assert.equal(result.passed, true);
   assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   const summary = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
   assert.match(summary, /# AGENTIFY\.md/);
@@ -224,7 +224,7 @@ test("passes", () => {
   assert.equal(payload.tests.status, "passed");
 });
 
-test("runUpdate skips docs and headers by default unless docs=true is explicitly set", async () => {
+test("runUpdate skips docs and headers when docs=false is explicitly set", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-default-docs-off-"));
   await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
     scripts: {
@@ -242,7 +242,7 @@ test("passes", () => {
 });
 `);
 
-  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: false });
   await runUpdate(root, config);
 
   assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
@@ -340,7 +340,7 @@ test("runDoc refreshes cached markdown and summary with current module metadata"
 
   await runDoc(root, config);
 
-  const moduleDoc = await fs.readFile(path.join(root, "docs", "modules", "auth.md"), "utf8");
+  const moduleDoc = await fs.readFile(path.join(root, "src", "auth", "AGENTIFY.md"), "utf8");
   const repoDoc = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
   assert.doesNotMatch(moduleDoc, /undefined/);
   assert.doesNotMatch(repoDoc, /undefined/);

@@ -10,7 +10,7 @@ A repository is ready when all of these are true:
 - `codex login status` shows Codex is logged in.
 - `.agentify.yaml` exists and the repo provider is `codex`.
 - Baseline repo artifacts exist: `.agentignore`, `.guardrails`, `.agentify/work/`.
-- Generated Agentify artifacts exist: `.agents/index.db`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/*.md`.
+- Generated Agentify artifacts exist: `.agents/index.db`, root `AGENTIFY.md`, `docs/repo-map.md`, and module-root `AGENTIFY.md` files.
 - `agentify check` passes.
 
 ## Prerequisites
@@ -86,7 +86,7 @@ agentify up
 - `check`
 - repo tests when a runnable test command is detected
 
-`doc` is skipped by default in `up`. Pass `--docs=true` when you explicitly want docs refreshed as part of the pipeline.
+`doc` runs by default in `up`. Pass `--docs=false` only when you explicitly want to skip markdown refreshes.
 
 ### 6. Confirm the repo is ready
 
@@ -150,7 +150,7 @@ provider: codex
 ### 6. Generate repository artifacts
 
 ```bash
-agentify up --docs=true
+agentify up
 ```
 
 If you want the exact steps separately instead of the full pipeline:
@@ -171,7 +171,7 @@ After `agentify this` or `agentify init`:
 - `.agentify/work/`
 - `.agents/`
 - `.agents/runs/`
-- `docs/modules/`
+- `<module-root>/AGENTIFY.md`
 
 After `agentify scan`:
 
@@ -181,7 +181,7 @@ After `agentify scan`:
 After `agentify doc`:
 
 - `AGENTIFY.md`
-- `docs/modules/*.md`
+- `<module-root>/AGENTIFY.md`
 - `.agents/runs/*.json`
 - refreshed `@agentify` file headers when applicable
 
@@ -205,7 +205,7 @@ You should also confirm:
 - `AGENTIFY.md` exists at the repo root.
 - `.agents/index.db` exists.
 - `docs/repo-map.md` exists.
-- `docs/modules/` contains module docs.
+- module roots contain generated `AGENTIFY.md` docs.
 
 ## Day-To-Day Codex Workflow
 
