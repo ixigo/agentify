@@ -647,6 +647,61 @@ function prioritizeModuleFiles(moduleInfo, fileRows) {
     .map((fileInfo) => fileInfo.path);
 }
 
+function resolveProviderTimeoutMs(config) {
+  const timeoutMs = Number(config.providerTimeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000;
+}
+
+async function generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config) {
+  if (provider.name === "local") {
+    return provider.generateModuleArtifacts(moduleInfo, context);
+  }
+
+  const timeoutMs = resolveProviderTimeoutMs(config);
+  let timeout = null;
+
+  try {
+    return await Promise.race([
+      provider.generateModuleArtifacts(moduleInfo, context),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(
+            `timed out after ${timeoutMs}ms. Increase providerTimeoutMs or rerun with --provider local for deterministic docs.`
+          ));
+        }, timeoutMs);
+      })
+    ]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `doc provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}`
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function removeRepoMapIfModuleDocsIncomplete(artifactRoot, modules) {
+  const missingDocs = [];
+  for (const moduleInfo of modules) {
+    if (!await exists(path.join(artifactRoot, moduleInfo.doc_path))) {
+      missingDocs.push(moduleInfo.doc_path);
+    }
+  }
+
+  if (missingDocs.length > 0) {
+    await fs.unlink(path.join(artifactRoot, "docs", "repo-map.md")).catch((error) => {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    });
+  }
+
+  return missingDocs;
+}
+
 export async function runDoc(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("doc: starting documentation and metadata generation");
@@ -687,8 +742,6 @@ async function _runDocInner(root, config, options, progress) {
           provider: config.provider,
         });
       });
-      const renderable = buildRenderableIndex(root, getRepoMeta(writeDb), loadModules(writeDb));
-      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(renderable));
     } finally {
       closeIndexDatabase(writeDb);
     }
@@ -703,7 +756,6 @@ async function _runDocInner(root, config, options, progress) {
       silent: true,
       skipOutput: true,
     });
-    await writeSemanticRepoMap(root, artifactRoot);
   }
 
   let indexData;
@@ -874,7 +926,7 @@ async function _runDocInner(root, config, options, progress) {
         };
       }
 
-      const result = await provider.generateModuleArtifacts(moduleInfo, context);
+      const result = await generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config);
       return {
         moduleInfo,
         fingerprint,
@@ -968,7 +1020,14 @@ async function _runDocInner(root, config, options, progress) {
       });
       filesWithHeaders += semanticHeaderResult.changed;
       plannedHeaders.push(...semanticHeaderResult.plannedHeaders);
-      await writeSemanticRepoMap(root, artifactRoot);
+    }
+
+    if (!config.dryRun) {
+      if (semanticEnabled) {
+        await writeSemanticRepoMap(root, artifactRoot);
+      } else {
+        await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(indexData.index));
+      }
     }
 
     const runReport = {
@@ -1052,7 +1111,7 @@ async function _runDocInner(root, config, options, progress) {
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/repo-map.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);
@@ -1063,6 +1122,14 @@ async function _runDocInner(root, config, options, progress) {
       await progress.finalize();
     }
     return result;
+  } catch (error) {
+    if (!config.dryRun && indexData?.modules?.length) {
+      const missingDocs = await removeRepoMapIfModuleDocsIncomplete(artifactRoot, indexData.modules);
+      if (missingDocs.length > 0) {
+        progress.log(`doc: removed repo map after failed generation; missing ${missingDocs.length} module doc(s)`);
+      }
+    }
+    throw error;
   } finally {
     if (db) {
       closeIndexDatabase(db);

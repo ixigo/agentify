@@ -215,6 +215,7 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--docs")}                      Generate docs during refresh/update flows (off by default)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
+    `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,

@@ -327,6 +327,55 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
   }
 });
 
+test("runDoc fails closed when an external module provider stalls", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-timeout-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-bin-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
+
+  const codexPath = path.join(binDir, "codex");
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+setInterval(() => {}, 1000);
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+
+  try {
+    const config = await loadConfig(root, {
+      provider: "codex",
+      dryRun: false,
+      tokenReport: false,
+      providerTimeoutMs: 50,
+    });
+    await runScan(root, config, { skipOutput: true });
+    assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
+
+    await assert.rejects(
+      () => runDoc(root, config, { skipOutput: true }),
+      /doc provider "codex" failed while generating module "auth".*timed out/,
+    );
+
+    assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true).catch(() => false), false);
+    assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true).catch(() => false), false);
+    assert.equal(await fs.stat(path.join(root, ".agents", ".lock")).then(() => true).catch(() => false), false);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  }
+
+  const localConfig = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runDoc(root, localConfig, { skipOutput: true });
+
+  assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
+});
+
 test("runDoc refreshes cached markdown and summary with current module metadata", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-cache-refresh-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
