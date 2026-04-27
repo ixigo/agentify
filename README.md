@@ -101,6 +101,7 @@ Depending on the command, Agentify can create or refresh:
 
 ```text
 .agentify.yaml
+.gitignore
 .agentignore
 .guardrails
 .agentify/work/
@@ -112,7 +113,7 @@ docs/repo-map.md
 docs/modules/
 ```
 
-These files give agents a stable map of the repo, guardrails for safe edits, durable session context, and validation evidence.
+Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when you want Agentify policy shared with the repo. The managed `.gitignore` block keeps local/generated runtime output such as `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of Git by default.
 
 ## Best First Workflow
 

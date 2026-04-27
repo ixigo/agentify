@@ -146,9 +146,42 @@ test("runCli init writes baseline local work and guardrail files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-"));
   await runCli(["init", "--root", root]);
 
+  const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
+  assert.match(gitignore, /# >>> agentify generated artifacts/);
+  assert.match(gitignore, /^\.agents\/$/m);
+  assert.match(gitignore, /^docs\/modules\/$/m);
+  assert.match(gitignore, /^agentify-report\.html$/m);
+  assert.doesNotMatch(gitignore, /^\.agentify\.yaml$/m);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "work")));
+});
+
+test("runCli init preserves existing gitignore entries while adding Agentify ignores", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-gitignore-"));
+  await fs.writeFile(path.join(root, ".gitignore"), "node_modules/\n", "utf8");
+  await runCli(["init", "--root", root]);
+
+  const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
+  assert.match(gitignore, /^node_modules\/$/m);
+  assert.match(gitignore, /# >>> agentify generated artifacts/);
+  assert.match(gitignore, /^AGENTIFY\.md$/m);
+  assert.match(gitignore, /^output\.txt$/m);
+});
+
+test("runCli generated artifacts stay out of git status after repo config is committed", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-gitignore-clean-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n", "utf8");
+
+  await runCli(["init", "--root", root]);
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+  await runCli(["doc", "--root", root]);
+
+  const { stdout } = await execFileAsync("git", ["status", "--short"], { cwd: root });
+  assert.equal(stdout, "");
 });
 
 test("runCli plan reports actionable guidance when the index is missing", async () => {
@@ -251,11 +284,14 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.equal(payload.repo_sync.baseline.some((item) => item.status === "created"), true);
 
   const configText = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
+  const gitignoreText = await fs.readFile(path.join(root, ".gitignore"), "utf8");
   const skillText = await fs.readFile(path.join(root, ".codex", "skills", "grill-me", "SKILL.md"), "utf8");
   const hookText = await fs.readFile(path.join(root, ".git", "hooks", "post-merge"), "utf8");
 
   assert.match(configText, /^semantic:/m);
   assert.match(configText, /^toolchain:/m);
+  assert.match(gitignoreText, /# >>> agentify generated artifacts/);
+  assert.match(gitignoreText, /^\.agents\/$/m);
   assert.match(skillText, /Interview the user relentlessly/);
   assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));

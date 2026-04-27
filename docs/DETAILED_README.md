@@ -511,11 +511,16 @@ docs/modules/*.md
 
 What creates them:
 
-- `init` creates baseline config and working directories.
+- `init` creates baseline config and working directories, and installs a managed `.gitignore` block for local/generated Agentify output.
 - `index` or `scan` writes the SQLite index and refreshes repo map basics.
 - `doc` writes markdown docs, run reports, and eligible headers.
 - `sess *` writes session manifests and bootstrap context under `.agents/session/`.
 - `--ghost` writes isolated outputs under `.current_session/`.
+
+Git hygiene model:
+
+- Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when Agentify policy should be shared across the repository.
+- Keep `.agents/`, `.agentify/work/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` local/generated; Agentify ignores them in Git by default.
 
 ## Development
 
