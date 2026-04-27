@@ -13,6 +13,7 @@ import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { runSemanticRefresh } from "./core/semantic.js";
+import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { runRepoSync } from "./core/repo-sync.js";
 import { installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
@@ -42,6 +43,8 @@ const BOOLEAN_FLAGS = new Set([
   "failOnStale",
   "skipRefresh",
   "explainPlan",
+  "allowPartial",
+  "reuseSession",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -195,6 +198,7 @@ function printHelp() {
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
+    `    ${c("issue-killer")}    ${d("Launch labelled GitHub issues into supervised tmux worktrees")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
     `    ${c("semantic")}        ${d("Refresh semantic TS/JS project facts")}`,
@@ -238,6 +242,7 @@ function printHelp() {
     `    ${d("$")} agentify skill install god-mode --provider all --scope project`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
+    `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
   ];
@@ -433,6 +438,10 @@ export async function runCli(argv) {
         await runExec(root, config, agentCommand, getExecFlags(args));
         return;
       }
+
+      case "issue-killer":
+        await runIssueKiller(root, config, args);
+        return;
 
       case "query": {
         let result;

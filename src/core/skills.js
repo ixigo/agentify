@@ -30,6 +30,12 @@ const BUILTIN_SKILLS = [
       "Handle GitHub issue, PR, review, comment, and label workflows via gh CLI, and hand code changes off to worktree-autopilot when isolated implementation is needed.",
   },
   {
+    name: "issue-killer",
+    aliases: ["gh-issue-killer"],
+    description:
+      "Launch opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude agent prompt for draft PR creation.",
+  },
+  {
     name: "copy-mode",
     aliases: [],
     description:

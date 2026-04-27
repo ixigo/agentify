@@ -241,6 +241,16 @@ agentify sess resume --session <session-id> "continue from the last checkpoint"
 agentify sess fork --from <session-id> --name "payments-alt" "try an alternate design"
 ```
 
+### Launch opted-in issues in parallel
+
+Use `issue-killer` when you want supervised parallel issue solving across Worktrunk worktrees. V1 supports GitHub only, requires either an opt-in label or explicit issue URLs, and opens interactive tmux panes for Codex or Claude.
+
+```bash
+agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 5
+agentify issue-killer --issue-provider github --issue-url https://github.com/org/repo/issues/123,https://github.com/org/repo/issues/124 --agent-provider claude --limit 2
+tmux attach -t gh-issue-killer
+```
+
 ### Preview context before execution
 
 ```bash
@@ -292,6 +302,7 @@ This installs all built-in skills in one shot and is the recommended baseline fo
 ```bash
 agentify skill install worktree-autopilot --provider codex --scope project
 agentify skill install grill-me --provider codex --scope project
+agentify skill install issue-killer --provider codex --scope project
 ```
 
 Use project scope when you want the repo to carry its own agent behavior under `.codex/skills/`.

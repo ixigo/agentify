@@ -1,0 +1,4 @@
+version: 1
+agent:
+  short_description: "Launch opted-in GitHub issues into supervised tmux worktrees"
+  default_prompt: "Use $issue-killer to launch labelled or explicit GitHub issues into supervised tmux panes, each with a Worktrunk worktree and draft-PR workflow."

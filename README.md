@@ -149,6 +149,7 @@ It is written so the model treats the current working directory as the target re
 | `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
+| `agentify issue-killer` | Launches opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude prompt. | Use when you want several labelled or explicit issues handled in parallel without giving agents arbitrary access to the whole issue backlog. | `agentify issue-killer --label agentify-ready --agent-provider codex --limit 5` |
 
 Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
 
@@ -237,6 +238,7 @@ Built-in skills:
 - `grill-me`
 - `improve-codebase-architecture`
 - `gh-autopilot` (alias: `gh-issue-autopilot`)
+- `issue-killer` (alias: `gh-issue-killer`)
 - `worktree-autopilot` (aliases: `worktree-verifier`, `god-mode`)
 - `pr-creator`
 - `commit-creator`
