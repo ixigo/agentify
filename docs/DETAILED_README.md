@@ -10,16 +10,16 @@
 # Agentify Detailed README
 
 [![npm version](https://img.shields.io/npm/v/agentify)](https://www.npmjs.com/package/agentify)
-[![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
+[![license](https://img.shields.io/npm/l/agentify)](../LICENSE)
 [![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-This is the full reference guide for Agentify. For the shorter action-first entry point, start with [README.md](./README.md).
+This is the full reference guide for Agentify. For the shorter action-first entry point, start with [README.md](../README.md).
 
 Agentify is a repository orchestration CLI for AI coding workflows. It builds a searchable repo index, generates AI-facing docs, validates repository state, and wraps provider CLIs so the repository stays fresh while agents work.
 
 Supported providers: `local`, `codex`, `claude`, `gemini`, `opencode`.
 
-License: [MIT](./LICENSE)
+License: [MIT](../LICENSE)
 
 > [!WARNING]
 > Agentify is still under active development.
@@ -231,7 +231,7 @@ agentify skill list
 agentify skill install <name|all> --provider <name|all> --scope <project|user>
 ```
 
-Published built-in skill bundles also live under the repository-level [`skills/`](./skills/) directory so external skill installers that scan GitHub repositories for `skills/*/SKILL.md` can discover Agentify's built-ins directly.
+Published built-in skill bundles also live under the repository-level [`skills/`](../skills/) directory so external skill installers that scan GitHub repositories for `skills/*/SKILL.md` can discover Agentify's built-ins directly.
 
 Built-in skills:
 
@@ -541,4 +541,4 @@ Both forms run Node's built-in test runner for this repository.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](../LICENSE).

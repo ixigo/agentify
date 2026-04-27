@@ -143,10 +143,11 @@ agentify check
 
 ## Learn More
 
-- [DETAILED_README.md](./DETAILED_README.md) has the full command guide, provider behavior, semantic indexing, session memory, generated artifacts, and development notes.
-- [usage.md](./usage.md) is a step-by-step Codex-oriented operating guide.
-- [ADVANCED_ONBOARDING.md](./ADVANCED_ONBOARDING.md) covers team rollout patterns.
-- [LLM_PROMPT.md](./LLM_PROMPT.md) is a single-file instruction prompt you can paste into an AI coding agent.
+- [docs/DETAILED_README.md](./docs/DETAILED_README.md) has the full command guide, provider behavior, semantic indexing, session memory, generated artifacts, and development notes.
+- [docs/usage.md](./docs/usage.md) is a step-by-step Codex-oriented operating guide.
+- [docs/ADVANCED_ONBOARDING.md](./docs/ADVANCED_ONBOARDING.md) covers team rollout patterns.
+- [docs/LLM_PROMPT.md](./docs/LLM_PROMPT.md) is a single-file instruction prompt you can paste into an AI coding agent.
+- [docs/QNA.md](./docs/QNA.md) answers common questions about how Agentify behaves.
 
 ## Development
 
