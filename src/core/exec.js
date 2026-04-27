@@ -204,7 +204,7 @@ export async function runExec(root, config, agentCommand, flags) {
   const preFiles = await getChangedFiles(root);
   const preFileDigests = await captureDirtyFileDigests(root, preFiles);
   const preparedSessionMemory = flags.sessionRecord
-    ? await prepareSessionMemoryRun(root, flags.sessionRecord)
+    ? await prepareSessionMemoryRun(root, flags.sessionRecord, config)
     : null;
 
   let commandResult;

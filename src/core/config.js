@@ -52,6 +52,9 @@ const DEFAULT_CONFIG = {
     memoryTurns: 6,
     memoryResults: 3,
     captureMaxKb: 48,
+    runHistoryMax: 10,
+    runSummaryMaxBytes: 256,
+    emitMarkdownArtifacts: true,
   },
   planner: {
     maxModules: 6,
