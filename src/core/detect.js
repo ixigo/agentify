@@ -160,13 +160,14 @@ async function detectSwiftModules(root) {
     : [{ id: path.basename(root), name: path.basename(root), rootPath: ".", stack: "swift" }];
 }
 
-export async function detectStacks(root, config) {
+export async function detectStacks(root, config, options = {}) {
   if (config.languages && config.languages !== "auto") {
     return [{ name: config.languages, confidence: 1 }];
   }
 
-  const files = await walkFiles(root, { respectIgnore: true });
-  const relFiles = files.map((file) => relative(root, file));
+  const relFiles = options.relFiles
+    ? options.relFiles
+    : (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
 
   const tsSignals = [
     await exists(path.join(root, "package.json")),
