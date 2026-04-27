@@ -48,6 +48,8 @@ const BOOLEAN_FLAGS = new Set([
   "hook",
 ]);
 
+const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
+
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
@@ -154,7 +156,7 @@ export function buildExecutionPrompt(basePrompt, memoryMarkdown = "") {
 }
 
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
-  const task = userPrompt || "Continue this session from the latest repository state.";
+  const task = userPrompt || DEFAULT_SESSION_TASK;
   const sections = [
     "You are continuing an Agentify session.",
     "",
@@ -165,6 +167,48 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
   }
   sections.push("", `Current task: ${task}`);
   return sections.join("\n");
+}
+
+export async function prepareSessionLaunch(root, config, args, sessionResult, task) {
+  const memoryQuery = task || sessionResult.manifest.name || "";
+  const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, memoryQuery);
+  const provider = hasOwn(args, "provider")
+    ? normalizeProvider(args.provider)
+    : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
+  const usingTemplateCommand = !args._exec?.length;
+  const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+  const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
+  const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
+  const agentCommand = args._exec?.length
+    ? args._exec
+    : buildProviderTemplateCommand(
+      provider,
+      prompt,
+      providerOptions,
+    );
+  const sessionRecord = {
+    sessionId: sessionResult.manifest.session_id,
+    provider,
+    prompt,
+    task: task || DEFAULT_SESSION_TASK,
+    command: agentCommand,
+    memoryContext,
+    captureMode: captureSettings.captureMode,
+  };
+
+  return {
+    provider,
+    memoryContext,
+    prompt,
+    captureSettings,
+    agentCommand,
+    sessionRecord,
+    runExecConfig: { ...config, provider },
+    runExecFlags: getExecFlags(args, {
+      captureOutputMode: captureSettings.captureOutputMode,
+      sessionRecord,
+    }),
+  };
 }
 
 function resolveSessionIdForResume(args) {
@@ -569,39 +613,14 @@ export async function runCli(argv) {
             name: args.name || null,
           });
           const task = getPromptFromArgs(args, 2);
-          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, result, task);
 
           if (!config.json) {
             success(`Session forked: ${result.manifest.session_id}`);
             log(`Path: ${dim(result.sessionDir)}`);
           }
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: result.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
@@ -609,34 +628,9 @@ export async function runCli(argv) {
           const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
           const result = await resumeSession(root, sessionId);
           const task = getPromptFromArgs(args, promptStartIndex);
-          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown);
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, result, task);
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: result.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
@@ -665,39 +659,14 @@ export async function runCli(argv) {
             }
           }
 
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
           const task = getPromptFromArgs(args, 2);
-          const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
-          const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown);
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, sessionResult, task);
 
           if (config.json && sessionDir) {
             console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
           }
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: sessionResult.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
