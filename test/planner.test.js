@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
-import { closeIndexDatabase, openIndexDatabase } from "../src/core/db.js";
+import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
 import { buildExecutionPlan } from "../src/core/planner.js";
 
 test("planner prioritizes extracted Python symbols", async () => {

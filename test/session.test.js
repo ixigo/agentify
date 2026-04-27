@@ -7,7 +7,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { loadConfig } from "../src/core/config.js";
-import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
+import { closeIndexDatabase, inTransaction, openIndexDatabase } from "../src/core/db/connection.js";
+import { writeRepositoryIndex } from "../src/core/db/structural-store.js";
 import { forkSession, resolveSessionProvider, resumeSession, validateSessionId } from "../src/core/session.js";
 import {
   getSessionArtifactPaths,

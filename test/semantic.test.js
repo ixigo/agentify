@@ -6,13 +6,12 @@ import path from "node:path";
 
 import { loadConfig } from "../src/core/config.js";
 import { runDoc, runScan } from "../src/core/commands.js";
+import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
 import {
-  closeIndexDatabase,
   listSemanticProjects,
   loadSemanticReactSurfaces,
   loadSemanticRouteSurfaces,
-  openIndexDatabase,
-} from "../src/core/db.js";
+} from "../src/core/db/semantic-store.js";
 import { buildExecutionPlan } from "../src/core/planner.js";
 import { queryDeps, queryOwner, querySearch } from "../src/core/query.js";
 import { runSemanticRefresh } from "../src/core/semantic.js";

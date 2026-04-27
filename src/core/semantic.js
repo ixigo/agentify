@@ -6,21 +6,18 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
 
+import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
+import { loadFiles, loadModules } from "./db/structural-store.js";
 import {
-  closeIndexDatabase,
   clearSemanticProjectState,
-  getRepoMeta,
-  inTransaction,
   listSemanticProjects,
-  loadFiles,
-  loadModules,
-  openIndexDatabase,
   replaceSemanticProjectSnapshot,
   upsertSemanticMeta,
   loadSemanticProjectFactsByFile,
   loadSemanticRouteSurfaces,
   loadSemanticReactSurfaces,
-} from "./db.js";
+} from "./db/semantic-store.js";
 import { ensureDir, relative, walkFiles, writeText } from "./fs.js";
 import { updateFileHeader } from "./headers.js";
 

@@ -9,7 +9,9 @@ import { promisify } from "node:util";
 import { applyHeaderToSource, renderHeader } from "../src/core/headers.js";
 import { loadConfig } from "../src/core/config.js";
 import { runDoc, runScan, runUpdate } from "../src/core/commands.js";
-import { closeIndexDatabase, getArtifact, getRepoMeta, openIndexDatabase, upsertArtifact } from "../src/core/db.js";
+import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
+import { getArtifact, upsertArtifact } from "../src/core/db/artifact-store.js";
+import { getRepoMeta } from "../src/core/db/metadata-store.js";
 import { validateRepo } from "../src/core/validate.js";
 
 const execFileAsync = promisify(execFile);

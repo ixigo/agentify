@@ -13,21 +13,18 @@ import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
+import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
+import { getArtifact, upsertArtifact } from "./db/artifact-store.js";
 import {
-  closeIndexDatabase,
-  getArtifact,
-  getRepoMeta,
-  inTransaction,
   loadCommands,
   loadFiles,
   loadModuleDependencies,
   loadModules,
-  loadSemanticModuleContext,
   loadTests,
-  openIndexDatabase,
-  upsertArtifact,
   writeRepositoryIndex,
-} from "./db.js";
+} from "./db/structural-store.js";
+import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
 import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
