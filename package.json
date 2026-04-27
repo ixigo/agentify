@@ -8,7 +8,7 @@
     "agentify": "./src/cli.js"
   },
   "files": [
-    "src/",
+    "src/**/*.js",
     "skills/",
     "README.md",
     "docs/",
