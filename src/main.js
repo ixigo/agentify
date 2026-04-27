@@ -7,7 +7,7 @@ import { runExec } from "./core/exec.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
 import { buildExecutionPlan } from "./core/planner.js";
-import { forkSession, listSessions, resolveSessionProvider, resumeSession } from "./core/session.js";
+import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
@@ -168,11 +168,11 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "") {
 
 function resolveSessionIdForResume(args) {
   if (args.session) {
-    return { sessionId: String(args.session), promptStartIndex: 2 };
+    return { sessionId: validateSessionId(String(args.session), "--session id"), promptStartIndex: 2 };
   }
   const positional = args._[2];
   if (positional) {
-    return { sessionId: String(positional), promptStartIndex: 3 };
+    return { sessionId: validateSessionId(String(positional), "session id"), promptStartIndex: 3 };
   }
   throw new Error("sess resume requires --session <id> or sess resume <id>");
 }
@@ -560,8 +560,9 @@ export async function runCli(argv) {
         }
 
         if (subcommand === "fork") {
+          const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
           const result = await forkSession(root, config, {
-            from: args.from || null,
+            from: fromId,
             provider: args.provider || null,
             name: args.name || null,
           });
@@ -642,10 +643,11 @@ export async function runCli(argv) {
           let sessionDir;
 
           if (args.session) {
-            sessionResult = await resumeSession(root, String(args.session));
+            sessionResult = await resumeSession(root, validateSessionId(String(args.session), "--session id"));
           } else {
+            const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
             const created = await forkSession(root, config, {
-              from: args.from || null,
+              from: fromId,
               provider: args.provider || null,
               name: args.name || null,
             });
