@@ -45,6 +45,7 @@ const BOOLEAN_FLAGS = new Set([
   "explainPlan",
   "allowPartial",
   "reuseSession",
+  "hook",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -220,6 +221,7 @@ function printHelp() {
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,
+    `    ${c("--hook")}                      Hook-friendly check: skip changed-file body diffing (used by managed pre-commit)`,
     ``,
     `  ${bold("EXEC FLAGS")}`,
     ``,
@@ -388,7 +390,7 @@ export async function runCli(argv) {
         return;
 
       case "check":
-        await runValidate(root, config);
+        await runValidate(root, config, { skipChangedFiles: args.hook === true });
         return;
 
       case "plan": {
