@@ -269,6 +269,139 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   }
 });
 
+async function installMemPalaceShim(binDir, searchStdout) {
+  const stdoutPath = path.join(binDir, "search-stdout.txt");
+  await fs.writeFile(stdoutPath, searchStdout, "utf8");
+  const scriptPath = path.join(binDir, "mempalace");
+  await fs.writeFile(scriptPath, `#!/bin/sh
+set -eu
+if [ "$1" = "mine" ]; then
+  mkdir -p "\${MEMPALACE_PALACE_PATH}"
+  echo "mined"
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  cat "${stdoutPath}"
+  exit 0
+fi
+exit 1
+`, "utf8");
+  await fs.chmod(scriptPath, 0o755);
+  return scriptPath;
+}
+
+async function setupMemPalaceTestRepo() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mp-guard-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+  const config = await loadConfig(root, { provider: "codex" });
+  const session = await forkSession(root, config, { name: "memory" });
+  const paths = getSessionArtifactPaths(root, session.sessionId);
+  await fs.writeFile(paths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Pick a transcript format.",
+    "",
+    "> Provider response",
+    "Use JSONL transcripts because they are append-friendly for durable memory capture.",
+    "",
+  ].join("\n"), "utf8");
+  return { root, config };
+}
+
+test("loadAutomaticRunMemory rejects MemPalace stdout that reports a missing palace", async () => {
+  const { root, config } = await setupMemPalaceTestRepo();
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installMemPalaceShim(binDir, [
+    "  No palace found at /tmp/agentify-test/.agents/mempalace/palace",
+    "  Run: mempalace init <dir> then mempalace mine <dir>",
+    "",
+  ].join("\n"));
+
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  delete process.env.AGENTIFY_MEMPALACE_CMD;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
+    assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when stdout reports no palace");
+    if (memory.markdown) {
+      assert.doesNotMatch(memory.markdown, /No palace found/);
+      assert.doesNotMatch(memory.markdown, /mempalace init/);
+    }
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
+test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result rows", async () => {
+  const { root, config } = await setupMemPalaceTestRepo();
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installMemPalaceShim(binDir, [
+    "============================================================",
+    '  Results for: "transcript decision query"',
+    "  Wing: agentify",
+    "============================================================",
+    "",
+    "",
+  ].join("\n"));
+
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  delete process.env.AGENTIFY_MEMPALACE_CMD;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
+    assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when no result rows are present");
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
+test("loadAutomaticRunMemory exercises the real MemPalace CLI when available", async (t) => {
+  const candidate = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace";
+  let probeOk = false;
+  try {
+    await execFileAsync(candidate, ["--version"]);
+    probeOk = true;
+  } catch {
+    /* not available */
+  }
+  if (!probeOk) {
+    t.skip(`real mempalace not invokable (set AGENTIFY_MEMPALACE_CMD or place mempalace on PATH; tried ${candidate})`);
+    return;
+  }
+
+  const { root, config } = await setupMemPalaceTestRepo();
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.AGENTIFY_MEMPALACE_CMD = candidate;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "JSONL transcript decision", config);
+    assert.equal(memory.backend, "mempalace");
+    assert.match(memory.markdown, /Backend: mempalace/);
+    assert.match(memory.markdown, /JSONL transcripts/i, "excerpt should contain the seeded term from the synthetic transcript");
+  } finally {
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
 test("normalizeInteractiveCapture strips script noise and ANSI sequences", () => {
   const normalized = normalizeInteractiveCapture("\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n");
   assert.equal(normalized, "hello");

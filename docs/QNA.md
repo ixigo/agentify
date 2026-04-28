@@ -243,7 +243,20 @@ The goal is not replacing provider intelligence; it is making AI-assisted engine
 
 ---
 
-## 21) What are the biggest current problems/gaps to solve next?
+## 21) When should I not use caveman mode?
+
+Avoid caveman mode when the output itself needs polished prose or extra clarity:
+
+- commit messages and PR descriptions,
+- documentation generation or public-facing copy,
+- security-sensitive warnings and irreversible confirmations,
+- multi-step instructions where terse fragments could be misread.
+
+Agentify's `--caveman` prompt modifier tells agents to suspend caveman for those cases and resume afterward.
+
+---
+
+## 22) What are the biggest current problems/gaps to solve next?
 
 The biggest practical gaps today are mostly around **depth, visibility, and feedback loops**:
 

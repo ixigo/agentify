@@ -6,8 +6,8 @@ import path from "node:path";
 
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
-import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
-import { buildExecutionPlan } from "../src/core/planner.js";
+import { closeIndexDatabase, openIndexDatabase } from "../src/core/db.js";
+import { buildExecutionPlan, renderExecutionPrompt } from "../src/core/planner.js";
 
 test("planner prioritizes extracted Python symbols", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-python-plan-"));
@@ -163,4 +163,52 @@ test("planner uses a read-only index and warns providers away from nested Agenti
     await fs.chmod(dbDir, 0o755);
     await fs.chmod(dbPath, 0o644);
   }
+});
+
+test("planner surfaces explicit discovery budget and edit-start contract", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-execution-budget-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "runner.ts"),
+    "export function runTask() { return 'ok'; }\n",
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  config.planner = {
+    ...config.planner,
+    maxAdditionalReadsBeforeEdit: 2,
+    maxWidenings: 0,
+    editAfterSelectedContextUnlessBlocked: true,
+  };
+  await runScan(root, config);
+
+  const plan = await buildExecutionPlan(root, config, "fix runTask error handling");
+
+  assert.deepEqual(plan.execution_budget, {
+    max_additional_reads_before_edit: 2,
+    max_widenings: 0,
+    edit_after_selected_context_unless_blocked: true,
+  });
+  assert.ok(plan.constraints.some((constraint) => constraint.includes("at most 2 additional file or doc reads and 0 widening step(s)")));
+  assert.match(plan.prompt, /Discovery budget before the first edit: at most 2 additional file or doc reads, and at most 0 widening step\(s\)/);
+  assert.match(plan.prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>; needed=<specific file, symbol, or doc>; reads_used=<n>; widenings_used=<n>/);
+  assert.match(plan.prompt, /Edit after selected context unless blocked: true/);
+});
+
+test("renderExecutionPrompt uses discovery budget defaults when older plans omit them", () => {
+  const prompt = renderExecutionPrompt({
+    task: "update docs",
+    confidence: 0.5,
+    prompt_bytes: 0,
+    selected_modules: [],
+    selected_symbols: [],
+    selected_files: [],
+    related_tests: [],
+    verification_commands: [],
+  });
+
+  assert.match(prompt, /Discovery budget before the first edit: at most 4 additional file or doc reads, and at most 1 widening step\(s\)/);
+  assert.match(prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>/);
 });

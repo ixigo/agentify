@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
+import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +50,26 @@ test("parseArgs supports interactive flags", () => {
   const promptArgs = parseArgs(["run", "--interactive", "implement login"]);
   assert.equal(promptArgs.interactive, true);
   assert.deepEqual(promptArgs._, ["run", "implement login"]);
+});
+
+test("parseArgs supports caveman flag forms", () => {
+  const bareArgs = parseArgs(["run", "--caveman", "summarize auth"]);
+  assert.equal(bareArgs.caveman, true);
+  assert.deepEqual(bareArgs._, ["run", "summarize auth"]);
+
+  const levelArgs = parseArgs(["run", "--caveman=ultra", "summarize auth"]);
+  assert.equal(levelArgs.caveman, "ultra");
+
+  const spacedLevelArgs = parseArgs(["run", "--caveman", "ultra", "summarize auth"]);
+  assert.equal(spacedLevelArgs.caveman, "ultra");
+  assert.deepEqual(spacedLevelArgs._, ["run", "summarize auth"]);
+});
+
+test("resolveCavemanLevel uses CLI before environment", () => {
+  assert.equal(resolveCavemanLevel({ caveman: true }, {}), "full");
+  assert.equal(resolveCavemanLevel({ caveman: "ultra" }, { AGENTIFY_CAVEMAN: "lite" }), "ultra");
+  assert.equal(resolveCavemanLevel({}, { AGENTIFY_CAVEMAN: "full" }), "full");
+  assert.equal(resolveCavemanLevel({ caveman: "false" }, { AGENTIFY_CAVEMAN: "full" }), null);
 });
 
 test("runCli rejects removed legacy command names", async () => {
@@ -119,6 +140,81 @@ test("buildExecutionPrompt prepends automatic memory before a normal run prompt"
   assert.ok(prompt.indexOf("Automatic Session Memory") < prompt.indexOf("Implement retry handling"));
 });
 
+test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
+  const prompt = buildExecutionPrompt("Summarize the auth module.", "", { caveman: "ultra" });
+
+  assert.match(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.match(prompt, /Active level: ultra\./);
+  assert.ok(prompt.indexOf(CAVEMAN_PREAMBLE_MARKER) < prompt.indexOf("Summarize the auth module."));
+});
+
+test("buildExecutionPrompt excludes caveman preamble for commit-message prompts", () => {
+  const prompt = buildExecutionPrompt("Write a conventional commit message.", "", {
+    caveman: "full",
+    promptKind: "commit-message",
+  });
+
+  assert.doesNotMatch(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.equal(prompt, "Write a conventional commit message.");
+});
+
+test("buildSessionPrompt prepends caveman preamble for session prompts", () => {
+  const prompt = buildSessionPrompt("# Session Context\n- Provider: codex", "Map checkout flow.", "", { caveman: "lite" });
+
+  assert.match(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
+  assert.match(prompt, /Active level: lite\./);
+});
+
+test("prepareSessionLaunch keeps sess subcommands on the same runExec payload path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-launch-"));
+  const sessionResult = {
+    manifest: {
+      session_id: "sess_shared_launch",
+      provider: "opencode",
+      name: "Shared launch session",
+    },
+    bootstrap: "# Session Context\n- Provider: opencode",
+  };
+  const config = {
+    provider: "claude",
+    session: {
+      memoryPromptMaxKb: 4,
+      memoryResults: 3,
+      memoryTurns: 6,
+    },
+  };
+  const task = "Finish launch preparation";
+  const commandArgs = {
+    fork: parseArgs(["sess", "fork", task]),
+    resume: parseArgs(["sess", "resume", "sess_shared_launch", task]),
+    run: parseArgs(["sess", "run", task]),
+  };
+
+  const launches = {};
+  for (const [subcommand, args] of Object.entries(commandArgs)) {
+    launches[subcommand] = await prepareSessionLaunch(root, config, args, sessionResult, task);
+  }
+
+  const baseline = launches.fork;
+  for (const launch of Object.values(launches)) {
+    assert.equal(launch.provider, "opencode");
+    assert.equal(launch.captureSettings.captureMode, "interactive-pty");
+    assert.equal(launch.runExecFlags.captureOutputMode, "pty");
+    assert.equal(launch.sessionRecord.sessionId, "sess_shared_launch");
+    assert.equal(launch.sessionRecord.provider, "opencode");
+    assert.equal(launch.sessionRecord.task, task);
+    assert.equal(launch.sessionRecord.memoryContext.backend, "none");
+    assert.equal(launch.sessionRecord.prompt, baseline.sessionRecord.prompt);
+    assert.deepEqual(launch.sessionRecord.command, baseline.sessionRecord.command);
+    assert.equal(launch.runExecConfig.provider, "opencode");
+    assert.equal(launch.runExecFlags.sessionRecord, launch.sessionRecord);
+  }
+
+  assert.match(baseline.prompt, /Current task: Finish launch preparation/);
+  assert.match(baseline.prompt, /Automatic Session Memory/);
+  assert.deepEqual(baseline.agentCommand.slice(0, 3), ["opencode", "--dir", root]);
+});
+
 test("runCli supports skill install with provider all", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-"));
   await runCli(["skill", "install", "god-mode", "--root", root, "--provider", "all", "--scope", "project"]);
@@ -140,6 +236,27 @@ test("runCli supports skill install all for codex project scope", async () => {
       fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
     );
   }
+});
+
+test("runCli memory compress reports placeholder status", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-memory-compress-"));
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["memory", "compress", "AGENTIFY.md", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "memory compress");
+  assert.equal(payload.status, "not_implemented");
+  assert.match(payload.message, /^TODO:/);
 });
 
 test("runCli init writes baseline local work and guardrail files", async () => {
