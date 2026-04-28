@@ -291,11 +291,7 @@ export async function runExec(root, config, agentCommand, flags) {
 
   try {
     await runScan(root, config, { skipFinalize: true });
-    if (config.docs) {
-      await runDoc(root, config, { skipFinalize: true });
-    } else {
-      ui.log("doc: skipped (set --docs=true to generate docs during refresh)");
-    }
+    await runDoc(root, config, { skipFinalize: true });
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);
     if (flags.failOnStale && !commandFailed) {

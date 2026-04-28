@@ -4,11 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureDir, exists } from "./fs.js";
-import { SUPPORTED_PROVIDERS } from "./provider-command.js";
+import { SKILL_INSTALL_PROVIDER_NAMES } from "./provider-registry.js";
 
-const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../builtin-skills", import.meta.url));
+const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../../skills", import.meta.url));
 
-export const SKILL_INSTALL_PROVIDERS = SUPPORTED_PROVIDERS.filter((provider) => provider !== "local");
+export const SKILL_INSTALL_PROVIDERS = SKILL_INSTALL_PROVIDER_NAMES;
 
 const BUILTIN_SKILLS = [
   {
@@ -21,7 +21,13 @@ const BUILTIN_SKILLS = [
     name: "caveman",
     aliases: [],
     description:
-      'Ultra-compressed communication mode that cuts token usage by dropping filler while keeping technical accuracy. Use when the user says "caveman mode", "be brief", or asks for fewer tokens.',
+      "Ultra-compressed caveman-speak output mode. Cuts ~65-75% of output tokens while keeping full technical accuracy. Supports intensity levels lite/full/ultra/wenyan.",
+  },
+  {
+    name: "caveman-compress",
+    aliases: [],
+    description:
+      "Placeholder for future memory-file compression using caveman-style input-token reduction.",
   },
   {
     name: "design-an-interface",

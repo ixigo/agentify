@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { sanitizeManagerPlan, sanitizeModuleResponse } from "./agent-contract.js";
 import { buildManagerPrompt, buildManagerSchema, buildModulePrompt, buildModuleSchema } from "./prompts.js";
+import { getProviderDefinition } from "./provider-registry.js";
 
 const DEFAULT_PROVIDER_TIMEOUT_MS = 120000;
 
@@ -606,37 +607,44 @@ function createExternalProvider(config, options) {
   };
 }
 
+const RUNTIME_RUNNERS = {
+  codex: runCodexExec,
+  claude: runClaudeExec,
+  gemini: runGeminiExec,
+  opencode: runOpenCodeExec,
+};
+
+function buildExternalRun(definition) {
+  const runner = RUNTIME_RUNNERS[definition.runtime.runner];
+  if (!runner) {
+    throw new Error(`unsupported provider runtime "${definition.runtime.runner}"`);
+  }
+  if (!definition.runtime.appendJsonOnlyInstruction) {
+    return runner;
+  }
+  return ({ prompt, ...args }) => runner({
+    ...args,
+    prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`,
+  });
+}
+
 export function createProvider(name, config = {}) {
-  if (name === "local") {
+  const definition = getProviderDefinition(name);
+  if (!definition) {
+    throw new Error(`unsupported provider "${name}"`);
+  }
+
+  if (definition.runtime.kind === "local") {
     return createLocalProvider();
   }
-  if (name === "codex") {
+
+  if (definition.runtime.kind === "external") {
     return createExternalProvider(config, {
-      name: "codex",
-      defaultModel: "codex-default",
-      run: runCodexExec
+      name: definition.name,
+      defaultModel: definition.runtime.defaultModel,
+      run: buildExternalRun(definition),
     });
   }
-  if (name === "claude") {
-    return createExternalProvider(config, {
-      name: "claude",
-      defaultModel: "claude-default",
-      run: runClaudeExec
-    });
-  }
-  if (name === "gemini") {
-    return createExternalProvider(config, {
-      name: "gemini",
-      defaultModel: "gemini-default",
-      run: async ({ root, prompt, model, timeoutMs }) => runGeminiExec({ root, prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`, model, timeoutMs })
-    });
-  }
-  if (name === "opencode") {
-    return createExternalProvider(config, {
-      name: "opencode",
-      defaultModel: "opencode-default",
-      run: async ({ root, prompt, model, timeoutMs }) => runOpenCodeExec({ root, prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`, model, timeoutMs })
-    });
-  }
+
   throw new Error(`unsupported provider "${name}"`);
 }

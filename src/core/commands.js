@@ -129,10 +129,10 @@ function findModuleDeps(modules, graph) {
 }
 
 async function buildScanState(root, config) {
-  const stacks = await detectStacks(root, config);
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  const stacks = await detectStacks(root, config, { relFiles: files });
   const defaultStack = stacks[0]?.name || "ts";
   const modules = await detectModules(root, config, defaultStack);
-  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   const graph = await buildDependencyGraph(root, defaultStack);
   const moduleDeps = findModuleDeps(modules, graph);
 
@@ -258,6 +258,15 @@ async function writeRunReport(root, report) {
   const runPath = path.join(root, ".agents", "runs", `${report.run_id}.json`);
   await writeJson(runPath, report);
   return runPath;
+}
+
+function summarizeTestResult(testResult) {
+  return {
+    status: testResult.status,
+    passed: testResult.passed,
+    command: testResult.command,
+    exit_code: testResult.exit_code
+  };
 }
 
 function renderDefaultAgentignore() {
@@ -1214,6 +1223,7 @@ export async function runUpdate(root, config, options = {}) {
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
+  const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);
     const meta = getRepoMeta(db);
@@ -1236,19 +1246,15 @@ export async function runUpdate(root, config, options = {}) {
         files_with_headers: 0,
         docs_written: 0
       },
-      validation: result
+      validation: result,
+      tests
     };
     await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
     command: commandName,
     validation: result,
-    tests: {
-      status: testResult.status,
-      passed: testResult.passed,
-      command: testResult.command,
-      exit_code: testResult.exit_code
-    },
+    tests,
     ...(options.preflight ? { repo_sync: options.preflight } : {}),
   };
   progress.json(finalOutput);
