@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -438,8 +439,43 @@ async function runMemPalace(root, args, palacePath) {
   });
 }
 
-async function createMemPalaceBackend(root, query, config) {
-  const transcripts = await listSessionTranscripts(root);
+async function resolveMemPalaceBinary() {
+  const cmd = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace";
+  if (cmd.includes("/") || cmd.includes("\\") || path.isAbsolute(cmd)) {
+    try {
+      await fs.access(cmd, fsConstants.X_OK);
+      return cmd;
+    } catch {
+      return null;
+    }
+  }
+  const pathEnv = process.env.PATH || "";
+  if (!pathEnv) {
+    return null;
+  }
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32"
+    ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";")
+    : [""];
+  for (const dir of pathEnv.split(sep)) {
+    if (!dir) {
+      continue;
+    }
+    for (const ext of exts) {
+      const candidate = path.join(dir, cmd + ext);
+      try {
+        await fs.access(candidate, fsConstants.X_OK);
+        return candidate;
+      } catch {
+        // try next candidate
+      }
+    }
+  }
+  return null;
+}
+
+async function createMemPalaceBackend(root, query, config, sharedInventory = {}) {
+  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
   const tokens = tokenizeQuery(query);
 
   return {
@@ -492,10 +528,10 @@ async function createMemPalaceBackend(root, query, config) {
   };
 }
 
-async function createTranscriptSearchBackend(root, query, config) {
-  const transcripts = await listSessionTranscripts(root);
-  const structuredOnly = (await listStructuredSessionTurns(root))
-    .filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
+async function createTranscriptSearchBackend(root, query, config, sharedInventory = {}) {
+  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
+  const structuredAll = sharedInventory.structuredTurns ?? await listStructuredSessionTurns(root);
+  const structuredOnly = structuredAll.filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
   const tokens = tokenizeQuery(query);
   const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
   const maxResults = getSessionMemoryLimit(config, "memoryResults", 3);
@@ -664,12 +700,32 @@ async function createLineageBackend(root, manifest, config) {
 }
 
 async function createMemoryBackends(root, options, config) {
-  return [
-    await createStructuredLineageBackend(root, options.manifest || null, config),
-    await createMemPalaceBackend(root, options.query || "", config),
-    await createTranscriptSearchBackend(root, options.query || "", config),
-    await createLineageBackend(root, options.manifest || null, config),
-  ];
+  const query = options.query || "";
+  const manifest = options.manifest || null;
+  const tokens = tokenizeQuery(query);
+  const needsTranscriptInventory = tokens.length > 0;
+  const sharedInventory = {};
+  if (needsTranscriptInventory) {
+    const [transcripts, structuredTurns] = await Promise.all([
+      listSessionTranscripts(root),
+      listStructuredSessionTurns(root),
+    ]);
+    sharedInventory.transcripts = transcripts;
+    sharedInventory.structuredTurns = structuredTurns;
+  }
+
+  const backends = [await createStructuredLineageBackend(root, manifest, config)];
+
+  if (needsTranscriptInventory) {
+    const mempalaceBinary = await resolveMemPalaceBinary();
+    if (mempalaceBinary) {
+      backends.push(await createMemPalaceBackend(root, query, config, sharedInventory));
+    }
+    backends.push(await createTranscriptSearchBackend(root, query, config, sharedInventory));
+  }
+
+  backends.push(await createLineageBackend(root, manifest, config));
+  return backends;
 }
 
 export function getSessionArtifactPaths(root, sessionId) {
