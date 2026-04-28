@@ -1,2 +1,0 @@
-prompt:
-  default_prompt: "Use $copy-pr to parse a GitHub or Azure DevOps pull request URL, recreate that PR's code changes on a fresh local branch, verify diff parity, commit, and push automatically."

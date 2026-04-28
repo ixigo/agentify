@@ -198,7 +198,9 @@ export async function validateRepo(root, config, options = {}) {
   if (!options.skipFreshness) {
     await validateFreshness(root, failures, { ...options, config });
   }
-  await validateChangedFiles(root, config, failures);
+  if (!options.skipChangedFiles) {
+    await validateChangedFiles(root, config, failures);
+  }
 
   const targetRoot = options.artifactRoot || root;
   const allFiles = (await walkFiles(targetRoot, { respectIgnore: true })).map((file) => relative(targetRoot, file));

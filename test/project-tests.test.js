@@ -60,6 +60,7 @@ test("buildTestEnv strips arbitrary host variables by default", () => {
   const sourceEnv = {
     PATH: "/usr/bin:/bin",
     HOME: "/home/agentify",
+    CI: "true",
     SENTINEL_SECRET: "should-not-leak",
     AWS_ACCESS_KEY_ID: "AKIA-should-not-leak",
     LANG: "en_US.UTF-8",
@@ -69,6 +70,7 @@ test("buildTestEnv strips arbitrary host variables by default", () => {
 
   assert.equal(env.PATH, "/usr/bin:/bin");
   assert.equal(env.HOME, "/home/agentify");
+  assert.equal(env.CI, "true");
   assert.equal(env.LANG, "en_US.UTF-8");
   assert.equal(env.SENTINEL_SECRET, undefined);
   assert.equal(env.AWS_ACCESS_KEY_ID, undefined);

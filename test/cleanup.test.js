@@ -62,7 +62,8 @@ test("runClean prunes orphaned Agentify artifacts and stale folders", async () =
   assert.equal(await fs.stat(path.join(root, ".agents", "session", "broken")).then(() => true).catch(() => false), false);
 
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "modules", "auth.json")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agents", "modules", "auth.json")).then(() => true), true);
+  assert.ok(!result.removed_paths.includes(".agents/modules/auth.json"));
   assert.equal(await fs.stat(path.join(root, ".agents", "runs", "keep.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, ".current_session", "ghost_keep")).then(() => true), true);
 });

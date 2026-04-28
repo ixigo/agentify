@@ -1178,10 +1178,10 @@ async function buildModuleCommands(root, rootFiles, moduleInfo) {
 
 export async function buildRepositoryIndex(root, config) {
   const generatedAt = new Date().toISOString();
-  const stacks = await detectStacks(root, config);
-  const defaultStack = stacks[0]?.name || "ts";
   const filePaths = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
-  const repoFiles = filePaths.sort();
+  const stacks = await detectStacks(root, config, { relFiles: filePaths });
+  const defaultStack = stacks[0]?.name || "ts";
+  const repoFiles = filePaths.slice().sort();
   const repoFileSet = new Set(repoFiles);
 
   const detectedModules = defaultStack === "ts"

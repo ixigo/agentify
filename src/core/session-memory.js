@@ -465,7 +465,9 @@ async function createMemPalaceBackend(root, query, config) {
         const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
         const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath);
         const excerpt = clipToBytes(stdout.trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
-        if (!excerpt || excerpt.includes("No results found")) {
+        const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
+        const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
+        if (!excerpt || hasErrorStdout || !hasResultRow) {
           return null;
         }
 

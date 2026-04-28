@@ -10,6 +10,7 @@ const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
   "USER",
   "LOGNAME",
   "PWD",
+  "CI",
   "LANG",
   "LC_ALL",
   "LC_CTYPE",

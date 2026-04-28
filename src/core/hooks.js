@@ -5,8 +5,9 @@ import { exists, writeText } from "./fs.js";
 const AGENTIFY_MARKER = "# @agentify";
 
 const PRE_COMMIT_BODY = `${AGENTIFY_MARKER} pre-commit hook
-# Validates freshness and safety before commit
-agentify check
+# Validates freshness and generated-artifact safety before commit.
+# --hook keeps this guard out of the way of ordinary tracked source edits.
+agentify check --hook
 `;
 
 const POST_MERGE_BODY = `${AGENTIFY_MARKER} post-merge hook
@@ -80,12 +81,13 @@ export async function installHooks(root) {
   for (const [name, body] of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
     const existing = await safeRead(hookPath);
+    const next = composeHookContent(existing, body);
 
-    if (existing && existing.includes(AGENTIFY_MARKER)) {
+    if (existing === next) {
       continue;
     }
 
-    await writeText(hookPath, composeHookContent(existing, body));
+    await writeText(hookPath, next);
     await fs.chmod(hookPath, 0o755);
     installed.push(name);
   }

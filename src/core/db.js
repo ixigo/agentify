@@ -524,22 +524,19 @@ export function loadModules(db) {
       m.fingerprint,
       m.entry_files_json,
       m.key_files_json,
-      COUNT(DISTINCT f.path) AS file_count,
-      COUNT(DISTINCT s.symbol_id) AS symbol_count
+      COALESCE(f.file_count, 0) AS file_count,
+      COALESCE(s.symbol_count, 0) AS symbol_count
     FROM modules m
-    LEFT JOIN files f ON f.module_id = m.id
-    LEFT JOIN symbols s ON s.module_id = m.id
-    GROUP BY
-      m.id,
-      m.name,
-      m.root_path,
-      m.stack,
-      m.package_name,
-      m.slug,
-      m.doc_path,
-      m.fingerprint,
-      m.entry_files_json,
-      m.key_files_json
+    LEFT JOIN (
+      SELECT module_id, COUNT(*) AS file_count
+      FROM files
+      GROUP BY module_id
+    ) f ON f.module_id = m.id
+    LEFT JOIN (
+      SELECT module_id, COUNT(*) AS symbol_count
+      FROM symbols
+      GROUP BY module_id
+    ) s ON s.module_id = m.id
     ORDER BY m.root_path
   `).all()).map((row) => ({
     ...row,

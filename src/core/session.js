@@ -13,6 +13,33 @@ function generateSessionId() {
   return `sess_${ts}_${rand}`;
 }
 
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const SESSION_ID_MAX_LENGTH = 128;
+
+export function validateSessionId(sessionId, label = "session id") {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error(`Invalid ${label}: must be a non-empty string`);
+  }
+  if (sessionId.length > SESSION_ID_MAX_LENGTH) {
+    throw new Error(`Invalid ${label}: exceeds maximum length of ${SESSION_ID_MAX_LENGTH} characters`);
+  }
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    throw new Error(`Invalid ${label}: must contain only letters, digits, "_" or "-" and start with a letter or digit`);
+  }
+  return sessionId;
+}
+
+function resolveSessionDirSafely(root, sessionId, label = "session id") {
+  validateSessionId(sessionId, label);
+  const sessionsRoot = path.resolve(root, ".agents", "session");
+  const sessionDir = path.resolve(sessionsRoot, sessionId);
+  const expectedPrefix = sessionsRoot + path.sep;
+  if (!sessionDir.startsWith(expectedPrefix) || path.dirname(sessionDir) !== sessionsRoot) {
+    throw new Error(`Invalid ${label}: resolved path escapes \`.agents/session/\``);
+  }
+  return sessionDir;
+}
+
 function bytes(value) {
   return Buffer.byteLength(value, "utf8");
 }
@@ -319,7 +346,15 @@ export async function forkSession(root, config, options = {}) {
   let parentRunHistory = [];
   let parentRollingSummary = "";
   if (options.from) {
-    const parentDir = path.join(root, ".agents", "session", options.from);
+    const parentDir = resolveSessionDirSafely(root, options.from, "parent session id");
+    const parentManifestPath = path.join(parentDir, "session-manifest.json");
+    if (!(await exists(parentManifestPath))) {
+      throw new Error(`Parent session ${options.from} not found`);
+    }
+    const parentManifest = await readJson(parentManifestPath);
+    if (parentManifest?.session_id !== options.from) {
+      throw new Error(`Parent session manifest session_id "${parentManifest?.session_id}" does not match requested id "${options.from}"`);
+    }
     const checklistPath = path.join(parentDir, "checklist.json");
     if (await exists(checklistPath)) {
       parentChecklist = await readJson(checklistPath);
@@ -381,7 +416,7 @@ export async function listSessions(root) {
 }
 
 export async function resumeSession(root, sessionId) {
-  const sessionDir = path.join(root, ".agents", "session", sessionId);
+  const sessionDir = resolveSessionDirSafely(root, sessionId);
   const manifestPath = path.join(sessionDir, "session-manifest.json");
 
   if (!(await exists(manifestPath))) {
@@ -389,6 +424,9 @@ export async function resumeSession(root, sessionId) {
   }
 
   const manifest = await readJson(manifestPath);
+  if (manifest?.session_id !== sessionId) {
+    throw new Error(`Session manifest session_id "${manifest?.session_id}" does not match requested id "${sessionId}"`);
+  }
   const context = await readJson(path.join(sessionDir, "context.json"));
   const bootstrapPath = path.join(sessionDir, "bootstrap.md");
   const bootstrap = (await exists(bootstrapPath))

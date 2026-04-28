@@ -63,6 +63,9 @@ const DEFAULT_CONFIG = {
     maxTests: 6,
     maxSourceBytes: 24000,
     maxInstructionBytes: 6000,
+    maxAdditionalReadsBeforeEdit: 4,
+    maxWidenings: 1,
+    editAfterSelectedContextUnlessBlocked: true,
   },
   semantic: {
     tsjs: {
