@@ -2,10 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { detectModules, detectStacks } from "./detect.js";
-import { ensureDir, exists, relative, walkFiles, writeJson, writeText } from "./fs.js";
+import { ensureDir, exists, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
-import { buildDependencyGraph, rankKeyFiles } from "./graph.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
 import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { runProjectTests } from "./project-tests.js";
@@ -34,57 +32,6 @@ import * as ui from "./ui.js";
 
 export { detectTestCommand } from "./project-tests.js";
 
-function stableHash(value) {
-  return crypto.createHash("sha1").update(value).digest("hex").slice(0, 12);
-}
-
-function toSlug(value) {
-  return value.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
-}
-
-function isFileInModule(filePath, moduleRoot) {
-  if (moduleRoot === ".") {
-    return true;
-  }
-  return filePath === moduleRoot || filePath.startsWith(`${moduleRoot}/`);
-}
-
-function getAllowedExtensions(stack) {
-  switch (stack) {
-    case "python":
-      return [".py"];
-    case "dotnet":
-      return [".cs"];
-    case "java":
-      return [".java"];
-    case "kotlin":
-      return [".kt", ".kts"];
-    case "swift":
-      return [".swift"];
-    case "ts":
-    default:
-      return [".ts", ".tsx", ".js", ".jsx"];
-  }
-}
-
-function selectEntrypoints(files, stack) {
-  const patterns =
-    stack === "python"
-      ? [/__main__\.py$/, /main\.py$/]
-      : stack === "dotnet"
-        ? [/Program\.cs$/]
-        : stack === "java"
-          ? [/Main\.java$/, /Application\.java$/, /MainActivity\.java$/]
-          : stack === "kotlin"
-            ? [/Main\.kt$/, /Application\.kt$/, /MainActivity\.kt$/]
-            : stack === "swift"
-              ? [/main\.swift$/, /AppDelegate\.swift$/, /SceneDelegate\.swift$/, /.+App\.swift$/]
-        : [/src\/index\.(ts|tsx|js|jsx)$/, /src\/main\.(ts|tsx|js|jsx)$/, /app\.(ts|tsx|js|jsx)$/, /server\.(ts|tsx|js|jsx)$/];
-
-  return files.filter((file) => patterns.some((pattern) => pattern.test(file))).slice(0, 10);
-}
-
-
 export async function mapWithConcurrency(items, concurrency, mapper, options = {}) {
   const results = new Array(items.length);
   const limit = Math.max(1, Number(concurrency) || 1);
@@ -107,58 +54,6 @@ export async function mapWithConcurrency(items, concurrency, mapper, options = {
   const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
   await Promise.all(workers);
   return results;
-}
-
-function findModuleDeps(modules, graph) {
-  const byFile = new Map();
-  for (const moduleInfo of modules) {
-    byFile.set(moduleInfo.id, { dependsOn: new Set(), usedBy: new Set() });
-  }
-
-  for (const edge of graph.edges) {
-    const fromModule = modules.find((moduleInfo) => isFileInModule(edge.from, moduleInfo.rootPath));
-    const toModule = modules.find((moduleInfo) => isFileInModule(edge.to, moduleInfo.rootPath));
-    if (!fromModule || !toModule || fromModule.id === toModule.id) {
-      continue;
-    }
-    byFile.get(fromModule.id).dependsOn.add(toModule.id);
-    byFile.get(toModule.id).usedBy.add(fromModule.id);
-  }
-
-  return byFile;
-}
-
-async function buildScanState(root, config) {
-  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
-  const stacks = await detectStacks(root, config, { relFiles: files });
-  const defaultStack = stacks[0]?.name || "ts";
-  const modules = await detectModules(root, config, defaultStack);
-  const graph = await buildDependencyGraph(root, defaultStack);
-  const moduleDeps = findModuleDeps(modules, graph);
-
-  const hydratedModules = modules.map((moduleInfo) => {
-    const moduleFiles = files.filter((file) => isFileInModule(file, moduleInfo.rootPath) && getAllowedExtensions(moduleInfo.stack).some((ext) => file.endsWith(ext)));
-    const keyFiles = rankKeyFiles(moduleFiles, graph, config.topKeyFilesPerModule || 15);
-
-    return {
-      ...moduleInfo,
-      slug: toSlug(moduleInfo.name),
-      hash: stableHash(moduleInfo.rootPath),
-      entryFiles: selectEntrypoints(moduleFiles, moduleInfo.stack),
-      keyFiles: keyFiles.slice(0, config.maxFilesPerModule),
-      files: moduleFiles.slice(0, config.maxFilesPerModule),
-      dependsOn: Array.from(moduleDeps.get(moduleInfo.id)?.dependsOn || []),
-      usedBy: Array.from(moduleDeps.get(moduleInfo.id)?.usedBy || [])
-    };
-  });
-
-  return {
-    stacks,
-    defaultStack,
-    modules: hydratedModules,
-    graph,
-    files
-  };
 }
 
 function renderAgentifyMd({ index, metadataByModule, runReport, managerPlan }) {
