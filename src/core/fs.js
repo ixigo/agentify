@@ -33,27 +33,50 @@ const HARD_EXCLUDES = [
 const ignorePatternCache = new Map();
 
 async function loadAgentignore(root) {
-  if (ignorePatternCache.has(root)) {
-    return ignorePatternCache.get(root);
-  }
+  const ignorePath = path.join(root, ".agentignore");
+  let stat = null;
   try {
-    const raw = await fs.readFile(path.join(root, ".agentignore"), "utf8");
-    const patterns = raw
-      .split(/\r?\n/)
-      .filter((line) => line.trim() && !line.startsWith("#"))
-      .map((pattern) => {
-        const regexStr = pattern
-          .replace(/\./g, "\\.")
-          .replace(/\*\*/g, "{{GLOBSTAR}}")
-          .replace(/\*/g, "[^/]*")
-          .replace(/\{\{GLOBSTAR\}\}/g, ".*");
-        return new RegExp(`^${regexStr}$`);
-      });
-    ignorePatternCache.set(root, patterns);
+    stat = await fs.stat(ignorePath, { bigint: true });
   } catch {
-    ignorePatternCache.set(root, []);
+    // .agentignore is absent; fall through with stat=null
   }
-  return ignorePatternCache.get(root);
+
+  const cached = ignorePatternCache.get(root);
+  if (cached) {
+    if (stat === null && cached.mtimeNs === null) {
+      return cached.patterns;
+    }
+    if (stat !== null && cached.mtimeNs === stat.mtimeNs && cached.size === stat.size) {
+      return cached.patterns;
+    }
+  }
+
+  if (stat === null) {
+    ignorePatternCache.set(root, { mtimeNs: null, size: 0, patterns: [] });
+    return [];
+  }
+
+  let raw;
+  try {
+    raw = await fs.readFile(ignorePath, "utf8");
+  } catch {
+    const patterns = [];
+    ignorePatternCache.set(root, { mtimeNs: stat.mtimeNs, size: stat.size, patterns });
+    return patterns;
+  }
+  const patterns = raw
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.startsWith("#"))
+    .map((pattern) => {
+      const regexStr = pattern
+        .replace(/\./g, "\\.")
+        .replace(/\*\*/g, "{{GLOBSTAR}}")
+        .replace(/\*/g, "[^/]*")
+        .replace(/\{\{GLOBSTAR\}\}/g, ".*");
+      return new RegExp(`^${regexStr}$`);
+    });
+  ignorePatternCache.set(root, { mtimeNs: stat.mtimeNs, size: stat.size, patterns });
+  return patterns;
 }
 
 function isHardExcluded(relativePath) {
