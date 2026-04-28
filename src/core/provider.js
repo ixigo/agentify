@@ -379,7 +379,7 @@ export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAU
   };
 }
 
-async function runCodexExec({ root, prompt, schema, model }) {
+async function runCodexExec({ root, prompt, schema, model, timeoutMs }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   const schemaPath = path.join(tempDir, "schema.json");
   const outputPath = path.join(tempDir, "result.json");
@@ -405,14 +405,14 @@ async function runCodexExec({ root, prompt, schema, model }) {
 
   args.push(prompt);
 
-  const { stdout } = await runChild("codex", args, { cwd: root });
+  const { stdout } = await runChild("codex", args, { cwd: root, timeoutMs });
 
   const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
   const usage = parseCodexJsonl(stdout);
   return { output, usage };
 }
 
-async function runClaudeExec({ root, prompt, schema, model }) {
+async function runClaudeExec({ root, prompt, schema, model, timeoutMs }) {
   const args = [
     "-p",
     "--output-format",
@@ -429,7 +429,7 @@ async function runClaudeExec({ root, prompt, schema, model }) {
 
   args.push(prompt);
 
-  const { stdout } = await runChild("claude", args, { cwd: root });
+  const { stdout } = await runChild("claude", args, { cwd: root, timeoutMs });
   return parseClaudeJson(stdout);
 }
 
@@ -444,7 +444,7 @@ function buildGeminiExecEnv(env = process.env, homeDir = os.homedir()) {
   };
 }
 
-async function runGeminiExec({ root, prompt, model, env = process.env, homeDir = os.homedir() }) {
+async function runGeminiExec({ root, prompt, model, timeoutMs, env = process.env, homeDir = os.homedir() }) {
   const args = [
     "-p",
     prompt,
@@ -458,12 +458,13 @@ async function runGeminiExec({ root, prompt, model, env = process.env, homeDir =
 
   const { stdout } = await runChild("gemini", args, {
     cwd: root,
-    env: buildGeminiExecEnv(env, homeDir)
+    env: buildGeminiExecEnv(env, homeDir),
+    timeoutMs
   });
   return parseGeminiJson(stdout);
 }
 
-async function runOpenCodeExec({ root, prompt, model }) {
+async function runOpenCodeExec({ root, prompt, model, timeoutMs }) {
   const args = [
     "run",
     prompt,
@@ -477,7 +478,7 @@ async function runOpenCodeExec({ root, prompt, model }) {
     args.push("--model", model);
   }
 
-  const { stdout } = await runChild("opencode", args, { cwd: root });
+  const { stdout } = await runChild("opencode", args, { cwd: root, timeoutMs });
   return parseOpenCodeJsonl(stdout);
 }
 
@@ -544,6 +545,9 @@ function createLocalProvider() {
 }
 
 function createExternalProvider(config, options) {
+  const timeoutMs = Number.isFinite(Number(config.providerTimeoutMs)) && Number(config.providerTimeoutMs) > 0
+    ? Number(config.providerTimeoutMs)
+    : DEFAULT_PROVIDER_TIMEOUT_MS;
   return {
     name: options.name,
     providerModel: config.model || options.defaultModel,
@@ -553,7 +557,8 @@ function createExternalProvider(config, options) {
           root: repoContext.root,
           prompt: buildManagerPrompt(repoContext),
           schema: buildManagerSchema(),
-          model: config.model
+          model: config.model,
+          timeoutMs
         });
 
         return {
@@ -576,42 +581,28 @@ function createExternalProvider(config, options) {
       }
     },
     async generateModuleArtifacts(moduleInfo, context) {
-      const fallback = fallbackArtifacts(moduleInfo, {
-        ...context,
-        files: context.files.map((item) => item.path)
+      const prompt = buildModulePrompt(moduleInfo, context);
+      const result = await options.run({
+        root: context.root,
+        prompt,
+        schema: buildModuleSchema(),
+        model: config.model,
+        timeoutMs
       });
-
-      try {
-        const prompt = buildModulePrompt(moduleInfo, context);
-        const result = await options.run({
-          root: context.root,
-          prompt,
-          schema: buildModuleSchema(),
-          model: config.model
-        });
-        const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
-        const metadata = {
-          ...buildMetadataFromCodex(moduleInfo, context, sanitized),
-          summary: sanitized.summary,
-          public_api: sanitized.public_api,
-          start_here: sanitized.start_here,
-          side_effects: sanitized.side_effects
-        };
-        return {
-          markdown: renderModuleMarkdown(moduleInfo, metadata),
-          metadata,
-          headers: sanitized.header_summaries,
-          tokenUsage: result.usage
-        };
-      } catch (error) {
-        return {
-          ...fallback,
-          metadata: {
-            ...fallback.metadata,
-            summary: `${fallback.metadata.summary} Codex fallback reason: ${error.message}`
-          }
-        };
-      }
+      const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
+      const metadata = {
+        ...buildMetadataFromCodex(moduleInfo, context, sanitized),
+        summary: sanitized.summary,
+        public_api: sanitized.public_api,
+        start_here: sanitized.start_here,
+        side_effects: sanitized.side_effects
+      };
+      return {
+        markdown: renderModuleMarkdown(moduleInfo, metadata),
+        metadata,
+        headers: sanitized.header_summaries,
+        tokenUsage: result.usage
+      };
     }
   };
 }
