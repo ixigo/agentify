@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { garbageCollect } from "./cache.js";
-import { exists, readJson } from "./fs.js";
-import { closeIndexDatabase, listArtifacts, loadModules, openIndexDatabase } from "./db.js";
+import { exists, readJson, relative, walkFiles } from "./fs.js";
+import { closeIndexDatabase, loadModules, openIndexDatabase } from "./db.js";
 
 function toArray(paths) {
   return Array.from(new Set(paths)).sort();
@@ -32,13 +32,48 @@ async function listDirs(dirPath) {
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
+function normalizeRepoPath(repoPath) {
+  if (!repoPath) {
+    return null;
+  }
+  return repoPath.split(/[\\/]+/).filter(Boolean).join("/");
+}
+
+function addExpectedDocPath(expectedDocs, docPath) {
+  const normalized = normalizeRepoPath(docPath);
+  if (normalized) {
+    expectedDocs.add(normalized);
+  }
+}
+
+async function listModuleRootDocs(root) {
+  const docs = [];
+  for (const filePath of await walkFiles(root)) {
+    if (path.basename(filePath) !== "AGENTIFY.md") {
+      continue;
+    }
+    const relativePath = relative(root, filePath);
+    if (
+      relativePath === "AGENTIFY.md" ||
+      relativePath.startsWith(".agents/") ||
+      relativePath.startsWith(".current_session/") ||
+      relativePath.startsWith("docs/")
+    ) {
+      continue;
+    }
+    docs.push(relativePath);
+  }
+  return docs;
+}
+
 async function pruneOrphanedModuleArtifacts(root, dryRun) {
   const expectedDocs = new Set();
+  const expectedMetadata = new Set();
   if (await exists(path.join(root, ".agents", "index.db"))) {
     const db = openIndexDatabase(root);
     try {
       for (const moduleInfo of loadModules(db)) {
-        expectedDocs.add(path.basename(moduleInfo.doc_path || ""));
+        addExpectedDocPath(expectedDocs, moduleInfo.doc_path);
       }
     } finally {
       closeIndexDatabase(db);
@@ -46,7 +81,10 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
   } else if (await exists(path.join(root, ".agents", "index.json"))) {
     const legacyIndex = await readJson(path.join(root, ".agents", "index.json"));
     for (const moduleInfo of legacyIndex.modules || []) {
-      expectedDocs.add(path.basename(moduleInfo.doc_path || ""));
+      addExpectedDocPath(expectedDocs, moduleInfo.doc_path);
+      if (moduleInfo.metadata_path) {
+        expectedMetadata.add(path.basename(moduleInfo.metadata_path));
+      }
     }
   } else {
     return {
@@ -59,16 +97,25 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
   const removed = [];
 
   for (const file of await listFiles(docsDir)) {
-    if (!file.endsWith(".md") || expectedDocs.has(file)) {
+    const relativePath = `docs/modules/${file}`;
+    if (!file.endsWith(".md") || expectedDocs.has(relativePath)) {
       continue;
     }
     await removePath(path.join(docsDir, file), dryRun);
-    removed.push(`docs/modules/${file}`);
+    removed.push(relativePath);
+  }
+
+  for (const relativePath of await listModuleRootDocs(root)) {
+    if (expectedDocs.has(relativePath)) {
+      continue;
+    }
+    await removePath(path.join(root, relativePath), dryRun);
+    removed.push(relativePath);
   }
 
   const metadataDir = path.join(root, ".agents", "modules");
   for (const file of await listFiles(metadataDir)) {
-    if (!file.endsWith(".json")) {
+    if (!file.endsWith(".json") || expectedMetadata.has(file)) {
       continue;
     }
     await removePath(path.join(metadataDir, file), dryRun);

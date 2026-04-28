@@ -1,4 +1,6 @@
-export const SUPPORTED_PROVIDERS = ["local", "codex", "claude", "gemini", "opencode"];
+import { EXECUTABLE_PROVIDER_NAMES, SUPPORTED_PROVIDERS, getProviderDefinition } from "./provider-registry.js";
+
+export { SUPPORTED_PROVIDERS };
 
 export function assertSupportedProvider(provider) {
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -14,52 +16,23 @@ function normalizePrompt(prompt) {
   return "Continue the task in this repository and keep changes minimal, tested, and documented.";
 }
 
-export function buildProviderTemplateCommand(provider, prompt, { root, interactive = false } = {}) {
+export function buildProviderTemplateCommand(provider, prompt, {
+  root,
+  interactive = false,
+  bypassPermissions = false,
+} = {}) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
+  const definition = getProviderDefinition(provider);
 
-  if (provider === "local") {
-    throw new Error('provider "local" cannot execute agent commands. Pass --provider codex|claude|gemini|opencode.');
-  }
-
-  if (provider === "codex") {
-    if (interactive) {
-      const args = ["codex"];
-      if (root) {
-        args.push("--cd", root);
-      }
-      args.push(normalizedPrompt);
-      return args;
-    }
-    return ["codex", "exec", normalizedPrompt];
-  }
-  if (provider === "claude") {
-    if (interactive) {
-      return ["claude", normalizedPrompt];
-    }
-    return ["claude", "-p", normalizedPrompt];
-  }
-  if (provider === "gemini") {
-    if (interactive) {
-      return ["gemini", normalizedPrompt];
-    }
-    return ["gemini", "-p", normalizedPrompt];
-  }
-  if (provider === "opencode") {
-    if (interactive) {
-      const args = ["opencode"];
-      if (root) {
-        args.push("--dir", root);
-      }
-      args.push(normalizedPrompt);
-      return args;
-    }
-    const args = ["opencode", "run", normalizedPrompt];
-    if (root) {
-      args.push("--dir", root);
-    }
-    return args;
+  if (!definition.executable || !definition.buildTemplateCommand) {
+    throw new Error(`provider "${provider}" cannot execute agent commands. Pass --provider ${EXECUTABLE_PROVIDER_NAMES.join("|")}.`);
   }
 
-  throw new Error(`unsupported provider "${provider}"`);
+  return definition.buildTemplateCommand({
+    prompt: normalizedPrompt,
+    root,
+    interactive,
+    bypassPermissions,
+  });
 }

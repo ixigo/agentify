@@ -129,10 +129,10 @@ function findModuleDeps(modules, graph) {
 }
 
 async function buildScanState(root, config) {
-  const stacks = await detectStacks(root, config);
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  const stacks = await detectStacks(root, config, { relFiles: files });
   const defaultStack = stacks[0]?.name || "ts";
   const modules = await detectModules(root, config, defaultStack);
-  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   const graph = await buildDependencyGraph(root, defaultStack);
   const moduleDeps = findModuleDeps(modules, graph);
 
@@ -265,6 +265,15 @@ async function writeRunReport(root, report) {
   const runPath = path.join(root, ".agents", "runs", `${report.run_id}.json`);
   await writeJson(runPath, report);
   return runPath;
+}
+
+function summarizeTestResult(testResult) {
+  return {
+    status: testResult.status,
+    passed: testResult.passed,
+    command: testResult.command,
+    exit_code: testResult.exit_code
+  };
 }
 
 function renderDefaultAgentignore() {
@@ -505,15 +514,44 @@ export async function runScan(root, config, options = {}) {
 
   const lock = await acquireLock(root, "scan");
   if (!lock.acquired) {
-    progress.log(`scan: ${lock.message}`);
-    return;
+    return emitLockContention("scan", lock, progress, config, options);
   }
 
   try {
-    await _runScanInner(root, config, options, progress);
+    return await _runScanInner(root, config, options, progress);
   } finally {
     await lock.release();
   }
+}
+
+async function emitLockContention(phase, lock, progress, config, options) {
+  const commandName = options.commandName || phase;
+  const result = {
+    command: commandName,
+    status: "blocked",
+    reason: "lock_contention",
+    phase,
+    holder: lock.holder || null,
+    message: lock.message,
+    wrote: [],
+  };
+  progress.log(`${phase}: ${lock.message}`);
+  if (!options.skipOutput) {
+    progress.setCommand(commandName);
+  }
+  if (phase === "scan") {
+    progress.setScan(result);
+  } else if (phase === "doc") {
+    progress.setDoc(result);
+  }
+  if (!options.skipOutput && (config.json || !config._suppressProgress)) {
+    progress.json(result);
+  }
+  if (!options.skipFinalize) {
+    await progress.finalize();
+  }
+  process.exitCode = 1;
+  return result;
 }
 
 async function _runScanInner(root, config, options, progress) {
@@ -559,6 +597,7 @@ async function _runScanInner(root, config, options, progress) {
   if (!options.skipFinalize) {
     await progress.finalize();
   }
+  return result;
 }
 
 function createDependencyMap(modules, imports) {
@@ -631,12 +670,11 @@ export async function runDoc(root, config, options = {}) {
 
   const lock = await acquireLock(root, "doc");
   if (!lock.acquired) {
-    progress.log(`doc: ${lock.message}`);
-    return;
+    return emitLockContention("doc", lock, progress, config, options);
   }
 
   try {
-    await _runDocInner(root, config, options, progress);
+    return await _runDocInner(root, config, options, progress);
   } finally {
     await lock.release();
   }
@@ -1040,6 +1078,7 @@ async function _runDocInner(root, config, options, progress) {
     if (!options.skipFinalize) {
       await progress.finalize();
     }
+    return result;
   } finally {
     if (db) {
       closeIndexDatabase(db);
@@ -1080,6 +1119,23 @@ export async function runValidate(root, config, options = {}) {
   }
 }
 
+async function emitBlockedUpdate(commandName, phase, phaseResult, progress, options) {
+  const blocked = {
+    command: commandName,
+    status: "blocked",
+    reason: "lock_contention",
+    blocked_phase: phase,
+    holder: phaseResult.holder || null,
+    message: phaseResult.message,
+    ...(options.preflight ? { repo_sync: options.preflight } : {}),
+  };
+  progress.log(`${commandName}: blocked at ${phase} phase — ${phaseResult.message}`);
+  progress.json(blocked);
+  await progress.finalize();
+  process.exitCode = 1;
+  return blocked;
+}
+
 export async function runUpdate(root, config, options = {}) {
   const commandName = options.commandName || "up";
   const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
@@ -1088,10 +1144,16 @@ export async function runUpdate(root, config, options = {}) {
   const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
   progress.setCommand(commandName);
   progress.percent(commandName, 0, "starting");
-  await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+  const scanResult = await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+  if (scanResult?.status === "blocked") {
+    return emitBlockedUpdate(commandName, "scan", scanResult, progress, options);
+  }
   progress.percent(commandName, 33, "scan complete");
   if (config.docs) {
-    await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+    const docResult = await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+    if (docResult?.status === "blocked") {
+      return emitBlockedUpdate(commandName, "doc", docResult, progress, options);
+    }
     progress.percent(commandName, 67, "doc complete");
   } else {
     progress.log("doc: skipped because --docs=false");
@@ -1101,6 +1163,7 @@ export async function runUpdate(root, config, options = {}) {
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
+  const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);
     const meta = getRepoMeta(db);
@@ -1123,19 +1186,15 @@ export async function runUpdate(root, config, options = {}) {
         files_with_headers: 0,
         docs_written: 0
       },
-      validation: result
+      validation: result,
+      tests
     };
     await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
     command: commandName,
     validation: result,
-    tests: {
-      status: testResult.status,
-      passed: testResult.passed,
-      command: testResult.command,
-      exit_code: testResult.exit_code
-    },
+    tests,
     ...(options.preflight ? { repo_sync: options.preflight } : {}),
   };
   progress.json(finalOutput);

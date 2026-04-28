@@ -223,6 +223,29 @@ After the first sticky Codex run, the repo keeps `codex` as its default provider
 agentify run "add tests for retry backoff"
 ```
 
+### Use caveman mode for terse output
+
+Use `--caveman` when you want lower output-token usage for a run or session. A bare flag uses `full`; pass a level for stricter compression.
+
+```bash
+agentify skill install caveman --provider codex --scope project
+agentify run --provider codex --caveman=ultra "explain why checkout retries fail"
+```
+
+Example response style:
+
+```text
+Retry state resets each render. Hook local var lost. Move attempt count to ref or reducer. Add test around second retry.
+```
+
+Environment fallback works for scripts and CI:
+
+```bash
+AGENTIFY_CAVEMAN=full agentify run "summarize stale index risk"
+```
+
+Caveman mode does not rewrite commit messages, PR descriptions, code blocks, or safety-sensitive confirmations.
+
 ### Run inside the interactive provider CLI
 
 ```bash
@@ -244,6 +267,8 @@ agentify sess fork --from <session-id> --name "payments-alt" "try an alternate d
 ### Launch opted-in issues in parallel
 
 Use `issue-killer` when you want supervised parallel issue solving across Worktrunk worktrees. V1 supports GitHub only, requires either an opt-in label or explicit issue URLs, and opens interactive tmux panes for Codex or Claude.
+
+Issue-killer launches Codex and Claude with provider permission checks bypassed inside each isolated issue worktree. The pane prompt explicitly allows task-related shell, git, gh, package-manager, test, commit, push, and draft PR commands without asking for additional approval.
 
 ```bash
 agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 5
@@ -288,7 +313,10 @@ agentify hooks install
 
 This adds:
 
-- a `pre-commit` hook that runs `agentify check`
+- a `pre-commit` hook that runs `agentify check --hook`. In `--hook` mode the
+  validator still checks freshness and unsafe generated artifacts under
+  `.agents/` and `docs/`, but it does not flag intentional source-file edits in
+  the working tree, so ordinary commits are not blocked.
 - a `post-merge` hook that refreshes the scan
 
 ### 2. Install project-local skills for Codex
@@ -355,11 +383,18 @@ Use `agentify doctor` afterward to confirm semantic projects are being reported.
 
 MemPalace is optional, but it is the most useful add-on when you use `sess *` frequently.
 
-How to turn it on:
+How to install (Python 3.9+ required):
 
-- install `mempalace` and keep it on `PATH`, or set `AGENTIFY_MEMPALACE_CMD`
-- run `agentify doctor` and confirm MemPalace is detected
-- prefer `agentify sess run`, `sess resume`, and `sess fork` for multi-step work so Agentify has durable session transcripts to mine
+- `pipx install mempalace` is the recommended path. Plain `pip install mempalace` works too, but pulls ChromaDB and a ~300 MB embedding model on first index — prefer a virtualenv if you do not use `pipx`.
+- Keep the resolved `mempalace` binary on `PATH`, or set `AGENTIFY_MEMPALACE_CMD` to its absolute path (useful when installed in a project-local venv).
+- You do **not** need to run `mempalace init` yourself. Agentify lazily creates the per-repo palace under `.agents/mempalace/palace/` on the first `mine` call.
+- Run `agentify doctor` and confirm MemPalace is detected.
+- Prefer `agentify sess run`, `sess resume`, and `sess fork` for multi-step work so Agentify has durable session transcripts to mine.
+
+Setup reference: <https://mempalaceofficial.com/guide/getting-started>.
+
+> [!NOTE]
+> Agentify binds the per-repo palace by setting `MEMPALACE_PALACE_PATH` when invoking `mempalace`. That env var is honored by `mempalace/config.py` but is not documented in `mempalace --help`; do not strip it as "dead" in future refactors of `src/core/session-memory.js`.
 
 Important:
 

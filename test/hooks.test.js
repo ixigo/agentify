@@ -16,3 +16,29 @@ test("installHooks writes a valid post-merge refresh command", async () => {
   assert.match(postMerge, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
   assert.doesNotMatch(postMerge, /--skip-finalize/);
 });
+
+test("installHooks writes a hook-friendly pre-commit body", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-"));
+  await fs.mkdir(path.join(root, ".git", "hooks"), { recursive: true });
+
+  await installHooks(root);
+
+  const preCommit = await fs.readFile(path.join(root, ".git", "hooks", "pre-commit"), "utf8");
+  assert.match(preCommit, /agentify check --hook/);
+});
+
+test("installHooks upgrades a legacy managed pre-commit body in place", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-"));
+  const hooksDir = path.join(root, ".git", "hooks");
+  await fs.mkdir(hooksDir, { recursive: true });
+
+  const legacy = "#!/bin/sh\n# @agentify pre-commit hook\n# Validates freshness and safety before commit\nagentify check\n";
+  await fs.writeFile(path.join(hooksDir, "pre-commit"), legacy);
+
+  const installed = await installHooks(root);
+
+  assert.ok(installed.includes("pre-commit"), "pre-commit should be reported as updated");
+  const next = await fs.readFile(path.join(hooksDir, "pre-commit"), "utf8");
+  assert.match(next, /agentify check --hook/);
+  assert.doesNotMatch(next, /^agentify check\s*$/m);
+});

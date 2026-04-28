@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
-import { forkSession, resolveSessionProvider, resumeSession } from "../src/core/session.js";
+import { forkSession, resolveSessionProvider, resumeSession, validateSessionId } from "../src/core/session.js";
 import {
   getSessionArtifactPaths,
   loadAutomaticRunMemory,
@@ -268,7 +268,233 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   }
 });
 
+async function installMemPalaceShim(binDir, searchStdout) {
+  const stdoutPath = path.join(binDir, "search-stdout.txt");
+  await fs.writeFile(stdoutPath, searchStdout, "utf8");
+  const scriptPath = path.join(binDir, "mempalace");
+  await fs.writeFile(scriptPath, `#!/bin/sh
+set -eu
+if [ "$1" = "mine" ]; then
+  mkdir -p "\${MEMPALACE_PALACE_PATH}"
+  echo "mined"
+  exit 0
+fi
+if [ "$1" = "search" ]; then
+  cat "${stdoutPath}"
+  exit 0
+fi
+exit 1
+`, "utf8");
+  await fs.chmod(scriptPath, 0o755);
+  return scriptPath;
+}
+
+async function setupMemPalaceTestRepo() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mp-guard-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+  const config = await loadConfig(root, { provider: "codex" });
+  const session = await forkSession(root, config, { name: "memory" });
+  const paths = getSessionArtifactPaths(root, session.sessionId);
+  await fs.writeFile(paths.transcriptPath, [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "Pick a transcript format.",
+    "",
+    "> Provider response",
+    "Use JSONL transcripts because they are append-friendly for durable memory capture.",
+    "",
+  ].join("\n"), "utf8");
+  return { root, config };
+}
+
+test("loadAutomaticRunMemory rejects MemPalace stdout that reports a missing palace", async () => {
+  const { root, config } = await setupMemPalaceTestRepo();
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installMemPalaceShim(binDir, [
+    "  No palace found at /tmp/agentify-test/.agents/mempalace/palace",
+    "  Run: mempalace init <dir> then mempalace mine <dir>",
+    "",
+  ].join("\n"));
+
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  delete process.env.AGENTIFY_MEMPALACE_CMD;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
+    assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when stdout reports no palace");
+    if (memory.markdown) {
+      assert.doesNotMatch(memory.markdown, /No palace found/);
+      assert.doesNotMatch(memory.markdown, /mempalace init/);
+    }
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
+test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result rows", async () => {
+  const { root, config } = await setupMemPalaceTestRepo();
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installMemPalaceShim(binDir, [
+    "============================================================",
+    '  Results for: "transcript decision query"',
+    "  Wing: agentify",
+    "============================================================",
+    "",
+    "",
+  ].join("\n"));
+
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  delete process.env.AGENTIFY_MEMPALACE_CMD;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
+    assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when no result rows are present");
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
+test("loadAutomaticRunMemory exercises the real MemPalace CLI when available", async (t) => {
+  const candidate = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace";
+  let probeOk = false;
+  try {
+    await execFileAsync(candidate, ["--version"]);
+    probeOk = true;
+  } catch {
+    /* not available */
+  }
+  if (!probeOk) {
+    t.skip(`real mempalace not invokable (set AGENTIFY_MEMPALACE_CMD or place mempalace on PATH; tried ${candidate})`);
+    return;
+  }
+
+  const { root, config } = await setupMemPalaceTestRepo();
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.AGENTIFY_MEMPALACE_CMD = candidate;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "JSONL transcript decision", config);
+    assert.equal(memory.backend, "mempalace");
+    assert.match(memory.markdown, /Backend: mempalace/);
+    assert.match(memory.markdown, /JSONL transcripts/i, "excerpt should contain the seeded term from the synthetic transcript");
+  } finally {
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
 test("normalizeInteractiveCapture strips script noise and ANSI sequences", () => {
   const normalized = normalizeInteractiveCapture("\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n");
   assert.equal(normalized, "hello");
+});
+
+test("validateSessionId accepts generated ids and rejects path-like values", () => {
+  assert.equal(validateSessionId("sess_20260101000000_abcdef"), "sess_20260101000000_abcdef");
+  assert.equal(validateSessionId("safe-id_42"), "safe-id_42");
+
+  for (const bad of [
+    "",
+    "../escape",
+    "a/../b",
+    "a/b",
+    "a\\b",
+    "/abs/path",
+    ".hidden",
+    "..",
+    "with space",
+    "has.dot",
+    "_leading-underscore",
+    "-leading-dash",
+  ]) {
+    assert.throws(() => validateSessionId(bad), /Invalid session id/, `expected ${JSON.stringify(bad)} to be rejected`);
+  }
+
+  assert.throws(() => validateSessionId(null), /Invalid session id/);
+  assert.throws(() => validateSessionId(123), /Invalid session id/);
+  assert.throws(() => validateSessionId("a".repeat(200)), /Invalid session id/);
+});
+
+test("resumeSession refuses path traversal ids before touching disk", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-traversal-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const probeDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-probe-"));
+  await fs.writeFile(path.join(probeDir, "session-manifest.json"), JSON.stringify({ session_id: "forged" }));
+  await fs.writeFile(path.join(probeDir, "context.json"), JSON.stringify({}));
+  await fs.writeFile(path.join(probeDir, "bootstrap.md"), "forged");
+
+  const relativeAttack = path.relative(path.join(root, ".agents", "session"), probeDir);
+
+  for (const malicious of [relativeAttack, "../escape", "a/../b", "/abs", "with space"]) {
+    await assert.rejects(
+      () => resumeSession(root, malicious),
+      /Invalid session id/,
+      `expected ${JSON.stringify(malicious)} to be rejected`,
+    );
+  }
+});
+
+test("resumeSession rejects manifests whose session_id does not match the directory", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-mismatch-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const created = await forkSession(root, config, { name: "real" });
+
+  const manifestPath = path.join(created.sessionDir, "session-manifest.json");
+  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  manifest.session_id = "sess_forged_id";
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+  await assert.rejects(
+    () => resumeSession(root, created.sessionId),
+    /does not match requested id/,
+  );
+});
+
+test("forkSession rejects path-like parent ids and mismatched parent manifests", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-fork-traversal-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+
+  for (const malicious of ["../escape", "a/../b", "/abs", "with space", ".."]) {
+    await assert.rejects(
+      () => forkSession(root, config, { from: malicious }),
+      /Invalid parent session id/,
+      `expected ${JSON.stringify(malicious)} to be rejected`,
+    );
+  }
+
+  const parent = await forkSession(root, config, { name: "parent" });
+  const parentManifestPath = path.join(parent.sessionDir, "session-manifest.json");
+  const parentManifest = JSON.parse(await fs.readFile(parentManifestPath, "utf8"));
+  parentManifest.session_id = "sess_forged_parent";
+  await fs.writeFile(parentManifestPath, JSON.stringify(parentManifest, null, 2));
+
+  await assert.rejects(
+    () => forkSession(root, config, { from: parent.sessionId }),
+    /does not match requested id/,
+  );
 });

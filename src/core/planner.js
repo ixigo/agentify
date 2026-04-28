@@ -45,6 +45,31 @@ function createPlannerBudget(config) {
   };
 }
 
+function nonNegativeInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : fallback;
+}
+
+function createExecutionBudget(config) {
+  const planner = config?.planner || {};
+  const maxAdditionalReadsBeforeEdit = planner.maxAdditionalReadsBeforeEdit ?? planner.max_additional_reads_before_edit;
+  const maxWidenings = planner.maxWidenings ?? planner.max_widenings;
+  const editAfterSelectedContextUnlessBlocked = planner.editAfterSelectedContextUnlessBlocked ?? planner.edit_after_selected_context_unless_blocked;
+  return normalizeExecutionBudget({
+    max_additional_reads_before_edit: maxAdditionalReadsBeforeEdit,
+    max_widenings: maxWidenings,
+    edit_after_selected_context_unless_blocked: editAfterSelectedContextUnlessBlocked,
+  });
+}
+
+function normalizeExecutionBudget(executionBudget = {}) {
+  return {
+    max_additional_reads_before_edit: nonNegativeInteger(executionBudget.max_additional_reads_before_edit, 4),
+    max_widenings: nonNegativeInteger(executionBudget.max_widenings, 1),
+    edit_after_selected_context_unless_blocked: executionBudget.edit_after_selected_context_unless_blocked !== false,
+  };
+}
+
 function pushReason(reasons, reason, points) {
   reasons.push({ reason, points });
 }
@@ -241,6 +266,10 @@ function dedupeCommands(commands) {
 }
 
 export function renderExecutionPrompt(plan) {
+  const executionBudget = normalizeExecutionBudget(plan.execution_budget);
+  const editStartRule = executionBudget.edit_after_selected_context_unless_blocked
+    ? "After checking the selected context, start editing unless you can name a concrete blocker that prevents a correct edit."
+    : "Use judgment on when to start editing, while still respecting the discovery limits below.";
   const moduleLines = plan.selected_modules.length > 0
     ? plan.selected_modules.map((item) => `- ${item.id} (${item.root_path})`).join("\n")
     : "- none";
@@ -257,12 +286,15 @@ export function renderExecutionPrompt(plan) {
     ? plan.verification_commands.map((item) => `- ${item.command} ${item.args.join(" ")}`.trim()).join("\n")
     : "- none";
 
-  return `You are working in a repository prepared by Agentify. Use the selected context first and avoid broad repo scans unless the context is clearly insufficient.
+  return `You are working in a repository prepared by Agentify. Use the selected context first and start editing once that context is enough for a correct change.
 
 Execution rules:
 - Prefer the selected file slices and generated markdown docs before running new discovery commands.
-- Do not invoke nested \`agentify plan\`, \`agentify query\`, or raw SQLite inspection from inside the provider session unless the selected context is clearly insufficient; those host-side artifacts may be unavailable in sandboxed providers.
-- If you still need more context, read root \`AGENTIFY.md\`, \`docs/repo-map.md\`, and module-root \`AGENTIFY.md\` files before widening further.
+- Do not invoke nested \`agentify plan\`, \`agentify query\`, or raw SQLite inspection from inside the provider session unless the selected context is insufficient; those host-side artifacts may be unavailable in sandboxed providers.
+- Discovery budget before the first edit: at most ${executionBudget.max_additional_reads_before_edit} additional file or doc reads, and at most ${executionBudget.max_widenings} widening step(s) outside the selected context.
+- ${editStartRule}
+- Before each widening step, declare \`INSUFFICIENT_CONTEXT: blocker=<specific missing fact>; needed=<specific file, symbol, or doc>; reads_used=<n>; widenings_used=<n>\`.
+- If you still need more context within the budget, read root \`AGENTIFY.md\`, \`docs/repo-map.md\`, and relevant module-root \`AGENTIFY.md\` files before widening further.
 
 Task:
 ${plan.task}
@@ -273,6 +305,9 @@ Planner summary:
 - Files selected: ${plan.selected_files.length}
 - Symbols selected: ${plan.selected_symbols.length}
 - Prompt bytes: ${plan.prompt_bytes}
+- Max additional reads before edit: ${executionBudget.max_additional_reads_before_edit}
+- Max widenings: ${executionBudget.max_widenings}
+- Edit after selected context unless blocked: ${executionBudget.edit_after_selected_context_unless_blocked}
 
 Likely modules:
 ${moduleLines}
@@ -292,6 +327,7 @@ ${fileBlocks}`;
 
 export async function buildExecutionPlan(root, config, task, options = {}) {
   const budgets = createPlannerBudget(config);
+  const executionBudget = createExecutionBudget(config);
   const taskText = String(task || "").trim();
   const normalizedTask = taskText.toLowerCase();
   const tokens = tokenizeTask(taskText);
@@ -456,6 +492,7 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
         generated_at: meta.generated_at || null,
       },
       budgets,
+      execution_budget: executionBudget,
       confidence,
       selected_modules: moduleScores,
       selected_files: selectedFiles,
@@ -466,7 +503,8 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       constraints: [
         "Prefer editing the selected modules and files before widening context.",
         "Run the listed verification commands after changes when relevant.",
-        "If the selected context is insufficient, widen carefully instead of rescanning the whole repo first.",
+        `Before the first edit, use at most ${executionBudget.max_additional_reads_before_edit} additional file or doc reads and ${executionBudget.max_widenings} widening step(s).`,
+        "If the selected context is insufficient, declare the specific blocker before widening.",
       ],
     };
 

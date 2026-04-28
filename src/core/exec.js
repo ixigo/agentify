@@ -204,7 +204,7 @@ export async function runExec(root, config, agentCommand, flags) {
   const preFiles = await getChangedFiles(root);
   const preFileDigests = await captureDirtyFileDigests(root, preFiles);
   const preparedSessionMemory = flags.sessionRecord
-    ? await prepareSessionMemoryRun(root, flags.sessionRecord)
+    ? await prepareSessionMemoryRun(root, flags.sessionRecord, config)
     : null;
 
   let commandResult;
@@ -291,11 +291,7 @@ export async function runExec(root, config, agentCommand, flags) {
 
   try {
     await runScan(root, config, { skipFinalize: true });
-    if (config.docs) {
-      await runDoc(root, config, { skipFinalize: true });
-    } else {
-      ui.log("doc: skipped because --docs=false");
-    }
+    await runDoc(root, config, { skipFinalize: true });
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);
     if (flags.failOnStale && !commandFailed) {

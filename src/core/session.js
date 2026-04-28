@@ -13,6 +13,33 @@ function generateSessionId() {
   return `sess_${ts}_${rand}`;
 }
 
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const SESSION_ID_MAX_LENGTH = 128;
+
+export function validateSessionId(sessionId, label = "session id") {
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new Error(`Invalid ${label}: must be a non-empty string`);
+  }
+  if (sessionId.length > SESSION_ID_MAX_LENGTH) {
+    throw new Error(`Invalid ${label}: exceeds maximum length of ${SESSION_ID_MAX_LENGTH} characters`);
+  }
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    throw new Error(`Invalid ${label}: must contain only letters, digits, "_" or "-" and start with a letter or digit`);
+  }
+  return sessionId;
+}
+
+function resolveSessionDirSafely(root, sessionId, label = "session id") {
+  validateSessionId(sessionId, label);
+  const sessionsRoot = path.resolve(root, ".agents", "session");
+  const sessionDir = path.resolve(sessionsRoot, sessionId);
+  const expectedPrefix = sessionsRoot + path.sep;
+  if (!sessionDir.startsWith(expectedPrefix) || path.dirname(sessionDir) !== sessionsRoot) {
+    throw new Error(`Invalid ${label}: resolved path escapes \`.agents/session/\``);
+  }
+  return sessionDir;
+}
+
 function bytes(value) {
   return Buffer.byteLength(value, "utf8");
 }
@@ -84,6 +111,18 @@ function renderChecklistMarkdown(sessionId, checklist, totalItems) {
   return lines.join("\n");
 }
 
+function clampRunHistory(history, limit, perEntryBytes) {
+  if (!Array.isArray(history) || history.length === 0 || limit <= 0) {
+    return [];
+  }
+  const trimmed = history.slice(-limit);
+  return trimmed.map((entry) => ({
+    ...entry,
+    assistant_summary: clipToBytes(entry?.assistant_summary || "", perEntryBytes),
+    task: clipToBytes(entry?.task || "", Math.max(80, Math.floor(perEntryBytes / 2))),
+  }));
+}
+
 function fitContext(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const staleModules = [];
@@ -93,17 +132,19 @@ function fitContext(manifest, index, checklist, options, config) {
   const memoryContextRef = options.root ? `.agents/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
   const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
   const rawInteractiveLogRef = options.root ? `.agents/session/${manifest.session_id}/interactive.log` : memoryArtifacts.rawInteractiveLogPath;
+  const turnsRef = options.root ? `.agents/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
   const attempts = [
-    { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048 },
-    { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024 },
-    { moduleLimit: 24, checklistLimit: 10, checklistTextBytes: 140, parentSummaryBytes: 512 },
-    { moduleLimit: 8, checklistLimit: 5, checklistTextBytes: 100, parentSummaryBytes: 256 },
-    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 120 },
+    { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048, runHistoryLimit: 10, runSummaryBytes: 256, rollingSummaryBytes: 1024 },
+    { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024, runHistoryLimit: 6, runSummaryBytes: 180, rollingSummaryBytes: 512 },
+    { moduleLimit: 24, checklistLimit: 10, checklistTextBytes: 140, parentSummaryBytes: 512, runHistoryLimit: 4, runSummaryBytes: 140, rollingSummaryBytes: 256 },
+    { moduleLimit: 8, checklistLimit: 5, checklistTextBytes: 100, parentSummaryBytes: 256, runHistoryLimit: 2, runSummaryBytes: 96, rollingSummaryBytes: 128 },
+    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 120, runHistoryLimit: 0, runSummaryBytes: 0, rollingSummaryBytes: 0 },
   ];
 
   let selected = null;
   for (const attempt of attempts) {
     const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
+    const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
     const candidate = {
       schema_version: "1.0",
       session_id: manifest.session_id,
@@ -128,8 +169,11 @@ function fitContext(manifest, index, checklist, options, config) {
         memory_context: memoryContextRef,
         launches: launchesRef,
         raw_interactive_log: rawInteractiveLogRef,
+        turns: turnsRef,
       },
       parent_summary: clipToBytes(options.parentSummary || "", attempt.parentSummaryBytes),
+      run_history: runHistory,
+      rolling_summary: clipToBytes(options.rollingSummary || "", attempt.rollingSummaryBytes),
     };
 
     selected = candidate;
@@ -139,6 +183,52 @@ function fitContext(manifest, index, checklist, options, config) {
   }
 
   return { value: selected, truncated: true };
+}
+
+export function synthesizeBootstrapFromContext(manifest, context) {
+  const moduleIds = context?.index_snapshot?.module_ids || [];
+  const moduleCount = Number(context?.index_snapshot?.module_count || moduleIds.length);
+  const checklist = Array.isArray(context?.checklist) ? context.checklist : [];
+  const checklistSummary = context?.checklist_summary || {
+    total_items: checklist.length,
+    displayed_items: checklist.length,
+    remaining_items: 0,
+  };
+  const runs = Array.isArray(context?.run_history) ? context.run_history : [];
+  const rolling = String(context?.rolling_summary || "").trim();
+
+  const runsBlock = runs.length === 0
+    ? "- No prior runs recorded."
+    : runs.slice(-3).map((run) => {
+      const task = run?.task ? `task: ${run.task}` : "task: (unrecorded)";
+      const validation = run?.validation ? ` validation: ${run.validation}` : "";
+      const exit = Number.isFinite(run?.exit_code) ? ` exit: ${run.exit_code}` : "";
+      return `- ${run?.ended_at || run?.started_at || "run"} — ${task}${exit}${validation}`;
+    }).join("\n");
+
+  return `# Session Context
+
+## Session
+- ID: ${manifest.session_id}
+- Parent: ${manifest.parent_id || "none"}
+- Provider: ${manifest.provider || manifest.tool || "local"}
+- Created: ${manifest.created_at}
+
+## Repository State
+- HEAD: ${manifest.head_commit_at_creation}
+- Module count: ${moduleCount}
+- Module preview: ${summarizeModules(moduleIds, Math.min(moduleIds.length, 12))}
+- Full routing: host shell -> .agents/index.db
+
+## Checklist Status
+${renderChecklistMarkdown(manifest.session_id, checklist, checklistSummary.total_items ?? checklist.length)}
+
+## Recent Runs
+${runsBlock}
+
+## Rolling Summary
+${rolling || "- No rolling summary recorded yet."}
+`;
 }
 
 function fitBootstrap(manifest, index, checklist, options, config) {
@@ -208,6 +298,8 @@ export async function forkSession(root, config, options = {}) {
     }
   }
 
+  const emitMarkdown = config?.session?.emitMarkdownArtifacts !== false;
+
   const manifest = {
     schema_version: "1.0",
     session_id: sessionId,
@@ -220,31 +312,72 @@ export async function forkSession(root, config, options = {}) {
     head_commit_at_creation: headCommit,
     index_snapshot: ".agents/index.db",
     cache_refs: [
-      `.agents/session/${sessionId}/bootstrap.md`,
       `.agents/session/${sessionId}/context.json`,
       `.agents/session/${sessionId}/checklist.json`,
+      `.agents/session/${sessionId}/launches.jsonl`,
+      `.agents/session/${sessionId}/turns.jsonl`,
+      `.agents/session/${sessionId}/bootstrap.md`,
       `.agents/session/${sessionId}/transcript.md`,
       `.agents/session/${sessionId}/memory-context.md`,
-      `.agents/session/${sessionId}/launches.jsonl`,
       `.agents/session/${sessionId}/interactive.log`,
     ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
       total_tokens_used: 0,
       memory_adapter: "mempalace-compatible-session-v1",
+      emit_markdown_artifacts: emitMarkdown,
+      runtime_artifacts: [
+        "session-manifest.json",
+        "context.json",
+        "checklist.json",
+        "launches.jsonl",
+        "turns.jsonl",
+      ],
+      optional_markdown_artifacts: [
+        "bootstrap.md",
+        "transcript.md",
+        "memory-context.md",
+        "interactive.log",
+      ],
     },
   };
 
   let parentChecklist = [];
+  let parentRunHistory = [];
+  let parentRollingSummary = "";
   if (options.from) {
-    const parentDir = path.join(root, ".agents", "session", options.from);
+    const parentDir = resolveSessionDirSafely(root, options.from, "parent session id");
+    const parentManifestPath = path.join(parentDir, "session-manifest.json");
+    if (!(await exists(parentManifestPath))) {
+      throw new Error(`Parent session ${options.from} not found`);
+    }
+    const parentManifest = await readJson(parentManifestPath);
+    if (parentManifest?.session_id !== options.from) {
+      throw new Error(`Parent session manifest session_id "${parentManifest?.session_id}" does not match requested id "${options.from}"`);
+    }
     const checklistPath = path.join(parentDir, "checklist.json");
     if (await exists(checklistPath)) {
       parentChecklist = await readJson(checklistPath);
     }
+    const parentContextPath = path.join(parentDir, "context.json");
+    if (await exists(parentContextPath)) {
+      try {
+        const parentContext = await readJson(parentContextPath);
+        parentRunHistory = Array.isArray(parentContext?.run_history) ? parentContext.run_history : [];
+        parentRollingSummary = String(parentContext?.rolling_summary || "");
+      } catch {
+        parentRunHistory = [];
+        parentRollingSummary = "";
+      }
+    }
   }
 
-  const contextResult = fitContext(manifest, index, parentChecklist, { ...options, root }, config);
+  const contextResult = fitContext(manifest, index, parentChecklist, {
+    ...options,
+    root,
+    runHistory: options.runHistory || parentRunHistory,
+    rollingSummary: options.rollingSummary || parentRollingSummary,
+  }, config);
   const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, options, config);
   const context = contextResult.value;
   const bootstrap = bootstrapResult.value;
@@ -257,7 +390,9 @@ export async function forkSession(root, config, options = {}) {
   await writeJson(path.join(sessionDir, "session-manifest.json"), manifest);
   await writeJson(path.join(sessionDir, "checklist.json"), parentChecklist);
   await writeJson(path.join(sessionDir, "context.json"), context);
-  await writeText(path.join(sessionDir, "bootstrap.md"), bootstrap);
+  if (emitMarkdown) {
+    await writeText(path.join(sessionDir, "bootstrap.md"), bootstrap);
+  }
 
   return { sessionId, sessionDir, manifest, context, bootstrap };
 }
@@ -281,7 +416,7 @@ export async function listSessions(root) {
 }
 
 export async function resumeSession(root, sessionId) {
-  const sessionDir = path.join(root, ".agents", "session", sessionId);
+  const sessionDir = resolveSessionDirSafely(root, sessionId);
   const manifestPath = path.join(sessionDir, "session-manifest.json");
 
   if (!(await exists(manifestPath))) {
@@ -289,8 +424,14 @@ export async function resumeSession(root, sessionId) {
   }
 
   const manifest = await readJson(manifestPath);
+  if (manifest?.session_id !== sessionId) {
+    throw new Error(`Session manifest session_id "${manifest?.session_id}" does not match requested id "${sessionId}"`);
+  }
   const context = await readJson(path.join(sessionDir, "context.json"));
-  const bootstrap = await fs.readFile(path.join(sessionDir, "bootstrap.md"), "utf8");
+  const bootstrapPath = path.join(sessionDir, "bootstrap.md");
+  const bootstrap = (await exists(bootstrapPath))
+    ? await fs.readFile(bootstrapPath, "utf8")
+    : synthesizeBootstrapFromContext(manifest, context);
 
   return { manifest, context, bootstrap };
 }

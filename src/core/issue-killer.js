@@ -265,6 +265,8 @@ function buildIssuePrompt(issue, assignment) {
     "Rules:",
     "- Solve exactly this issue and do not pick up other issues.",
     "- Keep changes scoped, minimal, and production-ready.",
+    "- You are running in an isolated issue-killer worktree with provider permissions pre-approved for this assigned issue.",
+    "- Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands.",
     "- Run the relevant tests and checks for the touched area.",
     "- Commit with a clear Conventional Commit message.",
     "- Push the branch with upstream tracking.",
@@ -279,6 +281,7 @@ function buildPaneCommand(assignment, agentProvider) {
   const argv = buildProviderTemplateCommand(agentProvider, prompt, {
     root: assignment.worktreePath,
     interactive: true,
+    bypassPermissions: true,
   });
   return argvToShell(argv);
 }

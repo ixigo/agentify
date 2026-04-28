@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { ensureDir, exists, relative, writeText } from "./fs.js";
+import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -342,6 +342,36 @@ async function listSessionTranscripts(root) {
   return transcripts.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+async function listStructuredSessionTurns(root) {
+  const sessionsDir = path.join(root, ".agents", "session");
+  if (!(await exists(sessionsDir))) {
+    return [];
+  }
+
+  const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
+  const results = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const turnsPath = path.join(sessionsDir, entry.name, "turns.jsonl");
+    if (!(await exists(turnsPath))) {
+      continue;
+    }
+    const stat = await fs.stat(turnsPath);
+    results.push({
+      sessionId: entry.name,
+      turnsPath,
+      turnsRelativePath: relative(root, turnsPath),
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+    });
+  }
+
+  return results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
 function getMemPalacePaths(root) {
   const baseDir = path.join(root, ".agents", "mempalace");
   return {
@@ -435,7 +465,9 @@ async function createMemPalaceBackend(root, query, config) {
         const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
         const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath);
         const excerpt = clipToBytes(stdout.trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
-        if (!excerpt || excerpt.includes("No results found")) {
+        const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
+        const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
+        if (!excerpt || hasErrorStdout || !hasResultRow) {
           return null;
         }
 
@@ -462,6 +494,8 @@ async function createMemPalaceBackend(root, query, config) {
 
 async function createTranscriptSearchBackend(root, query, config) {
   const transcripts = await listSessionTranscripts(root);
+  const structuredOnly = (await listStructuredSessionTurns(root))
+    .filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
   const tokens = tokenizeQuery(query);
   const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
   const maxResults = getSessionMemoryLimit(config, "memoryResults", 3);
@@ -469,7 +503,7 @@ async function createTranscriptSearchBackend(root, query, config) {
   return {
     name: "local-session-search",
     async recall() {
-      if (transcripts.length === 0 || tokens.length === 0) {
+      if ((transcripts.length === 0 && structuredOnly.length === 0) || tokens.length === 0) {
         return null;
       }
 
@@ -494,6 +528,25 @@ async function createTranscriptSearchBackend(root, query, config) {
         }
       }
 
+      for (const item of structuredOnly) {
+        const turns = await readStructuredTurnsAsText(item.turnsPath);
+        const passages = buildPassages(turns);
+        for (const passage of passages) {
+          const score = scorePassage(query, tokens, passage);
+          if (score < 4) {
+            continue;
+          }
+          matches.push({
+            sessionId: item.sessionId,
+            transcriptPath: item.turnsPath,
+            transcriptRelativePath: item.turnsRelativePath,
+            score,
+            excerpt: passage,
+            mtimeMs: item.mtimeMs,
+          });
+        }
+      }
+
       matches.sort((a, b) => b.score - a.score || b.mtimeMs - a.mtimeMs);
       const hits = matches.slice(0, maxResults).map((hit) => ({
         ...hit,
@@ -511,6 +564,62 @@ async function createTranscriptSearchBackend(root, query, config) {
   };
 }
 
+async function createStructuredLineageBackend(root, manifest, config) {
+  const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
+  const candidates = [manifest?.session_id, manifest?.parent_id].filter(Boolean);
+
+  return {
+    name: "structured-lineage",
+    async recall() {
+      for (const sessionId of candidates) {
+        const paths = getSessionArtifactPaths(root, sessionId);
+        if (!(await exists(paths.contextPath))) {
+          continue;
+        }
+        let ctx;
+        try {
+          ctx = await readJson(paths.contextPath);
+        } catch {
+          continue;
+        }
+        const runs = Array.isArray(ctx?.run_history) ? ctx.run_history : [];
+        const rolling = String(ctx?.rolling_summary || "").trim();
+        if (runs.length === 0 && !rolling) {
+          continue;
+        }
+        const lines = [];
+        if (rolling) {
+          lines.push("Rolling summary:", rolling);
+        }
+        if (runs.length > 0) {
+          lines.push("", "Recent runs:");
+          for (const run of runs.slice(-5)) {
+            const when = run?.ended_at || run?.started_at || "";
+            lines.push(`- ${when} task="${(run?.task || "").trim()}" exit=${run?.exit_code ?? "?"} validation=${run?.validation || "not-run"}`);
+            if (run?.assistant_summary) {
+              lines.push(`  summary: ${run.assistant_summary}`);
+            }
+          }
+        }
+        const excerpt = clipToBytes(lines.join("\n").trim(), maxBytes);
+        if (!excerpt) {
+          continue;
+        }
+        return buildMemoryResult("structured-lineage", [{
+          sessionId,
+          transcriptPath: paths.contextPath,
+          transcriptRelativePath: relative(root, paths.contextPath),
+          score: Number.NaN,
+          excerpt,
+        }], [
+          "- Source: structured session state (context.json run_history + rolling_summary).",
+        ], maxBytes);
+      }
+      return null;
+    },
+  };
+}
+
 async function createLineageBackend(root, manifest, config) {
   const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
   const maxTurns = getSessionMemoryLimit(config, "memoryTurns", 6);
@@ -520,21 +629,28 @@ async function createLineageBackend(root, manifest, config) {
     name: "lineage-replay",
     async recall() {
       for (const sessionId of candidates) {
-        const { transcriptPath } = getSessionArtifactPaths(root, sessionId);
-        if (!(await exists(transcriptPath))) {
+        const { transcriptPath, turnsPath } = getSessionArtifactPaths(root, sessionId);
+        let turns = [];
+        let sourcePath = null;
+        if (await exists(transcriptPath)) {
+          const transcript = await fs.readFile(transcriptPath, "utf8");
+          turns = parseTranscriptTurns(transcript);
+          sourcePath = transcriptPath;
+        } else if (await exists(turnsPath)) {
+          turns = await readStructuredTurnsAsText(turnsPath);
+          sourcePath = turnsPath;
+        } else {
           continue;
         }
-
-        const transcript = await fs.readFile(transcriptPath, "utf8");
-        const excerpt = selectRecentTurns(parseTranscriptTurns(transcript), maxTurns, maxBytes);
+        const excerpt = selectRecentTurns(turns, maxTurns, maxBytes);
         if (!excerpt) {
           continue;
         }
 
         return buildMemoryResult("lineage-replay", [{
           sessionId,
-          transcriptPath,
-          transcriptRelativePath: relative(root, transcriptPath),
+          transcriptPath: sourcePath,
+          transcriptRelativePath: relative(root, sourcePath),
           score: Number.NaN,
           excerpt,
         }], [
@@ -549,6 +665,7 @@ async function createLineageBackend(root, manifest, config) {
 
 async function createMemoryBackends(root, options, config) {
   return [
+    await createStructuredLineageBackend(root, options.manifest || null, config),
     await createMemPalaceBackend(root, options.query || "", config),
     await createTranscriptSearchBackend(root, options.query || "", config),
     await createLineageBackend(root, options.manifest || null, config),
@@ -562,8 +679,99 @@ export function getSessionArtifactPaths(root, sessionId) {
     transcriptPath: path.join(sessionDir, "transcript.md"),
     memoryContextPath: path.join(sessionDir, "memory-context.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
+    turnsPath: path.join(sessionDir, "turns.jsonl"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
+    contextPath: path.join(sessionDir, "context.json"),
   };
+}
+
+async function readJsonlTurns(targetPath) {
+  if (!(await exists(targetPath))) {
+    return [];
+  }
+  const raw = await fs.readFile(targetPath, "utf8");
+  const turns = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      turns.push(JSON.parse(trimmed));
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return turns;
+}
+
+function turnToTranscriptText(turn) {
+  if (!turn || typeof turn !== "object") {
+    return "";
+  }
+  const label = turn.role === "assistant"
+    ? "> Provider response"
+    : turn.role === "system"
+      ? "> System"
+      : "> Current task";
+  return `${label}\n${String(turn.content || "").trim()}`.trim();
+}
+
+async function readStructuredTurnsAsText(turnsPath) {
+  const turns = await readJsonlTurns(turnsPath);
+  return turns.map(turnToTranscriptText).filter(Boolean);
+}
+
+async function appendTurnsRecord(turnsPath, record) {
+  await ensureDir(path.dirname(turnsPath));
+  await fs.appendFile(turnsPath, `${JSON.stringify(record)}\n`, "utf8");
+}
+
+function clampRunHistoryEntry(entry, summaryMaxBytes) {
+  return {
+    started_at: entry.started_at,
+    ended_at: entry.ended_at,
+    task: clipToBytes(entry.task || "", Math.max(80, Math.floor(summaryMaxBytes / 2))),
+    assistant_summary: clipToBytes(entry.assistant_summary || "", summaryMaxBytes),
+    exit_code: Number.isFinite(entry.exit_code) ? entry.exit_code : null,
+    validation: entry.validation || "not-run",
+    phase: entry.phase || "complete",
+    memory_backend: entry.memory_backend || "none",
+  };
+}
+
+function buildRollingSummary(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return "";
+  }
+  const latest = history[history.length - 1] || {};
+  const task = latest.task ? `Last task: ${latest.task}` : null;
+  const summary = latest.assistant_summary ? `Last outcome: ${latest.assistant_summary}` : null;
+  const status = latest.exit_code !== null && latest.exit_code !== undefined
+    ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}`
+    : null;
+  return [task, status, summary].filter(Boolean).join("\n");
+}
+
+export async function appendRunSummary(root, sessionId, entry, config) {
+  const paths = getSessionArtifactPaths(root, sessionId);
+  if (!(await exists(paths.contextPath))) {
+    return null;
+  }
+  let context;
+  try {
+    context = await readJson(paths.contextPath);
+  } catch {
+    return null;
+  }
+  const historyLimit = getSessionMemoryLimit(config, "runHistoryMax", 10);
+  const summaryBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
+  const previous = Array.isArray(context.run_history) ? context.run_history : [];
+  const next = [...previous, clampRunHistoryEntry(entry, summaryBytes)].slice(-historyLimit);
+  context.run_history = next;
+  context.rolling_summary = clipToBytes(buildRollingSummary(next), Math.max(summaryBytes * 2, 512));
+  await writeJson(paths.contextPath, context);
+  return { run_history: next, rolling_summary: context.rolling_summary };
 }
 
 export async function loadAutomaticMemory(root, options, config) {
@@ -594,45 +802,73 @@ export async function loadAutomaticSessionMemory(root, manifest, config, query =
   return loadAutomaticMemory(root, { manifest, query }, config);
 }
 
-export async function prepareSessionMemoryRun(root, sessionRecord) {
+export async function prepareSessionMemoryRun(root, sessionRecord, config) {
   const startedAt = new Date().toISOString();
   const paths = getSessionArtifactPaths(root, sessionRecord.sessionId);
   await ensureDir(paths.sessionDir);
+  const emitMarkdown = config?.session?.emitMarkdownArtifacts !== false;
 
-  const memoryMarkdown = sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown();
-  await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
+  await appendTurnsRecord(paths.turnsPath, {
+    schema_version: "1.0",
+    turn_type: "run_start",
+    role: "system",
+    session_id: sessionRecord.sessionId,
+    provider: sessionRecord.provider,
+    started_at: startedAt,
+    capture_mode: sessionRecord.captureMode,
+    command: Array.isArray(sessionRecord.command) ? sessionRecord.command : [],
+    memory_backend: sessionRecord.memoryContext?.backend || "none",
+    memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
+  });
+  await appendTurnsRecord(paths.turnsPath, {
+    schema_version: "1.0",
+    turn_type: "task",
+    role: "user",
+    session_id: sessionRecord.sessionId,
+    timestamp: startedAt,
+    content: sessionRecord.task || "Continue this session from the latest repository state.",
+  });
 
-  const transcriptLines = [];
-  if (await exists(paths.transcriptPath)) {
-    transcriptLines.push("", "---", "");
+  if (emitMarkdown) {
+    const memoryMarkdown = sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown();
+    await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
+
+    const transcriptLines = [];
+    if (await exists(paths.transcriptPath)) {
+      transcriptLines.push("", "---", "");
+    }
+    transcriptLines.push(
+      "# Agentify Session Run",
+      `Session: ${sessionRecord.sessionId}`,
+      `Provider: ${sessionRecord.provider}`,
+      `Started: ${startedAt}`,
+      `Capture mode: ${sessionRecord.captureMode}`,
+      `Command: ${normalizeCommand(sessionRecord.command) || "n/a"}`,
+      `Bootstrap: .agents/session/${sessionRecord.sessionId}/bootstrap.md`,
+      `Memory context: ${relative(root, paths.memoryContextPath)}`,
+      "",
+      "> Session bootstrap reference",
+      `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
+      "",
+      "> Automatic session memory",
+      sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run.",
+      "",
+      "> Current task",
+      sessionRecord.task || "Continue this session from the latest repository state.",
+      ""
+    );
+
+    await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
   }
-  transcriptLines.push(
-    "# Agentify Session Run",
-    `Session: ${sessionRecord.sessionId}`,
-    `Provider: ${sessionRecord.provider}`,
-    `Started: ${startedAt}`,
-    `Capture mode: ${sessionRecord.captureMode}`,
-    `Command: ${normalizeCommand(sessionRecord.command) || "n/a"}`,
-    `Bootstrap: .agents/session/${sessionRecord.sessionId}/bootstrap.md`,
-    `Memory context: ${relative(root, paths.memoryContextPath)}`,
-    "",
-    "> Session bootstrap reference",
-    `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
-    "",
-    "> Automatic session memory",
-    sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run.",
-    "",
-    "> Current task",
-    sessionRecord.task || "Continue this session from the latest repository state.",
-    ""
-  );
-
-  await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
-  return { startedAt, paths };
+  return { startedAt, paths, emitMarkdown };
 }
 
 export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, outcome, config) {
   const captureMaxBytes = getSessionMemoryLimit(config, "captureMaxKb", 48) * 1024;
+  const summaryMaxBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
+  const emitMarkdown = prepared?.emitMarkdown !== undefined
+    ? prepared.emitMarkdown
+    : config?.session?.emitMarkdownArtifacts !== false;
   const providerOutput = outcome?.interactiveTranscript
     ? String(outcome.interactiveTranscript).trim()
     : [outcome?.stdout, outcome?.stderr]
@@ -648,20 +884,42 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
   const phase = outcome?.phase || "complete";
   const endedAt = new Date().toISOString();
 
-  const transcriptTail = [
-    "> Provider response",
-    assistantText,
-    "",
-    "> Run status",
-    `Command phase: ${phase}`,
-    `Exit code: ${outcome?.exitCode ?? 1}`,
-    `Validation: ${validationSummary}`,
-    `Capture mode used: ${sessionRecord.captureMode}`,
-    outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
-    `Ended: ${endedAt}`,
-    ""
-  ].filter(Boolean).join("\n");
-  await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+  await appendTurnsRecord(prepared.paths.turnsPath, {
+    schema_version: "1.0",
+    turn_type: "assistant_response",
+    role: "assistant",
+    session_id: sessionRecord.sessionId,
+    timestamp: endedAt,
+    content: assistantText,
+  });
+  await appendTurnsRecord(prepared.paths.turnsPath, {
+    schema_version: "1.0",
+    turn_type: "run_end",
+    role: "system",
+    session_id: sessionRecord.sessionId,
+    ended_at: endedAt,
+    phase,
+    exit_code: outcome?.exitCode ?? 1,
+    validation: validationSummary,
+    capture_mode: sessionRecord.captureMode,
+  });
+
+  if (emitMarkdown) {
+    const transcriptTail = [
+      "> Provider response",
+      assistantText,
+      "",
+      "> Run status",
+      `Command phase: ${phase}`,
+      `Exit code: ${outcome?.exitCode ?? 1}`,
+      `Validation: ${validationSummary}`,
+      `Capture mode used: ${sessionRecord.captureMode}`,
+      outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
+      `Ended: ${endedAt}`,
+      ""
+    ].filter(Boolean).join("\n");
+    await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+  }
 
   const launchRecord = {
     schema_version: "1.0",
@@ -675,6 +933,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     prompt: sessionRecord.prompt,
     transcript_path: relative(root, prepared.paths.transcriptPath),
     memory_context_path: relative(root, prepared.paths.memoryContextPath),
+    turns_path: relative(root, prepared.paths.turnsPath),
     memory_backend: sessionRecord.memoryContext?.backend || "none",
     raw_interactive_log_path: outcome?.rawInteractiveLogPath
       ? relative(root, outcome.rawInteractiveLogPath)
@@ -688,4 +947,15 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     stderr: clipToBytes(outcome?.stderr || "", captureMaxBytes),
   };
   await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
+
+  await appendRunSummary(root, sessionRecord.sessionId, {
+    started_at: prepared.startedAt,
+    ended_at: endedAt,
+    task: sessionRecord.task || "",
+    assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
+    exit_code: outcome?.exitCode ?? null,
+    validation: validationSummary,
+    phase,
+    memory_backend: sessionRecord.memoryContext?.backend || "none",
+  }, config);
 }

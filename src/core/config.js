@@ -52,6 +52,9 @@ const DEFAULT_CONFIG = {
     memoryTurns: 6,
     memoryResults: 3,
     captureMaxKb: 48,
+    runHistoryMax: 10,
+    runSummaryMaxBytes: 256,
+    emitMarkdownArtifacts: true,
   },
   planner: {
     maxModules: 6,
@@ -60,6 +63,9 @@ const DEFAULT_CONFIG = {
     maxTests: 6,
     maxSourceBytes: 24000,
     maxInstructionBytes: 6000,
+    maxAdditionalReadsBeforeEdit: 4,
+    maxWidenings: 1,
+    editAfterSelectedContextUnlessBlocked: true,
   },
   semantic: {
     tsjs: {
