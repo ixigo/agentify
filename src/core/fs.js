@@ -36,7 +36,7 @@ async function loadAgentignore(root) {
   const ignorePath = path.join(root, ".agentignore");
   let stat = null;
   try {
-    stat = await fs.stat(ignorePath);
+    stat = await fs.stat(ignorePath, { bigint: true });
   } catch {
     // .agentignore is absent; fall through with stat=null
   }
@@ -56,7 +56,14 @@ async function loadAgentignore(root) {
     return [];
   }
 
-  const raw = await fs.readFile(ignorePath, "utf8");
+  let raw;
+  try {
+    raw = await fs.readFile(ignorePath, "utf8");
+  } catch {
+    const patterns = [];
+    ignorePatternCache.set(root, { mtimeNs: stat.mtimeNs, size: stat.size, patterns });
+    return patterns;
+  }
   const patterns = raw
     .split(/\r?\n/)
     .filter((line) => line.trim() && !line.startsWith("#"))

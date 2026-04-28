@@ -52,6 +52,27 @@ test("walkFiles picks up .agentignore mutations within the same root", async () 
   assert.deepEqual(after.sort(), [".agentignore", "ignored.js"]);
 });
 
+test("walkFiles picks up same-length .agentignore mutations within the same root", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-same-length-"));
+  const ignorePath = path.join(root, ".agentignore");
+  await fs.writeFile(ignorePath, "ignored.js\n", "utf8");
+  await fs.writeFile(path.join(root, "ignored.js"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "visible.js"), "export const visible = true;\n", "utf8");
+
+  const before = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  assert.deepEqual(before.sort(), [".agentignore", "visible.js"]);
+
+  // Same byte length as "ignored.js\n"; only mtime can invalidate the cache.
+  const future = new Date(Date.now() + 2000);
+  await fs.writeFile(ignorePath, "visible.js\n", "utf8");
+  await fs.utimes(ignorePath, future, future);
+
+  const after = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  assert.deepEqual(after.sort(), [".agentignore", "ignored.js"]);
+});
+
 test("walkFiles picks up a newly created .agentignore within the same root", async () => {
   resetIgnoreCache();
 
@@ -65,4 +86,15 @@ test("walkFiles picks up a newly created .agentignore within the same root", asy
 
   const after = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   assert.deepEqual(after, [".agentignore"]);
+});
+
+test("walkFiles treats unreadable .agentignore as an empty ignore list", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-unreadable-"));
+  await fs.mkdir(path.join(root, ".agentignore"));
+  await fs.writeFile(path.join(root, "visible.js"), "export const visible = true;\n", "utf8");
+
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  assert.deepEqual(files, ["visible.js"]);
 });
