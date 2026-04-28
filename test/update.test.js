@@ -22,6 +22,28 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 }
 
+async function createRepoWithScriptedTest(prefix, exitCode) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    scripts: {
+      test: "node test-result.js"
+    }
+  }, null, 2));
+  await fs.writeFile(path.join(root, "test-result.js"), `process.exit(${exitCode});\n`);
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
+  return root;
+}
+
+async function readLatestRunReport(root, commandName) {
+  const runDir = path.join(root, ".agents", "runs");
+  const runFiles = (await fs.readdir(runDir))
+    .filter((file) => file.endsWith(`-${commandName}.json`))
+    .sort();
+  assert.ok(runFiles.length > 0, `expected a persisted ${commandName} run report`);
+  return JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
+}
+
 test("scan and doc generate required artifacts", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
@@ -245,6 +267,46 @@ test("passes", () => {
   assert.equal(payload.command, "up");
   assert.equal(payload.validation.passed, true);
   assert.equal(payload.tests.status, "passed");
+});
+
+test("runUpdate persists test metadata for passing and failing up and sync run reports", async () => {
+  const previousExitCode = process.exitCode;
+  const cases = [
+    { commandName: "up", exitCode: 0, expectedStatus: "passed", expectedPassed: true },
+    { commandName: "up", exitCode: 1, expectedStatus: "failed", expectedPassed: false },
+    { commandName: "sync", exitCode: 0, expectedStatus: "passed", expectedPassed: true },
+    { commandName: "sync", exitCode: 1, expectedStatus: "failed", expectedPassed: false },
+  ];
+
+  try {
+    for (const testCase of cases) {
+      process.exitCode = undefined;
+      const root = await createRepoWithScriptedTest(`agentify-${testCase.commandName}-persist-tests-`, testCase.exitCode);
+      const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: true, json: true });
+      const originalLog = console.log;
+      console.log = () => {};
+
+      let finalOutput;
+      try {
+        finalOutput = await runUpdate(root, config, { commandName: testCase.commandName });
+      } finally {
+        console.log = originalLog;
+      }
+
+      const persistedRun = await readLatestRunReport(root, testCase.commandName);
+      const expectedTests = {
+        status: testCase.expectedStatus,
+        passed: testCase.expectedPassed,
+        command: "npm test",
+        exit_code: testCase.exitCode,
+      };
+
+      assert.deepEqual(finalOutput.tests, expectedTests);
+      assert.deepEqual(persistedRun.tests, expectedTests);
+    }
+  } finally {
+    process.exitCode = previousExitCode;
+  }
 });
 
 test("runUpdate skips docs and headers by default unless docs=true is explicitly set", async () => {

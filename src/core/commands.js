@@ -260,6 +260,15 @@ async function writeRunReport(root, report) {
   return runPath;
 }
 
+function summarizeTestResult(testResult) {
+  return {
+    status: testResult.status,
+    passed: testResult.passed,
+    command: testResult.command,
+    exit_code: testResult.exit_code
+  };
+}
+
 function renderDefaultAgentignore() {
   return `# Keep local Agentify work artifacts out of repo scans
 .agentify/work/**
@@ -1147,6 +1156,7 @@ export async function runUpdate(root, config, options = {}) {
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress);
+  const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);
     const meta = getRepoMeta(db);
@@ -1169,19 +1179,15 @@ export async function runUpdate(root, config, options = {}) {
         files_with_headers: 0,
         docs_written: 0
       },
-      validation: result
+      validation: result,
+      tests
     };
     await writeRunReport(artifactRoot, runReport);
   }
   const finalOutput = {
     command: commandName,
     validation: result,
-    tests: {
-      status: testResult.status,
-      passed: testResult.passed,
-      command: testResult.command,
-      exit_code: testResult.exit_code
-    },
+    tests,
     ...(options.preflight ? { repo_sync: options.preflight } : {}),
   };
   progress.json(finalOutput);
