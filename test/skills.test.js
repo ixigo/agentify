@@ -53,9 +53,12 @@ async function listSkillDirs(rootDir) {
 test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
+  const caveman = skills.find((skill) => skill.name === "caveman");
   const expectedNames = await listSkillDirs(path.join(repoRoot, "skills"));
 
   assert.deepEqual(names.sort(), expectedNames);
+  assert.equal(caveman?.name, "caveman");
+  assert.match(caveman?.description || "", /65-75% of output tokens/);
   for (const skill of skills) {
     assert.equal(skill.sourceDir, path.join(repoRoot, "skills", skill.name));
   }
@@ -188,6 +191,32 @@ test("installBuiltinSkill installs canonical skill name for alias across all pro
           : path.join(root, ".opencode", "skills");
     const skillPath = path.join(baseDir, "worktree-autopilot", "SKILL.md");
     assert.equal(await exists(skillPath), true);
+  }
+});
+
+test("installBuiltinSkill copies caveman skill bundle across all providers", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-caveman-"));
+  const result = await installBuiltinSkill(root, {
+    name: "caveman",
+    provider: "all",
+    scope: "project",
+  });
+
+  assert.equal(result.skill.name, "caveman");
+  assert.equal(result.results.length, 4);
+
+  for (const provider of ["codex", "claude", "gemini", "opencode"]) {
+    const baseDir = provider === "codex"
+      ? path.join(root, ".codex", "skills")
+      : provider === "claude"
+        ? path.join(root, ".claude", "skills")
+        : provider === "gemini"
+          ? path.join(root, ".gemini", "skills")
+          : path.join(root, ".opencode", "skills");
+    const skillPath = path.join(baseDir, "caveman", "SKILL.md");
+    const uiPath = path.join(baseDir, "caveman", "agents", "openai.yaml");
+    assert.equal(await exists(skillPath), true);
+    assert.equal(await exists(uiPath), true);
   }
 });
 

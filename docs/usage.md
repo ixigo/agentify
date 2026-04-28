@@ -223,6 +223,29 @@ After the first sticky Codex run, the repo keeps `codex` as its default provider
 agentify run "add tests for retry backoff"
 ```
 
+### Use caveman mode for terse output
+
+Use `--caveman` when you want lower output-token usage for a run or session. A bare flag uses `full`; pass a level for stricter compression.
+
+```bash
+agentify skill install caveman --provider codex --scope project
+agentify run --provider codex --caveman=ultra "explain why checkout retries fail"
+```
+
+Example response style:
+
+```text
+Retry state resets each render. Hook local var lost. Move attempt count to ref or reducer. Add test around second retry.
+```
+
+Environment fallback works for scripts and CI:
+
+```bash
+AGENTIFY_CAVEMAN=full agentify run "summarize stale index risk"
+```
+
+Caveman mode does not rewrite commit messages, PR descriptions, code blocks, or safety-sensitive confirmations.
+
 ### Run inside the interactive provider CLI
 
 ```bash
