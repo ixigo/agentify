@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -117,6 +117,56 @@ test("buildExecutionPrompt prepends automatic memory before a normal run prompt"
 
   assert.match(prompt, /Automatic Session Memory/);
   assert.ok(prompt.indexOf("Automatic Session Memory") < prompt.indexOf("Implement retry handling"));
+});
+
+test("prepareSessionLaunch keeps sess subcommands on the same runExec payload path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-launch-"));
+  const sessionResult = {
+    manifest: {
+      session_id: "sess_shared_launch",
+      provider: "opencode",
+      name: "Shared launch session",
+    },
+    bootstrap: "# Session Context\n- Provider: opencode",
+  };
+  const config = {
+    provider: "claude",
+    session: {
+      memoryPromptMaxKb: 4,
+      memoryResults: 3,
+      memoryTurns: 6,
+    },
+  };
+  const task = "Finish launch preparation";
+  const commandArgs = {
+    fork: parseArgs(["sess", "fork", task]),
+    resume: parseArgs(["sess", "resume", "sess_shared_launch", task]),
+    run: parseArgs(["sess", "run", task]),
+  };
+
+  const launches = {};
+  for (const [subcommand, args] of Object.entries(commandArgs)) {
+    launches[subcommand] = await prepareSessionLaunch(root, config, args, sessionResult, task);
+  }
+
+  const baseline = launches.fork;
+  for (const launch of Object.values(launches)) {
+    assert.equal(launch.provider, "opencode");
+    assert.equal(launch.captureSettings.captureMode, "interactive-pty");
+    assert.equal(launch.runExecFlags.captureOutputMode, "pty");
+    assert.equal(launch.sessionRecord.sessionId, "sess_shared_launch");
+    assert.equal(launch.sessionRecord.provider, "opencode");
+    assert.equal(launch.sessionRecord.task, task);
+    assert.equal(launch.sessionRecord.memoryContext.backend, "none");
+    assert.equal(launch.sessionRecord.prompt, baseline.sessionRecord.prompt);
+    assert.deepEqual(launch.sessionRecord.command, baseline.sessionRecord.command);
+    assert.equal(launch.runExecConfig.provider, "opencode");
+    assert.equal(launch.runExecFlags.sessionRecord, launch.sessionRecord);
+  }
+
+  assert.match(baseline.prompt, /Current task: Finish launch preparation/);
+  assert.match(baseline.prompt, /Automatic Session Memory/);
+  assert.deepEqual(baseline.agentCommand.slice(0, 3), ["opencode", "--dir", root]);
 });
 
 test("runCli supports skill install with provider all", async () => {

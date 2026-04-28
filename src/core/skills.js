@@ -4,13 +4,55 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureDir, exists } from "./fs.js";
-import { SUPPORTED_PROVIDERS } from "./provider-command.js";
+import { SKILL_INSTALL_PROVIDER_NAMES } from "./provider-registry.js";
 
-const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../builtin-skills", import.meta.url));
+const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../../skills", import.meta.url));
 
-export const SKILL_INSTALL_PROVIDERS = SUPPORTED_PROVIDERS.filter((provider) => provider !== "local");
+export const SKILL_INSTALL_PROVIDERS = SKILL_INSTALL_PROVIDER_NAMES;
 
 const BUILTIN_SKILLS = [
+  {
+    name: "auto-pilot",
+    aliases: [],
+    description:
+      "Execute a task end-to-end with minimal user interaction by deriving requirements from the repository first, then implementing, validating, and committing autonomously.",
+  },
+  {
+    name: "caveman",
+    aliases: [],
+    description:
+      'Ultra-compressed communication mode that cuts token usage by dropping filler while keeping technical accuracy. Use when the user says "caveman mode", "be brief", or asks for fewer tokens.',
+  },
+  {
+    name: "design-an-interface",
+    aliases: [],
+    description:
+      'Generate multiple radically different interface designs for a module using parallel sub-agents. Use when the user wants API design options, module shape comparisons, or mentions "design it twice".',
+  },
+  {
+    name: "domain-model",
+    aliases: [],
+    description:
+      "Challenge a plan against the existing domain model, sharpen terminology, and update documentation such as CONTEXT.md and ADRs as decisions crystallize.",
+  },
+  {
+    name: "edit-article",
+    aliases: [],
+    description:
+      "Edit and improve articles by restructuring sections, improving clarity, and tightening prose.",
+  },
+  {
+    name: "git-guardrails-claude-code",
+    aliases: [],
+    description:
+      "Set up Claude Code hooks to block dangerous git commands such as push, reset --hard, clean, and branch deletion before they execute.",
+  },
+  {
+    name: "github-triage",
+    aliases: [],
+    description:
+      "Triage GitHub issues through a label-based state machine. Use when the user wants to create, triage, review, or prepare issues for agent work.",
+  },
   {
     name: "grill-me",
     aliases: [],
@@ -34,6 +76,72 @@ const BUILTIN_SKILLS = [
     aliases: ["gh-issue-killer"],
     description:
       "Launch opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude agent prompt running with provider permission checks bypassed for draft PR creation.",
+  },
+  {
+    name: "migrate-to-shoehorn",
+    aliases: [],
+    description:
+      "Migrate test files from TypeScript `as` assertions to @total-typescript/shoehorn. Use when the user mentions shoehorn or partial test data.",
+  },
+  {
+    name: "obsidian-vault",
+    aliases: [],
+    description:
+      "Search, create, and manage notes in an Obsidian vault with wikilinks and index notes.",
+  },
+  {
+    name: "qa",
+    aliases: [],
+    description:
+      "Run an interactive QA session where the user reports bugs conversationally, the agent explores for context, and GitHub issues are filed.",
+  },
+  {
+    name: "request-refactor-plan",
+    aliases: [],
+    description:
+      "Create a detailed refactor plan with tiny commits through user interview, then file it as a GitHub issue.",
+  },
+  {
+    name: "scaffold-exercises",
+    aliases: [],
+    description:
+      "Create exercise directory structures with sections, problems, solutions, and explainers that pass linting.",
+  },
+  {
+    name: "setup-pre-commit",
+    aliases: [],
+    description:
+      "Set up Husky pre-commit hooks with lint-staged, Prettier, type checking, and tests in the current repo.",
+  },
+  {
+    name: "tdd",
+    aliases: [],
+    description:
+      "Guide test-driven development with a red-green-refactor loop. Use for test-first feature work, bug fixes, and integration-style tests.",
+  },
+  {
+    name: "to-issues",
+    aliases: [],
+    description:
+      "Break a plan, spec, or PRD into independently grabbable GitHub issues using tracer-bullet vertical slices.",
+  },
+  {
+    name: "to-prd",
+    aliases: [],
+    description:
+      "Turn the current conversation context into a PRD and submit it as a GitHub issue.",
+  },
+  {
+    name: "triage-issue",
+    aliases: [],
+    description:
+      "Triage a bug or issue by exploring the codebase to find root cause, then create a GitHub issue with a TDD-based fix plan.",
+  },
+  {
+    name: "ubiquitous-language",
+    aliases: [],
+    description:
+      "Extract a DDD-style ubiquitous language glossary from the current conversation, flag ambiguities, and save canonical terms to UBIQUITOUS_LANGUAGE.md.",
   },
   {
     name: "copy-mode",
@@ -64,6 +172,18 @@ const BUILTIN_SKILLS = [
     aliases: [],
     description:
       "Create focused, high-quality commits using conventional prefixes (feat/fix/chore/refactor/docs/test/etc.) with clear summaries.",
+  },
+  {
+    name: "write-a-skill",
+    aliases: [],
+    description:
+      "Create new agent skills with proper structure, progressive disclosure, and bundled resources.",
+  },
+  {
+    name: "zoom-out",
+    aliases: [],
+    description:
+      "Tell the agent to zoom out and provide broader context or a higher-level map of unfamiliar code.",
   },
 ];
 

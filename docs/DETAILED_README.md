@@ -231,7 +231,7 @@ agentify skill list
 agentify skill install <name|all> --provider <name|all> --scope <project|user>
 ```
 
-Published built-in skill bundles also live under the repository-level [`skills/`](../skills/) directory so external skill installers that scan GitHub repositories for `skills/*/SKILL.md` can discover Agentify's built-ins directly.
+Built-in skill bundles live under the repository-level [`skills/`](../skills/) directory. Agentify installs built-ins from this canonical tree, and external skill installers can discover the same bundles by scanning GitHub repositories for `skills/*/SKILL.md`.
 
 Built-in skills:
 
