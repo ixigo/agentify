@@ -7,9 +7,10 @@ import { createInterface } from "node:readline/promises";
 import { ensureBaselineArtifacts } from "./commands.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./config.js";
 import { exists } from "./fs.js";
+import { BOOTSTRAP_PROVIDER_NAMES, getProviderBootstrap, getProviderDefinition, stripAnsi } from "./provider-registry.js";
 import * as ui from "./ui.js";
 
-export const BOOTSTRAP_PROVIDERS = ["codex", "claude", "gemini", "opencode"];
+export const BOOTSTRAP_PROVIDERS = BOOTSTRAP_PROVIDER_NAMES;
 
 const HOMEBREW_INSTALL_COMMAND = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
 
@@ -52,41 +53,6 @@ const NODE_INSTALL = {
   install: ["brew", "install", "node"],
 };
 
-const PROVIDER_BOOTSTRAP = {
-  codex: {
-    id: "codex",
-    label: "Codex",
-    bin: "codex",
-    checkArgs: ["--version"],
-    install: ["npm", "install", "-g", "@openai/codex"],
-    loginCommand: "codex login",
-  },
-  claude: {
-    id: "claude",
-    label: "Claude Code",
-    bin: "claude",
-    checkArgs: ["--version"],
-    install: ["npm", "install", "-g", "@anthropic-ai/claude-code"],
-    loginCommand: "claude auth login",
-  },
-  gemini: {
-    id: "gemini",
-    label: "Gemini CLI",
-    bin: "gemini",
-    checkArgs: ["--version"],
-    install: ["brew", "install", "gemini-cli"],
-    loginCommand: "gemini",
-  },
-  opencode: {
-    id: "opencode",
-    label: "OpenCode",
-    bin: "opencode",
-    checkArgs: ["--version"],
-    install: ["brew", "install", "opencode"],
-    loginCommand: "opencode providers login",
-  },
-};
-
 function normalizeBootstrapProvider(value) {
   const provider = String(value || "").trim().toLowerCase();
   if (!provider) {
@@ -99,10 +65,6 @@ function normalizeBootstrapProvider(value) {
     throw new Error(`unsupported provider "${provider}". Supported providers: ${BOOTSTRAP_PROVIDERS.join(", ")}`);
   }
   return provider;
-}
-
-function stripAnsi(text) {
-  return String(text || "").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 function tailText(text, maxLines = 4) {
@@ -295,7 +257,7 @@ export async function buildBootstrapInstallPlan(provider, runtime = {}) {
     }
   }
 
-  const providerStep = PROVIDER_BOOTSTRAP[provider];
+  const providerStep = getProviderBootstrap(provider);
   if (!providerStep) {
     throw new Error(`unsupported provider "${provider}"`);
   }
@@ -311,76 +273,6 @@ export async function buildBootstrapInstallPlan(provider, runtime = {}) {
   return installPlan;
 }
 
-async function probeCodexAuth(runtime) {
-  const result = await runtime.exec(["codex", "login", "status"], {
-    cwd: runtime.cwd,
-    env: runtime.env,
-  });
-  const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
-  if (result.code === 0 && output.includes("logged in")) {
-    return { state: "ready", detail: "logged in", nextStep: null };
-  }
-  if (output.includes("not logged in")) {
-    return { state: "missing", detail: "login required", nextStep: "codex login" };
-  }
-  return { state: "unknown", detail: "auth not verified", nextStep: "codex login" };
-}
-
-async function probeClaudeAuth(runtime) {
-  const result = await runtime.exec(["claude", "auth", "status"], {
-    cwd: runtime.cwd,
-    env: runtime.env,
-  });
-
-  try {
-    const parsed = JSON.parse(result.stdout || "{}");
-    if (parsed.loggedIn) {
-      return { state: "ready", detail: parsed.authMethod || "logged in", nextStep: null };
-    }
-    return { state: "missing", detail: "login required", nextStep: "claude auth login" };
-  } catch {
-    const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
-    if (output.includes('"loggedin": true') || output.includes("logged in")) {
-      return { state: "ready", detail: "logged in", nextStep: null };
-    }
-    return { state: "unknown", detail: "auth not verified", nextStep: "claude auth login" };
-  }
-}
-
-async function probeGeminiAuth(runtime) {
-  if (runtime.env.GEMINI_API_KEY) {
-    return { state: "ready", detail: "GEMINI_API_KEY set", nextStep: null };
-  }
-  if (runtime.env.GOOGLE_API_KEY) {
-    return { state: "ready", detail: "GOOGLE_API_KEY set", nextStep: null };
-  }
-  if (runtime.env.GOOGLE_APPLICATION_CREDENTIALS && await exists(runtime.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-    return { state: "ready", detail: "application default credentials configured", nextStep: null };
-  }
-
-  const geminiHome = runtime.env.GEMINI_CLI_HOME || runtime.homeDir;
-  const oauthFile = path.join(geminiHome, ".gemini", "oauth_creds.json");
-  if (await exists(oauthFile)) {
-    return { state: "ready", detail: "oauth credentials cached", nextStep: null };
-  }
-
-  return { state: "unknown", detail: "auth not verified", nextStep: "gemini" };
-}
-
-async function probeOpenCodeAuth(runtime) {
-  const result = await runtime.exec(["opencode", "providers", "list"], {
-    cwd: runtime.cwd,
-    env: runtime.env,
-  });
-  const cleaned = stripAnsi(`${result.stdout}\n${result.stderr}`);
-  const credentialsCount = Number(cleaned.match(/(\d+)\s+credentials?/i)?.[1] || 0);
-  const envCount = Number(cleaned.match(/(\d+)\s+environment variables?/i)?.[1] || 0);
-  if (result.code === 0 && (credentialsCount > 0 || envCount > 0)) {
-    return { state: "ready", detail: "credentials detected", nextStep: null };
-  }
-  return { state: "unknown", detail: "auth not verified", nextStep: "opencode providers login" };
-}
-
 export async function probeProviderReadiness(provider, runtime = {}) {
   const mergedRuntime = {
     cwd: runtime.cwd || process.cwd(),
@@ -389,17 +281,9 @@ export async function probeProviderReadiness(provider, runtime = {}) {
     exec: runtime.exec || runCommandCapture,
   };
 
-  if (provider === "codex") {
-    return probeCodexAuth(mergedRuntime);
-  }
-  if (provider === "claude") {
-    return probeClaudeAuth(mergedRuntime);
-  }
-  if (provider === "gemini") {
-    return probeGeminiAuth(mergedRuntime);
-  }
-  if (provider === "opencode") {
-    return probeOpenCodeAuth(mergedRuntime);
+  const definition = getProviderDefinition(provider);
+  if (definition?.probeAuth) {
+    return definition.probeAuth(mergedRuntime);
   }
   throw new Error(`unsupported provider "${provider}"`);
 }
@@ -642,7 +526,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
   if (result.status === "ready") {
     progress.success(`100% ready: ${provider} configured in ${requestedRoot}`);
   } else {
-    const nextStep = auth.nextStep || PROVIDER_BOOTSTRAP[provider].loginCommand;
+    const nextStep = auth.nextStep || getProviderBootstrap(provider)?.loginCommand;
     progress.warn(`85% login required: run ${nextStep}`);
   }
 

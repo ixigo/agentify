@@ -29,3 +29,24 @@ test("loadConfig applies nested semantic flags", async () => {
   assert.equal(config.semantic.tsjs.enabled, true);
   assert.equal(config.semantic.tsjs.workerConcurrency, 2);
 });
+
+test("loadConfig applies planner execution budget overrides", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-planner-budget-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "planner:",
+      "  maxAdditionalReadsBeforeEdit: 1",
+      "  maxWidenings: 0",
+      "  editAfterSelectedContextUnlessBlocked: false",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root);
+
+  assert.equal(config.planner.maxAdditionalReadsBeforeEdit, 1);
+  assert.equal(config.planner.maxWidenings, 0);
+  assert.equal(config.planner.editAfterSelectedContextUnlessBlocked, false);
+});

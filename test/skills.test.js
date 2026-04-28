@@ -37,6 +37,11 @@ async function listRelativeFiles(rootDir) {
   return results;
 }
 
+async function readPackageJson() {
+  const raw = await fs.readFile(path.join(repoRoot, "package.json"), "utf8");
+  return JSON.parse(raw);
+}
+
 async function listSkillDirs(rootDir) {
   const entries = await fs.readdir(rootDir, { withFileTypes: true });
   return entries
@@ -48,9 +53,15 @@ async function listSkillDirs(rootDir) {
 test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   const skills = listBuiltinSkills();
   const names = skills.map((skill) => skill.name);
-  const expectedNames = await listSkillDirs(path.join(repoRoot, "src", "builtin-skills"));
+  const caveman = skills.find((skill) => skill.name === "caveman");
+  const expectedNames = await listSkillDirs(path.join(repoRoot, "skills"));
 
   assert.deepEqual(names.sort(), expectedNames);
+  assert.equal(caveman?.name, "caveman");
+  assert.match(caveman?.description || "", /65-75% of output tokens/);
+  for (const skill of skills) {
+    assert.equal(skill.sourceDir, path.join(repoRoot, "skills", skill.name));
+  }
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
@@ -183,6 +194,32 @@ test("installBuiltinSkill installs canonical skill name for alias across all pro
   }
 });
 
+test("installBuiltinSkill copies caveman skill bundle across all providers", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-caveman-"));
+  const result = await installBuiltinSkill(root, {
+    name: "caveman",
+    provider: "all",
+    scope: "project",
+  });
+
+  assert.equal(result.skill.name, "caveman");
+  assert.equal(result.results.length, 4);
+
+  for (const provider of ["codex", "claude", "gemini", "opencode"]) {
+    const baseDir = provider === "codex"
+      ? path.join(root, ".codex", "skills")
+      : provider === "claude"
+        ? path.join(root, ".claude", "skills")
+        : provider === "gemini"
+          ? path.join(root, ".gemini", "skills")
+          : path.join(root, ".opencode", "skills");
+    const skillPath = path.join(baseDir, "caveman", "SKILL.md");
+    const uiPath = path.join(baseDir, "caveman", "agents", "openai.yaml");
+    assert.equal(await exists(skillPath), true);
+    assert.equal(await exists(uiPath), true);
+  }
+});
+
 test("installBuiltinSkill skips existing targets without force", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-skip-"));
   await installBuiltinSkill(root, {
@@ -200,24 +237,27 @@ test("installBuiltinSkill skips existing targets without force", async () => {
   assert.equal(result.results[0].status, "skipped_exists");
 });
 
-test("published skills mirror built-in skill bundles for external installers", async () => {
-  const builtinRoot = path.join(repoRoot, "src", "builtin-skills");
-  const publishedRoot = path.join(repoRoot, "skills");
-  const builtinFiles = await listRelativeFiles(builtinRoot);
-  const publishedFiles = await listRelativeFiles(publishedRoot);
+test("repo-level skills are the canonical built-in skill bundles", async () => {
+  const canonicalRoot = path.join(repoRoot, "skills");
+  const packageJson = await readPackageJson();
+  const skills = listBuiltinSkills();
+  const canonicalFiles = await listRelativeFiles(canonicalRoot);
 
-  assert.deepEqual(publishedFiles, builtinFiles);
+  assert.equal(await exists(path.join(repoRoot, "src", "builtin-skills")), false);
+  assert.equal(packageJson.files.includes("src/**/*.js"), true);
+  assert.equal(packageJson.files.includes("skills/"), true);
+  assert.equal(packageJson.files.includes("src/builtin-skills/"), false);
 
-  for (const relativePath of builtinFiles) {
-    const builtinText = await fs.readFile(path.join(builtinRoot, relativePath), "utf8");
-    const publishedText = await fs.readFile(path.join(publishedRoot, relativePath), "utf8");
-    assert.equal(publishedText, builtinText, `published skills drifted for ${relativePath}`);
+  for (const skill of skills) {
+    const skillFile = path.join(canonicalRoot, skill.name, "SKILL.md");
+    assert.equal(canonicalFiles.includes(path.join(skill.name, "SKILL.md")), true);
+    assert.equal(await exists(skillFile), true);
   }
 });
 
 test("installAllBuiltinSkills installs every built-in skill for codex project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-install-all-"));
-  const expectedNames = await listSkillDirs(path.join(repoRoot, "src", "builtin-skills"));
+  const expectedNames = await listSkillDirs(path.join(repoRoot, "skills"));
   const result = await installAllBuiltinSkills(root, {
     provider: "codex",
     scope: "project",
