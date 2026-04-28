@@ -160,6 +160,10 @@ agentify sess resume --session <session-id> "<next task>"
 agentify check
 ```
 
+## Optional Accelerators
+
+- **MemPalace** — local AI memory backend that mines `agentify sess` transcripts and surfaces relevant prior context on recall. Install with `pipx install mempalace` (Python 3.9+); keep `mempalace` on `PATH` or set `AGENTIFY_MEMPALACE_CMD`. Setup details in [docs/usage.md § 6](./docs/usage.md).
+
 ## Learn More
 
 - [docs/DETAILED_README.md](./docs/DETAILED_README.md) has the full command guide, provider behavior, semantic indexing, session memory, generated artifacts, and development notes.

@@ -383,11 +383,18 @@ Use `agentify doctor` afterward to confirm semantic projects are being reported.
 
 MemPalace is optional, but it is the most useful add-on when you use `sess *` frequently.
 
-How to turn it on:
+How to install (Python 3.9+ required):
 
-- install `mempalace` and keep it on `PATH`, or set `AGENTIFY_MEMPALACE_CMD`
-- run `agentify doctor` and confirm MemPalace is detected
-- prefer `agentify sess run`, `sess resume`, and `sess fork` for multi-step work so Agentify has durable session transcripts to mine
+- `pipx install mempalace` is the recommended path. Plain `pip install mempalace` works too, but pulls ChromaDB and a ~300 MB embedding model on first index — prefer a virtualenv if you do not use `pipx`.
+- Keep the resolved `mempalace` binary on `PATH`, or set `AGENTIFY_MEMPALACE_CMD` to its absolute path (useful when installed in a project-local venv).
+- You do **not** need to run `mempalace init` yourself. Agentify lazily creates the per-repo palace under `.agents/mempalace/palace/` on the first `mine` call.
+- Run `agentify doctor` and confirm MemPalace is detected.
+- Prefer `agentify sess run`, `sess resume`, and `sess fork` for multi-step work so Agentify has durable session transcripts to mine.
+
+Setup reference: <https://mempalaceofficial.com/guide/getting-started>.
+
+> [!NOTE]
+> Agentify binds the per-repo palace by setting `MEMPALACE_PALACE_PATH` when invoking `mempalace`. That env var is honored by `mempalace/config.py` but is not documented in `mempalace --help`; do not strip it as "dead" in future refactors of `src/core/session-memory.js`.
 
 Important:
 

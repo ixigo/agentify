@@ -1,4 +1,0 @@
-interface:
-  display_name: "Caveman"
-  short_description: "Terse caveman-speak output - cuts ~65-75% of output tokens"
-  default_prompt: "Use $caveman to respond in terse caveman-speak while keeping full technical accuracy."

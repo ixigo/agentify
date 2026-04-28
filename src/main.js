@@ -47,7 +47,24 @@ const BOOLEAN_FLAGS = new Set([
   "allowPartial",
   "reuseSession",
   "hook",
-  "caveman",
+]);
+
+const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
+const CAVEMAN_FLAG_VALUES = new Set([
+  "lite",
+  "full",
+  "ultra",
+  "wenyan",
+  "wenyan-lite",
+  "wenyan-full",
+  "wenyan-ultra",
+  "true",
+  "false",
+  "1",
+  "0",
+  "off",
+  "normal",
+  "none",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -154,7 +171,7 @@ export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = 
 }
 
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
-  const task = userPrompt || "Continue this session from the latest repository state.";
+  const task = userPrompt || DEFAULT_SESSION_TASK;
   const sections = [
     "You are continuing an Agentify session.",
     "",
@@ -165,6 +182,49 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", o
   }
   sections.push("", `Current task: ${task}`);
   return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
+}
+
+export async function prepareSessionLaunch(root, config, args, sessionResult, task) {
+  const memoryQuery = task || sessionResult.manifest.name || "";
+  const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, memoryQuery);
+  const caveman = resolveCavemanLevel(args);
+  const provider = hasOwn(args, "provider")
+    ? normalizeProvider(args.provider)
+    : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
+  const usingTemplateCommand = !args._exec?.length;
+  const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
+  const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
+  const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
+  const agentCommand = args._exec?.length
+    ? args._exec
+    : buildProviderTemplateCommand(
+      provider,
+      prompt,
+      providerOptions,
+    );
+  const sessionRecord = {
+    sessionId: sessionResult.manifest.session_id,
+    provider,
+    prompt,
+    task: task || DEFAULT_SESSION_TASK,
+    command: agentCommand,
+    memoryContext,
+    captureMode: captureSettings.captureMode,
+  };
+
+  return {
+    provider,
+    memoryContext,
+    prompt,
+    captureSettings,
+    agentCommand,
+    sessionRecord,
+    runExecConfig: { ...config, provider },
+    runExecFlags: getExecFlags(args, {
+      captureOutputMode: captureSettings.captureOutputMode,
+      sessionRecord,
+    }),
+  };
 }
 
 function resolveSessionIdForResume(args) {
@@ -291,6 +351,16 @@ export function parseArgs(argv) {
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
       args[key] = parseValue(inlineValue);
+      continue;
+    }
+    if (key === "caveman") {
+      const next = argv[index + 1];
+      if (next && !next.startsWith("--") && CAVEMAN_FLAG_VALUES.has(String(next).trim().toLowerCase())) {
+        args[key] = parseValue(next);
+        index += 1;
+      } else {
+        args[key] = true;
+      }
       continue;
     }
     if (BOOLEAN_FLAGS.has(key)) {
@@ -591,7 +661,6 @@ export async function runCli(argv) {
         }
 
         if (subcommand === "fork") {
-          const caveman = resolveCavemanLevel(args);
           const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
           const result = await forkSession(root, config, {
             from: fromId,
@@ -599,80 +668,28 @@ export async function runCli(argv) {
             name: args.name || null,
           });
           const task = getPromptFromArgs(args, 2);
-          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown, { caveman });
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, result, task);
 
           if (!config.json) {
             success(`Session forked: ${result.manifest.session_id}`);
             log(`Path: ${dim(result.sessionDir)}`);
           }
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: result.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
         if (subcommand === "resume") {
-          const caveman = resolveCavemanLevel(args);
           const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
           const result = await resumeSession(root, sessionId);
           const task = getPromptFromArgs(args, promptStartIndex);
-          const memoryContext = await loadAutomaticSessionMemory(root, result.manifest, config, task || result.manifest.name || "");
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(result.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-          const prompt = buildSessionPrompt(result.bootstrap, task, memoryContext.markdown, { caveman });
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, result, task);
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: result.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
         if (subcommand === "run") {
-          const caveman = resolveCavemanLevel(args);
           let sessionResult;
           let sessionDir;
 
@@ -697,39 +714,14 @@ export async function runCli(argv) {
             }
           }
 
-          const provider = hasOwn(args, "provider")
-            ? normalizeProvider(args.provider)
-            : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
-          const usingTemplateCommand = !args._exec?.length;
-          const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-          const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
           const task = getPromptFromArgs(args, 2);
-          const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, task || sessionResult.manifest.name || "");
-          const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
-          const agentCommand = args._exec?.length
-            ? args._exec
-            : buildProviderTemplateCommand(
-              provider,
-              prompt,
-              providerOptions,
-            );
+          const launch = await prepareSessionLaunch(root, config, args, sessionResult, task);
 
           if (config.json && sessionDir) {
             console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
           }
 
-          await runExec(root, { ...config, provider }, agentCommand, getExecFlags(args, {
-            captureOutputMode: captureSettings.captureOutputMode,
-            sessionRecord: {
-              sessionId: sessionResult.manifest.session_id,
-              provider,
-              prompt,
-              task: task || "Continue this session from the latest repository state.",
-              command: agentCommand,
-              memoryContext,
-              captureMode: captureSettings.captureMode,
-            },
-          }));
+          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
           return;
         }
 
