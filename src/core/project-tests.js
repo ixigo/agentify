@@ -3,12 +3,90 @@ import path from "node:path";
 
 import { exists, readJson } from "./fs.js";
 
-async function runChildCommand(command, args, { cwd } = {}) {
+const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
+  "PATH",
+  "HOME",
+  "SHELL",
+  "USER",
+  "LOGNAME",
+  "PWD",
+  "CI",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LC_COLLATE",
+  "LC_MESSAGES",
+  "LC_NUMERIC",
+  "LC_TIME",
+  "TZ",
+  "TERM",
+  "COLORTERM",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "NODE_PATH",
+  "NVM_DIR",
+  "NVM_BIN",
+  "VOLTA_HOME",
+  "FNM_DIR",
+  "FNM_MULTISHELL_PATH",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "SYSTEMROOT",
+  "SYSTEMDRIVE",
+  "WINDIR",
+  "COMSPEC",
+]);
+
+export function buildTestEnv(testsConfig = {}, sourceEnv = process.env) {
+  const envConfig = (testsConfig && typeof testsConfig === "object" && testsConfig.env) || {};
+
+  if (envConfig.inherit === true) {
+    const inherited = { ...sourceEnv };
+    const extra = envConfig.extra && typeof envConfig.extra === "object" ? envConfig.extra : {};
+    for (const [key, value] of Object.entries(extra)) {
+      if (value === null || value === undefined) continue;
+      inherited[key] = String(value);
+    }
+    return inherited;
+  }
+
+  const env = {};
+  for (const key of DEFAULT_PASSTHROUGH_ENV) {
+    if (sourceEnv[key] !== undefined) {
+      env[key] = sourceEnv[key];
+    }
+  }
+
+  const passthrough = Array.isArray(envConfig.passthrough) ? envConfig.passthrough : [];
+  for (const key of passthrough) {
+    if (typeof key !== "string" || key.length === 0) continue;
+    if (sourceEnv[key] !== undefined) {
+      env[key] = sourceEnv[key];
+    }
+  }
+
+  const extra = envConfig.extra && typeof envConfig.extra === "object" ? envConfig.extra : {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (value === null || value === undefined) continue;
+    env[key] = String(value);
+  }
+
+  return env;
+}
+
+async function runChildCommand(command, args, { cwd, env } = {}) {
   const stdoutChunks = [];
   const stderrChunks = [];
 
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: process.env });
+    const child = spawn(command, args, { cwd, env });
     child.stdout.on("data", (chunk) => {
       stdoutChunks.push(String(chunk));
     });
@@ -63,7 +141,7 @@ export async function detectTestCommand(root) {
   return null;
 }
 
-export async function runProjectTests(root, reporter) {
+export async function runProjectTests(root, reporter, options = {}) {
   const testCommand = await detectTestCommand(root);
   if (!testCommand) {
     const result = {
@@ -79,8 +157,14 @@ export async function runProjectTests(root, reporter) {
     return result;
   }
 
+  const testsConfig = options.config?.tests || options.tests || {};
+  const env = buildTestEnv(testsConfig);
+
   reporter.log(`tests: running ${testCommand.command} ${testCommand.args.join(" ")}`);
-  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root });
+  if (testsConfig.env?.inherit !== true) {
+    reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
+  }
+  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env });
   if (outcome.stdout) {
     reporter.appendSection("[tests stdout]", outcome.stdout);
   }

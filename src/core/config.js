@@ -77,6 +77,13 @@ const DEFAULT_CONFIG = {
       analyzerVersion: "semantic-tsjs-v1",
     },
   },
+  tests: {
+    env: {
+      inherit: false,
+      passthrough: [],
+      extra: {},
+    },
+  },
 };
 
 function parseConfigFile(text) {
@@ -183,6 +190,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     session: config.session,
     planner: config.planner,
     semantic: config.semantic,
+    tests: config.tests,
   };
 
   const yaml = stringifyYaml(output);
