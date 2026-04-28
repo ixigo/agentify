@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { ensureDir, exists } from "./fs.js";
 import { SKILL_INSTALL_PROVIDER_NAMES } from "./provider-registry.js";
 
-const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../builtin-skills", import.meta.url));
+const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../../skills", import.meta.url));
 
 export const SKILL_INSTALL_PROVIDERS = SKILL_INSTALL_PROVIDER_NAMES;
 
