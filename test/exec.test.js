@@ -106,6 +106,18 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
   assert.equal(result.skippedRefresh, undefined);
   assert.equal(afterDocMtime > beforeDocMtime, true);
   assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+  assert.equal(result.executionTelemetry.phase, "complete");
+  assert.equal(result.executionTelemetry.provider, "local");
+  assert.equal(result.executionTelemetry.changed_files_count, 1);
+  assert.deepEqual(result.executionTelemetry.changed_paths, ["src/index.js"]);
+
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+  const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+  const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+  assert.match(output, /execution: changed_files=1/);
+  assert.match(html, /execution telemetry/);
+  assert.deepEqual(telemetry.changed_paths, ["src/index.js"]);
 });
 
 test("runExec refreshes and validates after a failing command mutates tracked files", async () => {

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getChangedFiles, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
+import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun } from "./session-memory.js";
 import * as ui from "./ui.js";
@@ -137,6 +138,89 @@ function createBoundedCaptureBuffer(maxBytes) {
   };
 }
 
+function normalizeCommandForDisplay(argv) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    return "";
+  }
+
+  return argv.map((part) => {
+    const text = String(part);
+    if (!/[\s"'\\]/.test(text)) {
+      return text;
+    }
+    return `"${text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  }).join(" ");
+}
+
+function summarizeProviderCommand(argv) {
+  const parts = Array.isArray(argv) ? argv.map(String) : [];
+  return {
+    executable: parts[0] || null,
+    argv: parts,
+    argc: parts.length,
+    display: normalizeCommandForDisplay(parts),
+  };
+}
+
+function summarizeChangedFiles(files) {
+  return files.map((file) => ({
+    status: file.status,
+    path: file.path,
+    ...(file.origPath ? { orig_path: file.origPath } : {}),
+  }));
+}
+
+function buildExecutionTelemetry({
+  runId,
+  startedAt,
+  finishedAt,
+  durationMs,
+  result,
+  config,
+  agentCommand,
+  commandResult,
+  agentChanges,
+  headChanged,
+  flags,
+}) {
+  const changedFiles = summarizeChangedFiles(agentChanges || []);
+  const captureMode = commandResult?.captureMode || flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
+  const transcript = commandResult?.interactiveTranscript || result.interactiveTranscript || "";
+  const rawLogPath = commandResult?.rawInteractiveLogPath || result.rawInteractiveLogPath || null;
+
+  return {
+    run_id: runId,
+    started_at: startedAt.toISOString(),
+    finished_at: finishedAt.toISOString(),
+    duration_ms: durationMs,
+    phase: result.phase,
+    exit_code: result.exitCode,
+    skipped_refresh: Boolean(result.skippedRefresh),
+    provider: config.provider || null,
+    provider_model: config.providerModel || config.provider_model || null,
+    provider_command: summarizeProviderCommand(agentCommand),
+    capture: {
+      mode: flags.sessionRecord?.captureMode || captureMode,
+      output_mode: captureMode,
+      transcript_available: transcript.length > 0,
+      transcript_bytes: Buffer.byteLength(transcript, "utf8"),
+      raw_log_available: Boolean(rawLogPath),
+      raw_log_path: rawLogPath,
+    },
+    changed_files_count: changedFiles.length,
+    changed_paths: changedFiles.map((file) => file.path),
+    changed_files: changedFiles,
+    head_changed: Boolean(headChanged),
+    session: flags.sessionRecord
+      ? {
+          session_id: flags.sessionRecord.sessionId || null,
+          provider: flags.sessionRecord.provider || null,
+          capture_mode: flags.sessionRecord.captureMode || null,
+        }
+      : null,
+  };
+}
+
 function runWrappedCommand(argv, options) {
   return new Promise((resolve, reject) => {
     const captureMode = options.captureOutputMode || "inherit";
@@ -191,6 +275,7 @@ function runWrappedCommand(argv, options) {
           stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
           interactiveTranscript,
           rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
+          captureMode,
         });
       } catch (error) {
         reject(error);
@@ -200,6 +285,14 @@ function runWrappedCommand(argv, options) {
 }
 
 export async function runExec(root, config, agentCommand, flags) {
+  const commandName = flags.commandName || "exec";
+  const runId = `${Date.now()}-${commandName.replace(/[^a-z0-9_.-]+/gi, "-")}`;
+  const startedAt = new Date();
+  const startMs = Date.now();
+  const progress = flags.reporter || createRunReporter(root);
+  progress.setCommand(commandName);
+  progress.log(`${commandName}: starting provider command`);
+
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
   const preFileDigests = await captureDirtyFileDigests(root, preFiles);
@@ -235,11 +328,63 @@ export async function runExec(root, config, agentCommand, flags) {
           stderr: error.message,
         }, config);
       }
+      const finishedAt = new Date();
+      const result = {
+        phase: "spawn-error",
+        exitCode: 1,
+        stderr: error.message,
+        stdout: "",
+        interactiveTranscript: "",
+        rawInteractiveLogPath: null,
+      };
+      const executionTelemetry = buildExecutionTelemetry({
+        runId,
+        startedAt,
+        finishedAt,
+        durationMs: Date.now() - startMs,
+        result,
+        config,
+        agentCommand,
+        commandResult: null,
+        agentChanges: [],
+        headChanged: false,
+        flags,
+      });
+      progress.setCommand(commandName);
+      progress.setExecution(executionTelemetry);
+      await progress.finalize();
       throw error;
     }
   }
   let exitCode = commandResult.exitCode || 0;
   const commandFailed = exitCode !== 0;
+
+  const postHeadCommit = await getHeadCommit(root);
+  const postFiles = await getChangedFiles(root);
+  const postFileDigests = await captureDirtyFileDigests(root, postFiles);
+  const agentChanges = diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests);
+  const headChanged = postHeadCommit !== preHeadCommit;
+
+  async function finalizeResult(result) {
+    const finishedAt = new Date();
+    result.executionTelemetry = buildExecutionTelemetry({
+      runId,
+      startedAt,
+      finishedAt,
+      durationMs: Date.now() - startMs,
+      result,
+      config,
+      agentCommand,
+      commandResult,
+      agentChanges,
+      headChanged,
+      flags,
+    });
+    progress.setCommand(commandName);
+    progress.setExecution(result.executionTelemetry);
+    await progress.finalize();
+    return result;
+  }
 
   if (flags.skipRefresh) {
     process.exitCode = exitCode;
@@ -255,14 +400,8 @@ export async function runExec(root, config, agentCommand, flags) {
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    return finalizeResult(result);
   }
-
-  const postHeadCommit = await getHeadCommit(root);
-  const postFiles = await getChangedFiles(root);
-  const postFileDigests = await captureDirtyFileDigests(root, postFiles);
-  const agentChanges = diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests);
-  const headChanged = postHeadCommit !== preHeadCommit;
   if (agentChanges.length === 0 && !headChanged) {
     const validation = await validateRepo(root, config);
     if (!validation.passed && flags.failOnStale && !commandFailed) {
@@ -286,12 +425,13 @@ export async function runExec(root, config, agentCommand, flags) {
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    progress.setValidation(validation);
+    return finalizeResult(result);
   }
 
   try {
-    await runScan(root, config, { skipFinalize: true });
-    await runDoc(root, config, { skipFinalize: true });
+    await runScan(root, config, { reporter: progress, skipFinalize: true });
+    await runDoc(root, config, { reporter: progress, skipFinalize: true });
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);
     if (flags.failOnStale && !commandFailed) {
@@ -309,10 +449,11 @@ export async function runExec(root, config, agentCommand, flags) {
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    return finalizeResult(result);
   }
 
   const validation = await validateRepo(root, config);
+  progress.setValidation(validation);
 
   if (!validation.passed) {
     if (flags.failOnStale && !commandFailed) {
@@ -337,5 +478,5 @@ export async function runExec(root, config, agentCommand, flags) {
   if (preparedSessionMemory) {
     await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
   }
-  return result;
+  return finalizeResult(result);
 }
