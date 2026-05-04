@@ -347,10 +347,12 @@ function renderChangedFiles(changedFiles) {
   const limit = 12;
   const lines = files.slice(0, limit).map((item) => {
     const status = cleanInline(item.status || "changed");
-    const renameInfo = item.origPath && item.origPath !== item.path
-      ? ` (from ${item.origPath})`
+    const filePath = cleanInline(item.path);
+    const origPath = cleanInline(item.origPath);
+    const renameInfo = origPath && origPath !== filePath
+      ? ` (from ${origPath})`
       : "";
-    return truncateBytes(`- ${status} ${item.path}${renameInfo}`, 220);
+    return truncateBytes(`- ${status} ${filePath}${renameInfo}`, 220);
   });
 
   if (files.length > limit) {
