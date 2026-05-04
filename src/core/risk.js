@@ -202,15 +202,17 @@ function buildNeighborhood(changedFiles, graph) {
   const queue = [];
 
   for (const fileInfo of changedFiles) {
-    const filePath = normalizePath(fileInfo.path);
-    if (!filePath) continue;
-    impacted.set(filePath, {
-      path: filePath,
-      distance: 0,
-      via: [],
-      reasons: ["changed"],
-    });
-    queue.push({ path: filePath, distance: 0 });
+    const seedPaths = uniqSorted([fileInfo.path, fileInfo.orig_path]);
+    for (const filePath of seedPaths) {
+      if (!filePath) continue;
+      impacted.set(filePath, {
+        path: filePath,
+        distance: 0,
+        via: [],
+        reasons: ["changed"],
+      });
+      queue.push({ path: filePath, distance: 0 });
+    }
   }
 
   while (queue.length > 0) {

@@ -91,6 +91,17 @@ function normalizeProvider(value) {
   return provider;
 }
 
+function normalizeOptionalSince(args, commandName) {
+  if (!hasOwn(args, "since")) {
+    return null;
+  }
+  const since = String(args.since).trim();
+  if (!since || since === "true") {
+    throw new Error(`${commandName} --since requires a commit or ref value`);
+  }
+  return since;
+}
+
 async function maybePersistProvider(root, config, args, command, subcommand) {
   if (command === "skill" || command === "skills") {
     return;
@@ -598,11 +609,8 @@ export async function runCli(argv) {
       case "risk": {
         let result;
         try {
-          if (args.since === true) {
-            throw new Error("risk --since requires a commit or ref value");
-          }
           result = await buildRiskReport(root, {
-            since: args.since ? String(args.since) : null,
+            since: normalizeOptionalSince(args, "risk"),
           });
         } catch (error) {
           if (isMissingIndexError(error)) {

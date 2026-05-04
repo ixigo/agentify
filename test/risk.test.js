@@ -80,6 +80,12 @@ test("buildRiskReport keeps unresolved structural imports in impact graph", asyn
   });
 
   assert.ok(report.impacted.files.some((fileInfo) => fileInfo.path === "src/runtime.ts" && fileInfo.distance === 1));
+
+  const renameReport = await buildRiskReport(root, {
+    changedFiles: [{ status: "R", path: "src/domain-v2.ts", origPath: "src/domain.ts" }],
+  });
+
+  assert.ok(renameReport.impacted.files.some((fileInfo) => fileInfo.path === "src/runtime.ts" && fileInfo.distance === 1));
 });
 
 test("buildRiskReport keeps isolated test-only changes low risk", async () => {
@@ -217,9 +223,16 @@ test("runCli risk --json emits a stable machine-readable report", async () => {
   assert.ok(Array.isArray(payload.prioritized_test_commands));
 });
 
-test("runCli risk rejects --since without a value", async () => {
-  await assert.rejects(
-    () => runCli(["risk", "--since"]),
-    /risk --since requires a commit or ref value/,
-  );
+test("runCli risk rejects --since without a non-blank value", async () => {
+  for (const argv of [
+    ["risk", "--since"],
+    ["risk", "--since", "--json"],
+    ["risk", "--since", ""],
+    ["risk", "--since=   "],
+  ]) {
+    await assert.rejects(
+      () => runCli(argv),
+      /risk --since requires a commit or ref value/,
+    );
+  }
 });
