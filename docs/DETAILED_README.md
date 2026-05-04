@@ -147,6 +147,7 @@ Configure overrides in `.agentify.yaml` under the `tests.env` key:
 
 ```yaml
 tests:
+  outputMaxKb: 48        # max stdout bytes and max stderr bytes captured in run reports
   env:
     inherit: false        # set to true to forward the entire host environment (legacy behavior, not recommended)
     passthrough: []       # list of additional env var names to forward from the host shell
@@ -168,7 +169,7 @@ tests:
 
 | Command | What it does | Why and when to use it | Example |
 | --- | --- | --- | --- |
-| `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. | Use before `run` when you want to inspect the exact prompt context and file selection Agentify will choose. | `agentify plan "add retry logic to checkout"` |
+| `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. Add `--explain` for score components and stable reason codes. | Use before `run` when you want to inspect the exact prompt context, file selection, or why planner scoring chose each item. | `agentify plan --explain "add retry logic to checkout"` |
 | `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex "implement payment retries"` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
@@ -176,9 +177,10 @@ tests:
 | `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
+| `agentify handoff` | Writes deterministic Markdown and JSON handoff artifacts for a session. | Use before switching agents or worktrees so the next agent gets ranked context, touched symbols, tests, TODO/risk lines, and recent-session overlap hints. | `agentify handoff --session sess_20260331_ab12cd "next task"` |
 | `agentify issue-killer` | Launches opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude prompt running with provider permission checks bypassed. | Use when you want several labelled or explicit issues handled in parallel without giving agents arbitrary access to the whole issue backlog. | `agentify issue-killer --label agentify-ready --agent-provider codex --limit 5` |
 
-Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command. Handoff bundles live beside those artifacts as `handoff.md` and `handoff.json`.
 
 Normal `run` is intentionally lightweight. It does not persist durable session memory artifacts under `.agents/session/`; if you need reusable memory across multiple launches, use `sess *`.
 
@@ -192,6 +194,7 @@ Normal `run` is intentionally lightweight. It does not persist durable session m
 | `agentify query search` | Searches the index for matching files, symbols, and semantic surfaces. | Use when you need a repo-aware search that goes beyond raw grep, especially after indexing and semantic refresh. | `agentify query search --term retry` |
 | `agentify skill list` | Lists built-in skills available for installation. | Use when you want to see what behavior bundles Agentify can install for a provider. | `agentify skill list` |
 | `agentify skill install` | Installs one built-in skill or all built-ins into project or user scope. | Use when you want repeatable agent behavior shared at the repo level or available globally for a provider. | `agentify skill install all --provider codex --scope project` |
+| `agentify memory compress` | Reserved helper for future agent memory compression workflows. | Use only when following a memory-compression skill flow; today it reports the placeholder follow-up. | `agentify memory compress AGENTIFY.md` |
 | `agentify hooks install` | Installs Agentify git hooks. | Use when you want automatic validation or refresh behavior tied to Git events. | `agentify hooks install` |
 | `agentify hooks status` | Shows whether Agentify hooks are installed. | Use when you are verifying local setup or debugging why hook-driven behavior is missing. | `agentify hooks status` |
 | `agentify hooks remove` | Removes Agentify git hooks. | Use when you want to disable Agentify-managed hook behavior cleanly. | `agentify hooks remove` |
@@ -228,6 +231,7 @@ agentify sess run [--provider <name>] [--name <label>] [--from <parent-id>] "tas
 agentify sess list
 agentify sess resume --session <id> "task"
 agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
+agentify handoff --session <id> "next task"
 ```
 
 Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
@@ -317,12 +321,18 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--strict <true|false>` | Tighten validation behavior. Use this when you want failures to stop the workflow instead of being treated leniently. |
 | `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection. Use this when auto-detection is wrong or too broad for the repo. |
 | `--dry-run` | Show what Agentify would do without writing changes. Use this before cleanup, installs, or config-affecting commands. |
+| `--docs` | Generate docs during refresh/update flows. It is off by default for `up` and `sync`. |
+| `--headers` | Apply `@agentify` headers to source files. It is off by default. |
+| `--provider-timeout-ms <ms>` | Fail provider doc calls after the given number of milliseconds. Use this to keep doc-generation subprocesses bounded. |
 | `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
+| `--explain` | Include planner score breakdowns for `agentify plan`. Text output shows component totals; combine with `--json` for machine-readable stable reason codes. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
+| `--caveman[=level]` | Request terse output for `run` and `sess`. Supported levels include `lite`, `full`, `ultra`, and `wenyan*` variants. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |
+| `--hook` | Run hook-friendly `check` behavior by skipping changed-file body diffing. This is used by managed pre-commit hooks. |
 
 ### `exec`-Only Flags
 
@@ -338,15 +348,16 @@ In the second command, Agentify reuses `codex` for the same repo.
 - `run` and `sess *` require an external provider CLI: `codex`, `claude`, `gemini`, or `opencode`.
 - `agentify this` supports provider-backed bootstrap on macOS and requires Homebrew for package installation.
 
-## Semantic TypeScript/JavaScript Indexing
+## Semantic Indexing
 
-Semantic indexing is optional, but it is one of the highest-value features for TypeScript and JavaScript repositories.
+Semantic indexing is optional, but it is one of the highest-value features for richer planner and query context. Agentify indexes TypeScript/JavaScript with the TS compiler-backed worker, and also stores normalized semantic facts for Python, Go, Java, and .NET repositories.
 
 Enable it in `.agentify.yaml`:
 
 ```yaml
 provider: codex
 semantic:
+  enabled: true
   tsjs:
     enabled: true
     workerConcurrency: 2
@@ -365,16 +376,16 @@ agentify check
 
 Why use it:
 
-- richer planner context for TS/JS repos
+- richer planner context for TS/JS, Python, Go, Java, and .NET repos
 - semantic surfaces in `query search`
 - better repo-map output
 - deterministic semantic headers during doc generation
 
-Use it when the repository is TypeScript- or JavaScript-heavy and raw dependency scanning is not enough.
+Use it when raw dependency scanning is not enough and planner/query results should include symbols, public surfaces, and import edges.
 
 How to verify it is active:
 
-- `agentify doctor` shows a `Semantic TS/JS` section when semantic indexing is enabled and the repo has been indexed.
+- `agentify doctor` shows a `Semantic` section when semantic indexing is enabled and the repo has been indexed.
 - `agentify query search --term <term>` starts returning semantic surfaces in addition to structural matches.
 - `docs/repo-map.md` and module docs become richer after refreshes.
 

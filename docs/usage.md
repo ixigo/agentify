@@ -265,7 +265,10 @@ Template runs are interactive by default across providers.
 agentify sess run --provider codex --name "payments-v2" "implement initial module"
 agentify sess resume --session <session-id> "continue from the last checkpoint"
 agentify sess fork --from <session-id> --name "payments-alt" "try an alternate design"
+agentify handoff --session <session-id> "handoff to the next agent"
 ```
+
+`agentify handoff` writes `.agents/session/<id>/handoff.md` and `handoff.json` with ranked context, touched symbols, recommended tests, unresolved TODO/risk lines, and overlap hints from recent session handoffs.
 
 ### Launch opted-in issues in parallel
 
@@ -320,7 +323,7 @@ This adds:
   validator still checks freshness and unsafe generated artifacts under
   `.agents/` and `docs/`, but it does not flag intentional source-file edits in
   the working tree, so ordinary commits are not blocked.
-- a `post-merge` hook that refreshes the scan
+- a `post-merge` hook that refreshes the scan and deterministic local docs
 
 ### 2. Install project-local skills for Codex
 
@@ -358,19 +361,20 @@ agentify up --provider local
 
 `up` is not a sticky-provider command, so this does not switch the repo away from Codex.
 
-### 5. Enable semantic TS/JS indexing for TypeScript and JavaScript repos
+### 5. Enable semantic indexing
 
-For TS/JS-heavy repos, turn this on in `.agentify.yaml`:
+For TS/JS, Python, Go, Java, and .NET repos that need richer planner and query context, turn this on in `.agentify.yaml`:
 
 ```yaml
 provider: codex
 semantic:
+  enabled: true
   tsjs:
     enabled: true
     workerConcurrency: 2
 ```
 
-This improves semantic surfaces, deterministic headers, and repo-map quality for TS/JS projects.
+This improves semantic surfaces, deterministic headers, and repo-map quality. The TS/JS adapter uses the compiler-backed worker; Python, Go, Java, and .NET adapters store normalized project, symbol, surface, and edge facts.
 
 After enabling it:
 
