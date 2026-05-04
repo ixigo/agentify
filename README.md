@@ -36,6 +36,7 @@ Then move into a Git repo you want to prepare:
 
 ```bash
 cd /path/to/your/repo
+git rev-parse --is-inside-work-tree
 agentify doctor
 ```
 
@@ -56,6 +57,59 @@ agentify check
 ```
 
 Requires Node.js 20 or newer and pnpm. Provider-backed runs also require the provider CLI you choose, such as `codex`, `claude`, `gemini`, or `opencode`.
+
+## Agents
+
+Use this checklist when an AI agent is setting up Agentify for a repo.
+
+> [!IMPORTANT]
+> Run Agentify commands from inside the target Git repo, not from the Agentify source checkout. Verify first with `git rev-parse --is-inside-work-tree`.
+
+```bash
+# 1. Install the Agentify CLI if it is not already available.
+git clone https://github.com/ixigo/agentify.git
+cd agentify
+pnpm install
+pnpm link --global
+
+# 2. Move to the repo the user wants prepared.
+cd /path/to/target/repo
+git rev-parse --is-inside-work-tree
+
+# 3. Check machine and repo readiness.
+agentify doctor
+
+# 4. Bootstrap on macOS, or use init on already-provisioned machines.
+agentify this --provider codex
+# agentify init --provider codex
+
+# 5. Refresh generated context and validate state.
+agentify up
+agentify check
+```
+
+For already-initialized repos, prefer `agentify up --provider local` and `agentify check` before re-running init. Skills are intentionally opt-in: do not install them unless the user asks or the task requires one.
+
+<details>
+<summary>Optional agent commands</summary>
+
+```bash
+# Install skills only after explicit opt-in.
+agentify skill install all --provider codex --scope project
+
+# Preview task context before running a provider.
+agentify plan "your task"
+
+# Run a bounded task.
+agentify run --provider codex "your task"
+
+# Use durable session memory for a longer workstream.
+agentify sess run --provider codex --name "<stream>" "<first task>"
+agentify sess resume --session <session-id> "<next task>"
+agentify handoff --session <session-id> "handoff for the next agent"
+```
+
+</details>
 
 ## Run An Agent Task
 
@@ -114,7 +168,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Run a bounded task | `agentify run "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
-| Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
+| Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 
 > **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
@@ -206,9 +260,14 @@ For a new repo:
 ```bash
 agentify doctor
 agentify init --provider codex
-agentify skill install all --provider codex --scope project
 agentify up
 agentify check
+```
+
+Skills are not installed during init. Add them only when you explicitly want repo-scoped skills:
+
+```bash
+agentify skill install all --provider codex --scope project
 ```
 
 For day-to-day work:
