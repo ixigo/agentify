@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
+import fs from "node:fs/promises";
 import { promisify } from "node:util";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
@@ -39,6 +41,10 @@ function getConfiguredToolCommand(name, spec = {}) {
 }
 
 async function resolveToolCommand(command) {
+  if (command.includes("/") || command.includes("\\")) {
+    await fs.access(command, fsConstants.X_OK);
+    return command;
+  }
   const { stdout } = await execFileAsync("sh", ["-lc", 'command -v -- "$0"', command]);
   return stdout.trim() || command;
 }

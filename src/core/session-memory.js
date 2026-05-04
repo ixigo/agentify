@@ -772,6 +772,8 @@ export function getSessionArtifactPaths(root, sessionId) {
     handoffMarkdownPath: path.join(sessionDir, "handoff.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
     turnsPath: path.join(sessionDir, "turns.jsonl"),
+    contextFactsPath: path.join(sessionDir, "context-facts.json"),
+    contextFactsMarkdownPath: path.join(sessionDir, "context-facts.md"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
     contextPath: path.join(sessionDir, "context.json"),
   };
@@ -843,6 +845,94 @@ function buildRollingSummary(history) {
     ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}`
     : null;
   return [task, status, summary].filter(Boolean).join("\n");
+}
+
+async function readJsonLines(filePath) {
+  if (!(await exists(filePath))) {
+    return [];
+  }
+  const raw = await fs.readFile(filePath, "utf8");
+  const rows = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      rows.push(JSON.parse(trimmed));
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return rows;
+}
+
+function renderContextFactsMarkdown(facts) {
+  const tasks = facts.recent_tasks.length
+    ? facts.recent_tasks.map((task) => `- ${task}`).join("\n")
+    : "- none";
+  return `# Context Facts
+
+Session: ${facts.session_id}
+Turns: ${facts.event_counts.turns}
+Launches: ${facts.event_counts.launches}
+Latest phase: ${facts.latest_phase || "none"}
+Latest exit code: ${facts.latest_exit_code ?? "none"}
+Latest validation: ${facts.latest_validation || "none"}
+
+## Recent Tasks
+${tasks}
+`;
+}
+
+export async function compactSessionContext(root, sessionId, config = {}) {
+  const paths = getSessionArtifactPaths(root, sessionId);
+  if (!(await exists(paths.contextPath))) {
+    throw new Error(`Session ${sessionId} does not have context.json`);
+  }
+
+  const [context, turns, launches] = await Promise.all([
+    readJson(paths.contextPath),
+    readJsonLines(paths.turnsPath),
+    readJsonLines(paths.launchesPath),
+  ]);
+  const latestLaunch = launches.at(-1) || null;
+  const summaryBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
+  const recentTasks = turns
+    .filter((turn) => turn.turn_type === "task" && turn.content)
+    .slice(-5)
+    .map((turn) => clipToBytes(turn.content, summaryBytes));
+  const facts = {
+    schema_version: "1.0",
+    session_id: sessionId,
+    event_counts: {
+      turns: turns.length,
+      launches: launches.length,
+    },
+    latest_task: recentTasks.at(-1) || "",
+    latest_phase: latestLaunch?.phase || null,
+    latest_exit_code: latestLaunch?.exit_code ?? null,
+    latest_validation: latestLaunch?.validation || null,
+    recent_tasks: recentTasks,
+    source_paths: {
+      turns: relative(root, paths.turnsPath),
+      launches: relative(root, paths.launchesPath),
+      context: relative(root, paths.contextPath),
+    },
+  };
+
+  context.context_facts = facts;
+  await writeJson(paths.contextPath, context);
+  await writeJson(paths.contextFactsPath, facts);
+  if (config?.session?.emitMarkdownArtifacts !== false) {
+    await writeText(paths.contextFactsMarkdownPath, renderContextFactsMarkdown(facts));
+  }
+  return {
+    session_id: sessionId,
+    facts_path: relative(root, paths.contextFactsPath),
+    markdown_path: config?.session?.emitMarkdownArtifacts === false ? null : relative(root, paths.contextFactsMarkdownPath),
+    facts,
+  };
 }
 
 export async function appendRunSummary(root, sessionId, entry, config) {
@@ -1052,4 +1142,5 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     phase,
     memory_backend: sessionRecord.memoryContext?.backend || "none",
   }, config);
+  await compactSessionContext(root, sessionRecord.sessionId, config);
 }
