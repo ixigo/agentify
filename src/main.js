@@ -3,6 +3,7 @@ import process from "node:process";
 
 import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
+import { contextFetch, contextSearch } from "./core/context.js";
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
@@ -146,7 +147,7 @@ function isMissingIndexError(error) {
 
 function createMissingIndexGuidance(root) {
   return new Error(
-    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query commands.`
+    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`
   );
 }
 
@@ -292,6 +293,7 @@ function printHelp() {
     `    ${c("sync")}            ${d("Upgrade repo-owned Agentify files, then run refresh")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
+    `    ${c("context")}         ${d("Search indexed context and fetch exact bounded file slices")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
@@ -346,6 +348,9 @@ function printHelp() {
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
+    `    ${d("$")} agentify context search analytics`,
+    `    ${d("$")} agentify context fetch src/analytics/report.ts --symbol buildReport`,
+    `    ${d("$")} agentify context fetch src/analytics/report.ts --lines 20:60`,
     `    ${d("$")} agentify risk --since origin/main`,
     `    ${d("$")} agentify risk --json`,
     `    ${d("$")} agentify skill list`,
@@ -648,6 +653,32 @@ export async function runCli(argv) {
             result = await queryImpacts(root, args.file, { depth: args.depth });
           } else {
             throw new Error("query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts");
+          }
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
+        }
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      case "context": {
+        let result;
+        try {
+          if (subcommand === "search") {
+            const term = args.term || args._.slice(2).join(" ");
+            result = await contextSearch(root, term);
+          } else if (subcommand === "fetch") {
+            const filePath = args.file || args._[2];
+            if (!filePath) throw new Error("context fetch requires <path>");
+            result = await contextFetch(root, filePath, {
+              symbol: args.symbol,
+              lines: args.lines,
+            });
+          } else {
+            throw new Error("context requires a subcommand: search or fetch");
           }
         } catch (error) {
           if (isMissingIndexError(error)) {
