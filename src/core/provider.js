@@ -365,6 +365,7 @@ export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAU
 
     const child = spawn(command, args, {
       cwd,
+      stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         ...env

@@ -30,6 +30,20 @@ test("runChild times out stalled provider subprocesses", async () => {
   );
 });
 
+test("runChild closes provider stdin when prompt is passed through argv", async () => {
+  const result = await runChild("node", [
+    "-e",
+    [
+      "process.stdin.resume();",
+      "process.stdin.on('end', () => process.stdout.write('stdin closed'));",
+    ].join(""),
+  ], {
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.stdout, "stdin closed");
+});
+
 test("external provider manager planning surfaces unavailable provider failures", async () => {
   const provider = createProvider("codex");
   const previousPath = process.env.PATH;
