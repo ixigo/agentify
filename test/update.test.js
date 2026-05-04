@@ -520,6 +520,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
 test("runDoc fails closed when an external module provider stalls", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-timeout-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-bin-"));
+  const moduleDocPath = path.join(root, "src", "auth", "AGENTIFY.md");
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
@@ -549,7 +550,7 @@ setInterval(() => {}, 1000);
     } finally {
       closeIndexDatabase(db);
     }
-    await fs.unlink(path.join(root, "src", "auth", "AGENTIFY.md"));
+    await fs.unlink(moduleDocPath);
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
 
     await assert.rejects(
@@ -558,7 +559,7 @@ setInterval(() => {}, 1000);
     );
 
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true).catch(() => false), false);
-    assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true).catch(() => false), false);
+    assert.equal(await fs.stat(moduleDocPath).then(() => true).catch(() => false), false);
     assert.equal(await fs.stat(path.join(root, ".agents", ".lock")).then(() => true).catch(() => false), false);
   } finally {
     if (previousPath === undefined) {
@@ -572,7 +573,7 @@ setInterval(() => {}, 1000);
   await runDoc(root, localConfig, { skipOutput: true });
 
   assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true), true);
+  assert.equal(await fs.stat(moduleDocPath).then(() => true), true);
 });
 
 test("runDoc refreshes cached markdown and summary with current module metadata", async () => {
