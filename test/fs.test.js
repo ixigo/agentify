@@ -100,3 +100,24 @@ test("walkFiles treats unreadable .agentignore as an empty ignore list", async (
   const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   assert.deepEqual(files, ["visible.js"]);
 });
+
+test("walkFiles excludes Agentify runtime artifacts even when ignore rules are absent", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-artifacts-"));
+  await fs.mkdir(path.join(root, ".agents", "session", "sess_test"), { recursive: true });
+  await fs.mkdir(path.join(root, ".current_session", "session"), { recursive: true });
+  await fs.mkdir(path.join(root, "docs", "modules"), { recursive: true });
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agents", "session", "sess_test", "context.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".current_session", "session", "transcript.md"), "secret\n", "utf8");
+  await fs.writeFile(path.join(root, "docs", "repo-map.md"), "# generated\n", "utf8");
+  await fs.writeFile(path.join(root, "AGENTIFY.md"), "# generated\n", "utf8");
+  await fs.writeFile(path.join(root, "agentify-report.html"), "<html></html>\n", "utf8");
+  await fs.writeFile(path.join(root, "output.txt"), "generated\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const visible = true;\n", "utf8");
+
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
+
+  assert.deepEqual(files, ["src/index.js"]);
+});

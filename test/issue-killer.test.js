@@ -134,7 +134,8 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
     assert.match(result.assignments[0].pane_command, /^'codex' '--cd'/);
     assert.match(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
-    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell/);
+    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
+    assert.match(result.assignments[0].pane_command, /Do not force-push, rewrite unrelated history, or weaken tests to pass checks/);
 
     const tmuxCalls = await fs.readFile(tmuxLog, "utf8");
     assert.match(tmuxCalls, /new-session/);

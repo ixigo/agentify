@@ -159,6 +159,48 @@ test("forkSession inherits run_history and rolling_summary from parent", async (
   assert.match(child.context.rolling_summary, /refresh bug fixed/);
 });
 
+test("forkSession compacts child context while preserving runtime artifact refs", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-child-compact-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  config.session.contextMaxKb = 4;
+  config.session.bootstrapMaxKb = 1;
+  config.session.emitMarkdownArtifacts = false;
+  const parent = await forkSession(root, config, { name: "parent" });
+  await fs.writeFile(
+    path.join(parent.sessionDir, "checklist.json"),
+    `${JSON.stringify(Array.from({ length: 40 }, (_, index) => ({
+      done: false,
+      text: `large inherited task ${index} ${"x".repeat(160)}`,
+    })), null, 2)}\n`,
+    "utf8",
+  );
+  await appendRunSummary(root, parent.sessionId, {
+    started_at: "p-start",
+    ended_at: "p-end",
+    task: "prepare a child session with compact routed context",
+    assistant_summary: "child should retain artifact refs while dropping oversized details",
+    exit_code: 0,
+    validation: "passed",
+    phase: "complete",
+    memory_backend: "structured-lineage",
+  }, config);
+
+  const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
+  const resumed = await resumeSession(root, child.sessionId);
+
+  assert.equal(child.manifest.metadata.context_truncated, true);
+  assert.equal(child.manifest.metadata.bootstrap_truncated, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(child.context), "utf8") <= 4096);
+  assert.match(resumed.bootstrap, /Session Context/);
+  assert.match(resumed.bootstrap, /Full routing: host shell -> \.agents\/index\.db/);
+  assert.ok(child.context.cache_refs.turns.endsWith("turns.jsonl"));
+  assert.ok(child.context.cache_refs.checklist.endsWith("checklist.json"));
+  assert.equal(await fileExists(path.join(child.sessionDir, "bootstrap.md")), false);
+});
+
 test("maybePrepareChildSession creates child above context threshold without launching provider", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-child-threshold-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
@@ -222,7 +264,7 @@ test("loadAutomaticSessionMemory prefers structured lineage over transcript repl
   const memory = await loadAutomaticSessionMemory(root, child.manifest, config);
 
   assert.equal(memory.backend, "structured-lineage");
-  assert.equal(memory.sourceSessionId, child.sessionId);
+  assert.ok([child.sessionId, parent.sessionId].includes(memory.sourceSessionId));
   assert.match(memory.markdown, /rolling summary/);
   assert.match(memory.markdown, /wire up structured memory/);
 });

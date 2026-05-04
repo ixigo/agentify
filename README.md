@@ -197,6 +197,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `sync` | Upgrade repo-owned Agentify files, then run refresh |
 | `check` | Validate freshness, schemas, and safety rules |
 | `plan` | Preview the planner-selected context for a task |
+| `context` | Search ranked repository context |
 | `run` | Run provider template command with auto-refresh |
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write a cross-agent handoff bundle for a session |

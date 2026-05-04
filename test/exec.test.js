@@ -257,6 +257,59 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.match(launches, /Continue this session using the remembered context/);
 });
 
+test("runExec redacts obvious secrets from session memory artifacts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-redaction-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  const session = await forkSession(root, config, { name: "redaction" });
+  const command = [
+    "node",
+    "--input-type=module",
+    "-e",
+    "process.stdout.write('OPENAI_API_KEY=sk-live-secret12345\\nBearer eyJhbGciOiJIUzI1NiJ9.secret\\n')",
+  ];
+
+  await runExec(root, config, command, {
+    captureOutput: true,
+    skipRefresh: true,
+    sessionRecord: {
+      sessionId: session.sessionId,
+      provider: "codex",
+      prompt: "Use API_KEY=super-secret-value to test redaction.",
+      task: "Rotate PASSWORD=hunter2 before recording.",
+      command: ["env", "SERVICE_TOKEN=token-value-123456", ...command],
+      memoryContext: {
+        sourceSessionId: null,
+        transcriptRelativePath: null,
+        excerpt: "Prior note had SECRET=do-not-store.",
+        markdown: "## Automatic Session Memory\nSECRET=do-not-store\n",
+      },
+      captureMode: "captured-pipe",
+    },
+  });
+
+  const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
+  const memoryContext = await fs.readFile(path.join(session.sessionDir, "memory-context.md"), "utf8");
+  const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
+  const turns = await fs.readFile(path.join(session.sessionDir, "turns.jsonl"), "utf8");
+  const context = await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8");
+  const combined = [transcript, memoryContext, launches, turns, context].join("\n");
+
+  for (const leaked of [
+    "sk-live-secret12345",
+    "eyJhbGciOiJIUzI1NiJ9.secret",
+    "super-secret-value",
+    "hunter2",
+    "token-value-123456",
+    "do-not-store",
+  ]) {
+    assert.doesNotMatch(combined, new RegExp(leaked.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(combined, /\[REDACTED\]/);
+});
+
 test("runExec bounds captured stdout and stderr to the configured capture limit", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-buffer-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
