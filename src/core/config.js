@@ -132,6 +132,7 @@ function applyNestedFlags(config, flags) {
 
   for (const [key, value] of Object.entries(flags)) {
     if (key === "_") continue;
+    if (key === "semantic" && typeof value === "boolean") continue;
     const parts = key
       .split(".")
       .filter(Boolean)

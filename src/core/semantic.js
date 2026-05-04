@@ -182,7 +182,7 @@ function defaultCompilerConfig(root, filePaths) {
   };
 }
 
-async function computeFingerprint(root, filePaths) {
+export async function computeSemanticProjectFingerprint(root, filePaths) {
   const entries = [];
   for (const filePath of filePaths) {
     try {
@@ -279,6 +279,38 @@ export async function discoverSemanticProjects(root) {
   return projects;
 }
 
+function formatTsDiagnostic(diagnostic) {
+  return ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
+}
+
+export async function discoverSemanticProjectParseFailures(root) {
+  const relFiles = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
+  const configFiles = relFiles.filter(isConfigCandidate).map(normalizeRepoPath).sort();
+  const failures = [];
+
+  for (const configPath of configFiles) {
+    const absoluteConfigPath = path.join(root, configPath);
+    const configFile = ts.readConfigFile(absoluteConfigPath, ts.sys.readFile);
+    if (configFile.error) {
+      failures.push({
+        config_path: configPath,
+        message: formatTsDiagnostic(configFile.error),
+      });
+      continue;
+    }
+
+    const parsed = ts.parseJsonConfigFileContent(configFile.config || {}, ts.sys, path.dirname(absoluteConfigPath));
+    for (const diagnostic of parsed.errors || []) {
+      failures.push({
+        config_path: configPath,
+        message: formatTsDiagnostic(diagnostic),
+      });
+    }
+  }
+
+  return failures;
+}
+
 function shouldRefreshProject(project, existing, analyzerVersion, contentFingerprint) {
   if (!existing) {
     return true;
@@ -333,6 +365,40 @@ function buildStatusSummary(projects, refreshedIds) {
   }));
 }
 
+function buildFailedSemanticSnapshot(project, analyzerVersion, contentFingerprint, error) {
+  const message = error instanceof Error ? error.message : String(error || "semantic analysis failed");
+  return {
+    project: {
+      project_id: project.id,
+      config_path: project.configPath || null,
+      project_root: project.projectRoot || ".",
+      inferred: project.inferred ? 1 : 0,
+      analyzer_version: analyzerVersion,
+      schema_version: "semantic-tsjs-1",
+      status: "failed",
+      coverage_ratio: 0,
+      file_count: project.filePaths.length,
+      symbol_count: 0,
+      surface_count: 0,
+      edge_count: 0,
+      content_fingerprint: contentFingerprint,
+      public_fingerprint: contentFingerprint,
+      refreshed_at: new Date().toISOString(),
+      last_error: message.slice(0, 1000),
+    },
+    files: project.filePaths.map((filePath) => ({
+      project_id: project.id,
+      file_path: filePath,
+      domain: isSupportPath(filePath) ? "support" : "runtime",
+      is_header_target: 0,
+    })),
+    externalPackages: [],
+    symbols: [],
+    surfaces: [],
+    symbolEdges: [],
+  };
+}
+
 export async function runSemanticRefresh(root, config, options = {}) {
   if (!config.semantic?.tsjs?.enabled) {
     const result = {
@@ -371,21 +437,28 @@ export async function runSemanticRefresh(root, config, options = {}) {
     }
 
     for (const project of discoveredProjects) {
-      const contentFingerprint = await computeFingerprint(root, project.filePaths);
+      const contentFingerprint = await computeSemanticProjectFingerprint(root, project.filePaths);
       const existing = existingProjects.get(project.id);
       if (!shouldRefreshProject(project, existing, analyzerVersion, contentFingerprint)) {
         skipped.push(project.id);
         continue;
       }
 
-      const snapshot = await analyzeProject(root, project, config);
+      let snapshot;
+      try {
+        snapshot = await analyzeProject(root, project, config);
+      } catch (error) {
+        snapshot = buildFailedSemanticSnapshot(project, analyzerVersion, contentFingerprint, error);
+      }
       inTransaction(db, () => {
         replaceSemanticProjectSnapshot(db, snapshot);
         upsertSemanticMeta(db, "semantic_tsjs_enabled", true);
         upsertSemanticMeta(db, "semantic_tsjs_analyzer_version", analyzerVersion);
       });
-      refreshedIds.add(project.id);
-      refreshed.push(project.id);
+      if (snapshot.project.status === "ready") {
+        refreshedIds.add(project.id);
+        refreshed.push(project.id);
+      }
     }
   } finally {
     const projects = listSemanticProjects(db);

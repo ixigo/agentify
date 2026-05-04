@@ -381,6 +381,7 @@ agentify check
 ```
 
 Use `agentify doctor` afterward to confirm semantic projects are being reported.
+Use `agentify doctor --semantic --json --fail-on-stale` in CI when stale fingerprints, parse failures, analysis failures, or partial semantic coverage should fail the job.
 
 ### 6. Enable MemPalace-backed session-memory acceleration
 

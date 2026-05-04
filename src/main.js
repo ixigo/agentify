@@ -41,6 +41,7 @@ const BOOLEAN_FLAGS = new Set([
   "interactive",
   "docs",
   "headers",
+  "semantic",
   "failOnStale",
   "skipRefresh",
   "explainPlan",
@@ -276,6 +277,7 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--docs")}                      Generate docs during refresh/update flows (off by default)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
+    `    ${c("--semantic")}                  Show detailed semantic diagnostics with doctor`,
     `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
@@ -761,7 +763,7 @@ export async function runCli(argv) {
       }
 
       case "doctor":
-        await runDoctor(root, config);
+        await runDoctor(root, config, { semantic: args.semantic === true, failOnStale: args.failOnStale === true });
         return;
 
       case "semantic":

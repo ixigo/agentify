@@ -375,6 +375,7 @@ Use it when the repository is TypeScript- or JavaScript-heavy and raw dependency
 How to verify it is active:
 
 - `agentify doctor` shows a `Semantic TS/JS` section when semantic indexing is enabled and the repo has been indexed.
+- `agentify doctor --semantic` shows per-project semantic health, stale fingerprints, parse/analysis failures, and symbol/surface/edge counts. Add `--json` for machine-readable output and `--fail-on-stale` to make CI fail on stale or failing semantic projects.
 - `agentify query search --term <term>` starts returning semantic surfaces in addition to structural matches.
 - `docs/repo-map.md` and module docs become richer after refreshes.
 

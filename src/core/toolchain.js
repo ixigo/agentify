@@ -4,9 +4,15 @@ import { promisify } from "node:util";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
 import { exists } from "./fs.js";
+import {
+  computeSemanticProjectFingerprint,
+  discoverSemanticProjectParseFailures,
+  discoverSemanticProjects,
+} from "./semantic.js";
 import * as ui from "./ui.js";
 
 const execFileAsync = promisify(execFile);
+const AGENTIFY_EXIT_SEMANTIC_STALE = 80;
 
 const TOOLS = {
   rg: { minVersion: "13.0.0", tier: 1, purpose: "fast text search" },
@@ -109,15 +115,228 @@ function getInstallHint(name) {
   return hints[name] || `install ${name}`;
 }
 
-export async function runDoctor(root, config) {
+function projectLabel(project) {
+  return project.config_path || project.configPath || "inferred";
+}
+
+function buildSemanticTrendHints(project, stale) {
+  const hints = [];
+  if (!project.indexed) {
+    hints.push("Run `agentify semantic refresh` to create the first semantic snapshot.");
+    return hints;
+  }
+  if (project.status !== "ready") {
+    hints.push("Last semantic analysis did not finish cleanly; rerun refresh after fixing the reported error.");
+  }
+  if (Number(project.coverage_ratio || 0) < 1) {
+    hints.push("Coverage is partial; inspect excluded, unreadable, or unsupported files.");
+  }
+  if (stale) {
+    hints.push("Content fingerprint changed since the last refresh; counts may be outdated.");
+  }
+  if (project.status === "ready" && Number(project.coverage_ratio || 0) >= 1 && !stale) {
+    hints.push("Semantic snapshot is current.");
+  }
+  return hints;
+}
+
+async function buildSemanticDoctorReport(root, config) {
+  const discoveredProjects = await discoverSemanticProjects(root);
+  const parseFailures = await discoverSemanticProjectParseFailures(root);
+  const discoveredById = new Map(discoveredProjects.map((project) => [project.id, project]));
+  const discoveredIds = new Set(discoveredById.keys());
+  const dbPath = `${root}/.agents/index.db`;
+  const indexPresent = await exists(dbPath);
+  const failures = [];
+  const staleFingerprints = [];
+  let indexedProjects = [];
+
+  if (indexPresent) {
+    const db = openIndexDatabase(root, { readOnly: true });
+    try {
+      indexedProjects = listSemanticProjects(db);
+    } finally {
+      closeIndexDatabase(db);
+    }
+  } else if (discoveredProjects.length > 0) {
+    failures.push({
+      category: "missing-index",
+      project_id: null,
+      message: "missing .agents/index.db; run `agentify scan` and `agentify semantic refresh`",
+    });
+  }
+  for (const failure of parseFailures) {
+    failures.push({
+      category: "parse-failed",
+      project_id: `config:${failure.config_path}`,
+      message: failure.message,
+    });
+  }
+
+  const indexedById = new Map(indexedProjects.map((project) => [project.project_id, project]));
+  const projects = [];
+
+  for (const discovered of discoveredProjects) {
+    const indexed = indexedById.get(discovered.id);
+    const currentFingerprint = await computeSemanticProjectFingerprint(root, discovered.filePaths);
+    const stale = Boolean(indexed && indexed.content_fingerprint !== currentFingerprint);
+    if (stale) {
+      staleFingerprints.push({
+        project_id: discovered.id,
+        stored_content_fingerprint: indexed.content_fingerprint,
+        current_content_fingerprint: currentFingerprint,
+      });
+    }
+    if (!indexed) {
+      failures.push({
+        category: "missing-snapshot",
+        project_id: discovered.id,
+        message: "semantic project has no indexed snapshot; run `agentify semantic refresh`",
+      });
+    } else {
+      if (indexed.status !== "ready") {
+        failures.push({
+          category: "analysis-failed",
+          project_id: indexed.project_id,
+          message: indexed.last_error || `semantic project status is ${indexed.status}`,
+        });
+      }
+      if (Number(indexed.coverage_ratio || 0) < 1) {
+        failures.push({
+          category: "partial-coverage",
+          project_id: indexed.project_id,
+          message: `semantic coverage is ${indexed.coverage_ratio}`,
+        });
+      }
+    }
+
+    projects.push({
+      project_id: discovered.id,
+      config_path: discovered.configPath,
+      project_root: discovered.projectRoot,
+      inferred: Boolean(discovered.inferred),
+      indexed: Boolean(indexed),
+      status: indexed?.status || "missing",
+      coverage_ratio: indexed?.coverage_ratio ?? 0,
+      file_count: indexed?.file_count ?? discovered.filePaths.length,
+      discovered_file_count: discovered.filePaths.length,
+      symbol_count: indexed?.symbol_count ?? 0,
+      surface_count: indexed?.surface_count ?? 0,
+      edge_count: indexed?.edge_count ?? 0,
+      content_fingerprint: indexed?.content_fingerprint || null,
+      current_content_fingerprint: currentFingerprint,
+      public_fingerprint: indexed?.public_fingerprint || null,
+      stale,
+      last_error: indexed?.last_error || null,
+      trend_hints: buildSemanticTrendHints(indexed ? { ...indexed, indexed: true } : { indexed: false }, stale),
+    });
+  }
+
+  for (const indexed of indexedProjects) {
+    if (discoveredIds.has(indexed.project_id)) {
+      continue;
+    }
+    failures.push({
+      category: "orphaned-snapshot",
+      project_id: indexed.project_id,
+      message: "semantic snapshot no longer matches a discovered TS/JS project; run `agentify semantic refresh`",
+    });
+    projects.push({
+      project_id: indexed.project_id,
+      config_path: indexed.config_path,
+      project_root: indexed.project_root,
+      inferred: Boolean(indexed.inferred),
+      indexed: true,
+      status: indexed.status,
+      coverage_ratio: indexed.coverage_ratio,
+      file_count: indexed.file_count,
+      discovered_file_count: 0,
+      symbol_count: indexed.symbol_count,
+      surface_count: indexed.surface_count,
+      edge_count: indexed.edge_count,
+      content_fingerprint: indexed.content_fingerprint,
+      current_content_fingerprint: null,
+      public_fingerprint: indexed.public_fingerprint,
+      stale: true,
+      last_error: indexed.last_error || null,
+      trend_hints: ["Project is no longer discovered; refresh to remove stale semantic rows."],
+    });
+  }
+
+  const healthyProjects = projects.filter((project) => (
+    project.indexed
+    && project.status === "ready"
+    && Number(project.coverage_ratio || 0) >= 1
+    && !project.stale
+  )).length;
+
+  return {
+    schema_version: "semantic-doctor-v1",
+    enabled: Boolean(config.semantic?.tsjs?.enabled),
+    index_present: indexPresent,
+    discovered_project_count: discoveredProjects.length,
+    indexed_project_count: indexedProjects.length,
+    healthy_project_count: healthyProjects,
+    stale_project_count: projects.filter((project) => project.stale).length,
+    failing_project_count: failures.filter((failure) => ["analysis-failed", "parse-failed", "partial-coverage", "missing-snapshot"].includes(failure.category)).length,
+    discovered_projects: discoveredProjects.map((project) => ({
+      project_id: project.id,
+      config_path: project.configPath,
+      project_root: project.projectRoot,
+      inferred: Boolean(project.inferred),
+      file_count: project.filePaths.length,
+    })),
+    stale_fingerprints: staleFingerprints,
+    failures,
+    projects,
+  };
+}
+
+function renderSemanticDoctorReport(report) {
+  ui.newline();
+  ui.log(ui.bold("Semantic TS/JS Health"));
+  ui.log(ui.label("Semantic mode", report.enabled ? "enabled" : "disabled"));
+  ui.log(ui.label("Index", report.index_present ? "present" : "missing"));
+  ui.log(ui.label("Projects", `${report.healthy_project_count}/${report.projects.length} healthy`));
+
+  if (report.projects.length === 0) {
+    ui.log(ui.dim("No TS/JS semantic projects discovered."));
+    return;
+  }
+
+  const rows = report.projects.map((project) => [
+    projectLabel(project),
+    project.status,
+    project.stale ? "stale" : "current",
+    String(project.file_count),
+    `${project.symbol_count}/${project.surface_count}/${project.edge_count}`,
+    project.trend_hints[0] || "",
+  ]);
+  process.stderr.write(ui.table(["Project", "Status", "Freshness", "Files", "Symbols/Surfaces/Edges", "Hint"], rows) + "\n");
+
+  if (report.failures.length > 0) {
+    ui.newline();
+    ui.warn("Semantic issues:");
+    for (const failure of report.failures) {
+      ui.log(`${failure.category}${failure.project_id ? ` ${failure.project_id}` : ""}: ${failure.message}`);
+    }
+  }
+}
+
+export async function runDoctor(root, config, options = {}) {
   const caps = await detectCapabilities(config);
+  const semanticReport = options.semantic ? await buildSemanticDoctorReport(root, config) : null;
 
   if (config.json) {
     const result = {
       command: "doctor",
       ...caps,
+      ...(semanticReport ? { semantic: semanticReport } : {}),
     };
     console.log(JSON.stringify(result, null, 2));
+    if (options.failOnStale && semanticReport && (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)) {
+      process.exitCode = AGENTIFY_EXIT_SEMANTIC_STALE;
+    }
     return result;
   }
 
@@ -147,7 +366,9 @@ export async function runDoctor(root, config) {
   ui.log(ui.label("Node.js", process.version));
   ui.log(ui.label("Platform", `${process.platform} ${process.arch}`));
 
-  if (config.semantic?.tsjs?.enabled && root) {
+  if (semanticReport) {
+    renderSemanticDoctorReport(semanticReport);
+  } else if (config.semantic?.tsjs?.enabled && root) {
     const dbPath = `${root}/.agents/index.db`;
     if (await exists(dbPath)) {
       const db = openIndexDatabase(root, { readOnly: true });
@@ -179,5 +400,8 @@ export async function runDoctor(root, config) {
   }
 
   ui.newline();
+  if (options.failOnStale && semanticReport && (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)) {
+    process.exitCode = AGENTIFY_EXIT_SEMANTIC_STALE;
+  }
   return caps;
 }
