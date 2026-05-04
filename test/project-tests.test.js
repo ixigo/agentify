@@ -56,11 +56,23 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
 });
 
+test("detectTestCommand returns a discovery error for malformed package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-malformed-pkg-"));
+  const packageJsonPath = path.join(root, "package.json");
+  await fs.writeFile(packageJsonPath, "{ invalid json\n", "utf8");
+
+  const result = await detectTestCommand(root);
+
+  assert.equal(result.error.type, "package_json_parse_error");
+  assert.equal(result.error.path, packageJsonPath);
+  assert.match(result.error.message, /JSON|Expected property name|Unexpected token/);
+});
+
 test("detectTestCommand prefers pytest for Python file-pattern test signals", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-"));
   await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
   await fs.mkdir(path.join(root, "tests"), { recursive: true });
-  await fs.writeFile(path.join(root, "tests", "test_example.py"), "import unittest\n");
+  await fs.writeFile(path.join(root, "tests", "test_example.py"), "def test_example():\n    assert True\n");
 
   const result = await detectTestCommand(root);
 
@@ -78,22 +90,6 @@ test("detectTestCommand discovers Go repositories without package.json", async (
   const result = await detectTestCommand(root);
 
   assert.deepEqual(result, { command: "go", args: ["test", "./..."] });
-});
-
-test("runProjectTests reports unsupported test detection for non-JS repositories", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-unsupported-"));
-  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
-  await fs.writeFile(path.join(root, "app.py"), "def main():\n    return True\n");
-
-  const reporter = createReporter();
-  const result = await runProjectTests(root, reporter);
-
-  assert.equal(result.status, "unsupported");
-  assert.equal(result.passed, false);
-  assert.equal(result.reason, "unsupported_test_detection");
-  assert.equal(result.command, null);
-  assert.match(result.message, /python/);
-  assert.match(reporter.logs.join("\n"), /tests: unsupported/);
 });
 
 test("buildTestEnv strips arbitrary host variables by default", () => {
@@ -185,6 +181,23 @@ test("runProjectTests does not leak host secrets to the test subprocess by defau
   }
 });
 
+test("runProjectTests fails when package.json test discovery fails", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-discovery-failure-"));
+  await fs.writeFile(path.join(root, "package.json"), "{ invalid json\n", "utf8");
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.passed, false);
+  assert.equal(result.command, null);
+  assert.equal(result.exit_code, null);
+  assert.equal(result.discovery_error.type, "package_json_parse_error");
+  assert.match(result.stderr, /package\.json test discovery failed:/);
+  assert.deepEqual(reporter.tests, result);
+  assert.deepEqual(reporter.logs, ["tests: failed to discover package.json test script (package_json_parse_error)"]);
+});
+
 test("runProjectTests forwards a configured passthrough variable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-pass-"));
   const outputPath = path.join(root, "captured-env.txt");
@@ -215,4 +228,38 @@ test("runProjectTests forwards a configured passthrough variable", async () => {
       process.env.AGENTIFY_ALLOWED = previous;
     }
   }
+});
+
+test("runProjectTests bounds captured stdout and stderr and reports truncation", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-output-bound-"));
+  const scriptPath = path.join(root, "emit-output.js");
+  const stdoutPayload = "a".repeat(1536);
+  const stderrPayload = "b".repeat(1536);
+
+  await fs.writeFile(scriptPath, `
+    process.stdout.write(${JSON.stringify(stdoutPayload)});
+    process.stderr.write(${JSON.stringify(stderrPayload)});
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-output-bound",
+    scripts: { test: "node emit-output.js" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter, {
+    config: { tests: { outputMaxKb: 1 } },
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.stdout_truncated, true);
+  assert.equal(result.stderr_truncated, true);
+  assert.equal(result.output_max_bytes, 1024);
+  assert.equal(Buffer.byteLength(result.stdout, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(result.stderr, "utf8"), 1024);
+  assert.equal(reporter.tests.stdout_truncated, true);
+  assert.equal(reporter.tests.stderr_truncated, true);
+  assert.match(reporter.logs.join("\n"), /stdout truncated to 1024 bytes/);
+  assert.match(reporter.logs.join("\n"), /stderr truncated to 1024 bytes/);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
 });

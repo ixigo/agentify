@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
+import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import { detectStacks } from "./detect.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 
@@ -82,75 +83,56 @@ export function buildTestEnv(testsConfig = {}, sourceEnv = process.env) {
   return env;
 }
 
-async function runChildCommand(command, args, { cwd, env } = {}) {
-  const stdoutChunks = [];
-  const stderrChunks = [];
+function getTestOutputMaxBytes(testsConfig = {}) {
+  return normalizeCaptureMaxBytes(testsConfig.outputMaxKb, DEFAULT_CAPTURE_MAX_KB);
+}
 
-  const code = await new Promise((resolve) => {
+async function runChildCommand(command, args, { cwd, env, outputMaxBytes } = {}) {
+  const stdoutCapture = createBoundedCaptureBuffer(outputMaxBytes);
+  const stderrCapture = createBoundedCaptureBuffer(outputMaxBytes);
+
+  const code = await new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env });
     child.stdout.on("data", (chunk) => {
-      stdoutChunks.push(String(chunk));
+      stdoutCapture.append(chunk);
     });
     child.stderr.on("data", (chunk) => {
-      stderrChunks.push(String(chunk));
+      stderrCapture.append(chunk);
     });
-    child.on("error", (error) => {
-      stderrChunks.push(`${error.message}\n`);
-      resolve(127);
-    });
+    child.on("error", reject);
     child.on("close", resolve);
   });
 
   return {
     code: Number(code ?? 1),
-    stdout: stdoutChunks.join(""),
-    stderr: stderrChunks.join(""),
+    stdout: stdoutCapture.toString(),
+    stderr: stderrCapture.toString(),
+    stdoutTruncated: stdoutCapture.truncated,
+    stderrTruncated: stderrCapture.truncated,
+    stdoutBytes: stdoutCapture.seenBytes,
+    stderrBytes: stderrCapture.seenBytes,
+    outputMaxBytes,
   };
+}
+
+function formatPackageJsonDiscoveryError(packageJsonPath, error) {
+  const type = error instanceof SyntaxError
+    ? "package_json_parse_error"
+    : "package_json_read_error";
+  return {
+    type,
+    path: packageJsonPath,
+    message: error.message,
+  };
+}
+
+async function rootFiles(root) {
+  return (await walkFiles(root, { respectIgnore: true }))
+    .map((filePath) => relative(root, filePath));
 }
 
 function pythonCommand() {
   return process.platform === "win32" ? "python" : "python3";
-}
-
-async function rootFiles(root) {
-  return (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
-}
-
-async function detectNodeTestCommand(root) {
-  const packageJsonPath = path.join(root, "package.json");
-  if (!(await exists(packageJsonPath))) {
-    return null;
-  }
-  try {
-    const packageJson = await readJson(packageJsonPath);
-    if (packageJson?.scripts?.test) {
-      const packageManager = typeof packageJson.packageManager === "string"
-        ? packageJson.packageManager.split("@")[0]
-        : null;
-      if (packageManager === "pnpm") {
-        return { command: "pnpm", args: ["test"] };
-      }
-      if (packageManager === "yarn") {
-        return { command: "yarn", args: ["test"] };
-      }
-      if (packageManager === "bun") {
-        return { command: "bun", args: ["test"] };
-      }
-      if (await exists(path.join(root, "pnpm-lock.yaml"))) {
-        return { command: "pnpm", args: ["test"] };
-      }
-      if (await exists(path.join(root, "yarn.lock"))) {
-        return { command: "yarn", args: ["test"] };
-      }
-      if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
-        return { command: "bun", args: ["test"] };
-      }
-      return { command: "npm", args: ["test"] };
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 async function detectPythonTestCommand(root) {
@@ -177,8 +159,8 @@ async function detectPythonTestCommand(root) {
   }
 
   const hasTestsDir = await exists(path.join(root, "tests"));
-  const hasUnittestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
-  if (hasTestsDir || hasUnittestFiles) {
+  const hasPythonTestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
+  if (hasTestsDir || hasPythonTestFiles) {
     return { command: pythonCommand(), args: ["-m", "pytest"] };
   }
 
@@ -231,9 +213,8 @@ async function detectSwiftTestCommand(root) {
   return null;
 }
 
-export async function detectTestCommand(root) {
+async function detectNonNodeTestCommand(root) {
   const detectors = [
-    detectNodeTestCommand,
     detectPythonTestCommand,
     detectGoTestCommand,
     detectRustTestCommand,
@@ -252,7 +233,47 @@ export async function detectTestCommand(root) {
   return null;
 }
 
-async function buildNoTestCommandResult(root, options) {
+export async function detectTestCommand(root) {
+  const packageJsonPath = path.join(root, "package.json");
+  if (!(await exists(packageJsonPath))) {
+    return detectNonNodeTestCommand(root);
+  }
+
+  let packageJson;
+  try {
+    packageJson = await readJson(packageJsonPath);
+  } catch (error) {
+    return { error: formatPackageJsonDiscoveryError(packageJsonPath, error) };
+  }
+
+  if (packageJson?.scripts?.test) {
+    const packageManager = typeof packageJson.packageManager === "string"
+      ? packageJson.packageManager.split("@")[0]
+      : null;
+    if (packageManager === "pnpm") {
+      return { command: "pnpm", args: ["test"] };
+    }
+    if (packageManager === "yarn") {
+      return { command: "yarn", args: ["test"] };
+    }
+    if (packageManager === "bun") {
+      return { command: "bun", args: ["test"] };
+    }
+    if (await exists(path.join(root, "pnpm-lock.yaml"))) {
+      return { command: "pnpm", args: ["test"] };
+    }
+    if (await exists(path.join(root, "yarn.lock"))) {
+      return { command: "yarn", args: ["test"] };
+    }
+    if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
+      return { command: "bun", args: ["test"] };
+    }
+    return { command: "npm", args: ["test"] };
+  }
+  return detectNonNodeTestCommand(root);
+}
+
+async function buildNoTestCommandResult(root, options, outputMaxBytes) {
   const detectedStacks = await detectStacks(root, options.config || {});
   const nonNodeStacks = detectedStacks
     .map((stack) => stack.name)
@@ -265,6 +286,11 @@ async function buildNoTestCommandResult(root, options) {
       command: null,
       stdout: "",
       stderr: "",
+      stdout_truncated: false,
+      stderr_truncated: false,
+      stdout_bytes: 0,
+      stderr_bytes: 0,
+      output_max_bytes: outputMaxBytes,
       exit_code: null,
       reason: "unsupported_test_detection",
       detected_stacks: detectedStacks,
@@ -278,6 +304,11 @@ async function buildNoTestCommandResult(root, options) {
     command: null,
     stdout: "",
     stderr: "",
+    stdout_truncated: false,
+    stderr_truncated: false,
+    stdout_bytes: 0,
+    stderr_bytes: 0,
+    output_max_bytes: outputMaxBytes,
     exit_code: null,
     reason: "no_test_command",
     detected_stacks: detectedStacks,
@@ -286,22 +317,44 @@ async function buildNoTestCommandResult(root, options) {
 }
 
 export async function runProjectTests(root, reporter, options = {}) {
+  const testsConfig = options.config?.tests || options.tests || {};
+  const outputMaxBytes = getTestOutputMaxBytes(testsConfig);
   const testCommand = await detectTestCommand(root);
-  if (!testCommand) {
-    const result = await buildNoTestCommandResult(root, options);
-    reporter.log(`tests: ${result.status} - ${result.message}`);
+  if (testCommand?.error) {
+    const result = {
+      status: "failed",
+      passed: false,
+      command: null,
+      stdout: "",
+      stderr: `package.json test discovery failed: ${testCommand.error.message}`,
+      exit_code: null,
+      discovery_error: testCommand.error,
+    };
+    reporter.log(`tests: failed to discover package.json test script (${testCommand.error.type})`);
     reporter.setTests(result);
     return result;
   }
 
-  const testsConfig = options.config?.tests || options.tests || {};
+  if (!testCommand) {
+    const result = await buildNoTestCommandResult(root, options, outputMaxBytes);
+    reporter.log(`tests: ${result.status === "unsupported" ? "unsupported" : "skipped"} - ${result.message}`);
+    reporter.setTests(result);
+    return result;
+  }
+
   const env = buildTestEnv(testsConfig);
 
   reporter.log(`tests: running ${testCommand.command} ${testCommand.args.join(" ")}`);
   if (testsConfig.env?.inherit !== true) {
     reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
   }
-  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env });
+  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env, outputMaxBytes });
+  if (outcome.stdoutTruncated) {
+    reporter.log(`tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`);
+  }
+  if (outcome.stderrTruncated) {
+    reporter.log(`tests: stderr truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stderrBytes} bytes; configure tests.outputMaxKb to adjust`);
+  }
   if (outcome.stdout) {
     reporter.appendSection("[tests stdout]", outcome.stdout);
   }
@@ -315,6 +368,11 @@ export async function runProjectTests(root, reporter, options = {}) {
     command: `${testCommand.command} ${testCommand.args.join(" ")}`,
     stdout: outcome.stdout,
     stderr: outcome.stderr,
+    stdout_truncated: outcome.stdoutTruncated,
+    stderr_truncated: outcome.stderrTruncated,
+    stdout_bytes: outcome.stdoutBytes,
+    stderr_bytes: outcome.stderrBytes,
+    output_max_bytes: outcome.outputMaxBytes,
     exit_code: outcome.code,
   };
   reporter.log(`tests: ${result.status}`);
