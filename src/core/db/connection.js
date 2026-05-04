@@ -337,7 +337,9 @@ export function openIndexDatabase(root, options = {}) {
     .run("schema_version", toJson(DB_SCHEMA_VERSION));
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
     .run("db_driver", toJson(implementation.name));
-  refreshSearchIndexIfNeeded(db);
+  if (!readOnly) {
+    refreshSearchIndexIfNeeded(db);
+  }
 
   return db;
 }
