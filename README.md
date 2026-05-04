@@ -77,6 +77,7 @@ For longer workstreams, use sessions:
 ```bash
 agentify sess run --provider codex --name "checkout-retries" "map the current checkout flow"
 agentify sess resume --session <session-id> "finish the implementation"
+agentify handoff --session <session-id> "handoff to the next agent"
 ```
 
 ## Caveman Mode
@@ -111,6 +112,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Search indexed repo context | `agentify query search --term auth` |
 | Run a bounded task | `agentify run "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
+| Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
 | Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 
