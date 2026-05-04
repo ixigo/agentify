@@ -306,6 +306,38 @@ function compareVerificationCommands(left, right) {
     || leftArgs.join(" ").localeCompare(rightArgs.join(" "));
 }
 
+function limitVerificationCommands(commands, limit) {
+  const sorted = [...commands].sort(compareVerificationCommands);
+  const selected = [];
+  const selectedKeys = new Set();
+  const selectedTypes = new Set();
+
+  for (const commandInfo of sorted) {
+    if (selected.length >= limit) {
+      break;
+    }
+    const commandType = normalizeCommandType(commandInfo.command_type);
+    if (selectedTypes.has(commandType)) {
+      continue;
+    }
+    selected.push(commandInfo);
+    selectedKeys.add(commandInfo);
+    selectedTypes.add(commandType);
+  }
+
+  for (const commandInfo of sorted) {
+    if (selected.length >= limit) {
+      break;
+    }
+    if (selectedKeys.has(commandInfo)) {
+      continue;
+    }
+    selected.push(commandInfo);
+  }
+
+  return selected.sort(compareVerificationCommands);
+}
+
 function formatVerificationCommand(commandInfo) {
   const stage = commandStage(commandInfo);
   const args = Array.isArray(commandInfo.args) ? commandInfo.args : [];
@@ -524,9 +556,9 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       })
       .slice(0, budgets.maxTests);
 
-    const verificationCommands = dedupeCommands(
+    const verificationCommands = limitVerificationCommands(dedupeCommands(
       commands.filter((commandInfo) => !commandInfo.module_id || moduleIds.has(commandInfo.module_id))
-    ).sort(compareVerificationCommands).slice(0, 6);
+    ), 6);
 
     const selectedSymbols = symbolScores.filter((symbolInfo) => selectedFilePaths.has(symbolInfo.file_path));
     const confidence = computeConfidence(moduleScores, selectedFiles, selectedSymbols);
