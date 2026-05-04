@@ -162,6 +162,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Set up manually | `agentify init --provider codex` |
 | Refresh index, checks, and detected tests | `agentify up` |
 | Validate repo state | `agentify check` |
+| Validate after intentional source edits | `agentify check --hook` |
 | Preview task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
 | Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
@@ -223,7 +224,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |
 | `--scope <project|user>` | Skill install scope (`skill` command) |
-| `--hook` | Hook-friendly check: skip changed-file body diffing (used by managed pre-commit) |
+| `--hook` | Hook-friendly validation for `check`/`up`: skip source body diffing |
 
 ### Exec Flags
 

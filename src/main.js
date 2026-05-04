@@ -134,6 +134,7 @@ function getExecFlags(args, extras = {}) {
     failOnStale: args.failOnStale || false,
     timeout: args.timeout || null,
     skipRefresh: args.skipRefresh || false,
+    skipCodeBodyChanges: args.hook === true,
     ...extras,
   };
 }
@@ -248,6 +249,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
       captureOutputMode: captureSettings.captureOutputMode,
       sessionRecord,
       commandName: `sess ${args._?.[1] || "run"}`,
+      skipCodeBodyChanges: true,
     }),
   };
 }
@@ -313,7 +315,7 @@ function printHelp() {
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
     `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,
-    `    ${c("--hook")}                      Hook-friendly check: skip changed-file body diffing (used by managed pre-commit)`,
+    `    ${c("--hook")}                      Hook-friendly validation for check/up: skip source body diffing`,
     ``,
     `  ${bold("EXEC FLAGS")}`,
     ``,
@@ -492,7 +494,7 @@ export async function runCli(argv) {
         return;
 
       case "up":
-        await runUpdate(root, config);
+        await runUpdate(root, config, { skipCodeBodyChanges: args.hook === true });
         return;
 
       case "sync":
@@ -543,7 +545,10 @@ export async function runCli(argv) {
             providerOptions,
           );
 
-        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "run" }));
+        await runExec(root, config, agentCommand, getExecFlags(args, {
+          commandName: "run",
+          skipCodeBodyChanges: true,
+        }));
         return;
       }
 
@@ -552,7 +557,10 @@ export async function runCli(argv) {
         if (agentCommand.length === 0) {
           throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
         }
-        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "exec" }));
+        await runExec(root, config, agentCommand, getExecFlags(args, {
+          commandName: "exec",
+          skipCodeBodyChanges: true,
+        }));
         return;
       }
 

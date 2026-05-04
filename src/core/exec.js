@@ -403,7 +403,9 @@ export async function runExec(root, config, agentCommand, flags) {
     return finalizeResult(result);
   }
   if (agentChanges.length === 0 && !headChanged) {
-    const validation = await validateRepo(root, config);
+    const validation = await validateRepo(root, config, {
+      skipCodeBodyChanges: flags.skipCodeBodyChanges === true,
+    });
     if (!validation.passed && flags.failOnStale && !commandFailed) {
       exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
     } else if (!validation.passed) {
@@ -454,7 +456,9 @@ export async function runExec(root, config, agentCommand, flags) {
     return finalizeResult(result);
   }
 
-  const validation = await validateRepo(root, config);
+  const validation = await validateRepo(root, config, {
+    skipCodeBodyChanges: flags.skipCodeBodyChanges === true,
+  });
   progress.setValidation(validation);
 
   if (!validation.passed) {

@@ -37,6 +37,22 @@ async function createRepoWithScriptedTest(prefix, exitCode) {
   return root;
 }
 
+async function createInitializedRepoWithSourceEdit(prefix) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  const sourcePath = path.join(root, "src", "auth", "index.ts");
+  await fs.writeFile(sourcePath, "export const login = () => true;\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: true });
+  await runScan(root, config);
+  await runDoc(root, config);
+  await fs.writeFile(sourcePath, "export const login = () => false;\nexport const logout = () => true;\n", "utf8");
+
+  return { root, config };
+}
+
 async function readLatestRunReport(root, commandName) {
   const runDir = path.join(root, ".agents", "runs");
   const runFiles = (await fs.readdir(runDir))
@@ -150,6 +166,41 @@ test("validateRepo hook mode still reports unsafe changed paths", async () => {
   const unsafeFailures = hookMode.failures.filter((failure) => failure.category === "unsafe-path");
   assert.equal(unsafeFailures.length, 1);
   assert.equal(unsafeFailures[0].path, "scratch.txt");
+});
+
+test("runUpdate default validation flags ordinary tracked source edits", async () => {
+  const previousExitCode = process.exitCode;
+  const { root, config } = await createInitializedRepoWithSourceEdit("agentify-update-strict-source-");
+
+  try {
+    process.exitCode = undefined;
+    const finalOutput = await runUpdate(root, config);
+    const codeBodyFailures = finalOutput.validation.failures.filter((failure) => failure.category === "code-body-changed");
+
+    assert.equal(finalOutput.validation.passed, false);
+    assert.equal(codeBodyFailures.length, 1);
+    assert.equal(codeBodyFailures[0].path, "src/auth/index.ts");
+    assert.equal(process.exitCode, 1);
+  } finally {
+    process.exitCode = previousExitCode;
+  }
+});
+
+test("runUpdate hook mode allows ordinary tracked source edits", async () => {
+  const previousExitCode = process.exitCode;
+  const { root, config } = await createInitializedRepoWithSourceEdit("agentify-update-hook-source-");
+
+  try {
+    process.exitCode = undefined;
+    const finalOutput = await runUpdate(root, config, { skipCodeBodyChanges: true });
+    const codeBodyFailures = finalOutput.validation.failures.filter((failure) => failure.category === "code-body-changed");
+
+    assert.equal(finalOutput.validation.passed, true);
+    assert.equal(codeBodyFailures.length, 0);
+    assert.notEqual(process.exitCode, 1);
+  } finally {
+    process.exitCode = previousExitCode;
+  }
 });
 
 test("validateRepo allows project-scoped skill installations", async () => {

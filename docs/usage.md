@@ -126,6 +126,7 @@ source ~/.zshrc
 | Refresh repo context and run tests | `agentify up` |
 | Cheap deterministic refresh | `agentify up --provider local` |
 | Validate generated state | `agentify check` |
+| Validate after intentional source edits | `agentify check --hook` |
 | One-off provider task | `agentify run "task"` |
 | Durable multi-step work | `agentify sess run ...` |
 | Continue durable work | `agentify sess resume --session <id> ...` |
@@ -274,6 +275,8 @@ This installs:
 
 - `pre-commit`: runs `agentify check --hook`
 - `post-merge`: refreshes scan and deterministic local docs
+
+Plain `agentify check` is strict and reports tracked source body edits. Hook-friendly validation skips that source body diff because developers and agents may have intentionally changed code, while still checking generated state and unsafe paths.
 
 Remove them with:
 

@@ -1153,7 +1153,11 @@ export async function runUpdate(root, config, options = {}) {
     progress.log("doc: skipped because --docs=false");
     progress.percent(commandName, 67, "doc skipped");
   }
-  const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
+  const result = await validateRepo(root, config, {
+    artifactRoot,
+    skipFreshness: config.dryRun,
+    skipCodeBodyChanges: options.skipCodeBodyChanges === true,
+  });
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
   const testResult = await runProjectTests(root, progress, { config });

@@ -704,7 +704,13 @@ test("runCli exec refreshes stale artifacts after a failing command mutates trac
   ].join("");
 
   const originalExitCode = process.exitCode;
+  const stderrChunks = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
   process.exitCode = undefined;
+  process.stderr.write = ((chunk, encoding, callback) => {
+    stderrChunks.push(String(chunk));
+    return originalWrite(chunk, encoding, callback);
+  });
 
   try {
     await runCli(["exec", "--root", root, "--fail-on-stale", "--", "node", "--input-type=module", "-e", script]);
@@ -712,7 +718,9 @@ test("runCli exec refreshes stale artifacts after a failing command mutates trac
 
     assert.equal(process.exitCode, 1);
     assert.equal(afterDocMtime > beforeDocMtime, true);
+    assert.doesNotMatch(stderrChunks.join(""), /code-body-changed/);
   } finally {
+    process.stderr.write = originalWrite;
     process.exitCode = originalExitCode;
   }
 });

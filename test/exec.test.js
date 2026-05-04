@@ -77,7 +77,7 @@ test("runExec refreshes when the wrapped command commits and exits clean", async
   }
 });
 
-test("runExec refreshes when the wrapped command edits an already-dirty tracked file", async () => {
+test("runExec hook-friendly validation allows wrapped source edits", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-dirty-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
@@ -98,14 +98,17 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
     "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
   ].join("");
 
-  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {});
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+    skipCodeBodyChanges: true,
+  });
   const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
 
   assert.equal(result.phase, "complete");
   assert.equal(result.exitCode, 0);
   assert.equal(result.skippedRefresh, undefined);
   assert.equal(afterDocMtime > beforeDocMtime, true);
-  assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+  assert.equal(result.validation?.passed, true);
+  assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), false);
   assert.equal(result.executionTelemetry.phase, "complete");
   assert.equal(result.executionTelemetry.provider, "local");
   assert.equal(result.executionTelemetry.changed_files_count, 1);
@@ -148,7 +151,7 @@ test("runExec includes committed edits in execution telemetry", async () => {
   assert.deepEqual(result.executionTelemetry.changed_paths, ["src/index.js"]);
 });
 
-test("runExec refreshes and validates after a failing command mutates tracked files", async () => {
+test("runExec hook-friendly validation still records failing commands after source edits", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-failed-refresh-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
@@ -177,7 +180,7 @@ test("runExec refreshes and validates after a failing command mutates tracked fi
       root,
       config,
       ["node", "--input-type=module", "-e", script],
-      { failOnStale: true }
+      { failOnStale: true, skipCodeBodyChanges: true }
     );
     const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
 
@@ -185,8 +188,8 @@ test("runExec refreshes and validates after a failing command mutates tracked fi
     assert.equal(result.exitCode, 1);
     assert.equal(result.skippedRefresh, undefined);
     assert.equal(afterDocMtime > beforeDocMtime, true);
-    assert.equal(result.validation?.passed, false);
-    assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+    assert.equal(result.validation?.passed, true);
+    assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), false);
   } finally {
     process.exitCode = originalExitCode;
   }
