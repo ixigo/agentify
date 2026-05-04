@@ -54,6 +54,15 @@ const DEFAULT_CONFIG = {
     pruneInvalidSessions: true,
     pruneCache: true,
   },
+  context: {
+    mode: "compact",
+    routedDefaultProvider: null,
+    compactAfterRun: true,
+    autoPrepareChildAboveKb: 96,
+    maxFetchBytes: 12000,
+    maxSearchResults: 12,
+    allowProviderSummary: true,
+  },
   session: {
     bootstrapMaxKb: 4,
     contextMaxKb: 16,
@@ -220,6 +229,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     cache: config.cache,
     context: config.context,
     cleanup: config.cleanup,
+    context: config.context,
     session: config.session,
     planner: config.planner,
     semantic: config.semantic,

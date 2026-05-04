@@ -776,7 +776,58 @@ export function getSessionArtifactPaths(root, sessionId) {
     contextFactsPath: path.join(sessionDir, "context-facts.json"),
     contextFactsMarkdownPath: path.join(sessionDir, "context-facts.md"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
+    fetchOutputsPath: path.join(sessionDir, "context-fetches.jsonl"),
     contextPath: path.join(sessionDir, "context.json"),
+  };
+}
+
+async function safeFileBytes(filePath) {
+  if (!filePath || !(await exists(filePath))) {
+    return 0;
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() ? stat.size : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getContextThresholdBytes(config) {
+  const value = Number(config?.context?.autoPrepareChildAboveKb);
+  const thresholdKb = Number.isFinite(value) && value > 0 ? value : 96;
+  return Math.round(thresholdKb * 1024);
+}
+
+async function buildEstimatedManagedContext(root, sessionRecord, paths, config) {
+  const promptBytes = bytes(sessionRecord?.prompt || "");
+  const transcriptBytes = await safeFileBytes(paths.transcriptPath);
+  const fetchOutputBytes = await safeFileBytes(paths.fetchOutputsPath);
+  const memoryArtifactBytes = (
+    await safeFileBytes(paths.memoryContextPath)
+    + await safeFileBytes(paths.contextPath)
+    + await safeFileBytes(paths.turnsPath)
+  );
+  const estimatedManagedContextBytes = promptBytes
+    + transcriptBytes
+    + fetchOutputBytes
+    + memoryArtifactBytes;
+  const rolloverThresholdBytes = getContextThresholdBytes(config);
+
+  return {
+    schema_version: "1.0",
+    estimate: true,
+    basis: "managed_context_bytes",
+    estimated_managed_context_bytes: estimatedManagedContextBytes,
+    rollover_threshold_bytes: rolloverThresholdBytes,
+    above_rollover_threshold: estimatedManagedContextBytes >= rolloverThresholdBytes,
+    bytes: {
+      prompt: promptBytes,
+      transcript: transcriptBytes,
+      fetch_outputs: fetchOutputBytes,
+      memory_artifacts: memoryArtifactBytes,
+    },
+    note: "Estimated from Agentify-managed prompt, transcript, fetch output, and memory artifact bytes; provider live context usage is not directly observable.",
   };
 }
 
@@ -823,7 +874,7 @@ async function appendTurnsRecord(turnsPath, record) {
 }
 
 function clampRunHistoryEntry(entry, summaryMaxBytes) {
-  return {
+  const result = {
     started_at: entry.started_at,
     ended_at: entry.ended_at,
     task: clipToBytes(redactSensitiveText(entry.task || ""), Math.max(80, Math.floor(summaryMaxBytes / 2))),
@@ -833,6 +884,10 @@ function clampRunHistoryEntry(entry, summaryMaxBytes) {
     phase: entry.phase || "complete",
     memory_backend: entry.memory_backend || "none",
   };
+  if (entry.managed_context) {
+    result.managed_context = entry.managed_context;
+  }
+  return result;
 }
 
 function buildRollingSummary(history) {
@@ -1105,6 +1160,8 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
   }
 
+  const managedContext = await buildEstimatedManagedContext(root, sessionRecord, prepared.paths, config);
+
   const launchRecord = {
     schema_version: "1.0",
     session_id: sessionRecord.sessionId,
@@ -1130,6 +1187,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     stdout: clipToBytes(redactSensitiveText(outcome?.stdout || ""), captureMaxBytes),
     stderr: clipToBytes(redactSensitiveText(outcome?.stderr || ""), captureMaxBytes),
     interactive_capture_error: outcome?.interactiveCaptureError || null,
+    managed_context: managedContext,
   };
   await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
 
@@ -1142,6 +1200,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     validation: validationSummary,
     phase,
     memory_backend: sessionRecord.memoryContext?.backend || "none",
+    managed_context: managedContext,
   }, config);
   await compactSessionContext(root, sessionRecord.sessionId, config);
 }

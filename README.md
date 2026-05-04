@@ -126,10 +126,11 @@ agentify run "implement the retry backoff"
 agentify check
 ```
 
-Interactive `run` starts with a compact prompt by default. Use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
+Interactive `run` starts with a compact prompt by default. Use `--context-mode routed` when you want bounded retrieval guidance without full source excerpts. Add `--with-context` when you explicitly want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
 
 ```bash
 agentify run --with-context "implement the retry backoff"
+agentify run --context-mode routed "implement the retry backoff"
 ```
 
 For longer workstreams, use sessions:
@@ -249,6 +250,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--json` | Machine-readable JSON output only |
 | `--explain` | Include planner score breakdowns for plan output |
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
+| `--context-mode` | Choose `compact` or `routed` run prompt behavior |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |
 | `--explain-plan` | Print planner output before executing `run` |

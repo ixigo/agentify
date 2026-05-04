@@ -84,6 +84,8 @@ test("loadConfig applies nested context file and flag overrides", async () => {
     path.join(root, ".agentify.yaml"),
     [
       "context:",
+      "  mode: routed",
+      "  autoPrepareChildAboveKb: 64",
       "  routedDefaultProvider: codex",
       "  maxFetchBytes: 8000",
       "  allowProviderSummary: false",
@@ -94,13 +96,14 @@ test("loadConfig applies nested context file and flag overrides", async () => {
 
   const config = await loadConfig(root, {
     "context.mode": "routed",
+    "context.max-fetch-bytes": 4096,
     "context.max-search-results": 5,
     "context.auto-prepare-child-above-kb": 128,
   });
 
   assert.equal(config.context.mode, "routed");
   assert.equal(config.context.routedDefaultProvider, "codex");
-  assert.equal(config.context.maxFetchBytes, 8000);
+  assert.equal(config.context.maxFetchBytes, 4096);
   assert.equal(config.context.maxSearchResults, 5);
   assert.equal(config.context.autoPrepareChildAboveKb, 128);
   assert.equal(config.context.allowProviderSummary, false);

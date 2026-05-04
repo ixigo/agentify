@@ -7,7 +7,7 @@ import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from
 import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
-import { buildRoutedPrompt, fetchContext, normalizeContextMode, searchContext } from "./core/context.js";
+import { buildRoutedPrompt, fetchContext, normalizeContextMode as normalizeSessionContextMode, searchContext } from "./core/context.js";
 import {
   queryCallers,
   queryChanged,
@@ -199,6 +199,27 @@ function buildRunPrompt(userPrompt) {
   return "Continue implementation in this repository using small, validated changes.";
 }
 
+function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
+  const raw = value === undefined || value === null || value === false
+    ? fallback
+    : value;
+  const mode = String(raw).trim().toLowerCase();
+  if (mode === "compact" || mode === "direct") {
+    return "compact";
+  }
+  if (mode === "routed") {
+    return "routed";
+  }
+  throw new Error(`--context-mode must be "compact", "direct", or "routed", received "${raw}".`);
+}
+
+export function resolveRunContextMode(args = {}, config = {}) {
+  return normalizeRunContextMode(
+    hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
+    { fallback: "compact" },
+  );
+}
+
 function buildRoutedExecutionPrompt(task, memoryMarkdown = "", options = {}) {
   return applyCavemanPreamble(buildRoutedPrompt(task, memoryMarkdown), options.caveman, { promptKind: options.promptKind });
 }
@@ -244,7 +265,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const usingTemplateCommand = !args._exec?.length;
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const contextMode = hasOwn(args, "contextMode") ? normalizeContextMode(args.contextMode) : "direct";
+  const contextMode = hasOwn(args, "contextMode") ? normalizeSessionContextMode(args.contextMode) : "direct";
   const prompt = contextMode === "routed"
     ? buildRoutedExecutionPrompt(`${task || DEFAULT_SESSION_TASK}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman })
     : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
@@ -353,6 +374,7 @@ function printHelp() {
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
+    `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
     `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
@@ -554,9 +576,15 @@ export async function runCli(argv) {
 
       case "plan": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
+        const contextMode = normalizeRunContextMode(args.contextMode, { fallback: "compact" });
+        const includeSource = contextMode !== "routed" || args.withContext === true;
         let plan;
         try {
-          plan = await buildExecutionPlan(root, config, task, { explain: args.explain === true });
+          plan = await buildExecutionPlan(root, config, task, {
+            explain: args.explain === true,
+            contextMode: contextMode === "routed" ? "routed" : "selected",
+            includeSource,
+          });
         } catch (error) {
           if (isMissingIndexError(error)) {
             throw createMissingIndexGuidance(root);
@@ -574,22 +602,29 @@ export async function runCli(argv) {
       case "run": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
         const caveman = resolveCavemanLevel(args);
-        const contextMode = hasOwn(args, "contextMode") ? normalizeContextMode(args.contextMode) : "direct";
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
-        const richContext = contextMode === "routed" || (usingTemplateCommand && (providerOptions.interactive !== true || args.withContext === true || args.explainPlan === true));
-        const memoryContext = richContext
+        const contextMode = resolveRunContextMode(args, config);
+        const usesManagedContext = usingTemplateCommand && (
+          contextMode === "routed"
+          || providerOptions.interactive !== true
+          || args.withContext === true
+          || args.explainPlan === true
+        );
+        const includeSource = contextMode !== "routed" || args.withContext === true;
+        const memoryContext = usesManagedContext
           ? await loadAutomaticRunMemory(root, task, config)
           : { markdown: "" };
-        const plan = richContext && contextMode !== "routed"
-          ? await buildExecutionPlan(root, config, task)
+        const plan = usesManagedContext
+          ? await buildExecutionPlan(root, config, task, {
+            contextMode: contextMode === "routed" ? "routed" : "selected",
+            includeSource,
+          })
           : null;
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
-        const prompt = contextMode === "routed"
-          ? buildRoutedExecutionPrompt(task, memoryContext.markdown, { caveman })
-          : richContext
+        const prompt = usesManagedContext
           ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman })
           : buildMinimalRunPrompt(task, { caveman });
         const agentCommand = args._exec?.length

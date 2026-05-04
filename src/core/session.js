@@ -136,6 +136,7 @@ function fitContext(manifest, index, checklist, options, config) {
   const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
   const rawInteractiveLogRef = options.root ? `.agents/session/${manifest.session_id}/interactive.log` : memoryArtifacts.rawInteractiveLogPath;
   const turnsRef = options.root ? `.agents/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
+  const fetchOutputsRef = options.root ? `.agents/session/${manifest.session_id}/context-fetches.jsonl` : memoryArtifacts.fetchOutputsPath;
   const contextFactsRef = options.root ? `.agents/session/${manifest.session_id}/context-facts.json` : memoryArtifacts.contextFactsPath;
   const contextFactsMarkdownRef = options.root ? `.agents/session/${manifest.session_id}/context-facts.md` : memoryArtifacts.contextFactsMarkdownPath;
   const attempts = [
@@ -168,6 +169,8 @@ function fitContext(manifest, index, checklist, options, config) {
       launches: launchesRef,
       raw_interactive_log: rawInteractiveLogRef,
       turns: turnsRef,
+      context_fetches: fetchOutputsRef,
+      context_fetches: fetchOutputsRef,
       context_facts: contextFactsRef,
       context_facts_markdown: contextFactsMarkdownRef,
     };
@@ -342,6 +345,7 @@ export async function forkSession(root, config, options = {}) {
       `.agents/session/${sessionId}/context-facts.json`,
       `.agents/session/${sessionId}/context-facts.md`,
       `.agents/session/${sessionId}/interactive.log`,
+      `.agents/session/${sessionId}/context-fetches.jsonl`,
     ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
