@@ -7,11 +7,11 @@ import { runScan, runDoc } from "./commands.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun } from "./session-memory.js";
+import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
-const DEFAULT_CAPTURE_MAX_KB = 48;
 
 function getSnapshotKey(file) {
   return `${file.status}:${file.path}`;
@@ -127,31 +127,7 @@ function buildScriptCommand(argv, capturePath) {
 }
 
 function getCaptureBufferMaxBytes(config) {
-  const maxKb = Number(config?.session?.captureMaxKb);
-  const normalizedKb = Number.isFinite(maxKb) && maxKb > 0 ? maxKb : DEFAULT_CAPTURE_MAX_KB;
-  return normalizedKb * 1024;
-}
-
-function createBoundedCaptureBuffer(maxBytes) {
-  const chunks = [];
-  let totalBytes = 0;
-
-  return {
-    append(chunk) {
-      if (maxBytes <= 0 || totalBytes >= maxBytes || !chunk?.length) {
-        return;
-      }
-
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const remaining = maxBytes - totalBytes;
-      const slice = buffer.length <= remaining ? buffer : buffer.subarray(0, remaining);
-      chunks.push(Buffer.from(slice));
-      totalBytes += slice.length;
-    },
-    toString() {
-      return totalBytes > 0 ? Buffer.concat(chunks, totalBytes).toString("utf8") : "";
-    },
-  };
+  return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
 function normalizeCommandForDisplay(argv) {
@@ -278,24 +254,25 @@ function runWrappedCommand(argv, options) {
     child.on("error", reject);
     child.on("close", async (code) => {
       if (timer) clearTimeout(timer);
-      try {
-        let interactiveTranscript = "";
-        if (captureMode === "pty" && options.capturePath) {
+      let interactiveTranscript = "";
+      let interactiveCaptureError = "";
+      if (captureMode === "pty" && options.capturePath) {
+        try {
           const raw = await fs.readFile(options.capturePath, "utf8");
           interactiveTranscript = normalizeInteractiveCapture(raw);
+        } catch (error) {
+          interactiveCaptureError = `Unable to read PTY transcript log: ${error.message}`;
         }
-
-        resolve({
-          exitCode: code ?? 1,
-          stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
-          stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
-          interactiveTranscript,
-          rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
-          captureMode,
-        });
-      } catch (error) {
-        reject(error);
       }
+
+      resolve({
+        exitCode: code ?? 1,
+        stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
+        stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
+        interactiveTranscript,
+        interactiveCaptureError,
+        rawInteractiveLogPath: captureMode === "pty" && !interactiveCaptureError ? options.capturePath : null,
+      });
     });
   });
 }
@@ -417,6 +394,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -442,6 +420,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -466,6 +445,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -495,6 +475,7 @@ export async function runExec(root, config, agentCommand, flags) {
     stdout: commandResult.stdout,
     stderr: commandResult.stderr,
     interactiveTranscript: commandResult.interactiveTranscript,
+    interactiveCaptureError: commandResult.interactiveCaptureError,
     rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
   };
   if (preparedSessionMemory) {

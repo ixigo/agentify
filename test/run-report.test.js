@@ -99,3 +99,38 @@ test("createRunReporter persists output and HTML report", async (t) => {
   assert.equal(telemetry.capture.transcript_available, true);
   assert.deepEqual(telemetry.changed_paths, ["src/core/exec.js", "src/core/run-report.js"]);
 });
+
+test("createRunReporter shows test output truncation metadata in HTML", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-truncated-"));
+  const previousSilent = false;
+  setSilent(true);
+  t.after(() => {
+    setSilent(previousSilent);
+  });
+
+  const reporter = createRunReporter(root);
+  reporter.setCommand("up");
+  reporter.setValidation({ passed: true, failures: [] });
+  reporter.setTests({
+    status: "failed",
+    passed: false,
+    command: "npm test",
+    stdout: "a".repeat(16),
+    stderr: "b".repeat(16),
+    stdout_truncated: true,
+    stderr_truncated: true,
+    stdout_bytes: 1536,
+    stderr_bytes: 1536,
+    output_max_bytes: 1024,
+    exit_code: 1,
+  });
+
+  await reporter.finalize();
+
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+
+  assert.match(html, /test output was truncated/);
+  assert.match(html, /stdout captured 1024 of 1536 bytes/);
+  assert.match(html, /stderr captured 1024 of 1536 bytes/);
+  assert.match(html, /tests\.outputMaxKb/);
+});

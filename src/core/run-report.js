@@ -164,8 +164,18 @@ export function renderHtmlReport(summary) {
   const testStderr = summary.tests?.stderr || "";
   const testStdout = summary.tests?.stdout || "";
   const testCombined = [testStdout, testStderr].filter(Boolean).join("\n");
+  const testTruncationMessages = [];
+  if (summary.tests?.stdout_truncated) {
+    testTruncationMessages.push(`stdout captured ${summary.tests.output_max_bytes} of ${summary.tests.stdout_bytes} bytes`);
+  }
+  if (summary.tests?.stderr_truncated) {
+    testTruncationMessages.push(`stderr captured ${summary.tests.output_max_bytes} of ${summary.tests.stderr_bytes} bytes`);
+  }
+  const testOutputNotice = testTruncationMessages.length > 0
+    ? `<p class="muted mono-sm">test output was truncated: ${escapeHtml(testTruncationMessages.join("; "))}. Configure <code>tests.outputMaxKb</code> to adjust the limit.</p>`
+    : "";
   const testOutput = summary.tests
-    ? `<details class="term-details"><summary>test output · stdout/stderr</summary><pre class="term-body small">${escapeHtml(testCombined)}</pre></details>`
+    ? `${testOutputNotice}<details class="term-details"><summary>test output · stdout/stderr</summary><pre class="term-body small">${escapeHtml(testCombined)}</pre></details>`
     : `<p class="muted mono-sm">no test run was recorded.</p>`;
 
   const rerunUpdateCommand = sanitizeForJsString("agentify up --provider local");
