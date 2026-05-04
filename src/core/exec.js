@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getChangedFiles, getHeadCommit } from "./git.js";
+import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
@@ -88,6 +88,22 @@ function diffSnapshots(preFiles, postFiles, preDigests = new Map(), postDigests 
     }
   }
 
+  return changes;
+}
+
+function combineChanges(...groups) {
+  const seen = new Set();
+  const changes = [];
+  for (const group of groups) {
+    for (const file of group || []) {
+      const key = getSnapshotKey(file);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      changes.push(file);
+    }
+  }
   return changes;
 }
 
@@ -362,8 +378,14 @@ export async function runExec(root, config, agentCommand, flags) {
   const postHeadCommit = await getHeadCommit(root);
   const postFiles = await getChangedFiles(root);
   const postFileDigests = await captureDirtyFileDigests(root, postFiles);
-  const agentChanges = diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests);
   const headChanged = postHeadCommit !== preHeadCommit;
+  const committedChanges = headChanged && preHeadCommit !== "nogit"
+    ? await getChangedFilesSince(root, preHeadCommit)
+    : [];
+  const agentChanges = combineChanges(
+    diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests),
+    committedChanges,
+  );
 
   async function finalizeResult(result) {
     const finishedAt = new Date();
