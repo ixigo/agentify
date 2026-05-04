@@ -109,6 +109,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Validate repo state | `agentify check` |
 | Preview task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
+| Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
 | Run a bounded task | `agentify run "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
 | Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |

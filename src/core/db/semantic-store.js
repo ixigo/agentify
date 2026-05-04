@@ -398,6 +398,152 @@ export function searchSemanticIndex(db, term, limit = 20) {
   };
 }
 
+function hydrateSemanticEdge(row) {
+  return {
+    edge_id: row.edge_id,
+    project_id: row.project_id,
+    edge_kind: row.edge_kind,
+    edge_domain: row.edge_domain,
+    confidence: row.confidence,
+    source: row.source,
+    metadata: row.metadata_json ? fromJson(row.metadata_json) : null,
+    from: {
+      symbol_id: row.from_symbol_id,
+      file_path: row.from_file_path,
+      name: row.from_symbol_name,
+      kind: row.from_symbol_kind,
+      start_line: row.from_symbol_start_line,
+      end_line: row.from_symbol_end_line,
+    },
+    to: {
+      symbol_id: row.to_symbol_id,
+      file_path: row.to_file_path || row.to_symbol_file_path,
+      name: row.to_symbol_name,
+      kind: row.to_symbol_kind,
+      start_line: row.to_symbol_start_line,
+      end_line: row.to_symbol_end_line,
+    },
+  };
+}
+
+export function resolveSemanticSymbols(db, symbolName) {
+  return normalizeRows(db.prepare(`
+    SELECT
+      symbol_id,
+      project_id,
+      file_path,
+      name,
+      display_name,
+      kind,
+      export_name,
+      start_line,
+      end_line,
+      is_exported,
+      is_default,
+      domain
+    FROM semantic_symbols
+    WHERE name = ?
+      OR display_name = ?
+      OR export_name = ?
+    ORDER BY
+      CASE WHEN name = ? THEN 0 WHEN export_name = ? THEN 1 ELSE 2 END,
+      CASE WHEN domain = 'runtime' THEN 0 ELSE 1 END,
+      CASE WHEN is_exported = 1 THEN 0 ELSE 1 END,
+      file_path,
+      start_line,
+      symbol_id
+  `).all(symbolName, symbolName, symbolName, symbolName, symbolName)).map((row) => ({
+    symbol_id: row.symbol_id,
+    project_id: row.project_id,
+    file_path: row.file_path,
+    name: row.name,
+    display_name: row.display_name,
+    kind: row.kind,
+    export_name: row.export_name,
+    start_line: row.start_line,
+    end_line: row.end_line,
+    is_exported: Boolean(row.is_exported),
+    is_default: Boolean(row.is_default),
+    domain: row.domain,
+  }));
+}
+
+export function loadSemanticReferencesToSymbols(db, symbolIds) {
+  if (!symbolIds.length) {
+    return [];
+  }
+  const placeholders = symbolIds.map(() => "?").join(", ");
+  return normalizeRows(db.prepare(`
+    SELECT
+      e.edge_id,
+      e.project_id,
+      e.from_symbol_id,
+      e.to_symbol_id,
+      e.from_file_path,
+      e.to_file_path,
+      e.edge_kind,
+      e.edge_domain,
+      e.confidence,
+      e.source,
+      e.metadata_json,
+      from_symbol.name AS from_symbol_name,
+      from_symbol.kind AS from_symbol_kind,
+      from_symbol.start_line AS from_symbol_start_line,
+      from_symbol.end_line AS from_symbol_end_line,
+      to_symbol.file_path AS to_symbol_file_path,
+      to_symbol.name AS to_symbol_name,
+      to_symbol.kind AS to_symbol_kind,
+      to_symbol.start_line AS to_symbol_start_line,
+      to_symbol.end_line AS to_symbol_end_line
+    FROM semantic_symbol_edges e
+    LEFT JOIN semantic_symbols from_symbol ON from_symbol.symbol_id = e.from_symbol_id
+    LEFT JOIN semantic_symbols to_symbol ON to_symbol.symbol_id = e.to_symbol_id
+    WHERE e.to_symbol_id IN (${placeholders})
+    ORDER BY
+      CASE e.edge_kind
+        WHEN 'calls' THEN 0
+        WHEN 'renders' THEN 1
+        WHEN 'references' THEN 2
+        ELSE 3
+      END,
+      e.from_file_path,
+      from_symbol.start_line,
+      e.edge_id
+  `).all(...symbolIds)).map(hydrateSemanticEdge);
+}
+
+export function loadSemanticInternalEdges(db) {
+  return normalizeRows(db.prepare(`
+    SELECT
+      e.edge_id,
+      e.project_id,
+      e.from_symbol_id,
+      e.to_symbol_id,
+      e.from_file_path,
+      e.to_file_path,
+      e.edge_kind,
+      e.edge_domain,
+      e.confidence,
+      e.source,
+      e.metadata_json,
+      from_symbol.name AS from_symbol_name,
+      from_symbol.kind AS from_symbol_kind,
+      from_symbol.start_line AS from_symbol_start_line,
+      from_symbol.end_line AS from_symbol_end_line,
+      to_symbol.file_path AS to_symbol_file_path,
+      to_symbol.name AS to_symbol_name,
+      to_symbol.kind AS to_symbol_kind,
+      to_symbol.start_line AS to_symbol_start_line,
+      to_symbol.end_line AS to_symbol_end_line
+    FROM semantic_symbol_edges e
+    LEFT JOIN semantic_symbols from_symbol ON from_symbol.symbol_id = e.from_symbol_id
+    LEFT JOIN semantic_symbols to_symbol ON to_symbol.symbol_id = e.to_symbol_id
+    WHERE e.from_file_path IS NOT NULL
+      AND (e.to_file_path IS NOT NULL OR e.to_symbol_id IS NOT NULL)
+    ORDER BY e.from_file_path, e.to_file_path, e.edge_kind, e.edge_id
+  `).all()).map(hydrateSemanticEdge);
+}
+
 export function loadSemanticFileContext(db, filePath) {
   return {
     projects: normalizeRows(db.prepare(`

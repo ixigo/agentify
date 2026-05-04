@@ -291,6 +291,10 @@ agentify plan "add rate limiting to checkout"
 agentify query search --term retry
 agentify query owner --file src/payments/index.ts
 agentify query deps --module <module-id>
+agentify query def --symbol useAuth
+agentify query refs --symbol useAuth
+agentify query callers --symbol useAuth
+agentify query impacts --file src/auth/useAuth.ts
 ```
 
 ## How To Get The Most Out Of Agentify + Codex

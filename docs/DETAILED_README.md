@@ -190,6 +190,10 @@ Normal `run` is intentionally lightweight. It does not persist durable session m
 | `agentify query deps` | Shows module dependency relationships from the index. | Use when you want to understand how a module depends on others before refactoring it. | `agentify query deps --module payments` |
 | `agentify query changed` | Lists indexed items changed since a commit. | Use when you are auditing changes across a range or building context for recent work. | `agentify query changed --since HEAD~5` |
 | `agentify query search` | Searches the index for matching files, symbols, and semantic surfaces. | Use when you need a repo-aware search that goes beyond raw grep, especially after indexing and semantic refresh. | `agentify query search --term retry` |
+| `agentify query def` | Resolves semantic symbol definitions deterministically. | Use when you need the indexed definition location for a TS/JS symbol. | `agentify query def --symbol useAuth` |
+| `agentify query refs` | Lists ranked semantic references to a symbol. | Use when you need incoming references from semantic edges. | `agentify query refs --symbol useAuth` |
+| `agentify query callers` | Lists ranked callers/renderers for a symbol. | Use when you need LSP-like caller navigation. | `agentify query callers --symbol useAuth` |
+| `agentify query impacts` | Traverses reverse semantic file edges with bounded depth. | Use when you need likely files impacted by changing a file. | `agentify query impacts --file src/auth/useAuth.ts` |
 | `agentify skill list` | Lists built-in skills available for installation. | Use when you want to see what behavior bundles Agentify can install for a provider. | `agentify skill list` |
 | `agentify skill install` | Installs one built-in skill or all built-ins into project or user scope. | Use when you want repeatable agent behavior shared at the repo level or available globally for a provider. | `agentify skill install all --provider codex --scope project` |
 | `agentify hooks install` | Installs Agentify git hooks. | Use when you want automatic validation or refresh behavior tied to Git events. | `agentify hooks install` |
@@ -245,6 +249,10 @@ agentify query owner --file <path>
 agentify query deps --module <id>
 agentify query changed --since <commit>
 agentify query search --term <value>
+agentify query def --symbol <name>
+agentify query refs --symbol <name>
+agentify query callers --symbol <name>
+agentify query impacts --file <path> [--depth <n>]
 ```
 
 Use `query` when you want answers from Agentify's indexed understanding of the repo rather than raw filesystem output.

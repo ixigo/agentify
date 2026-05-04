@@ -6,7 +6,16 @@ import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./cor
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
-import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
+import {
+  queryCallers,
+  queryChanged,
+  queryDef,
+  queryDeps,
+  queryImpacts,
+  queryOwner,
+  queryRefs,
+  querySearch,
+} from "./core/query.js";
 import { buildExecutionPlan } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
@@ -256,7 +265,7 @@ function printHelp() {
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
-    `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
+    `    ${c("query")}           ${d("Query the repository index (owner, deps, changed, def, refs, callers, impacts)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("memory")}          ${d("Manage agent memory helpers")}`,
@@ -536,8 +545,20 @@ export async function runCli(argv) {
           } else if (subcommand === "search") {
             if (!args.term) throw new Error("query search requires --term <value>");
             result = await querySearch(root, args.term);
+          } else if (subcommand === "def") {
+            if (!args.symbol) throw new Error("query def requires --symbol <name>");
+            result = await queryDef(root, args.symbol);
+          } else if (subcommand === "refs") {
+            if (!args.symbol) throw new Error("query refs requires --symbol <name>");
+            result = await queryRefs(root, args.symbol);
+          } else if (subcommand === "callers") {
+            if (!args.symbol) throw new Error("query callers requires --symbol <name>");
+            result = await queryCallers(root, args.symbol);
+          } else if (subcommand === "impacts") {
+            if (!args.file) throw new Error("query impacts requires --file <path>");
+            result = await queryImpacts(root, args.file, { depth: args.depth });
           } else {
-            throw new Error("query requires a subcommand: owner, deps, changed, or search");
+            throw new Error("query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts");
           }
         } catch (error) {
           if (isMissingIndexError(error)) {

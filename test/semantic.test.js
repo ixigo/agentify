@@ -13,7 +13,15 @@ import {
   loadSemanticRouteSurfaces,
 } from "../src/core/db/semantic-store.js";
 import { buildExecutionPlan } from "../src/core/planner.js";
-import { queryDeps, queryOwner, querySearch } from "../src/core/query.js";
+import {
+  queryCallers,
+  queryDef,
+  queryDeps,
+  queryImpacts,
+  queryOwner,
+  queryRefs,
+  querySearch,
+} from "../src/core/query.js";
 import { runSemanticRefresh } from "../src/core/semantic.js";
 import { setSilent } from "../src/core/ui.js";
 
@@ -205,12 +213,20 @@ test("planner and query surface semantic TS/JS facts when enabled", async () => 
   const search = await querySearch(root, "dashboard");
   const owner = await queryOwner(root, "src/app/dashboard/page.tsx");
   const deps = await queryDeps(root, "app");
+  const definition = await queryDef(root, "useAuth");
+  const refs = await queryRefs(root, "useAuth");
+  const callers = await queryCallers(root, "useAuth");
+  const impacts = await queryImpacts(root, "src/auth/useAuth.tsx");
 
   assert.ok(plan.selected_files.some((fileInfo) => fileInfo.path === "src/app/dashboard/page.tsx"));
   assert.ok(plan.selected_symbols.some((symbolInfo) => String(symbolInfo.name).includes("/dashboard")));
   assert.ok(search.semantic_surfaces.some((surface) => surface.surface_key === "/dashboard"));
   assert.ok(owner.semantic.surfaces.some((surface) => surface.surface_key === "/dashboard"));
   assert.ok(Array.isArray(deps.semantic_depends_on));
+  assert.equal(definition.definitions[0].file_path, "src/auth/useAuth.tsx");
+  assert.ok(refs.references.some((reference) => reference.from.file_path === "src/app/dashboard/page.tsx"));
+  assert.ok(callers.callers.some((caller) => caller.name === "DashboardPage"));
+  assert.ok(impacts.impacts.some((impact) => impact.file_path === "src/app/dashboard/page.tsx"));
 });
 
 test("semantic refresh skips unchanged layered projects and avoids duplicate runtime surfaces", async () => {
