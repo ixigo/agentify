@@ -134,6 +134,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `plan` | Preview the planner-selected context for a task |
 | `run` | Run provider template command with auto-refresh |
 | `exec` | Advanced wrapper for custom agent commands |
+| `handoff` | Write a cross-agent handoff bundle for a session |
 | `this` | Bootstrap this macOS repo for a provider-backed Agentify workflow |
 | `query` | Query the repository index (owner, deps, changed) |
 | `skill` | Manage built-in agent skills |
@@ -188,8 +189,8 @@ Depending on the command, Agentify can create or refresh:
 .agents/runs/
 .agents/session/
 AGENTIFY.md
+<module-root>/AGENTIFY.md
 docs/repo-map.md
-docs/modules/
 ```
 
 Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when you want Agentify policy shared with the repo. The managed `.gitignore` block keeps local/generated runtime output such as `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of Git by default.

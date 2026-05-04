@@ -11,7 +11,7 @@ import { listSemanticProjects } from "./db/semantic-store.js";
 import { isSemanticEnabled } from "./semantic.js";
 
 const ALLOWED_DOC_PATHS = [
-  /^AGENTIFY\.md$/,
+  /(^|\/)AGENTIFY\.md$/,
   /^output\.txt$/,
   /^agentify-report\.html$/,
   /^\.agentify\.yaml$/,
@@ -38,7 +38,7 @@ export const FAILURE_CATEGORIES = {
 
 const REMEDIATION_HINTS = {
   [FAILURE_CATEGORIES.UNSAFE_PATH]:
-    "Only recognized Agentify paths (.agents/, docs/, .agentify/work/, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
+    "Only recognized Agentify paths (.agents/, docs/, generated AGENTIFY.md files, .agentify/work/, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
   [FAILURE_CATEGORIES.FRESHNESS_STALE]:
@@ -152,7 +152,7 @@ async function validateFreshness(root, failures, options = {}) {
   }
 }
 
-async function validateChangedFiles(root, config, failures) {
+async function validateChangedFiles(root, config, failures, options = {}) {
   const changedFiles = await getChangedFiles(root);
   for (const entry of changedFiles) {
     const relPath = entry.path;
@@ -177,7 +177,7 @@ async function validateChangedFiles(root, config, failures) {
       const after = await fs.readFile(path.join(root, relPath), "utf8");
       const before = await getFileContentAtHead(root, relPath);
       const result = validateHeaderOnlyChange(before ?? "", after, relPath, config.headerWindow);
-      if (!result.passed) {
+      if (!result.passed && !options.skipCodeBodyChanges) {
         failures.push(
           createFailure(
             FAILURE_CATEGORIES.CODE_BODY_CHANGED,
@@ -204,7 +204,7 @@ export async function validateRepo(root, config, options = {}) {
     await validateFreshness(root, failures, { ...options, config });
   }
   if (!options.skipChangedFiles) {
-    await validateChangedFiles(root, config, failures);
+    await validateChangedFiles(root, config, failures, options);
   }
 
   const targetRoot = options.artifactRoot || root;

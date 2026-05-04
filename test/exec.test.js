@@ -106,6 +106,46 @@ test("runExec refreshes when the wrapped command edits an already-dirty tracked 
   assert.equal(result.skippedRefresh, undefined);
   assert.equal(afterDocMtime > beforeDocMtime, true);
   assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), true);
+  assert.equal(result.executionTelemetry.phase, "complete");
+  assert.equal(result.executionTelemetry.provider, "local");
+  assert.equal(result.executionTelemetry.changed_files_count, 1);
+  assert.deepEqual(result.executionTelemetry.changed_paths, ["src/index.js"]);
+
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+  const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+  const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+  assert.match(output, /execution: changed_files=1/);
+  assert.match(html, /execution telemetry/);
+  assert.deepEqual(telemetry.changed_paths, ["src/index.js"]);
+});
+
+test("runExec includes committed edits in execution telemetry", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-committed-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const version = 1;\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "import { execFile } from 'node:child_process';",
+    "import { promisify } from 'node:util';",
+    "const execFileAsync = promisify(execFile);",
+    "await fs.appendFile('src/index.js', 'export const committed = true;\\n', 'utf8');",
+    "await execFileAsync('git', ['add', 'src/index.js']);",
+    "await execFileAsync('git', ['commit', '-m', 'update source']);",
+  ].join("");
+
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {});
+
+  assert.equal(result.executionTelemetry.head_changed, true);
+  assert.equal(result.executionTelemetry.changed_files_count, 1);
+  assert.deepEqual(result.executionTelemetry.changed_paths, ["src/index.js"]);
 });
 
 test("runExec refreshes and validates after a failing command mutates tracked files", async () => {

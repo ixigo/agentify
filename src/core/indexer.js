@@ -170,6 +170,14 @@ async function loadWorkspacePatterns(root) {
   return Array.from(patterns).filter(Boolean);
 }
 
+function resolveModuleDocPath(moduleInfo) {
+  const rootPath = moduleInfo.rootPath || ".";
+  if (rootPath === ".") {
+    return `docs/modules/${moduleInfo.slug}.md`;
+  }
+  return `${rootPath}/AGENTIFY.md`;
+}
+
 async function detectTypeScriptModules(root, config, relFiles) {
   const patterns = await loadWorkspacePatterns(root);
   const packageFiles = relFiles.filter((file) => file === "package.json" || file.endsWith("/package.json"));
@@ -1391,7 +1399,7 @@ export async function buildRepositoryIndex(root, config) {
 
     moduleInfo.entry_files = entryFiles;
     moduleInfo.key_files = keyFiles;
-    moduleInfo.doc_path = `docs/modules/${moduleInfo.slug}.md`;
+    moduleInfo.doc_path = resolveModuleDocPath(moduleInfo);
     moduleInfo.fingerprint = fingerprint;
 
     for (const row of currentFiles) {

@@ -268,7 +268,7 @@ test("doc uses semantic repo map and deterministic semantic headers when enabled
 
   const repoMap = await fs.readFile(path.join(root, "docs", "repo-map.md"), "utf8");
   const pageSource = await fs.readFile(path.join(root, "src", "app", "dashboard", "page.tsx"), "utf8");
-  const appDoc = await fs.readFile(path.join(root, "docs", "modules", "app.md"), "utf8");
+  const appDoc = await fs.readFile(path.join(root, "src", "app", "AGENTIFY.md"), "utf8");
 
   assert.match(repoMap, /## Semantic Projects/);
   assert.match(repoMap, /## Routes/);
@@ -313,9 +313,18 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     dryRun: false,
     "semantic.tsjs.enabled": true,
   });
+  const fingerprintReads = [];
+  const instrumentation = {
+    onContentRead(filePath) {
+      fingerprintReads.push(filePath);
+    },
+  };
 
-  const first = await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
-  const second = await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+  const first = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
+  assert.ok(fingerprintReads.length > 0);
+
+  fingerprintReads.length = 0;
+  const second = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
 
   const db = openIndexDatabase(root);
   try {
@@ -326,6 +335,7 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     assert.ok(first.refreshed_projects.length >= 2);
     assert.equal(second.refreshed_projects.length, 0);
     assert.ok(second.skipped_projects.length >= 2);
+    assert.deepEqual(fingerprintReads, []);
     assert.ok(projects.every((project) => project.config_path !== "tsconfig.base.json"));
     assert.equal(routeSurfaces.length, 1);
     assert.equal(reactSurfaces.length, 1);
@@ -442,6 +452,40 @@ test("doctor --semantic reports parse failures from broken tsconfig fixtures", a
 
   const payload = JSON.parse(output[0]);
   assert.ok(payload.semantic.failures.some((failure) => failure.category === "parse-failed"));
+});
+
+test("doctor --semantic reports parse failures in text output when no projects are discovered", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-parse-empty-"));
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "broken-empty-semantic-fixture" }, null, 2));
+  await fs.writeFile(path.join(root, "tsconfig.json"), "{ invalid json\n");
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    json: false,
+    "semantic.tsjs.enabled": true,
+  });
+
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (chunk, encoding, callback) => {
+    stderr += String(chunk);
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await runDoctor(root, config, { semantic: true });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  assert.match(stderr, /No TS\/JS semantic projects discovered\./);
+  assert.match(stderr, /Semantic issues:/);
+  assert.match(stderr, /parse-failed config:tsconfig\.json:/);
 });
 
 test("doc --json emits a single payload when semantic refresh is enabled", async () => {
