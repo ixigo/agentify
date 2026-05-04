@@ -134,3 +134,67 @@ test("createRunReporter shows test output truncation metadata in HTML", async (t
   assert.match(html, /stderr captured 1024 of 1536 bytes/);
   assert.match(html, /tests\.outputMaxKb/);
 });
+
+test("createRunReporter uses live loader milestones on interactive stderr", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-loader-"));
+  const chunks = [];
+  const originalWrite = process.stderr.write;
+  const originalTerm = process.env.TERM;
+  const originalCi = process.env.CI;
+  const ttyDescriptor = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+
+  setSilent(false);
+  process.env.TERM = "xterm-256color";
+  delete process.env.CI;
+  Object.defineProperty(process.stderr, "isTTY", {
+    configurable: true,
+    value: true,
+  });
+  process.stderr.write = (chunk, encoding, callback) => {
+    chunks.push(String(chunk));
+    const cb = typeof encoding === "function" ? encoding : callback;
+    cb?.();
+    return true;
+  };
+
+  t.after(() => {
+    process.stderr.write = originalWrite;
+    if (ttyDescriptor) {
+      Object.defineProperty(process.stderr, "isTTY", ttyDescriptor);
+    } else {
+      delete process.stderr.isTTY;
+    }
+    if (originalTerm === undefined) {
+      delete process.env.TERM;
+    } else {
+      process.env.TERM = originalTerm;
+    }
+    if (originalCi === undefined) {
+      delete process.env.CI;
+    } else {
+      process.env.CI = originalCi;
+    }
+    setSilent(false);
+  });
+
+  const reporter = createRunReporter(root);
+  reporter.setCommand("up");
+  reporter.log("scan: starting deterministic repository scan");
+  reporter.percent("up", 33, "scan complete");
+  reporter.log("tests: running pnpm test");
+  reporter.log("tests: passed");
+  reporter.setValidation({ passed: true, failures: [] });
+  reporter.setTests({ status: "passed", passed: true });
+
+  await reporter.finalize();
+
+  const stderr = chunks.join("");
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+
+  assert.match(stderr, /\x1b\[2K/);
+  assert.match(stderr, /scan complete/);
+  assert.match(stderr, /tests passed/);
+  assert.doesNotMatch(stderr, /  ~ scan: starting deterministic repository scan\n/);
+  assert.match(output, /\[agentify\] scan: starting deterministic repository scan/);
+  assert.match(output, /\[agentify\] tests: passed/);
+});

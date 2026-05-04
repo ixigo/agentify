@@ -1086,6 +1086,7 @@ export function renderHtmlReport(summary) {
 
 export function createRunReporter(root) {
   const events = [];
+  const loader = ui.createStatusLoader();
   const summary = {
     command: "",
     artifacts: [],
@@ -1100,19 +1101,83 @@ export function createRunReporter(root) {
     events.push(text.endsWith("\n") ? text : `${text}\n`);
   }
 
+  function progressText(scope, percent, message) {
+    return `${scope}: ${percent}%${message ? ` ${message}` : ""}`;
+  }
+
+  function updateStatus(message) {
+    if (loader.enabled) {
+      loader.update(message);
+      return;
+    }
+    ui.step(message);
+  }
+
+  function finishStatus(kind, message) {
+    if (!loader.enabled) {
+      return false;
+    }
+    if (kind === "error") {
+      loader.error(message);
+    } else if (kind === "warn") {
+      loader.warn(message);
+    } else {
+      loader.success(message);
+    }
+    return true;
+  }
+
+  function classifyLogMilestone(message) {
+    if (/^tests: passed\b/.test(message)) {
+      return { kind: "success", message: "tests passed" };
+    }
+    if (/^tests: failed\b/.test(message)) {
+      return { kind: "error", message: "tests failed" };
+    }
+    if (/^tests: (skipped|unsupported)\b/.test(message)) {
+      return { kind: "warn", message: message.replace(":", "") };
+    }
+    return null;
+  }
+
+  function classifyProgressMilestone(scope, percent, message) {
+    const text = String(message || "").trim();
+    const command = summary.command || scope;
+    if (scope !== command || percent <= 0) {
+      return null;
+    }
+    if (/failed/i.test(text)) {
+      return { kind: "error", message: text };
+    }
+    if (/skipped/i.test(text)) {
+      return { kind: "warn", message: text };
+    }
+    if (/\b(complete|completed|passed)\b/i.test(text)) {
+      return { kind: "success", message: text };
+    }
+    return null;
+  }
+
   return {
     log(message) {
       const line = `[agentify] ${message}`;
-      ui.step(message);
+      const milestone = classifyLogMilestone(message);
+      if (!milestone || !finishStatus(milestone.kind, milestone.message)) {
+        updateStatus(message);
+      }
       record(line);
     },
     percent(scope, percent, message) {
       const normalizedPercent = Math.max(0, Math.min(100, Math.round(percent)));
       const line = `[agentify] ${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}`;
-      ui.step(`${scope}: ${normalizedPercent}%${message ? ` ${message}` : ""}`);
+      const milestone = classifyProgressMilestone(scope, normalizedPercent, message);
+      if (!milestone || !finishStatus(milestone.kind, milestone.message)) {
+        updateStatus(progressText(scope, normalizedPercent, message));
+      }
       record(line);
     },
     json(value) {
+      loader.clear();
       const text = JSON.stringify(value, null, 2);
       console.log(text);
       record(text);
@@ -1142,6 +1207,7 @@ export function createRunReporter(root) {
       summary.tests = result;
     },
     setExecution(result) {
+      loader.clear();
       summary.execution = normalizeExecutionTelemetry(result);
       if (summary.execution) {
         const telemetryPath = `.agents/runs/${summary.execution.run_id}-execution-telemetry.json`;
@@ -1160,6 +1226,7 @@ export function createRunReporter(root) {
       await writeText(outputPath, events.join(""));
       await writeText(htmlPath, renderHtmlReport(summary));
 
+      loader.clear();
       ui.box("Run Complete", [
         ui.label("Artifacts", String(summary.artifacts.length)),
         ui.label("Modules", String(summary.doc?.modules_processed ?? 0)),
@@ -1175,6 +1242,9 @@ export function createRunReporter(root) {
       ]);
 
       return { outputPath, htmlPath, telemetryJsonPath };
+    },
+    clear() {
+      loader.clear();
     },
   };
 }

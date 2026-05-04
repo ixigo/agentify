@@ -6,6 +6,19 @@ const require = createRequire(import.meta.url);
 const pkg = require("../../package.json");
 
 let _silent = false;
+const UNICODE_SPINNER_FRAMES = [
+  "\u280b",
+  "\u2819",
+  "\u2839",
+  "\u2838",
+  "\u283c",
+  "\u2834",
+  "\u2826",
+  "\u2827",
+  "\u2807",
+  "\u280f",
+];
+const ASCII_SPINNER_FRAMES = ["-", "\\", "|", "/"];
 
 export function setSilent(value) {
   _silent = value;
@@ -27,6 +40,16 @@ function isSilent() {
 
 function hasColor() {
   return !process.env.NO_COLOR && process.stderr.isTTY;
+}
+
+function supportsUnicode() {
+  return process.platform !== "win32"
+    || Boolean(process.env.WT_SESSION)
+    || process.env.TERM_PROGRAM === "vscode";
+}
+
+function isInteractiveStream(stream) {
+  return Boolean(stream?.isTTY && process.env.TERM !== "dumb" && !process.env.CI);
 }
 
 export const VERSION = pkg.version;
@@ -176,6 +199,102 @@ export function formatFailure(failure) {
 export function newline() {
   if (isSilent()) return;
   process.stderr.write("\n");
+}
+
+export function createStatusLoader({
+  enabled = !isSilent() && isInteractiveStream(process.stderr),
+  stream = process.stderr,
+  interval = 80,
+} = {}) {
+  const frames = supportsUnicode() ? UNICODE_SPINNER_FRAMES : ASCII_SPINNER_FRAMES;
+  let active = false;
+  let frameIndex = 0;
+  let timer = null;
+  let text = "";
+
+  function spinnerFrame() {
+    const frame = frames[frameIndex % frames.length];
+    frameIndex += 1;
+    return hasColor() ? pc.cyan(frame) : frame;
+  }
+
+  function render() {
+    if (!enabled || !active) {
+      return;
+    }
+    stream.write(`\r\x1b[2K  ${spinnerFrame()} ${text}`);
+  }
+
+  function stopTimer() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function start(message) {
+    if (!enabled) {
+      return;
+    }
+    text = message || text;
+    active = true;
+    render();
+    if (!timer) {
+      timer = setInterval(render, interval);
+      timer.unref?.();
+    }
+  }
+
+  function finish(prefix, message) {
+    if (!enabled) {
+      return;
+    }
+    const finalMessage = message || text;
+    stopTimer();
+    stream.write(`\r\x1b[2K${prefix} ${finalMessage}\n`);
+    active = false;
+  }
+
+  return {
+    get enabled() {
+      return enabled;
+    },
+    get active() {
+      return active;
+    },
+    start,
+    update(message) {
+      if (!enabled) {
+        return;
+      }
+      if (!active) {
+        start(message);
+        return;
+      }
+      text = message || text;
+      render();
+    },
+    success(message) {
+      const prefix = hasColor() ? pc.green("  +") : "  +";
+      finish(prefix, message);
+    },
+    warn(message) {
+      const prefix = hasColor() ? pc.yellow("  !") : "  !";
+      finish(prefix, message);
+    },
+    error(message) {
+      const prefix = hasColor() ? pc.red("  x") : "  x";
+      finish(prefix, message);
+    },
+    clear() {
+      if (!enabled || !active) {
+        return;
+      }
+      stopTimer();
+      stream.write("\r\x1b[2K");
+      active = false;
+    },
+  };
 }
 
 export function createInlineProgress({ enabled = !isSilent() && process.stderr.isTTY } = {}) {

@@ -285,6 +285,7 @@ export async function runExec(root, config, agentCommand, flags) {
   const progress = flags.reporter || createRunReporter(root);
   progress.setCommand(commandName);
   progress.log(`${commandName}: starting provider command`);
+  const captureOutputMode = flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
 
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
@@ -295,15 +296,18 @@ export async function runExec(root, config, agentCommand, flags) {
 
   let commandResult;
   try {
+    if (captureOutputMode !== "pipe") {
+      progress.clear?.();
+    }
     commandResult = await runWrappedCommand(agentCommand, {
       cwd: root,
       timeout: flags.timeout ? flags.timeout * 1000 : undefined,
-      captureOutputMode: flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit"),
+      captureOutputMode,
       captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
     });
   } catch (error) {
-    if (flags.captureOutputMode === "pty" && error?.code === "ENOENT") {
+    if (captureOutputMode === "pty" && error?.code === "ENOENT") {
       if (flags.sessionRecord) {
         flags.sessionRecord.captureMode = "interactive-fallback";
       }
