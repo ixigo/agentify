@@ -212,3 +212,60 @@ test("renderExecutionPrompt uses discovery budget defaults when older plans omit
   assert.match(prompt, /Discovery budget before the first edit: at most 4 additional file or doc reads, and at most 1 widening step\(s\)/);
   assert.match(prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>/);
 });
+
+test("planner stages verification commands by command type", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-command-staging-"));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        lint: "eslint .",
+        build: "tsc -p tsconfig.json",
+        test: "node --test",
+      },
+    }, null, 2),
+    "utf8",
+  );
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "runner.ts"),
+    "export function runTask() { return 'ok'; }\n",
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+
+  const plan = await buildExecutionPlan(root, config, "fix runTask validation");
+
+  assert.deepEqual(
+    plan.verification_commands.map((commandInfo) => commandInfo.command_type),
+    ["test", "build", "lint"],
+  );
+  assert.match(plan.prompt, /- \[test: early focused\/sanity check\] npm run test/);
+  assert.match(plan.prompt, /- \[build: final compile\/package check\] npm run build/);
+  assert.match(plan.prompt, /- \[lint: final static\/style check\] npm run lint/);
+});
+
+test("renderExecutionPrompt preserves verification command categories", () => {
+  const prompt = renderExecutionPrompt({
+    task: "update validation",
+    confidence: 0.5,
+    prompt_bytes: 0,
+    selected_modules: [],
+    selected_symbols: [],
+    selected_files: [],
+    related_tests: [],
+    verification_commands: [
+      { command_type: "lint", command: "pnpm", args: ["lint"] },
+      { command_type: "test", command: "pnpm", args: ["test"] },
+      { command_type: "build", command: "pnpm", args: ["build"] },
+    ],
+  });
+
+  assert.match(prompt, /- \[lint: final static\/style check\] pnpm lint/);
+  assert.match(prompt, /- \[test: early focused\/sanity check\] pnpm test/);
+  assert.match(prompt, /- \[build: final compile\/package check\] pnpm build/);
+  assert.ok(prompt.indexOf("[test:") < prompt.indexOf("[build:"));
+  assert.ok(prompt.indexOf("[build:") < prompt.indexOf("[lint:"));
+});

@@ -253,7 +253,7 @@ function dedupeCommands(commands) {
   const seen = new Set();
   const result = [];
   for (const commandInfo of commands) {
-    const key = `${commandInfo.command}:${commandInfo.args.join(" ")}`;
+    const key = `${normalizeCommandType(commandInfo.command_type)}:${commandInfo.command}:${commandInfo.args.join(" ")}`;
     if (seen.has(key)) {
       continue;
     }
@@ -261,6 +261,56 @@ function dedupeCommands(commands) {
     result.push(commandInfo);
   }
   return result;
+}
+
+const COMMAND_TYPE_STAGES = {
+  test: {
+    rank: 0,
+    label: "test",
+    guidance: "early focused/sanity check",
+  },
+  build: {
+    rank: 1,
+    label: "build",
+    guidance: "final compile/package check",
+  },
+  lint: {
+    rank: 2,
+    label: "lint",
+    guidance: "final static/style check",
+  },
+};
+
+function normalizeCommandType(commandType) {
+  const normalized = String(commandType || "unknown").toLowerCase();
+  return normalized || "unknown";
+}
+
+function commandStage(commandInfo) {
+  const commandType = normalizeCommandType(commandInfo.command_type);
+  return COMMAND_TYPE_STAGES[commandType] || {
+    rank: 99,
+    label: commandType,
+    guidance: "additional verification check",
+  };
+}
+
+function compareVerificationCommands(left, right) {
+  const leftStage = commandStage(left);
+  const rightStage = commandStage(right);
+  const leftArgs = Array.isArray(left.args) ? left.args : [];
+  const rightArgs = Array.isArray(right.args) ? right.args : [];
+  return leftStage.rank - rightStage.rank
+    || String(left.module_id || "").localeCompare(String(right.module_id || ""))
+    || left.command.localeCompare(right.command)
+    || leftArgs.join(" ").localeCompare(rightArgs.join(" "));
+}
+
+function formatVerificationCommand(commandInfo) {
+  const stage = commandStage(commandInfo);
+  const args = Array.isArray(commandInfo.args) ? commandInfo.args : [];
+  const command = `${commandInfo.command} ${args.join(" ")}`.trim();
+  return `- [${stage.label}: ${stage.guidance}] ${command}`;
 }
 
 export function renderExecutionPrompt(plan) {
@@ -281,7 +331,7 @@ export function renderExecutionPrompt(plan) {
     ? plan.related_tests.map((item) => `- ${item.file_path}${item.related_path ? ` (targets ${item.related_path})` : ""}`).join("\n")
     : "- none";
   const commandLines = plan.verification_commands.length > 0
-    ? plan.verification_commands.map((item) => `- ${item.command} ${item.args.join(" ")}`.trim()).join("\n")
+    ? [...plan.verification_commands].sort(compareVerificationCommands).map(formatVerificationCommand).join("\n")
     : "- none";
 
   return `You are working in a repository prepared by Agentify. Use the selected context first and start editing once that context is enough for a correct change.
@@ -476,7 +526,7 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
 
     const verificationCommands = dedupeCommands(
       commands.filter((commandInfo) => !commandInfo.module_id || moduleIds.has(commandInfo.module_id))
-    ).slice(0, 6);
+    ).sort(compareVerificationCommands).slice(0, 6);
 
     const selectedSymbols = symbolScores.filter((symbolInfo) => selectedFilePaths.has(symbolInfo.file_path));
     const confidence = computeConfidence(moduleScores, selectedFiles, selectedSymbols);
