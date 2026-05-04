@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { loadConfig } from "../src/core/config.js";
 import {
   forkSession,
+  maybePrepareChildSession,
   resumeSession,
   synthesizeBootstrapFromContext,
 } from "../src/core/session.js";
@@ -158,6 +159,38 @@ test("forkSession inherits run_history and rolling_summary from parent", async (
   assert.equal(child.context.run_history.length, 1);
   assert.equal(child.context.run_history[0].task, "investigate refresh bug");
   assert.match(child.context.rolling_summary, /refresh bug fixed/);
+});
+
+test("maybePrepareChildSession creates child above context threshold without launching provider", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-child-threshold-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  config.session.prepareChildAboveKb = 0.001;
+  const parent = await forkSession(root, config, { name: "parent" });
+  await appendRunSummary(root, parent.sessionId, {
+    started_at: "p-start",
+    ended_at: "p-end",
+    task: "large context handoff",
+    assistant_summary: "prepare child session without launching provider",
+    exit_code: 0,
+    validation: "passed",
+    phase: "complete",
+    memory_backend: "structured-lineage",
+  }, config);
+
+  const result = await maybePrepareChildSession(root, config, parent.sessionId, { provider: "codex" });
+  assert.ok(result.child_session_id.startsWith("sess_"));
+  assert.match(result.resume_command, new RegExp(result.child_session_id));
+
+  const childManifest = JSON.parse(await fs.readFile(
+    path.join(root, ".agents", "session", result.child_session_id, "session-manifest.json"),
+    "utf8"
+  ));
+  assert.equal(childManifest.parent_id, parent.sessionId);
+  const parentManifest = JSON.parse(await fs.readFile(path.join(parent.sessionDir, "session-manifest.json"), "utf8"));
+  assert.equal(parentManifest.prepared_child_session.session_id, result.child_session_id);
 });
 
 test("loadAutomaticSessionMemory prefers structured lineage over transcript replay", async () => {

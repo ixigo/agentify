@@ -172,6 +172,7 @@ tests:
 | --- | --- | --- | --- |
 | `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. | Use before `run` when you want to inspect the exact prompt context and file selection Agentify will choose. | `agentify plan "add retry logic to checkout"` |
 | `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex "implement payment retries"` |
+| `agentify context` | Searches indexed refs, fetches bounded source slices, compacts session facts, and reports routed context status. | Use with `--context-mode routed` prompts when agents should retrieve context through bounded Agentify commands instead of receiving full file bodies. | `agentify context fetch src/auth.ts --lines 20:80` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
 | `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. | Use for work that will span multiple agent runs and needs durable context under `.agents/session/`. | `agentify sess run --provider codex --name "payments-v2" "add tests"` |
@@ -331,6 +332,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
+| `--context-mode <direct|routed>` | Use `routed` to launch `run` and `sess` with docs/DB-first instructions and only bounded `agentify context ...` retrieval commands. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |
