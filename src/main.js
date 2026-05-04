@@ -5,9 +5,10 @@ import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { runExec } from "./core/exec.js";
+import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
-import { buildExecutionPlan } from "./core/planner.js";
+import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -44,6 +45,7 @@ const BOOLEAN_FLAGS = new Set([
   "failOnStale",
   "skipRefresh",
   "explainPlan",
+  "explain",
   "allowPartial",
   "reuseSession",
   "hook",
@@ -259,11 +261,12 @@ function printHelp() {
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
+    `    ${c("handoff")}         ${d("Write a cross-agent handoff bundle for a session")}`,
     `    ${c("memory")}          ${d("Manage agent memory helpers")}`,
     `    ${c("issue-killer")}    ${d("Launch labelled GitHub issues into supervised tmux worktrees")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
-    `    ${c("semantic")}        ${d("Refresh semantic TS/JS project facts")}`,
+    `    ${c("semantic")}        ${d("Refresh semantic project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
     ``,
@@ -276,8 +279,10 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--docs")}                      Generate docs during refresh/update flows (on by default; use --docs=false to skip)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
+    `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
+    `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
@@ -308,6 +313,7 @@ function printHelp() {
     `    ${d("$")} agentify memory compress AGENTIFY.md`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
+    `    ${d("$")} agentify handoff --session sess_20260101000000_abcdef "continue payments-v2"`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
@@ -436,7 +442,7 @@ export async function runCli(argv) {
             command: "init",
             root,
             dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
           }, null, 2));
         } else {
           success("Initialized agentify artifacts");
@@ -471,14 +477,18 @@ export async function runCli(argv) {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
         let plan;
         try {
-          plan = await buildExecutionPlan(root, config, task);
+          plan = await buildExecutionPlan(root, config, task, { explain: args.explain === true });
         } catch (error) {
           if (isMissingIndexError(error)) {
             throw createMissingIndexGuidance(root);
           }
           throw error;
         }
-        console.log(JSON.stringify(plan, null, 2));
+        if (args.explain === true && !args.json) {
+          process.stdout.write(renderPlanExplanation(plan));
+        } else {
+          console.log(JSON.stringify(plan, null, 2));
+        }
         return;
       }
 
@@ -519,6 +529,39 @@ export async function runCli(argv) {
       case "issue-killer":
         await runIssueKiller(root, config, args);
         return;
+
+      case "handoff": {
+        let sessionId = args.session ? validateSessionId(String(args.session), "--session id") : null;
+        let promptStartIndex = 1;
+        if (!sessionId && args._[1]) {
+          sessionId = validateSessionId(String(args._[1]), "session id");
+          promptStartIndex = 2;
+        }
+        if (!sessionId) {
+          const sessions = await listSessions(root);
+          if (sessions.length === 0) {
+            throw new Error("handoff requires --session <id> when no sessions exist");
+          }
+          sessionId = validateSessionId(String(sessions[0].session_id), "session id");
+        }
+
+        const task = getPromptFromArgs(args, promptStartIndex);
+        const result = await writeHandoffBundle(root, config, sessionId, task);
+        if (config.json) {
+          console.log(JSON.stringify({
+            command: "handoff",
+            session_id: sessionId,
+            markdown_path: result.relativeMarkdownPath,
+            json_path: result.relativeJsonPath,
+            bundle: result.bundle,
+          }, null, 2));
+        } else {
+          success(`Handoff written for ${sessionId}`);
+          log(`Markdown: ${dim(result.relativeMarkdownPath)}`);
+          log(`JSON: ${dim(result.relativeJsonPath)}`);
+        }
+        return;
+      }
 
       case "query": {
         let result;

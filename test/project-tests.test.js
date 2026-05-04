@@ -4,7 +4,29 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { detectTestCommand } from "../src/core/project-tests.js";
+import { buildTestEnv, detectTestCommand, runProjectTests } from "../src/core/project-tests.js";
+
+function createReporter() {
+  const logs = [];
+  const sections = [];
+  let testsRecord = null;
+  return {
+    log: (msg) => logs.push(msg),
+    appendSection: (title, body) => sections.push({ title, body }),
+    setTests: (record) => {
+      testsRecord = record;
+    },
+    get logs() {
+      return logs;
+    },
+    get sections() {
+      return sections;
+    },
+    get tests() {
+      return testsRecord;
+    },
+  };
+}
 
 test("detectTestCommand prefers the declared package manager", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-command-"));
@@ -32,4 +54,188 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   const result = await detectTestCommand(root);
 
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
+});
+
+test("detectTestCommand returns a discovery error for malformed package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-malformed-pkg-"));
+  const packageJsonPath = path.join(root, "package.json");
+  await fs.writeFile(packageJsonPath, "{ invalid json\n", "utf8");
+
+  const result = await detectTestCommand(root);
+
+  assert.equal(result.error.type, "package_json_parse_error");
+  assert.equal(result.error.path, packageJsonPath);
+  assert.match(result.error.message, /JSON|Expected property name|Unexpected token/);
+});
+
+test("buildTestEnv strips arbitrary host variables by default", () => {
+  const sourceEnv = {
+    PATH: "/usr/bin:/bin",
+    HOME: "/home/agentify",
+    CI: "true",
+    SENTINEL_SECRET: "should-not-leak",
+    AWS_ACCESS_KEY_ID: "AKIA-should-not-leak",
+    LANG: "en_US.UTF-8",
+  };
+
+  const env = buildTestEnv({}, sourceEnv);
+
+  assert.equal(env.PATH, "/usr/bin:/bin");
+  assert.equal(env.HOME, "/home/agentify");
+  assert.equal(env.CI, "true");
+  assert.equal(env.LANG, "en_US.UTF-8");
+  assert.equal(env.SENTINEL_SECRET, undefined);
+  assert.equal(env.AWS_ACCESS_KEY_ID, undefined);
+});
+
+test("buildTestEnv passes through configured allowlist entries", () => {
+  const sourceEnv = {
+    PATH: "/usr/bin",
+    SENTINEL_SECRET: "should-not-leak",
+    MY_TEST_VAR: "ok",
+  };
+
+  const env = buildTestEnv({ env: { passthrough: ["MY_TEST_VAR"] } }, sourceEnv);
+
+  assert.equal(env.MY_TEST_VAR, "ok");
+  assert.equal(env.SENTINEL_SECRET, undefined);
+});
+
+test("buildTestEnv injects extra key/value pairs", () => {
+  const sourceEnv = { PATH: "/usr/bin" };
+
+  const env = buildTestEnv({ env: { extra: { NODE_ENV: "test", DEBUG: 1 } } }, sourceEnv);
+
+  assert.equal(env.NODE_ENV, "test");
+  assert.equal(env.DEBUG, "1");
+});
+
+test("buildTestEnv inherits the full env when explicitly opted in", () => {
+  const sourceEnv = {
+    PATH: "/usr/bin",
+    SENTINEL_SECRET: "still-here",
+  };
+
+  const env = buildTestEnv({ env: { inherit: true } }, sourceEnv);
+
+  assert.equal(env.SENTINEL_SECRET, "still-here");
+});
+
+test("runProjectTests does not leak host secrets to the test subprocess by default", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-leak-"));
+  const outputPath = path.join(root, "captured-env.txt");
+  const scriptPath = path.join(root, "capture.js");
+  await fs.writeFile(scriptPath, `
+    const fs = require("node:fs");
+    fs.writeFileSync(process.env.CAPTURE_OUT, JSON.stringify({
+      sentinel: process.env.SENTINEL_SECRET ?? null,
+      extra: process.env.AGENTIFY_EXTRA ?? null,
+    }));
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-env-repro",
+    scripts: { test: "node capture.js" },
+  }, null, 2));
+
+  const previous = process.env.SENTINEL_SECRET;
+  process.env.SENTINEL_SECRET = "leaked-token-xyz";
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { tests: { env: { extra: { AGENTIFY_EXTRA: "explicit-value", CAPTURE_OUT: outputPath } } } },
+    });
+    assert.equal(result.status, "passed", `expected passed, got ${result.status}: ${result.stderr}`);
+    const captured = JSON.parse(await fs.readFile(outputPath, "utf8"));
+    assert.equal(captured.sentinel, null, "host secret leaked into the test subprocess");
+    assert.equal(captured.extra, "explicit-value", "configured extra env was not forwarded");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SENTINEL_SECRET;
+    } else {
+      process.env.SENTINEL_SECRET = previous;
+    }
+  }
+});
+
+test("runProjectTests fails when package.json test discovery fails", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-discovery-failure-"));
+  await fs.writeFile(path.join(root, "package.json"), "{ invalid json\n", "utf8");
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.passed, false);
+  assert.equal(result.command, null);
+  assert.equal(result.exit_code, null);
+  assert.equal(result.discovery_error.type, "package_json_parse_error");
+  assert.match(result.stderr, /package\.json test discovery failed:/);
+  assert.deepEqual(reporter.tests, result);
+  assert.deepEqual(reporter.logs, ["tests: failed to discover package.json test script (package_json_parse_error)"]);
+});
+
+test("runProjectTests forwards a configured passthrough variable", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-pass-"));
+  const outputPath = path.join(root, "captured-env.txt");
+  const scriptPath = path.join(root, "capture.js");
+  await fs.writeFile(scriptPath, `
+    const fs = require("node:fs");
+    fs.writeFileSync(process.env.CAPTURE_OUT, process.env.AGENTIFY_ALLOWED ?? "");
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-env-pass",
+    scripts: { test: "node capture.js" },
+  }, null, 2));
+
+  const previous = process.env.AGENTIFY_ALLOWED;
+  process.env.AGENTIFY_ALLOWED = "from-host-shell";
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { tests: { env: { passthrough: ["AGENTIFY_ALLOWED"], extra: { CAPTURE_OUT: outputPath } } } },
+    });
+    assert.equal(result.status, "passed", `expected passed, got ${result.status}: ${result.stderr}`);
+    const captured = await fs.readFile(outputPath, "utf8");
+    assert.equal(captured, "from-host-shell");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.AGENTIFY_ALLOWED;
+    } else {
+      process.env.AGENTIFY_ALLOWED = previous;
+    }
+  }
+});
+
+test("runProjectTests bounds captured stdout and stderr and reports truncation", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-output-bound-"));
+  const scriptPath = path.join(root, "emit-output.js");
+  const stdoutPayload = "a".repeat(1536);
+  const stderrPayload = "b".repeat(1536);
+
+  await fs.writeFile(scriptPath, `
+    process.stdout.write(${JSON.stringify(stdoutPayload)});
+    process.stderr.write(${JSON.stringify(stderrPayload)});
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-output-bound",
+    scripts: { test: "node emit-output.js" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter, {
+    config: { tests: { outputMaxKb: 1 } },
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.stdout_truncated, true);
+  assert.equal(result.stderr_truncated, true);
+  assert.equal(result.output_max_bytes, 1024);
+  assert.equal(Buffer.byteLength(result.stdout, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(result.stderr, "utf8"), 1024);
+  assert.equal(reporter.tests.stdout_truncated, true);
+  assert.equal(reporter.tests.stderr_truncated, true);
+  assert.match(reporter.logs.join("\n"), /stdout truncated to 1024 bytes/);
+  assert.match(reporter.logs.join("\n"), /stderr truncated to 1024 bytes/);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
 });

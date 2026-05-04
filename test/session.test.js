@@ -7,7 +7,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { loadConfig } from "../src/core/config.js";
-import { closeIndexDatabase, inTransaction, openIndexDatabase, writeRepositoryIndex } from "../src/core/db.js";
+import { closeIndexDatabase, inTransaction, openIndexDatabase } from "../src/core/db/connection.js";
+import { writeRepositoryIndex } from "../src/core/db/structural-store.js";
 import { forkSession, resolveSessionProvider, resumeSession, validateSessionId } from "../src/core/session.js";
 import {
   getSessionArtifactPaths,
@@ -252,7 +253,9 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   await installFakeMemPalace(binDir, logPath);
 
   const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
   process.env.PATH = `${binDir}:${originalPath}`;
+  process.env.AGENTIFY_MEMPALACE_CMD = path.join(root, "missing-mempalace");
   try {
     const memory = await loadAutomaticRunMemory(root, "jsonl transcript decision", config);
     const calls = await fs.readFile(logPath, "utf8");
@@ -265,6 +268,11 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
     assert.match(calls, /^search /m);
   } finally {
     process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
   }
 });
 

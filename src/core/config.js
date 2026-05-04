@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
   json: false,
   maxFilesPerModule: 20,
   moduleConcurrency: 4,
+  providerTimeoutMs: 120000,
   tokenReport: true,
   docs: true,
   headers: false,
@@ -68,12 +69,33 @@ const DEFAULT_CONFIG = {
     editAfterSelectedContextUnlessBlocked: true,
   },
   semantic: {
+    enabled: false,
     tsjs: {
       enabled: false,
       workerConcurrency: 1,
       timeoutMs: 45000,
       memoryMb: 1536,
       analyzerVersion: "semantic-tsjs-v1",
+    },
+    python: {
+      analyzerVersion: "semantic-python-v1",
+    },
+    go: {
+      analyzerVersion: "semantic-go-v1",
+    },
+    java: {
+      analyzerVersion: "semantic-java-v1",
+    },
+    dotnet: {
+      analyzerVersion: "semantic-dotnet-v1",
+    },
+  },
+  tests: {
+    outputMaxKb: 48,
+    env: {
+      inherit: false,
+      passthrough: [],
+      extra: {},
     },
   },
 };
@@ -168,6 +190,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     dryRun: config.dryRun,
     maxFilesPerModule: config.maxFilesPerModule,
     moduleConcurrency: config.moduleConcurrency,
+    providerTimeoutMs: config.providerTimeoutMs,
     tokenReport: config.tokenReport,
     docs: config.docs,
     headers: config.headers,
@@ -181,6 +204,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     session: config.session,
     planner: config.planner,
     semantic: config.semantic,
+    tests: config.tests,
   };
 
   const yaml = stringifyYaml(output);

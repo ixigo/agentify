@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Convention Learner"
+  short_description: "Resolve ADO PR feedback and learn reusable repo conventions"
+  default_prompt: "Use $pr-convention-learner to fetch Azure DevOps PR comments, resolve actionable feedback, extract reusable conventions, and check future code against them."

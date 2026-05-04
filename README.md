@@ -77,6 +77,7 @@ For longer workstreams, use sessions:
 ```bash
 agentify sess run --provider codex --name "checkout-retries" "map the current checkout flow"
 agentify sess resume --session <session-id> "finish the implementation"
+agentify handoff --session <session-id> "handoff to the next agent"
 ```
 
 ## Caveman Mode
@@ -111,8 +112,68 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Search indexed repo context | `agentify query search --term auth` |
 | Run a bounded task | `agentify run "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
+| Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
 | Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
+
+> **Note** — `agentify up` runs the repo's detected `package.json` test script in a **sanitized environment** by default. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+
+## CLI Reference
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `init` | Create baseline Agentify artifacts |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for index |
+| `doc` | Generate docs, metadata, and key-file headers |
+| `up` | Run scan -> optional doc -> check -> test pipeline |
+| `sync` | Upgrade repo-owned Agentify files, then run refresh |
+| `check` | Validate freshness, schemas, and safety rules |
+| `plan` | Preview the planner-selected context for a task |
+| `run` | Run provider template command with auto-refresh |
+| `exec` | Advanced wrapper for custom agent commands |
+| `handoff` | Write a cross-agent handoff bundle for a session |
+| `this` | Bootstrap this macOS repo for a provider-backed Agentify workflow |
+| `query` | Query the repository index (owner, deps, changed) |
+| `skill` | Manage built-in agent skills |
+| `sess` | Manage provider-backed sessions |
+| `memory` | Manage agent memory helpers |
+| `issue-killer` | Launch labelled GitHub issues into supervised tmux worktrees |
+| `hooks` | Install/remove git hooks |
+| `doctor` | Check toolchain health and capability tier |
+| `semantic` | Refresh semantic TS/JS project facts |
+| `clean` | Prune stale generated artifacts and dead Agentify folders |
+| `cache` | Manage the content cache |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--provider <local|codex|claude|gemini|opencode>` | Choose a provider. `skill install` also accepts comma lists and `all`. |
+| `--strict <true|false>` | Fail closed on validation issues |
+| `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection |
+| `--dry-run` | Report planned changes without writing |
+| `--docs` | Generate docs during refresh/update flows (off by default) |
+| `--headers` | Apply `@agentify` headers to source files (off by default) |
+| `--provider-timeout-ms <ms>` | Fail provider doc calls after N milliseconds |
+| `--ghost` | Route outputs to `.current_session/` |
+| `--json` | Machine-readable JSON output only |
+| `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
+| `--explain-plan` | Print planner output before executing `run` |
+| `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |
+| `--root <path>` | Target repo root (default: cwd) |
+| `--scope <project|user>` | Skill install scope (`skill` command) |
+| `--hook` | Hook-friendly check: skip changed-file body diffing (used by managed pre-commit) |
+
+### Exec Flags
+
+| Flag | Description |
+| --- | --- |
+| `--fail-on-stale` | Exit 80 if validation fails post-refresh |
+| `--timeout <seconds>` | Kill wrapped command after N seconds |
+| `--skip-refresh` | Skip post-command refresh |
 
 ## What Agentify Creates
 
@@ -120,6 +181,7 @@ Depending on the command, Agentify can create or refresh:
 
 ```text
 .agentify.yaml
+.gitignore
 .agentignore
 .guardrails
 .agentify/work/
@@ -131,7 +193,7 @@ AGENTIFY.md
 docs/repo-map.md
 ```
 
-These files give agents a stable map of the repo, guardrails for safe edits, durable session context, and validation evidence.
+Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when you want Agentify policy shared with the repo. The managed `.gitignore` block keeps local/generated runtime output such as `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of Git by default.
 
 ## Best First Workflow
 

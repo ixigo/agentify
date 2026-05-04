@@ -4,7 +4,11 @@ import path from "node:path";
 import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
-import { closeIndexDatabase, getRepoMeta, listSemanticProjects, loadModules, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
+import { loadModules } from "./db/structural-store.js";
+import { listSemanticProjects } from "./db/semantic-store.js";
+import { isSemanticEnabled } from "./semantic.js";
 
 const ALLOWED_DOC_PATHS = [
   /(^|\/)AGENTIFY\.md$/,
@@ -13,6 +17,7 @@ const ALLOWED_DOC_PATHS = [
   /^\.agentify\.yaml$/,
   /^\.agentignore$/,
   /^\.guardrails$/,
+  /^\.gitignore$/,
   /^\.agentify\/work\//,
   /^docs\//,
   /^\.agents\//,
@@ -33,7 +38,7 @@ export const FAILURE_CATEGORIES = {
 
 const REMEDIATION_HINTS = {
   [FAILURE_CATEGORIES.UNSAFE_PATH]:
-    "Only recognized Agentify paths (.agents/, docs/, generated AGENTIFY.md files, .agentify/work/, provider skill dirs, .guardrails, .agentignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
+    "Only recognized Agentify paths (.agents/, docs/, generated AGENTIFY.md files, .agentify/work/, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
   [FAILURE_CATEGORIES.FRESHNESS_STALE]:
@@ -119,7 +124,7 @@ async function validateFreshness(root, failures, options = {}) {
       }
     }
 
-    if (options.config?.semantic?.tsjs?.enabled) {
+    if (isSemanticEnabled(options.config || {})) {
       const semanticProjects = listSemanticProjects(db);
       for (const projectInfo of semanticProjects) {
         if (projectInfo.status !== "ready") {

@@ -205,14 +205,14 @@ async function detectTypeScriptModules(root, config, relFiles) {
   }
 
   if (modules.length > 0) {
-    return modules.sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+    return withTypeScriptSourceFallbackModule(modules, relFiles);
   }
 
   const fallbackModules = await detectModules(root, config, "ts");
-  return fallbackModules.map((moduleInfo) => ({
+  return withTypeScriptSourceFallbackModule(fallbackModules.map((moduleInfo) => ({
     ...moduleInfo,
     packageName: null,
-  }));
+  })), relFiles);
 }
 
 function findOwningModule(filePath, modules) {
@@ -223,6 +223,49 @@ function findOwningModule(filePath, modules) {
     }
   }
   return null;
+}
+
+function withTypeScriptSourceFallbackModule(modules, relFiles) {
+  const sortedModules = modules.slice().sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+  const hasSrcModule = sortedModules.some((moduleInfo) => moduleInfo.rootPath === "src");
+  if (hasSrcModule) {
+    return sortedModules;
+  }
+
+  const hasUnownedSrcSource = relFiles.some((filePath) => (
+    filePath.startsWith("src/")
+    && TS_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+    && !findOwningModule(filePath, sortedModules)
+  ));
+
+  if (!hasUnownedSrcSource) {
+    return sortedModules;
+  }
+
+  const fallbackId = uniqueModuleId("src", sortedModules);
+  return [
+    ...sortedModules,
+    {
+      id: fallbackId,
+      name: fallbackId,
+      rootPath: "src",
+      stack: "ts",
+      packageName: null,
+    },
+  ].sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+}
+
+function uniqueModuleId(baseId, modules) {
+  const ids = new Set(modules.map((moduleInfo) => moduleInfo.id));
+  if (!ids.has(baseId)) {
+    return baseId;
+  }
+
+  let suffix = 2;
+  while (ids.has(`${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseId}-${suffix}`;
 }
 
 function detectPackageManager(rootFiles, rootPackageJson) {

@@ -3,7 +3,9 @@ import path from "node:path";
 
 import { garbageCollect } from "./cache.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
-import { closeIndexDatabase, loadModules, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { listArtifacts } from "./db/artifact-store.js";
+import { loadModules } from "./db/structural-store.js";
 
 function toArray(paths) {
   return Array.from(new Set(paths)).sort();

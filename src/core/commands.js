@@ -2,88 +2,33 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { detectModules, detectStacks } from "./detect.js";
-import { ensureDir, exists, relative, walkFiles, writeJson, writeText } from "./fs.js";
+import { ensureDir, exists, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
-import { buildDependencyGraph, rankKeyFiles } from "./graph.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
+import { ensureAgentifyGitignore } from "./gitignore.js";
 import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { runProjectTests } from "./project-tests.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
+import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
+import { getArtifact, upsertArtifact } from "./db/artifact-store.js";
 import {
-  closeIndexDatabase,
-  getArtifact,
-  getRepoMeta,
-  inTransaction,
   loadCommands,
   loadFiles,
   loadModuleDependencies,
   loadModules,
-  loadSemanticModuleContext,
   loadTests,
-  openIndexDatabase,
-  upsertArtifact,
   writeRepositoryIndex,
-} from "./db.js";
+} from "./db/structural-store.js";
+import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
-import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
+import { applySemanticHeaders, isSemanticEnabled, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
 
 export { detectTestCommand } from "./project-tests.js";
-
-function stableHash(value) {
-  return crypto.createHash("sha1").update(value).digest("hex").slice(0, 12);
-}
-
-function toSlug(value) {
-  return value.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
-}
-
-function isFileInModule(filePath, moduleRoot) {
-  if (moduleRoot === ".") {
-    return true;
-  }
-  return filePath === moduleRoot || filePath.startsWith(`${moduleRoot}/`);
-}
-
-function getAllowedExtensions(stack) {
-  switch (stack) {
-    case "python":
-      return [".py"];
-    case "dotnet":
-      return [".cs"];
-    case "java":
-      return [".java"];
-    case "kotlin":
-      return [".kt", ".kts"];
-    case "swift":
-      return [".swift"];
-    case "ts":
-    default:
-      return [".ts", ".tsx", ".js", ".jsx"];
-  }
-}
-
-function selectEntrypoints(files, stack) {
-  const patterns =
-    stack === "python"
-      ? [/__main__\.py$/, /main\.py$/]
-      : stack === "dotnet"
-        ? [/Program\.cs$/]
-        : stack === "java"
-          ? [/Main\.java$/, /Application\.java$/, /MainActivity\.java$/]
-          : stack === "kotlin"
-            ? [/Main\.kt$/, /Application\.kt$/, /MainActivity\.kt$/]
-            : stack === "swift"
-              ? [/main\.swift$/, /AppDelegate\.swift$/, /SceneDelegate\.swift$/, /.+App\.swift$/]
-        : [/src\/index\.(ts|tsx|js|jsx)$/, /src\/main\.(ts|tsx|js|jsx)$/, /app\.(ts|tsx|js|jsx)$/, /server\.(ts|tsx|js|jsx)$/];
-
-  return files.filter((file) => patterns.some((pattern) => pattern.test(file))).slice(0, 10);
-}
-
 
 export async function mapWithConcurrency(items, concurrency, mapper, options = {}) {
   const results = new Array(items.length);
@@ -107,58 +52,6 @@ export async function mapWithConcurrency(items, concurrency, mapper, options = {
   const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
   await Promise.all(workers);
   return results;
-}
-
-function findModuleDeps(modules, graph) {
-  const byFile = new Map();
-  for (const moduleInfo of modules) {
-    byFile.set(moduleInfo.id, { dependsOn: new Set(), usedBy: new Set() });
-  }
-
-  for (const edge of graph.edges) {
-    const fromModule = modules.find((moduleInfo) => isFileInModule(edge.from, moduleInfo.rootPath));
-    const toModule = modules.find((moduleInfo) => isFileInModule(edge.to, moduleInfo.rootPath));
-    if (!fromModule || !toModule || fromModule.id === toModule.id) {
-      continue;
-    }
-    byFile.get(fromModule.id).dependsOn.add(toModule.id);
-    byFile.get(toModule.id).usedBy.add(fromModule.id);
-  }
-
-  return byFile;
-}
-
-async function buildScanState(root, config) {
-  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
-  const stacks = await detectStacks(root, config, { relFiles: files });
-  const defaultStack = stacks[0]?.name || "ts";
-  const modules = await detectModules(root, config, defaultStack);
-  const graph = await buildDependencyGraph(root, defaultStack);
-  const moduleDeps = findModuleDeps(modules, graph);
-
-  const hydratedModules = modules.map((moduleInfo) => {
-    const moduleFiles = files.filter((file) => isFileInModule(file, moduleInfo.rootPath) && getAllowedExtensions(moduleInfo.stack).some((ext) => file.endsWith(ext)));
-    const keyFiles = rankKeyFiles(moduleFiles, graph, config.topKeyFilesPerModule || 15);
-
-    return {
-      ...moduleInfo,
-      slug: toSlug(moduleInfo.name),
-      hash: stableHash(moduleInfo.rootPath),
-      entryFiles: selectEntrypoints(moduleFiles, moduleInfo.stack),
-      keyFiles: keyFiles.slice(0, config.maxFilesPerModule),
-      files: moduleFiles.slice(0, config.maxFilesPerModule),
-      dependsOn: Array.from(moduleDeps.get(moduleInfo.id)?.dependsOn || []),
-      usedBy: Array.from(moduleDeps.get(moduleInfo.id)?.usedBy || [])
-    };
-  });
-
-  return {
-    stacks,
-    defaultStack,
-    modules: hydratedModules,
-    graph,
-    files
-  };
 }
 
 function renderAgentifyMd({ index, metadataByModule, runReport, managerPlan }) {
@@ -268,12 +161,21 @@ async function writeRunReport(root, report) {
 }
 
 function summarizeTestResult(testResult) {
-  return {
+  const summary = {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
+    stdout_truncated: Boolean(testResult.stdout_truncated),
+    stderr_truncated: Boolean(testResult.stderr_truncated),
+    stdout_bytes: testResult.stdout_bytes ?? 0,
+    stderr_bytes: testResult.stderr_bytes ?? 0,
+    output_max_bytes: testResult.output_max_bytes ?? null,
     exit_code: testResult.exit_code
   };
+  if (testResult.discovery_error) {
+    summary.discovery_error = testResult.discovery_error;
+  }
+  return summary;
 }
 
 function renderDefaultAgentignore() {
@@ -302,7 +204,7 @@ function renderDefaultGuardrails() {
 ## Files To Avoid Touching Without Intent
 - \`node_modules/\`
 - lockfiles unless the task changes dependencies
-- repo config such as \`.agentify.yaml\`, \`.agentignore\`, and \`.guardrails\` unless the task is about repo policy or tooling
+- repo config such as \`.agentify.yaml\`, \`.gitignore\`, \`.agentignore\`, and \`.guardrails\` unless the task is about repo policy or tooling
 `;
 }
 
@@ -324,6 +226,7 @@ export async function ensureBaselineArtifacts(root, config) {
   await ensureDir(path.join(root, "docs", "modules"));
   await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
   await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
+  await ensureAgentifyGitignore(root);
 }
 
 function resolveArtifactRoot(root, config, runId) {
@@ -663,6 +566,61 @@ function prioritizeModuleFiles(moduleInfo, fileRows) {
     .map((fileInfo) => fileInfo.path);
 }
 
+function resolveProviderTimeoutMs(config) {
+  const timeoutMs = Number(config.providerTimeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000;
+}
+
+async function generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config) {
+  if (provider.name === "local") {
+    return provider.generateModuleArtifacts(moduleInfo, context);
+  }
+
+  const timeoutMs = resolveProviderTimeoutMs(config);
+  let timeout = null;
+
+  try {
+    return await Promise.race([
+      provider.generateModuleArtifacts(moduleInfo, context),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(
+            `timed out after ${timeoutMs}ms. Increase providerTimeoutMs or rerun with --provider local for deterministic docs.`
+          ));
+        }, timeoutMs);
+      })
+    ]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `doc provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}`
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function removeRepoMapIfModuleDocsIncomplete(artifactRoot, modules) {
+  const missingDocs = [];
+  for (const moduleInfo of modules) {
+    if (!await exists(path.join(artifactRoot, moduleInfo.doc_path))) {
+      missingDocs.push(moduleInfo.doc_path);
+    }
+  }
+
+  if (missingDocs.length > 0) {
+    await fs.unlink(path.join(artifactRoot, "docs", "repo-map.md")).catch((error) => {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    });
+  }
+
+  return missingDocs;
+}
+
 export async function runDoc(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("doc: starting documentation and metadata generation");
@@ -703,23 +661,20 @@ async function _runDocInner(root, config, options, progress) {
           provider: config.provider,
         });
       });
-      const renderable = buildRenderableIndex(root, getRepoMeta(writeDb), loadModules(writeDb));
-      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(renderable));
     } finally {
       closeIndexDatabase(writeDb);
     }
   }
 
-  const semanticEnabled = Boolean(config.semantic?.tsjs?.enabled);
+  const semanticEnabled = isSemanticEnabled(config);
   if (semanticEnabled && !config.dryRun) {
-    progress.log("doc: refreshing semantic TS/JS facts");
-    progress.percent("doc", 5, "refreshing semantic TS/JS facts");
+    progress.log("doc: refreshing semantic facts");
+    progress.percent("doc", 5, "refreshing semantic facts");
     await runSemanticRefresh(root, config, {
       artifactRoot,
       silent: true,
       skipOutput: true,
     });
-    await writeSemanticRepoMap(root, artifactRoot);
   }
 
   let indexData;
@@ -890,7 +845,7 @@ async function _runDocInner(root, config, options, progress) {
         };
       }
 
-      const result = await provider.generateModuleArtifacts(moduleInfo, context);
+      const result = await generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config);
       return {
         moduleInfo,
         fingerprint,
@@ -984,7 +939,14 @@ async function _runDocInner(root, config, options, progress) {
       });
       filesWithHeaders += semanticHeaderResult.changed;
       plannedHeaders.push(...semanticHeaderResult.plannedHeaders);
-      await writeSemanticRepoMap(root, artifactRoot);
+    }
+
+    if (!config.dryRun) {
+      if (semanticEnabled) {
+        await writeSemanticRepoMap(root, artifactRoot);
+      } else {
+        await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(indexData.index));
+      }
     }
 
     const runReport = {
@@ -1079,6 +1041,14 @@ async function _runDocInner(root, config, options, progress) {
       await progress.finalize();
     }
     return result;
+  } catch (error) {
+    if (!config.dryRun && indexData?.modules?.length) {
+      const missingDocs = await removeRepoMapIfModuleDocsIncomplete(artifactRoot, indexData.modules);
+      if (missingDocs.length > 0) {
+        progress.log(`doc: removed repo map after failed generation; missing ${missingDocs.length} module doc(s)`);
+      }
+    }
+    throw error;
   } finally {
     if (db) {
       closeIndexDatabase(db);
@@ -1162,7 +1132,7 @@ export async function runUpdate(root, config, options = {}) {
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });
   progress.setValidation(result);
   progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
-  const testResult = await runProjectTests(root, progress);
+  const testResult = await runProjectTests(root, progress, { config });
   const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
     const db = openIndexDatabase(artifactRoot);

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -426,20 +427,62 @@ async function syncMemPalaceSessionExports(root, transcripts) {
   return { synced: false, fingerprint, palacePath, exportDir, syncStatePath, cached: false, transcriptCount: transcripts.length };
 }
 
-async function runMemPalace(root, args, palacePath) {
+async function runMemPalace(root, args, palacePath, command = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace") {
   const env = {
     ...process.env,
     MEMPALACE_PALACE_PATH: palacePath,
   };
-  return execFileAsync(process.env.AGENTIFY_MEMPALACE_CMD || "mempalace", args, {
+  return execFileAsync(command, args, {
     cwd: root,
     env,
     maxBuffer: 8 * 1024 * 1024,
   });
 }
 
-async function createMemPalaceBackend(root, query, config) {
-  const transcripts = await listSessionTranscripts(root);
+async function resolveCommandBinary(cmd) {
+  if (cmd.includes("/") || cmd.includes("\\") || path.isAbsolute(cmd)) {
+    try {
+      await fs.access(cmd, fsConstants.X_OK);
+      return cmd;
+    } catch {
+      return null;
+    }
+  }
+  const pathEnv = process.env.PATH || "";
+  if (!pathEnv) {
+    return null;
+  }
+  const sep = process.platform === "win32" ? ";" : ":";
+  const exts = process.platform === "win32"
+    ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";")
+    : [""];
+  for (const dir of pathEnv.split(sep)) {
+    if (!dir) {
+      continue;
+    }
+    for (const ext of exts) {
+      const candidate = path.join(dir, cmd + ext);
+      try {
+        await fs.access(candidate, fsConstants.X_OK);
+        return candidate;
+      } catch {
+        // try next candidate
+      }
+    }
+  }
+  return null;
+}
+
+async function resolveMemPalaceBinary() {
+  const configured = process.env.AGENTIFY_MEMPALACE_CMD
+    ? await resolveCommandBinary(process.env.AGENTIFY_MEMPALACE_CMD)
+    : null;
+  return configured || await resolveCommandBinary("mempalace");
+}
+
+async function createMemPalaceBackend(root, query, config, sharedInventory = {}) {
+  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
+  const command = sharedInventory.mempalaceBinary || await resolveMemPalaceBinary();
   const tokens = tokenizeQuery(query);
 
   return {
@@ -454,7 +497,7 @@ async function createMemPalaceBackend(root, query, config) {
       try {
         const sync = await syncMemPalaceSessionExports(root, transcripts);
         if (!sync.cached) {
-          await runMemPalace(root, ["mine", exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], palacePath);
+          await runMemPalace(root, ["mine", exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], palacePath, command);
           await writeText(sync.syncStatePath, `${JSON.stringify({
             schema_version: "1.0",
             fingerprint: sync.fingerprint,
@@ -463,7 +506,7 @@ async function createMemPalaceBackend(root, query, config) {
           }, null, 2)}\n`);
         }
         const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
-        const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath);
+        const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath, command);
         const excerpt = clipToBytes(stdout.trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
         const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
         const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
@@ -492,10 +535,10 @@ async function createMemPalaceBackend(root, query, config) {
   };
 }
 
-async function createTranscriptSearchBackend(root, query, config) {
-  const transcripts = await listSessionTranscripts(root);
-  const structuredOnly = (await listStructuredSessionTurns(root))
-    .filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
+async function createTranscriptSearchBackend(root, query, config, sharedInventory = {}) {
+  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
+  const structuredAll = sharedInventory.structuredTurns ?? await listStructuredSessionTurns(root);
+  const structuredOnly = structuredAll.filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
   const tokens = tokenizeQuery(query);
   const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
   const maxResults = getSessionMemoryLimit(config, "memoryResults", 3);
@@ -664,12 +707,33 @@ async function createLineageBackend(root, manifest, config) {
 }
 
 async function createMemoryBackends(root, options, config) {
-  return [
-    await createStructuredLineageBackend(root, options.manifest || null, config),
-    await createMemPalaceBackend(root, options.query || "", config),
-    await createTranscriptSearchBackend(root, options.query || "", config),
-    await createLineageBackend(root, options.manifest || null, config),
-  ];
+  const query = options.query || "";
+  const manifest = options.manifest || null;
+  const tokens = tokenizeQuery(query);
+  const needsTranscriptInventory = tokens.length > 0;
+  const sharedInventory = {};
+  if (needsTranscriptInventory) {
+    const [transcripts, structuredTurns] = await Promise.all([
+      listSessionTranscripts(root),
+      listStructuredSessionTurns(root),
+    ]);
+    sharedInventory.transcripts = transcripts;
+    sharedInventory.structuredTurns = structuredTurns;
+  }
+
+  const backends = [await createStructuredLineageBackend(root, manifest, config)];
+
+  if (needsTranscriptInventory) {
+    const mempalaceBinary = await resolveMemPalaceBinary();
+    if (mempalaceBinary) {
+      sharedInventory.mempalaceBinary = mempalaceBinary;
+      backends.push(await createMemPalaceBackend(root, query, config, sharedInventory));
+    }
+    backends.push(await createTranscriptSearchBackend(root, query, config, sharedInventory));
+  }
+
+  backends.push(await createLineageBackend(root, manifest, config));
+  return backends;
 }
 
 export function getSessionArtifactPaths(root, sessionId) {
@@ -678,6 +742,8 @@ export function getSessionArtifactPaths(root, sessionId) {
     sessionDir,
     transcriptPath: path.join(sessionDir, "transcript.md"),
     memoryContextPath: path.join(sessionDir, "memory-context.md"),
+    handoffJsonPath: path.join(sessionDir, "handoff.json"),
+    handoffMarkdownPath: path.join(sessionDir, "handoff.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
     turnsPath: path.join(sessionDir, "turns.jsonl"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
@@ -915,6 +981,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       `Validation: ${validationSummary}`,
       `Capture mode used: ${sessionRecord.captureMode}`,
       outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
+      outcome?.interactiveCaptureError ? `Interactive capture warning: ${outcome.interactiveCaptureError}` : null,
       `Ended: ${endedAt}`,
       ""
     ].filter(Boolean).join("\n");
@@ -945,6 +1012,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     validation: validationSummary,
     stdout: clipToBytes(outcome?.stdout || "", captureMaxBytes),
     stderr: clipToBytes(outcome?.stderr || "", captureMaxBytes),
+    interactive_capture_error: outcome?.interactiveCaptureError || null,
   };
   await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
 
