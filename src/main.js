@@ -147,8 +147,16 @@ function isMissingIndexError(error) {
 
 function createMissingIndexGuidance(root) {
   return new Error(
-    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query commands.`
+    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`
   );
+}
+
+function getSearchTerm(args, commandName) {
+  const term = args.term === undefined ? args._[2] : args.term;
+  if (!term || term === true) {
+    throw new Error(`${commandName} search requires --term <value> or a positional search term`);
+  }
+  return String(term);
 }
 
 export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
@@ -333,6 +341,7 @@ function printHelp() {
     `    ${c("sync")}            ${d("Upgrade repo-owned Agentify files, then run refresh")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
+    `    ${c("context")}         ${d("Search indexed context and fetch exact bounded file slices")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
@@ -390,6 +399,9 @@ function printHelp() {
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
+    `    ${d("$")} agentify context search analytics`,
+    `    ${d("$")} agentify context fetch src/analytics/report.ts --symbol buildReport`,
+    `    ${d("$")} agentify context fetch src/analytics/report.ts --lines 20:60`,
     `    ${d("$")} agentify risk --since origin/main`,
     `    ${d("$")} agentify risk --json`,
     `    ${d("$")} agentify skill list`,
@@ -740,8 +752,7 @@ export async function runCli(argv) {
             if (!args.since) throw new Error("query changed requires --since <commit>");
             result = await queryChanged(root, args.since);
           } else if (subcommand === "search") {
-            if (!args.term) throw new Error("query search requires --term <value>");
-            result = await querySearch(root, args.term);
+            result = await querySearch(root, getSearchTerm(args, "query"));
           } else if (subcommand === "def") {
             if (!args.symbol) throw new Error("query def requires --symbol <name>");
             result = await queryDef(root, args.symbol);

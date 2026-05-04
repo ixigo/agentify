@@ -124,12 +124,38 @@ function shellEscape(value) {
     .replaceAll("\"", "\\\"");
 }
 
+export function redactSensitiveText(value) {
+  return String(value || "")
+    .replace(
+      /\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|SECRET|TOKEN|PASSWORD|PASS|PRIVATE[_-]?KEY)[A-Z0-9_-]*\s*[:=]\s*)(["']?)([^\s"'`,;]+)/gi,
+      "$1$2[REDACTED]"
+    )
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]{12,}/gi, "$1[REDACTED]")
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9._-]{4,}\b/g, "[REDACTED]")
+    .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[REDACTED]");
+}
+
+function redactSensitiveValue(value) {
+  if (typeof value === "string") {
+    return redactSensitiveText(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, redactSensitiveValue(entry)])
+    );
+  }
+  return value;
+}
+
 function normalizeCommand(command) {
   if (!Array.isArray(command) || command.length === 0) {
     return "";
   }
   return command.map((part) => {
-    const text = String(part);
+    const text = redactSensitiveText(part);
     return /\s/.test(text) ? `"${shellEscape(text)}"` : text;
   }).join(" ");
 }
@@ -746,6 +772,7 @@ export function getSessionArtifactPaths(root, sessionId) {
     handoffMarkdownPath: path.join(sessionDir, "handoff.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
     turnsPath: path.join(sessionDir, "turns.jsonl"),
+    contextEventsPath: path.join(sessionDir, "context-events.jsonl"),
     contextFactsPath: path.join(sessionDir, "context-facts.json"),
     contextFactsMarkdownPath: path.join(sessionDir, "context-facts.md"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
@@ -843,15 +870,15 @@ async function readStructuredTurnsAsText(turnsPath) {
 
 async function appendTurnsRecord(turnsPath, record) {
   await ensureDir(path.dirname(turnsPath));
-  await fs.appendFile(turnsPath, `${JSON.stringify(record)}\n`, "utf8");
+  await fs.appendFile(turnsPath, `${JSON.stringify(redactSensitiveValue(record))}\n`, "utf8");
 }
 
 function clampRunHistoryEntry(entry, summaryMaxBytes) {
   const result = {
     started_at: entry.started_at,
     ended_at: entry.ended_at,
-    task: clipToBytes(entry.task || "", Math.max(80, Math.floor(summaryMaxBytes / 2))),
-    assistant_summary: clipToBytes(entry.assistant_summary || "", summaryMaxBytes),
+    task: clipToBytes(redactSensitiveText(entry.task || ""), Math.max(80, Math.floor(summaryMaxBytes / 2))),
+    assistant_summary: clipToBytes(redactSensitiveText(entry.assistant_summary || ""), summaryMaxBytes),
     exit_code: Number.isFinite(entry.exit_code) ? entry.exit_code : null,
     validation: entry.validation || "not-run",
     phase: entry.phase || "complete",
@@ -1027,7 +1054,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
     provider: sessionRecord.provider,
     started_at: startedAt,
     capture_mode: sessionRecord.captureMode,
-    command: Array.isArray(sessionRecord.command) ? sessionRecord.command : [],
+    command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
     memory_backend: sessionRecord.memoryContext?.backend || "none",
     memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
   });
@@ -1041,7 +1068,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
   });
 
   if (emitMarkdown) {
-    const memoryMarkdown = sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown();
+    const memoryMarkdown = redactSensitiveText(sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown());
     await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
 
     const transcriptLines = [];
@@ -1062,10 +1089,10 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
       `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
       "",
       "> Automatic session memory",
-      sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run.",
+      redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
       "",
       "> Current task",
-      sessionRecord.task || "Continue this session from the latest repository state.",
+      redactSensitiveText(sessionRecord.task || "Continue this session from the latest repository state."),
       ""
     );
 
@@ -1087,7 +1114,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       .join("\n")
       .trim();
   const assistantText = providerOutput
-    ? clipToBytes(providerOutput, captureMaxBytes)
+    ? clipToBytes(redactSensitiveText(providerOutput), captureMaxBytes)
     : "Agentify launched the provider in inherited interactive mode, so the full assistant transcript was not captured for this run. The prompt, bootstrap, memory context, and launch record were still persisted automatically.";
   const validationSummary = outcome?.validation
     ? outcome.validation.passed ? "passed" : "failed"
@@ -1142,9 +1169,9 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     started_at: prepared.startedAt,
     ended_at: endedAt,
     capture_mode: sessionRecord.captureMode,
-    command: Array.isArray(sessionRecord.command) ? sessionRecord.command : [],
-    task: sessionRecord.task,
-    prompt: sessionRecord.prompt,
+    command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
+    task: redactSensitiveText(sessionRecord.task),
+    prompt: redactSensitiveText(sessionRecord.prompt),
     transcript_path: relative(root, prepared.paths.transcriptPath),
     memory_context_path: relative(root, prepared.paths.memoryContextPath),
     turns_path: relative(root, prepared.paths.turnsPath),
@@ -1157,8 +1184,8 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     phase,
     exit_code: outcome?.exitCode ?? 1,
     validation: validationSummary,
-    stdout: clipToBytes(outcome?.stdout || "", captureMaxBytes),
-    stderr: clipToBytes(outcome?.stderr || "", captureMaxBytes),
+    stdout: clipToBytes(redactSensitiveText(outcome?.stdout || ""), captureMaxBytes),
+    stderr: clipToBytes(redactSensitiveText(outcome?.stderr || ""), captureMaxBytes),
     interactive_capture_error: outcome?.interactiveCaptureError || null,
     managed_context: managedContext,
   };

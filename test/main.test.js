@@ -52,6 +52,22 @@ async function captureHelpText() {
   return chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+async function captureConsoleLog(fn) {
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+  }
+
+  return output;
+}
+
 function extractHelpSection(help, heading, nextHeading) {
   const start = help.indexOf(heading);
   assert.notEqual(start, -1, `missing help heading ${heading}`);
@@ -411,6 +427,41 @@ test("runCli passes planner context to interactive codex run when requested", as
   assert.match(prompt, /Task:\nImplement login retries/);
 });
 
+test("runCli context search returns ranked repo context without provider CLI", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-search-"));
+  const output = [];
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.mkdir(path.join(root, "src", "billing"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "auth", "login.js"),
+    "export function loginUser() { return true; }\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(root, "src", "billing", "invoice.js"),
+    "export function buildInvoice() { return true; }\n",
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  try {
+    await runCli(["context", "search", "login", "--root", root]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const payload = JSON.parse(output.join("\n"));
+  assert.equal(payload.term, "login");
+  assert.ok(payload.refs.some((ref) => ref.path === "src/auth/login.js"));
+  assert.ok(payload.refs.some((ref) => ref.name === "loginUser"));
+});
+
 test("runCli passes routed context guidance without source by context mode", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-bin-"));
@@ -487,6 +538,45 @@ test("runCli lets --with-context explicitly include source in routed context mod
   assert.match(prompt, /Source included: true/);
   assert.match(prompt, /Selected file slices/);
   assert.match(prompt, /explicit source included/);
+});
+
+test("runCli sess run builds routed context with a fake codex provider", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-default-context-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "route.js"), "export function routeRequest() { return true; }\n", "utf8");
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "sess",
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--interactive=false",
+      "--skip-refresh",
+      "--name",
+      "routed-context",
+      "Use routed context",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(argv.slice(0, 2), ["exec", prompt]);
+  assert.match(prompt, /Full routing: host shell -> \.agents\/index\.db/);
+  assert.match(prompt, /Current task: Use routed context/);
+  assert.match(prompt, /Automatic Session Memory/);
 });
 
 test("runCli passes routed context prompt to codex sess run and compacts facts", async () => {
@@ -699,7 +789,7 @@ test("runCli plan reports actionable guidance when the index is missing", async 
   );
   await assert.rejects(
     () => runCli(["plan", "--root", root, "summarize setup"]),
-    /Run "agentify scan --root .*" or "agentify up --root .*" before using plan\/query commands\./,
+    /Run "agentify scan --root .*" or "agentify up --root .*" before using plan\/query\/context commands\./,
   );
 });
 
@@ -764,8 +854,51 @@ test("runCli query reports actionable guidance when the index is missing", async
 
   await assert.rejects(
     () => runCli(["query", "owner", "--root", root, "--file", "src/app.ts"]),
-    /before using plan\/query commands\./,
+    /before using plan\/query\/context commands\./,
   );
+});
+
+test("runCli context fetch returns exact bounded slices by lines and symbol", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-fetch-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "analytics"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "analytics", "report.js"),
+    [
+      "export function buildReport(events) {",
+      "  return events.length;",
+      "}",
+      "",
+      "export const reportName = 'analytics';",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const searchOutput = await captureConsoleLog(() =>
+    runCli(["context", "search", "analytics", "--root", root])
+  );
+  const searchPayload = JSON.parse(searchOutput[0]);
+  assert.ok(searchPayload.refs.some((ref) => ref.path === "src/analytics/report.js"));
+
+  const lineOutput = await captureConsoleLog(() =>
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--lines", "1:2"])
+  );
+  const linePayload = JSON.parse(lineOutput[0]);
+  assert.equal(linePayload.path, "src/analytics/report.js");
+  assert.equal(linePayload.command, "context fetch");
+  assert.equal(linePayload.content, "   1: export function buildReport(events) {\n   2:   return events.length;");
+
+  const symbolOutput = await captureConsoleLog(() =>
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--symbol", "buildReport"])
+  );
+  const symbolPayload = JSON.parse(symbolOutput[0]);
+  assert.equal(symbolPayload.command, "context fetch");
+  assert.equal(symbolPayload.symbol.symbol, "buildReport");
+  assert.match(symbolPayload.content, /export function buildReport/);
+  assert.doesNotMatch(symbolPayload.content, /reportName/);
 });
 
 test("runCli init --json emits a single machine-readable payload", async () => {

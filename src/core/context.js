@@ -82,12 +82,11 @@ export async function searchContext(root, term, options = {}) {
   try {
     const structural = searchIndex(db, query, options.limit || 20);
     const semantic = searchSemanticIndex(db, query, options.limit || 20);
-    const result = {
+    return {
       command: "context search",
       term: query,
       refs: rankedRefs({ ...structural, ...semantic }),
     };
-    return result;
   } finally {
     closeIndexDatabase(db);
   }
