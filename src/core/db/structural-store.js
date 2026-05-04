@@ -1,7 +1,12 @@
 import { fromJson, normalizeRows, toJson } from "./utils.js";
 import { setRepoMeta } from "./metadata-store.js";
+import {
+  clearStructuralSearchIndex,
+  rebuildStructuralSearchIndex,
+} from "./search-store.js";
 
 export function clearIndexedState(db) {
+  clearStructuralSearchIndex(db);
   db.exec(`
     DELETE FROM commands;
     DELETE FROM tests;
@@ -219,6 +224,8 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
     snapshot.symbols.length,
     snapshot.imports.length
   );
+
+  rebuildStructuralSearchIndex(db);
 }
 
 export function loadFiles(db, moduleId = null) {
@@ -315,28 +322,34 @@ export function loadModuleDependencies(db, moduleId) {
 }
 
 export function searchIndex(db, term, limit = 20) {
-  const normalized = `%${String(term || "").trim().toLowerCase()}%`;
+  const pattern = `%${String(term || "").trim().toLowerCase()}%`;
   return {
     modules: normalizeRows(db.prepare(`
       SELECT id, name, root_path, stack
-      FROM modules
-      WHERE lower(id) LIKE ? OR lower(name) LIKE ? OR lower(root_path) LIKE ?
+      FROM query_search_fts search
+      JOIN modules ON modules.id = search.entity_id
+      WHERE search.entity_type = 'module'
+        AND search.search_text LIKE ?
       ORDER BY root_path
       LIMIT ?
-    `).all(normalized, normalized, normalized, limit)),
+    `).all(pattern, limit)),
     files: normalizeRows(db.prepare(`
       SELECT path, module_id, language, is_test, is_config
-      FROM files
-      WHERE lower(path) LIKE ?
+      FROM query_search_fts search
+      JOIN files ON files.path = search.entity_id
+      WHERE search.entity_type = 'file'
+        AND search.search_text LIKE ?
       ORDER BY path
       LIMIT ?
-    `).all(normalized, limit)),
+    `).all(pattern, limit)),
     symbols: normalizeRows(db.prepare(`
       SELECT name, kind, file_path, module_id, exported
-      FROM symbols
-      WHERE lower(name) LIKE ? OR lower(file_path) LIKE ?
+      FROM query_search_fts search
+      JOIN symbols ON symbols.symbol_id = CAST(search.entity_id AS INTEGER)
+      WHERE search.entity_type = 'symbol'
+        AND search.search_text LIKE ?
       ORDER BY file_path, start_line
       LIMIT ?
-    `).all(normalized, normalized, limit)),
+    `).all(pattern, limit)),
   };
 }
