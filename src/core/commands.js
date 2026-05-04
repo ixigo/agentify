@@ -154,7 +154,7 @@ async function writeRunReport(root, report) {
 }
 
 function summarizeTestResult(testResult) {
-  return {
+  const summary = {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
@@ -165,6 +165,10 @@ function summarizeTestResult(testResult) {
     output_max_bytes: testResult.output_max_bytes ?? null,
     exit_code: testResult.exit_code
   };
+  if (testResult.discovery_error) {
+    summary.discovery_error = testResult.discovery_error;
+  }
+  return summary;
 }
 
 function renderDefaultAgentignore() {
