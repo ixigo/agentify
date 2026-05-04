@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { forkSession as forkContextSession } from "../src/core/session.js";
 import { buildExecutionPrompt, buildMinimalRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
@@ -82,7 +83,7 @@ test("parseArgs and config resolve context mode explicitly", () => {
   assert.equal(resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }), "compact");
   assert.throws(
     () => resolveRunContextMode(parseArgs(["run", "--context-mode", "wide", "implement login"]), {}),
-    /--context-mode must be "compact" or "routed"/,
+    /--context-mode must be "compact", "direct", or "routed"/,
   );
 });
 
@@ -486,6 +487,92 @@ test("runCli lets --with-context explicitly include source in routed context mod
   assert.match(prompt, /Source included: true/);
   assert.match(prompt, /Selected file slices/);
   assert.match(prompt, /explicit source included/);
+});
+
+test("runCli passes routed context prompt to codex sess run and compacts facts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-routed-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-routed-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "sess",
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--interactive=false",
+      "--context-mode",
+      "routed",
+      "--skip-refresh",
+      "--name",
+      "routed-session",
+      "Continue checkout work",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /Agentify routed context mode/);
+  assert.match(prompt, /Session bootstrap:/);
+  assert.match(prompt, /agentify context fetch <path> --symbol X/);
+
+  const sessionsRoot = path.join(root, ".agents", "session");
+  const entries = await fs.readdir(sessionsRoot);
+  assert.equal(entries.length, 1);
+  const facts = JSON.parse(await fs.readFile(path.join(sessionsRoot, entries[0], "context-facts.json"), "utf8"));
+  assert.equal(facts.event_counts.launches, 1);
+  assert.equal(facts.latest_task, "Continue checkout work");
+});
+
+test("runCli context commands search, fetch, compact, and status", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-cmd-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "login.js"), [
+    "export function login() {",
+    "  return true;",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  try {
+    await runCli(["context", "search", "login", "--root", root]);
+    await runCli(["context", "fetch", "src/login.js", "--lines", "1:2", "--root", root]);
+    const config = { provider: "codex", session: { emitMarkdownArtifacts: true } };
+    const created = await forkContextSession(root, config, { name: "context commands" });
+    await fs.appendFile(path.join(created.sessionDir, "turns.jsonl"), `${JSON.stringify({
+      turn_type: "task",
+      content: "Index login context",
+    })}\n`, "utf8");
+    await runCli(["context", "compact", "--session", created.sessionId, "--root", root]);
+    await runCli(["context", "status", "--session", created.sessionId, "--root", root]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const [search, fetch, compact, status] = output.map((line) => JSON.parse(line));
+  assert.equal(search.command, "context search");
+  assert.ok(search.refs.some((ref) => ref.path === "src/login.js"));
+  assert.equal(fetch.command, "context fetch");
+  assert.match(fetch.content, /1: export function login/);
+  assert.equal(compact.facts.latest_task, "Index login context");
+  assert.equal(status.has_context_facts, true);
 });
 
 test("runCli supports skill install with provider all", async () => {

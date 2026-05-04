@@ -7,6 +7,7 @@ import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from
 import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
+import { buildRoutedPrompt, fetchContext, normalizeContextMode as normalizeSessionContextMode, searchContext } from "./core/context.js";
 import {
   queryCallers,
   queryChanged,
@@ -19,8 +20,8 @@ import {
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
-import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
-import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
+import { forkSession, listSessions, maybePrepareChildSession, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
+import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
@@ -190,22 +191,29 @@ function buildRunPrompt(userPrompt) {
   return "Continue implementation in this repository using small, validated changes.";
 }
 
-function normalizeContextMode(value, { fallback = "compact" } = {}) {
+function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
   const raw = value === undefined || value === null || value === false
     ? fallback
     : value;
   const mode = String(raw).trim().toLowerCase();
-  if (mode === "compact" || mode === "routed") {
-    return mode;
+  if (mode === "compact" || mode === "direct") {
+    return "compact";
   }
-  throw new Error(`--context-mode must be "compact" or "routed", received "${raw}".`);
+  if (mode === "routed") {
+    return "routed";
+  }
+  throw new Error(`--context-mode must be "compact", "direct", or "routed", received "${raw}".`);
 }
 
 export function resolveRunContextMode(args = {}, config = {}) {
-  return normalizeContextMode(
+  return normalizeRunContextMode(
     hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
     { fallback: "compact" },
   );
+}
+
+function buildRoutedExecutionPrompt(task, memoryMarkdown = "", options = {}) {
+  return applyCavemanPreamble(buildRoutedPrompt(task, memoryMarkdown), options.caveman, { promptKind: options.promptKind });
 }
 
 export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = {}) {
@@ -249,7 +257,10 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const usingTemplateCommand = !args._exec?.length;
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const prompt = buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
+  const contextMode = hasOwn(args, "contextMode") ? normalizeSessionContextMode(args.contextMode) : "direct";
+  const prompt = contextMode === "routed"
+    ? buildRoutedExecutionPrompt(`${task || DEFAULT_SESSION_TASK}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman })
+    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
   const agentCommand = args._exec?.length
     ? args._exec
     : buildProviderTemplateCommand(
@@ -265,6 +276,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
     command: agentCommand,
     memoryContext,
     captureMode: captureSettings.captureMode,
+    contextMode,
   };
 
   return {
@@ -295,6 +307,17 @@ function resolveSessionIdForResume(args) {
   throw new Error("sess resume requires --session <id> or sess resume <id>");
 }
 
+async function maybePrintPreparedChild(root, config, launch) {
+  const child = await maybePrepareChildSession(root, config, launch.sessionRecord.sessionId, {
+    provider: launch.provider,
+  });
+  if (child && !config.json) {
+    success(`Prepared child session: ${child.child_session_id}`);
+    log(`Resume: ${dim(child.resume_command)}`);
+  }
+  return child;
+}
+
 function printHelp() {
   const c = (s) => bold(cyan(s));
   const d = (s) => dim(s);
@@ -313,6 +336,7 @@ function printHelp() {
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
+    `    ${c("context")}         ${d("Search, fetch, compact, and inspect routed context")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed, def, refs, callers, impacts)")}`,
     `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
@@ -343,6 +367,7 @@ function printHelp() {
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
+    `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
@@ -539,7 +564,7 @@ export async function runCli(argv) {
 
       case "plan": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
-        const contextMode = normalizeContextMode(args.contextMode, { fallback: "compact" });
+        const contextMode = normalizeRunContextMode(args.contextMode, { fallback: "compact" });
         const includeSource = contextMode !== "routed" || args.withContext === true;
         let plan;
         try {
@@ -602,6 +627,54 @@ export async function runCli(argv) {
           commandName: "run",
           skipCodeBodyChanges: true,
         }));
+        return;
+      }
+
+      case "context": {
+        let result;
+        try {
+          if (subcommand === "search") {
+            const term = args.term || getPromptFromArgs(args, 2);
+            result = await searchContext(root, term);
+          } else if (subcommand === "fetch") {
+            const target = args._[2] || args.file || args.path;
+            if (!target) {
+              throw new Error("context fetch requires <path>");
+            }
+            result = await fetchContext(root, target, {
+              lines: args.lines,
+              symbol: args.symbol,
+            });
+          } else if (subcommand === "compact") {
+            if (!args.session) {
+              throw new Error("context compact requires --session <id>");
+            }
+            result = await compactSessionContext(root, validateSessionId(String(args.session), "--session id"), config);
+          } else if (subcommand === "status") {
+            if (!args.session) {
+              throw new Error("context status requires --session <id>");
+            }
+            const sessionId = validateSessionId(String(args.session), "--session id");
+            const session = await resumeSession(root, sessionId);
+            result = {
+              command: "context status",
+              session_id: sessionId,
+              provider: resolveSessionProvider(session.manifest, null),
+              context_bytes: Buffer.byteLength(JSON.stringify(session.context, null, 2), "utf8"),
+              run_history_count: Array.isArray(session.context.run_history) ? session.context.run_history.length : 0,
+              has_context_facts: Boolean(session.context.context_facts),
+              prepared_child_session: session.manifest.prepared_child_session || null,
+            };
+          } else {
+            throw new Error("context requires a subcommand: search, fetch, compact, or status");
+          }
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
+        }
+        console.log(JSON.stringify(result, null, 2));
         return;
       }
 
@@ -842,6 +915,7 @@ export async function runCli(argv) {
           }
 
           await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
+          await maybePrintPreparedChild(root, config, launch);
           return;
         }
 
@@ -852,6 +926,7 @@ export async function runCli(argv) {
           const launch = await prepareSessionLaunch(root, config, args, result, task);
 
           await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
+          await maybePrintPreparedChild(root, config, launch);
           return;
         }
 
@@ -888,6 +963,7 @@ export async function runCli(argv) {
           }
 
           await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
+          await maybePrintPreparedChild(root, config, launch);
           return;
         }
 

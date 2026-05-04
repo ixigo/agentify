@@ -172,8 +172,10 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Validate after intentional source edits | `agentify check --hook` |
 | Preview rich task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
+| Search routed context | `agentify context search auth` |
 | Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
 | Run a bounded task | `agentify run "your task"` |
+| Run with routed retrieval | `agentify run --context-mode routed "your task"` |
 | Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
@@ -200,6 +202,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write a cross-agent handoff bundle for a session |
 | `this` | Bootstrap this macOS repo for a provider-backed Agentify workflow |
+| `context` | Search, fetch, compact, and inspect routed context |
 | `query` | Query the repository index (owner, deps, changed, def, refs, callers, impacts) |
 | `risk` | Score PR blast radius and recommend regression tests |
 | `skill` | Manage built-in agent skills |
@@ -230,6 +233,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--context-mode` | Choose `compact` or `routed` run prompt behavior |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
+| `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |
