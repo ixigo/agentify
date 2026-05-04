@@ -192,6 +192,7 @@ Normal `run` is intentionally lightweight. It does not persist durable session m
 | `agentify query search` | Searches the index for matching files, symbols, and semantic surfaces. | Use when you need a repo-aware search that goes beyond raw grep, especially after indexing and semantic refresh. | `agentify query search --term retry` |
 | `agentify skill list` | Lists built-in skills available for installation. | Use when you want to see what behavior bundles Agentify can install for a provider. | `agentify skill list` |
 | `agentify skill install` | Installs one built-in skill or all built-ins into project or user scope. | Use when you want repeatable agent behavior shared at the repo level or available globally for a provider. | `agentify skill install all --provider codex --scope project` |
+| `agentify memory compress` | Reserved helper for future agent memory compression workflows. | Use only when following a memory-compression skill flow; today it reports the placeholder follow-up. | `agentify memory compress AGENTIFY.md` |
 | `agentify hooks install` | Installs Agentify git hooks. | Use when you want automatic validation or refresh behavior tied to Git events. | `agentify hooks install` |
 | `agentify hooks status` | Shows whether Agentify hooks are installed. | Use when you are verifying local setup or debugging why hook-driven behavior is missing. | `agentify hooks status` |
 | `agentify hooks remove` | Removes Agentify git hooks. | Use when you want to disable Agentify-managed hook behavior cleanly. | `agentify hooks remove` |
@@ -317,12 +318,17 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--strict <true|false>` | Tighten validation behavior. Use this when you want failures to stop the workflow instead of being treated leniently. |
 | `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection. Use this when auto-detection is wrong or too broad for the repo. |
 | `--dry-run` | Show what Agentify would do without writing changes. Use this before cleanup, installs, or config-affecting commands. |
+| `--docs` | Generate docs during refresh/update flows. It is off by default for `up` and `sync`. |
+| `--headers` | Apply `@agentify` headers to source files. It is off by default. |
+| `--provider-timeout-ms <ms>` | Fail provider doc calls after the given number of milliseconds. Use this to keep doc-generation subprocesses bounded. |
 | `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
+| `--caveman[=level]` | Request terse output for `run` and `sess`. Supported levels include `lite`, `full`, `ultra`, and `wenyan*` variants. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |
+| `--hook` | Run hook-friendly `check` behavior by skipping changed-file body diffing. This is used by managed pre-commit hooks. |
 
 ### `exec`-Only Flags
 
