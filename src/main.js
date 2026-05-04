@@ -225,6 +225,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
     runExecFlags: getExecFlags(args, {
       captureOutputMode: captureSettings.captureOutputMode,
       sessionRecord,
+      commandName: `sess ${args._?.[1] || "run"}`,
     }),
   };
 }
@@ -513,7 +514,7 @@ export async function runCli(argv) {
             providerOptions,
           );
 
-        await runExec(root, config, agentCommand, getExecFlags(args));
+        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "run" }));
         return;
       }
 
@@ -522,7 +523,7 @@ export async function runCli(argv) {
         if (agentCommand.length === 0) {
           throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
         }
-        await runExec(root, config, agentCommand, getExecFlags(args));
+        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "exec" }));
         return;
       }
 
