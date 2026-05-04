@@ -141,7 +141,9 @@ It is written so the model treats the current working directory as the target re
 
 #### Project Test Environment
 
-`agentify up` (and any flow that runs the detected `package.json` test script) executes the repo-owned test command in a **sanitized environment by default**. The host shell's `process.env` is *not* passed through; instead Agentify constructs a minimal allowlist containing runtime essentials (`PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, locale `LANG`/`LC_*`, terminal `TERM`/`COLORTERM`, temp dirs `TMPDIR`/`TEMP`/`TMP`, Node version-manager paths such as `NVM_DIR`/`VOLTA_HOME`, `XDG_*` paths, and the equivalent Windows essentials). This prevents repository-controlled test scripts (e.g., `npm test`, `pnpm test`) from reading credentials or other sensitive variables that may be exported in the invoking shell.
+`agentify up` (and any flow that runs the detected project test command) executes the repo-owned test command in a **sanitized environment by default**. Agentify detects common JavaScript/TypeScript package scripts plus Python, Go, Rust, .NET, Java/Kotlin, and Swift project test commands. If a non-JS stack is detected but no runnable command is known, the test phase reports `unsupported` and exits non-zero instead of silently downgrading the run to a skipped test phase.
+
+The host shell's `process.env` is *not* passed through; instead Agentify constructs a minimal allowlist containing runtime essentials (`PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, locale `LANG`/`LC_*`, terminal `TERM`/`COLORTERM`, temp dirs `TMPDIR`/`TEMP`/`TMP`, Node version-manager paths such as `NVM_DIR`/`VOLTA_HOME`, `XDG_*` paths, and the equivalent Windows essentials). This prevents repository-controlled test commands (e.g., `npm test`, `pnpm test`, `python3 -m unittest discover`, `go test ./...`) from reading credentials or other sensitive variables that may be exported in the invoking shell.
 
 Configure overrides in `.agentify.yaml` under the `tests.env` key:
 

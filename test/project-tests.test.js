@@ -68,6 +68,73 @@ test("detectTestCommand returns a discovery error for malformed package.json", a
   assert.match(result.error.message, /JSON|Expected property name|Unexpected token/);
 });
 
+test("detectTestCommand prefers pytest for Python file-pattern test signals", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-"));
+  await fs.mkdir(path.join(root, "tests"), { recursive: true });
+  await fs.writeFile(path.join(root, "tests", "test_example.py"), "def test_example():\n    assert True\n");
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, {
+    command: process.platform === "win32" ? "python" : "python3",
+    args: ["-m", "pytest"],
+  });
+});
+
+test("detectTestCommand prefers pytest when tests directory is the only Python test signal", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-tests-dir-"));
+  await fs.mkdir(path.join(root, "tests"), { recursive: true });
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, {
+    command: process.platform === "win32" ? "python" : "python3",
+    args: ["-m", "pytest"],
+  });
+});
+
+test("detectTestCommand uses Windows Gradle wrapper only when gradlew.bat exists", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-gradle-win-"));
+  await fs.writeFile(path.join(root, "gradlew"), "");
+  await fs.writeFile(path.join(root, "build.gradle"), "plugins { id 'java' }\n");
+
+  const result = await detectTestCommand(root, { platform: "win32" });
+
+  assert.deepEqual(result, { command: "gradle", args: ["test"] });
+
+  await fs.writeFile(path.join(root, "gradlew.bat"), "");
+
+  const wrapperResult = await detectTestCommand(root, { platform: "win32" });
+
+  assert.deepEqual(wrapperResult, { command: ".\\gradlew.bat", args: ["test"] });
+});
+
+test("detectTestCommand uses Windows Maven wrapper only when mvnw.cmd exists", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-maven-win-"));
+  await fs.writeFile(path.join(root, "mvnw"), "");
+  await fs.writeFile(path.join(root, "pom.xml"), "<project></project>\n");
+
+  const result = await detectTestCommand(root, { platform: "win32" });
+
+  assert.deepEqual(result, { command: "mvn", args: ["test"] });
+
+  await fs.writeFile(path.join(root, "mvnw.cmd"), "");
+
+  const wrapperResult = await detectTestCommand(root, { platform: "win32" });
+
+  assert.deepEqual(wrapperResult, { command: ".\\mvnw.cmd", args: ["test"] });
+});
+
+test("detectTestCommand discovers Go repositories without package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-go-"));
+  await fs.writeFile(path.join(root, "go.mod"), "module example.test/agentify\n\ngo 1.22\n");
+  await fs.writeFile(path.join(root, "main_test.go"), "package main\n");
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, { command: "go", args: ["test", "./..."] });
+});
+
 test("buildTestEnv strips arbitrary host variables by default", () => {
   const sourceEnv = {
     PATH: "/usr/bin:/bin",

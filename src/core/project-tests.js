@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
-import { exists, readJson } from "./fs.js";
+import { detectStacks } from "./detect.js";
+import { exists, readJson, relative, walkFiles } from "./fs.js";
 
 const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
   "PATH",
@@ -125,10 +126,125 @@ function formatPackageJsonDiscoveryError(packageJsonPath, error) {
   };
 }
 
-export async function detectTestCommand(root) {
+async function rootFiles(root) {
+  return (await walkFiles(root, { respectIgnore: true }))
+    .map((filePath) => relative(root, filePath));
+}
+
+function pythonCommand(platform = process.platform) {
+  return platform === "win32" ? "python" : "python3";
+}
+
+async function detectPythonTestCommand(root, { platform = process.platform } = {}) {
+  if (await exists(path.join(root, "tox.ini"))) {
+    return { command: "tox", args: [] };
+  }
+  if (await exists(path.join(root, "noxfile.py"))) {
+    return { command: "nox", args: [] };
+  }
+  if (
+    await exists(path.join(root, "pytest.ini"))
+    || await exists(path.join(root, "conftest.py"))
+  ) {
+    return { command: pythonCommand(), args: ["-m", "pytest"] };
+  }
+
+  const files = await rootFiles(root);
+  const hasTestsDir = await exists(path.join(root, "tests"));
+  const hasPythonTestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
+  if (hasTestsDir || hasPythonTestFiles) {
+    return { command: pythonCommand(platform), args: ["-m", "pytest"] };
+  }
+
+  const hasPythonSignals = await exists(path.join(root, "pyproject.toml"))
+    || await exists(path.join(root, "requirements.txt"))
+    || await exists(path.join(root, "setup.py"))
+    || files.some((file) => file.endsWith(".py"));
+  if (!hasPythonSignals) {
+    return null;
+  }
+  return null;
+}
+
+async function detectGoTestCommand(root) {
+  const files = await rootFiles(root);
+  if (await exists(path.join(root, "go.mod")) || files.some((file) => file.endsWith("_test.go"))) {
+    return { command: "go", args: ["test", "./..."] };
+  }
+  return null;
+}
+
+async function detectRustTestCommand(root) {
+  if (await exists(path.join(root, "Cargo.toml"))) {
+    return { command: "cargo", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectDotnetTestCommand(root) {
+  const files = await rootFiles(root);
+  if (files.some((file) => file.endsWith(".sln") || file.endsWith(".csproj"))) {
+    return { command: "dotnet", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectJvmTestCommand(root, { platform = process.platform } = {}) {
+  if (platform === "win32") {
+    if (await exists(path.join(root, "gradlew.bat"))) {
+      return { command: ".\\gradlew.bat", args: ["test"] };
+    }
+    if (await exists(path.join(root, "mvnw.cmd"))) {
+      return { command: ".\\mvnw.cmd", args: ["test"] };
+    }
+  } else {
+    if (await exists(path.join(root, "gradlew"))) {
+      return { command: "./gradlew", args: ["test"] };
+    }
+    if (await exists(path.join(root, "mvnw"))) {
+      return { command: "./mvnw", args: ["test"] };
+    }
+  }
+  if (await exists(path.join(root, "build.gradle")) || await exists(path.join(root, "build.gradle.kts"))) {
+    return { command: "gradle", args: ["test"] };
+  }
+  if (await exists(path.join(root, "pom.xml"))) {
+    return { command: "mvn", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectSwiftTestCommand(root) {
+  if (await exists(path.join(root, "Package.swift"))) {
+    return { command: "swift", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectNonNodeTestCommand(root, options = {}) {
+  const detectors = [
+    detectPythonTestCommand,
+    detectGoTestCommand,
+    detectRustTestCommand,
+    detectDotnetTestCommand,
+    detectJvmTestCommand,
+    detectSwiftTestCommand,
+  ];
+
+  for (const detector of detectors) {
+    const command = await detector(root, options);
+    if (command) {
+      return command;
+    }
+  }
+
+  return null;
+}
+
+export async function detectTestCommand(root, options = {}) {
   const packageJsonPath = path.join(root, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return null;
+    return detectNonNodeTestCommand(root, options);
   }
 
   let packageJson;
@@ -162,7 +278,50 @@ export async function detectTestCommand(root) {
     }
     return { command: "npm", args: ["test"] };
   }
-  return null;
+  return detectNonNodeTestCommand(root);
+}
+
+async function buildNoTestCommandResult(root, options, outputMaxBytes) {
+  const detectedStacks = await detectStacks(root, options.config || {});
+  const nonNodeStacks = detectedStacks
+    .map((stack) => stack.name)
+    .filter((name) => name !== "ts");
+
+  if (nonNodeStacks.length > 0) {
+    return {
+      status: "unsupported",
+      passed: false,
+      command: null,
+      stdout: "",
+      stderr: "",
+      stdout_truncated: false,
+      stderr_truncated: false,
+      stdout_bytes: 0,
+      stderr_bytes: 0,
+      output_max_bytes: outputMaxBytes,
+      exit_code: null,
+      reason: "unsupported_test_detection",
+      detected_stacks: detectedStacks,
+      message: `No runnable test command was detected for supported non-JS stack(s): ${nonNodeStacks.join(", ")}`,
+    };
+  }
+
+  return {
+    status: "skipped",
+    passed: false,
+    command: null,
+    stdout: "",
+    stderr: "",
+    stdout_truncated: false,
+    stderr_truncated: false,
+    stdout_bytes: 0,
+    stderr_bytes: 0,
+    output_max_bytes: outputMaxBytes,
+    exit_code: null,
+    reason: "no_test_command",
+    detected_stacks: detectedStacks,
+    message: "No runnable test command was detected",
+  };
 }
 
 export async function runProjectTests(root, reporter, options = {}) {
@@ -185,20 +344,8 @@ export async function runProjectTests(root, reporter, options = {}) {
   }
 
   if (!testCommand) {
-    const result = {
-      status: "skipped",
-      passed: false,
-      command: null,
-      stdout: "",
-      stderr: "",
-      stdout_truncated: false,
-      stderr_truncated: false,
-      stdout_bytes: 0,
-      stderr_bytes: 0,
-      output_max_bytes: outputMaxBytes,
-      exit_code: null,
-    };
-    reporter.log("tests: skipped because no package.json test script was found");
+    const result = await buildNoTestCommandResult(root, options, outputMaxBytes);
+    reporter.log(`tests: ${result.status === "unsupported" ? "unsupported" : "skipped"} - ${result.message}`);
     reporter.setTests(result);
     return result;
   }
