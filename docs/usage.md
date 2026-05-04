@@ -10,7 +10,7 @@ A repository is ready when all of these are true:
 - `codex login status` shows Codex is logged in.
 - `.agentify.yaml` exists and the repo provider is `codex`.
 - Baseline repo artifacts exist: `.agentignore`, `.guardrails`, `.agentify/work/`.
-- Generated Agentify artifacts exist: `.agents/index.db`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/*.md`.
+- Generated Agentify artifacts exist: `.agents/index.db`, root `AGENTIFY.md`, `docs/repo-map.md`, and module-root `AGENTIFY.md` files.
 - `agentify check` passes.
 
 ## Prerequisites
@@ -86,7 +86,7 @@ agentify up
 - `check`
 - repo tests when a runnable test command is detected
 
-`doc` is skipped by default in `up`. Pass `--docs=true` when you explicitly want docs refreshed as part of the pipeline.
+`doc` runs by default in `up`. Pass `--docs=false` only when you explicitly want to skip markdown refreshes.
 
 ### 6. Confirm the repo is ready
 
@@ -150,7 +150,7 @@ provider: codex
 ### 6. Generate repository artifacts
 
 ```bash
-agentify up --docs=true
+agentify up
 ```
 
 If you want the exact steps separately instead of the full pipeline:
@@ -172,7 +172,7 @@ After `agentify this` or `agentify init`:
 - `.agentify/work/`
 - `.agents/`
 - `.agents/runs/`
-- `docs/modules/`
+- `<module-root>/AGENTIFY.md`
 
 After `agentify scan`:
 
@@ -182,7 +182,7 @@ After `agentify scan`:
 After `agentify doc`:
 
 - `AGENTIFY.md`
-- `docs/modules/*.md`
+- `<module-root>/AGENTIFY.md`
 - `.agents/runs/*.json`
 - refreshed `@agentify` file headers when applicable
 
@@ -208,7 +208,7 @@ You should also confirm:
 - `AGENTIFY.md` exists at the repo root.
 - `.agents/index.db` exists.
 - `docs/repo-map.md` exists.
-- `docs/modules/` contains module docs.
+- module roots contain generated `AGENTIFY.md` docs.
 
 ## Day-To-Day Codex Workflow
 
@@ -265,7 +265,10 @@ Template runs are interactive by default across providers.
 agentify sess run --provider codex --name "payments-v2" "implement initial module"
 agentify sess resume --session <session-id> "continue from the last checkpoint"
 agentify sess fork --from <session-id> --name "payments-alt" "try an alternate design"
+agentify handoff --session <session-id> "handoff to the next agent"
 ```
+
+`agentify handoff` writes `.agents/session/<id>/handoff.md` and `handoff.json` with ranked context, touched symbols, recommended tests, unresolved TODO/risk lines, and overlap hints from recent session handoffs.
 
 ### Launch opted-in issues in parallel
 
@@ -317,10 +320,10 @@ agentify hooks install
 This adds:
 
 - a `pre-commit` hook that runs `agentify check --hook`. In `--hook` mode the
-  validator still checks freshness and unsafe generated artifacts under
-  `.agents/` and `docs/`, but it does not flag intentional source-file edits in
-  the working tree, so ordinary commits are not blocked.
-- a `post-merge` hook that refreshes the scan
+  validator still checks freshness, unsafe changed paths, and unsafe generated
+  artifacts under `.agents/` and `docs/`, but it does not flag intentional
+  source-file edits in the working tree, so ordinary commits are not blocked.
+- a `post-merge` hook that refreshes the scan and deterministic local docs
 
 ### 2. Install project-local skills for Codex
 
@@ -358,19 +361,20 @@ agentify up --provider local
 
 `up` is not a sticky-provider command, so this does not switch the repo away from Codex.
 
-### 5. Enable semantic TS/JS indexing for TypeScript and JavaScript repos
+### 5. Enable semantic indexing
 
-For TS/JS-heavy repos, turn this on in `.agentify.yaml`:
+For TS/JS, Python, Go, Java, and .NET repos that need richer planner and query context, turn this on in `.agentify.yaml`:
 
 ```yaml
 provider: codex
 semantic:
+  enabled: true
   tsjs:
     enabled: true
     workerConcurrency: 2
 ```
 
-This improves semantic surfaces, deterministic headers, and repo-map quality for TS/JS projects.
+This improves semantic surfaces, deterministic headers, and repo-map quality. The TS/JS adapter uses the compiler-backed worker; Python, Go, Java, and .NET adapters store normalized project, symbol, surface, and edge facts.
 
 After enabling it:
 

@@ -253,7 +253,9 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   await installFakeMemPalace(binDir, logPath);
 
   const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
   process.env.PATH = `${binDir}:${originalPath}`;
+  process.env.AGENTIFY_MEMPALACE_CMD = path.join(root, "missing-mempalace");
   try {
     const memory = await loadAutomaticRunMemory(root, "jsonl transcript decision", config);
     const calls = await fs.readFile(logPath, "utf8");
@@ -266,6 +268,11 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
     assert.match(calls, /^search /m);
   } finally {
     process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
   }
 });
 

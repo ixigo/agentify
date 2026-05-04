@@ -19,6 +19,36 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 }
 
+async function captureHelpText() {
+  const chunks = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = function write(chunk, encoding, callback) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await runCli(["--help"]);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  return chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function extractHelpSection(help, heading, nextHeading) {
+  const start = help.indexOf(heading);
+  assert.notEqual(start, -1, `missing help heading ${heading}`);
+  const end = nextHeading ? help.indexOf(nextHeading, start + heading.length) : help.length;
+  assert.notEqual(end, -1, `missing help heading ${nextHeading}`);
+  return help.slice(start + heading.length, end);
+}
+
 test("parseArgs normalizes dashed flags to camelCase", () => {
   const args = parseArgs([
     "doc",
@@ -32,6 +62,30 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
   assert.equal(args.provider, "codex");
   assert.equal(args.moduleConcurrency, 6);
   assert.equal(args.maxFilesPerModule, 12);
+});
+
+test("README CLI reference includes every command and option from help", async () => {
+  const help = await captureHelpText();
+  const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
+  const commandSection = extractHelpSection(help, "COMMANDS", "OPTIONS");
+  const optionSection = extractHelpSection(help, "OPTIONS", "EXEC FLAGS");
+  const execFlagSection = extractHelpSection(help, "EXEC FLAGS", "EXAMPLES");
+
+  const commands = [...commandSection.matchAll(/^\s{4}([a-z][a-z-]*)\s{2,}/gm)].map((match) => match[1]);
+  const flags = [...`${optionSection}\n${execFlagSection}`.matchAll(/(--[a-z][a-z-]*(?:\[\=level\])?)/g)]
+    .map((match) => match[1])
+    .filter((flag, index, all) => all.indexOf(flag) === index);
+
+  assert.ok(commands.length > 0, "expected commands in help");
+  assert.ok(flags.length > 0, "expected flags in help");
+
+  for (const command of commands) {
+    assert.match(readme, new RegExp(`\\| \`${command}\` \\|`), `README is missing command ${command}`);
+  }
+
+  for (const flag of flags) {
+    assert.match(readme, new RegExp(`\\| \`${flag.replace("[", "\\[").replace("]", "\\]")}`), `README is missing flag ${flag}`);
+  }
 });
 
 test("parseArgs supports short help and version flags", () => {
@@ -315,6 +369,61 @@ test("runCli plan reports actionable guidance when the index is missing", async 
   );
 });
 
+test("runCli plan --explain renders text and JSON score breakdowns", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-explain-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "auth", "service.js"),
+    "export function loginUser(rawToken) {\n  return rawToken.trim();\n}\n",
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const stdoutChunks = [];
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk, encoding, callback) => {
+    stdoutChunks.push(String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  });
+
+  try {
+    await runCli(["plan", "--root", root, "--explain", "fix loginUser"]);
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+  }
+
+  const text = stdoutChunks.join("");
+  assert.match(text, /Agentify plan explanation/);
+  assert.match(text, /lexical\/token match=/);
+  assert.match(text, /recency\/changed-file boost=/);
+  assert.match(text, /lexical\.symbol\.direct_name_match/);
+
+  const jsonOutput = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    jsonOutput.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["plan", "--root", root, "--explain", "--json", "fix loginUser"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(jsonOutput.length, 1);
+  const payload = JSON.parse(jsonOutput[0]);
+  assert.equal(payload.explain.schema_version, 1);
+  assert.ok(payload.selected_files.some((fileInfo) => typeof fileInfo.score_breakdown?.total === "number"));
+  assert.ok(payload.selected_symbols.some((symbolInfo) => symbolInfo.reasons.some((reason) => reason.code === "lexical.symbol.direct_name_match")));
+});
+
 test("runCli query reports actionable guidance when the index is missing", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-query-missing-index-"));
   await runCli(["init", "--root", root]);
@@ -410,7 +519,7 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.match(gitignoreText, /# >>> agentify generated artifacts/);
   assert.match(gitignoreText, /^\.agents\/$/m);
   assert.match(skillText, /Interview the user relentlessly/);
-  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
+  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
 });

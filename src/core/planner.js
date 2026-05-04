@@ -14,9 +14,32 @@ import {
 import { loadSemanticModuleDependencies, loadSemanticPlannerFacts } from "./db/semantic-store.js";
 import { getChangedFiles } from "./git.js";
 import { stripLeadingAgentifyHeader } from "./headers.js";
+import { isSemanticEnabled } from "./semantic.js";
 
 function bytes(value) {
   return Buffer.byteLength(String(value || ""), "utf8");
+}
+
+function cleanInline(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function truncateBytes(value, maxBytes) {
+  const text = String(value || "");
+  if (bytes(text) <= maxBytes) {
+    return text;
+  }
+
+  let end = text.length;
+  while (end > 0) {
+    const candidate = `${text.slice(0, end).trimEnd()}...`;
+    if (bytes(candidate) <= maxBytes) {
+      return candidate;
+    }
+    end -= 1;
+  }
+
+  return "";
 }
 
 function normalizeToken(value) {
@@ -68,8 +91,31 @@ function normalizeExecutionBudget(executionBudget = {}) {
   };
 }
 
-function pushReason(reasons, reason, points) {
-  reasons.push({ reason, points });
+export const PLAN_EXPLAIN_COMPONENTS = Object.freeze([
+  "lexical_token_match",
+  "dependency_proximity",
+  "semantic_contribution",
+  "recency_changed_file_boost",
+  "structural_signal",
+]);
+
+const PLAN_EXPLAIN_COMPONENT_LABELS = Object.freeze({
+  lexical_token_match: "lexical/token match",
+  dependency_proximity: "dependency proximity",
+  semantic_contribution: "semantic contribution",
+  recency_changed_file_boost: "recency/changed-file boost",
+  structural_signal: "structural signal",
+});
+
+function pushReason(reasons, reason, points, metadata = {}) {
+  reasons.push({
+    reason,
+    points,
+    code: metadata.code,
+    component: metadata.component || "structural_signal",
+    detail: metadata.detail || null,
+    legacy: metadata.legacy !== false,
+  });
 }
 
 function scoreModule(moduleInfo, taskText, tokens) {
@@ -82,16 +128,28 @@ function scoreModule(moduleInfo, taskText, tokens) {
   for (const token of tokens) {
     if (name === token || packageName === token) {
       score += 120;
-      pushReason(reasons, `direct module name match: ${token}`, 120);
+      pushReason(reasons, `direct module name match: ${token}`, 120, {
+        code: "lexical.module.direct_name_match",
+        component: "lexical_token_match",
+        detail: { token },
+      });
     } else if (name.includes(token) || rootPath.includes(token) || packageName.includes(token)) {
       score += 50;
-      pushReason(reasons, `module/path match: ${token}`, 50);
+      pushReason(reasons, `module/path match: ${token}`, 50, {
+        code: "lexical.module.path_match",
+        component: "lexical_token_match",
+        detail: { token },
+      });
     }
   }
 
   if (taskText.includes(moduleInfo.root_path.toLowerCase())) {
     score += 90;
-    pushReason(reasons, `task mentions module path ${moduleInfo.root_path}`, 90);
+    pushReason(reasons, `task mentions module path ${moduleInfo.root_path}`, 90, {
+      code: "lexical.module.path_mentioned",
+      component: "lexical_token_match",
+      detail: { path: moduleInfo.root_path },
+    });
   }
 
   return { score, reasons };
@@ -106,47 +164,93 @@ function scoreFile(fileInfo, taskText, tokens, changedPaths, symbolMatchesByFile
   for (const token of tokens) {
     if (normalizedPath === token || basename === token) {
       score += 120;
-      pushReason(reasons, `direct file match: ${token}`, 120);
+      pushReason(reasons, `direct file match: ${token}`, 120, {
+        code: "lexical.file.direct_path_match",
+        component: "lexical_token_match",
+        detail: { token },
+      });
     } else if (normalizedPath.includes(token) || basename.includes(token)) {
       score += 42;
-      pushReason(reasons, `file/path match: ${token}`, 42);
+      pushReason(reasons, `file/path match: ${token}`, 42, {
+        code: "lexical.file.path_match",
+        component: "lexical_token_match",
+        detail: { token },
+      });
     }
   }
 
-  const symbolBoost = symbolMatchesByFile.get(fileInfo.path) || 0;
+  const symbolBoosts = symbolMatchesByFile.get(fileInfo.path) || { structural: 0, semantic: 0 };
+  const symbolBoost = symbolBoosts.structural + symbolBoosts.semantic;
   if (symbolBoost > 0) {
     score += symbolBoost;
-    pushReason(reasons, "matching symbols in file", symbolBoost);
+    if (symbolBoosts.structural > 0) {
+      pushReason(reasons, "matching symbols in file", symbolBoosts.structural, {
+        code: "structural.file.matching_symbols",
+        component: "structural_signal",
+      });
+    }
+    if (symbolBoosts.semantic > 0) {
+      pushReason(reasons, "matching symbols in file", symbolBoosts.semantic, {
+        code: "semantic.file.matching_symbols",
+        component: "semantic_contribution",
+      });
+    }
   }
   if (fileInfo.is_key_file) {
     score += 28;
-    pushReason(reasons, "key file", 28);
+    pushReason(reasons, "key file", 28, {
+      code: "structural.file.key_file",
+      component: "structural_signal",
+    });
   }
   if (fileInfo.is_entrypoint) {
     score += 24;
-    pushReason(reasons, "entrypoint", 24);
+    pushReason(reasons, "entrypoint", 24, {
+      code: "structural.file.entrypoint",
+      component: "structural_signal",
+    });
   }
   if (fileInfo.is_config) {
     score += 12;
-    pushReason(reasons, "config file", 12);
+    pushReason(reasons, "config file", 12, {
+      code: "structural.file.config_file",
+      component: "structural_signal",
+    });
   }
   if (fileInfo.is_test) {
     score -= 8;
+    pushReason(reasons, "test file penalty", -8, {
+      code: "structural.file.test_penalty",
+      component: "structural_signal",
+      legacy: false,
+    });
   }
   if (changedPaths.has(fileInfo.path)) {
     score += 36;
-    pushReason(reasons, "recently changed", 36);
+    pushReason(reasons, "recently changed", 36, {
+      code: "recency.file.changed_file",
+      component: "recency_changed_file_boost",
+      detail: { path: fileInfo.path },
+    });
   }
   if (taskText.includes(fileInfo.path.toLowerCase())) {
     score += 100;
-    pushReason(reasons, `task mentions file path ${fileInfo.path}`, 100);
+    pushReason(reasons, `task mentions file path ${fileInfo.path}`, 100, {
+      code: "lexical.file.path_mentioned",
+      component: "lexical_token_match",
+      detail: { path: fileInfo.path },
+    });
   }
 
   const moduleScore = fileInfo.module_id ? (moduleScoreById.get(fileInfo.module_id) || 0) : 0;
   if (moduleScore > 0) {
     const moduleBoost = Math.max(8, Math.min(30, Math.round(moduleScore / 6)));
     score += moduleBoost;
-    pushReason(reasons, "inside a selected high-signal module", moduleBoost);
+    pushReason(reasons, "inside a selected high-signal module", moduleBoost, {
+      code: "dependency.file.selected_module_proximity",
+      component: "dependency_proximity",
+      detail: { module_id: fileInfo.module_id },
+    });
   }
 
   return { score, reasons };
@@ -159,26 +263,46 @@ function scoreSymbol(symbolInfo, taskText, tokens) {
     normalizeToken(symbolInfo.name),
     normalizeToken(symbolInfo.alias || ""),
   ].filter(Boolean)));
+  const semanticSymbol = symbolInfo.source && symbolInfo.source !== "structural";
+  const matchComponent = semanticSymbol ? "semantic_contribution" : "lexical_token_match";
+  const codePrefix = semanticSymbol ? "semantic.symbol" : "lexical.symbol";
   for (const token of tokens) {
     for (const term of terms) {
       if (term === token) {
         score += 130;
-        pushReason(reasons, `direct symbol match: ${token}`, 130);
+        pushReason(reasons, `direct symbol match: ${token}`, 130, {
+          code: `${codePrefix}.direct_name_match`,
+          component: matchComponent,
+          detail: { token },
+        });
         break;
       }
       if (term.includes(token) || token.includes(term)) {
         score += 60;
-        pushReason(reasons, `symbol match: ${token}`, 60);
+        pushReason(reasons, `symbol match: ${token}`, 60, {
+          code: `${codePrefix}.name_match`,
+          component: matchComponent,
+          detail: { token },
+        });
         break;
       }
     }
   }
   if (taskText.includes(String(symbolInfo.name || "").toLowerCase()) || taskText.includes(String(symbolInfo.alias || "").toLowerCase())) {
     score += 90;
-    pushReason(reasons, `task mentions symbol ${symbolInfo.name}`, 90);
+    pushReason(reasons, `task mentions symbol ${symbolInfo.name}`, 90, {
+      code: `${codePrefix}.mentioned`,
+      component: matchComponent,
+      detail: { name: symbolInfo.name },
+    });
   }
   if (symbolInfo.exported) {
     score += 12;
+    pushReason(reasons, "exported symbol", 12, {
+      code: "structural.symbol.exported",
+      component: "structural_signal",
+      legacy: false,
+    });
   }
   return { score, reasons };
 }
@@ -205,7 +329,11 @@ function applyDependencyBoosts(moduleScores, dependencyMap) {
       }
       const points = Math.max(14, Math.min(34, Math.round(moduleInfo.score * 0.18)));
       neighbor.score += points;
-      pushReason(neighbor.reasons, `dependency of matched module ${moduleInfo.id}`, points);
+      pushReason(neighbor.reasons, `dependency of matched module ${moduleInfo.id}`, points, {
+        code: "dependency.module.depends_on_matched_module",
+        component: "dependency_proximity",
+        detail: { module_id: moduleInfo.id },
+      });
     }
 
     for (const neighborId of depInfo.usedBy) {
@@ -215,7 +343,11 @@ function applyDependencyBoosts(moduleScores, dependencyMap) {
       }
       const points = Math.max(10, Math.min(22, Math.round(moduleInfo.score * 0.12)));
       neighbor.score += points;
-      pushReason(neighbor.reasons, `used by matched module ${moduleInfo.id}`, points);
+      pushReason(neighbor.reasons, `used by matched module ${moduleInfo.id}`, points, {
+        code: "dependency.module.used_by_matched_module",
+        component: "dependency_proximity",
+        detail: { module_id: moduleInfo.id },
+      });
     }
   }
 
@@ -306,33 +438,63 @@ function compareVerificationCommands(left, right) {
     || leftArgs.join(" ").localeCompare(rightArgs.join(" "));
 }
 
+function commandIdentity(commandInfo) {
+  const args = Array.isArray(commandInfo.args) ? commandInfo.args : [];
+  return [
+    normalizeCommandType(commandInfo.command_type),
+    String(commandInfo.module_id || ""),
+    commandInfo.command,
+    args.join(" "),
+  ].join(":");
+}
+
 function limitVerificationCommands(commands, limit) {
   const sorted = [...commands].sort(compareVerificationCommands);
   const selected = [];
   const selectedKeys = new Set();
-  const selectedTypes = new Set();
 
-  for (const commandInfo of sorted) {
+  const pushCommand = (commandInfo) => {
     if (selected.length >= limit) {
-      break;
+      return false;
     }
-    const commandType = normalizeCommandType(commandInfo.command_type);
-    if (selectedTypes.has(commandType)) {
-      continue;
+    const key = commandIdentity(commandInfo);
+    if (selectedKeys.has(key)) {
+      return false;
     }
     selected.push(commandInfo);
-    selectedKeys.add(commandInfo);
-    selectedTypes.add(commandType);
+    selectedKeys.add(key);
+    return true;
+  };
+
+  const groupedByType = new Map();
+  const groupedByModule = new Map();
+  for (const commandInfo of sorted) {
+    const commandType = normalizeCommandType(commandInfo.command_type);
+    const moduleId = String(commandInfo.module_id || "");
+    groupedByType.set(commandType, [...(groupedByType.get(commandType) || []), commandInfo]);
+    if (moduleId) {
+      groupedByModule.set(moduleId, [...(groupedByModule.get(moduleId) || []), commandInfo]);
+    }
+  }
+
+  for (const typeCommands of groupedByType.values()) {
+    pushCommand(typeCommands[0]);
+  }
+
+  for (const moduleCommands of groupedByModule.values()) {
+    const uncoveredTypeCommand = moduleCommands.find((commandInfo) => {
+      const commandType = normalizeCommandType(commandInfo.command_type);
+      return !selected.some((selectedInfo) => normalizeCommandType(selectedInfo.command_type) === commandType
+        && String(selectedInfo.module_id || "") === String(commandInfo.module_id || ""));
+    });
+    pushCommand(uncoveredTypeCommand || moduleCommands[0]);
   }
 
   for (const commandInfo of sorted) {
     if (selected.length >= limit) {
       break;
     }
-    if (selectedKeys.has(commandInfo)) {
-      continue;
-    }
-    selected.push(commandInfo);
+    pushCommand(commandInfo);
   }
 
   return selected.sort(compareVerificationCommands);
@@ -345,14 +507,90 @@ function formatVerificationCommand(commandInfo) {
   return `- [${stage.label}: ${stage.guidance}] ${command}`;
 }
 
+function formatLimitedList(values, limit) {
+  const safeValues = (values || []).map(cleanInline).filter(Boolean);
+  if (safeValues.length === 0) {
+    return "none";
+  }
+
+  const visible = safeValues.slice(0, limit);
+  const suffix = safeValues.length > visible.length
+    ? ` (+${safeValues.length - visible.length} more)`
+    : "";
+  return `${visible.join(", ")}${suffix}`;
+}
+
+function formatTopReasons(reasons, limit) {
+  const ranked = [...(reasons || [])]
+    .map((reasonInfo) => ({
+      reason: cleanInline(reasonInfo?.reason || reasonInfo),
+      points: Number(reasonInfo?.points || 0),
+    }))
+    .filter((reasonInfo) => reasonInfo.reason)
+    .sort((left, right) => right.points - left.points || left.reason.localeCompare(right.reason))
+    .slice(0, limit)
+    .map((reasonInfo) => reasonInfo.points > 0
+      ? `${reasonInfo.reason} (+${reasonInfo.points})`
+      : reasonInfo.reason);
+
+  return ranked.length > 0 ? ranked.join("; ") : "none";
+}
+
+function renderModuleContext(modules) {
+  const safeModules = modules || [];
+  if (safeModules.length === 0) {
+    return "- none";
+  }
+
+  return safeModules.map((item) => {
+    const line = [
+      `- ${item.id} (${item.root_path})`,
+      `score=${item.score}`,
+      `reasons: ${formatTopReasons(item.reasons, 3)}`,
+      `depends_on: ${formatLimitedList(item.depends_on || [], 5)}`,
+      `used_by: ${formatLimitedList(item.used_by || [], 5)}`,
+    ].join("; ");
+    return truncateBytes(line, 420);
+  }).join("\n");
+}
+
+function renderChangedFiles(changedFiles) {
+  const files = [...(changedFiles || [])]
+    .filter((item) => item?.path)
+    .sort((left, right) => {
+      const pathCompare = String(left.path).localeCompare(String(right.path));
+      return pathCompare || String(left.status || "").localeCompare(String(right.status || ""));
+    });
+
+  if (files.length === 0) {
+    return "- none";
+  }
+
+  const limit = 12;
+  const lines = files.slice(0, limit).map((item) => {
+    const status = cleanInline(item.status || "changed");
+    const filePath = cleanInline(item.path);
+    const origPath = cleanInline(item.origPath);
+    const renameInfo = origPath && origPath !== filePath
+      ? ` (from ${origPath})`
+      : "";
+    return truncateBytes(`- ${status} ${filePath}${renameInfo}`, 220);
+  });
+
+  if (files.length > limit) {
+    lines.push(`- ... ${files.length - limit} more changed file(s)`);
+  }
+
+  return lines.join("\n");
+}
+
 export function renderExecutionPrompt(plan) {
   const executionBudget = normalizeExecutionBudget(plan.execution_budget);
   const editStartRule = executionBudget.edit_after_selected_context_unless_blocked
     ? "After checking the selected context, start editing unless you can name a concrete blocker that prevents a correct edit."
     : "Use judgment on when to start editing, while still respecting the discovery limits below.";
-  const moduleLines = plan.selected_modules.length > 0
-    ? plan.selected_modules.map((item) => `- ${item.id} (${item.root_path})`).join("\n")
-    : "- none";
+  const moduleLines = renderModuleContext(plan.selected_modules);
+  const changedFileLines = renderChangedFiles(plan.changed_files);
   const symbolLines = plan.selected_symbols.length > 0
     ? plan.selected_symbols.map((item) => `- ${item.name} (${item.kind}) in ${item.file_path}`).join("\n")
     : "- none";
@@ -374,7 +612,7 @@ Execution rules:
 - Discovery budget before the first edit: at most ${executionBudget.max_additional_reads_before_edit} additional file or doc reads, and at most ${executionBudget.max_widenings} widening step(s) outside the selected context.
 - ${editStartRule}
 - Before each widening step, declare \`INSUFFICIENT_CONTEXT: blocker=<specific missing fact>; needed=<specific file, symbol, or doc>; reads_used=<n>; widenings_used=<n>\`.
-- If you still need more context within the budget, read \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/*.md\` before widening further.
+- If you still need more context within the budget, read root \`AGENTIFY.md\`, \`docs/repo-map.md\`, and relevant module-root \`AGENTIFY.md\` files before widening further.
 
 Task:
 ${plan.task}
@@ -392,6 +630,9 @@ Planner summary:
 Likely modules:
 ${moduleLines}
 
+Recently changed files:
+${changedFileLines}
+
 Relevant symbols:
 ${symbolLines}
 
@@ -403,6 +644,146 @@ ${commandLines}
 
 Selected file slices:
 ${fileBlocks}`;
+}
+
+function legacyReason(reason) {
+  return {
+    reason: reason.reason,
+    points: reason.points,
+  };
+}
+
+function stripExplainReasonMetadata(item) {
+  return {
+    ...item,
+    reasons: item.reasons
+      .filter((reason) => reason.legacy !== false)
+      .map(legacyReason),
+  };
+}
+
+function createEmptyComponentTotals() {
+  return Object.fromEntries(PLAN_EXPLAIN_COMPONENTS.map((component) => [component, 0]));
+}
+
+function toExplainReason(reason) {
+  const result = {
+    code: reason.code,
+    component: reason.component,
+    points: reason.points,
+    reason: reason.reason,
+  };
+  if (reason.detail && Object.keys(reason.detail).length > 0) {
+    result.detail = reason.detail;
+  }
+  return result;
+}
+
+function addScoreBreakdown(item) {
+  const components = createEmptyComponentTotals();
+  const reasons = item.reasons.map(toExplainReason);
+  for (const reason of reasons) {
+    components[reason.component] = (components[reason.component] || 0) + reason.points;
+  }
+  const componentTotal = Object.values(components).reduce((sum, points) => sum + points, 0);
+  return {
+    ...item,
+    reasons,
+    score_breakdown: {
+      total: item.score,
+      components,
+      unexplained: item.score - componentTotal,
+    },
+  };
+}
+
+function preparePlanForOutput(plan, { explain = false } = {}) {
+  if (explain) {
+    return {
+      ...plan,
+      explain: {
+        schema_version: 1,
+        reason_code_format: "namespace.entity.reason",
+        components: PLAN_EXPLAIN_COMPONENTS.map((component) => ({
+          code: component,
+          label: PLAN_EXPLAIN_COMPONENT_LABELS[component],
+        })),
+      },
+      selected_modules: plan.selected_modules.map(addScoreBreakdown),
+      selected_files: plan.selected_files.map(addScoreBreakdown),
+      selected_symbols: plan.selected_symbols.map(addScoreBreakdown),
+    };
+  }
+
+  return {
+    ...plan,
+    selected_modules: plan.selected_modules.map(stripExplainReasonMetadata),
+    selected_files: plan.selected_files.map(stripExplainReasonMetadata),
+    selected_symbols: plan.selected_symbols.map(stripExplainReasonMetadata),
+  };
+}
+
+function formatSignedPoints(points) {
+  return points >= 0 ? `+${points}` : String(points);
+}
+
+function renderScoreComponents(scoreBreakdown) {
+  return PLAN_EXPLAIN_COMPONENTS
+    .map((component) => `${PLAN_EXPLAIN_COMPONENT_LABELS[component]}=${scoreBreakdown.components[component]}`)
+    .join(", ");
+}
+
+function renderExplanationItem(label, title, item) {
+  const lines = [
+    `- ${label}: ${title}`,
+    `  score: ${item.score}; ${renderScoreComponents(item.score_breakdown)}`,
+  ];
+  if (item.score_breakdown.unexplained !== 0) {
+    lines.push(`  unexplained: ${item.score_breakdown.unexplained}`);
+  }
+  for (const reason of item.reasons) {
+    lines.push(`  ${formatSignedPoints(reason.points)} ${reason.code} (${PLAN_EXPLAIN_COMPONENT_LABELS[reason.component]}): ${reason.reason}`);
+  }
+  return lines.join("\n");
+}
+
+export function renderPlanExplanation(plan) {
+  const lines = [
+    "Agentify plan explanation",
+    `Task: ${plan.task}`,
+    `Confidence: ${plan.confidence}`,
+    `Reason schema: v${plan.explain?.schema_version || 1} (${plan.explain?.reason_code_format || "namespace.entity.reason"})`,
+    "",
+    "Modules:",
+  ];
+
+  if (plan.selected_modules.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const item of plan.selected_modules) {
+      lines.push(renderExplanationItem("module", `${item.id} (${item.root_path})`, item));
+    }
+  }
+
+  lines.push("", "Files:");
+  if (plan.selected_files.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const item of plan.selected_files) {
+      lines.push(renderExplanationItem("file", item.path, item));
+    }
+  }
+
+  lines.push("", "Symbols:");
+  if (plan.selected_symbols.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const item of plan.selected_symbols) {
+      lines.push(renderExplanationItem("symbol", `${item.name} (${item.kind}) in ${item.file_path}`, item));
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }
 
 export async function buildExecutionPlan(root, config, task, options = {}) {
@@ -424,7 +805,8 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       alias: null,
       source: "structural",
     }));
-    const semanticSymbols = config.semantic?.tsjs?.enabled
+    const semanticEnabled = isSemanticEnabled(config);
+    const semanticSymbols = semanticEnabled
       ? loadSemanticPlannerFacts(db).map((symbolInfo) => ({
           symbol_id: symbolInfo.semantic_id,
           module_id: symbolInfo.module_id || null,
@@ -454,35 +836,52 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
 
     const symbolMatchesByFile = new Map();
     for (const symbolInfo of symbolScores) {
-      symbolMatchesByFile.set(
-        symbolInfo.file_path,
-        (symbolMatchesByFile.get(symbolInfo.file_path) || 0) + Math.min(symbolInfo.score, 90)
-      );
+      const current = symbolMatchesByFile.get(symbolInfo.file_path) || { structural: 0, semantic: 0 };
+      const key = symbolInfo.source && symbolInfo.source !== "structural" ? "semantic" : "structural";
+      current[key] += Math.min(symbolInfo.score, 90);
+      symbolMatchesByFile.set(symbolInfo.file_path, current);
     }
 
     const moduleDependencyMap = new Map();
     const baseModuleScores = modules
       .map((moduleInfo) => {
         const base = scoreModule(moduleInfo, normalizedTask, tokens);
-        const symbolBoost = symbolScores
-          .filter((symbolInfo) => symbolInfo.module_id === moduleInfo.id)
+        const matchingModuleSymbols = symbolScores.filter((symbolInfo) => symbolInfo.module_id === moduleInfo.id);
+        const structuralSymbolBoost = matchingModuleSymbols
+          .filter((symbolInfo) => !symbolInfo.source || symbolInfo.source === "structural")
           .reduce((sum, symbolInfo) => sum + Math.min(symbolInfo.score, 50), 0);
+        const semanticSymbolBoost = matchingModuleSymbols
+          .filter((symbolInfo) => symbolInfo.source && symbolInfo.source !== "structural")
+          .reduce((sum, symbolInfo) => sum + Math.min(symbolInfo.score, 50), 0);
+        const symbolBoost = structuralSymbolBoost + semanticSymbolBoost;
         const structuralDep = loadModuleDependencies(db, moduleInfo.id);
-        const semanticDep = config.semantic?.tsjs?.enabled
+        const semanticDep = semanticEnabled
           ? loadSemanticModuleDependencies(db, moduleInfo.id)
           : { dependsOn: [], usedBy: [] };
         const dep = {
-          dependsOn: Array.from(new Set([...(structuralDep.dependsOn || []), ...(semanticDep.dependsOn || [])])),
-          usedBy: Array.from(new Set([...(structuralDep.usedBy || []), ...(semanticDep.usedBy || [])])),
+          dependsOn: Array.from(new Set([...(structuralDep.dependsOn || []), ...(semanticDep.dependsOn || [])])).sort(),
+          usedBy: Array.from(new Set([...(structuralDep.usedBy || []), ...(semanticDep.usedBy || [])])).sort(),
         };
         moduleDependencyMap.set(moduleInfo.id, dep);
         const score = base.score + symbolBoost;
         const reasons = [...base.reasons];
-        if (symbolBoost > 0) {
-          pushReason(reasons, "matching symbols inside module", symbolBoost);
+        if (structuralSymbolBoost > 0) {
+          pushReason(reasons, "matching symbols inside module", structuralSymbolBoost, {
+            code: "structural.module.matching_symbols",
+            component: "structural_signal",
+          });
+        }
+        if (semanticSymbolBoost > 0) {
+          pushReason(reasons, "matching symbols inside module", semanticSymbolBoost, {
+            code: "semantic.module.matching_symbols",
+            component: "semantic_contribution",
+          });
         }
         if (changedFiles.some((fileInfo) => fileInfo.path && isPathInsideModule(fileInfo.path, moduleInfo.root_path))) {
-          pushReason(reasons, "module contains changed files", 24);
+          pushReason(reasons, "module contains changed files", 24, {
+            code: "recency.module.contains_changed_files",
+            component: "recency_changed_file_boost",
+          });
           return {
             ...moduleInfo,
             score: score + 24,
@@ -588,15 +987,16 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       ],
     };
 
+    const outputPlan = preparePlanForOutput(plan, { explain: options.explain === true });
     let prompt = renderExecutionPrompt({
-      ...plan,
+      ...outputPlan,
       prompt_bytes: 0,
     });
-    plan.prompt_bytes = bytes(prompt);
-    prompt = renderExecutionPrompt(plan);
-    plan.prompt = prompt;
-    plan.prompt_bytes = bytes(prompt);
-    return plan;
+    outputPlan.prompt_bytes = bytes(prompt);
+    prompt = renderExecutionPrompt(outputPlan);
+    outputPlan.prompt = prompt;
+    outputPlan.prompt_bytes = bytes(prompt);
+    return outputPlan;
   } finally {
     closeIndexDatabase(db);
   }
