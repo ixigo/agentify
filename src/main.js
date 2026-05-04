@@ -8,6 +8,7 @@ import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
+import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
@@ -88,6 +89,17 @@ function normalizeProvider(value) {
   }
   assertSupportedProvider(provider);
   return provider;
+}
+
+function normalizeOptionalSince(args, commandName) {
+  if (!hasOwn(args, "since")) {
+    return null;
+  }
+  const since = String(args.since).trim();
+  if (!since || since === "true") {
+    throw new Error(`${commandName} --since requires a commit or ref value`);
+  }
+  return since;
 }
 
 async function maybePersistProvider(root, config, args, command, subcommand) {
@@ -260,6 +272,7 @@ function printHelp() {
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
+    `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("handoff")}         ${d("Write a cross-agent handoff bundle for a session")}`,
@@ -307,6 +320,8 @@ function printHelp() {
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
+    `    ${d("$")} agentify risk --since origin/main`,
+    `    ${d("$")} agentify risk --json`,
     `    ${d("$")} agentify skill list`,
     `    ${d("$")} agentify skill install all --provider codex --scope project`,
     `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
@@ -589,6 +604,26 @@ export async function runCli(argv) {
           throw error;
         }
         console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      case "risk": {
+        let result;
+        try {
+          result = await buildRiskReport(root, {
+            since: normalizeOptionalSince(args, "risk"),
+          });
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
+        }
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log(renderRiskReport(result));
+        }
         return;
       }
 
