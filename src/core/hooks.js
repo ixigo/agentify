@@ -81,6 +81,7 @@ async function removeManagedHookBlock(hookPath) {
   const { remaining } = stripAgentifyBlock(content);
   if (remaining && remaining !== "#!/bin/sh") {
     await writeText(hookPath, `${remaining}\n`);
+    await fs.chmod(hookPath, 0o755);
   } else {
     await fs.unlink(hookPath).catch(() => {});
   }
@@ -133,6 +134,7 @@ export async function removeHooks(root) {
     const { remaining } = stripAgentifyBlock(content);
     if (remaining && remaining !== "#!/bin/sh") {
       await writeText(hookPath, `${remaining}\n`);
+      await fs.chmod(hookPath, 0o755);
     } else {
       await fs.unlink(hookPath).catch(() => {});
     }
@@ -186,6 +188,7 @@ export async function syncManagedHooks(root, { dryRun = false, settings = {} } =
       if (!dryRun) {
         if (remaining && remaining !== "#!/bin/sh") {
           await writeText(hookPath, `${remaining}\n`);
+          await fs.chmod(hookPath, 0o755);
         } else {
           await fs.unlink(hookPath).catch(() => {});
         }

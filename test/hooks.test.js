@@ -6,6 +6,10 @@ import path from "node:path";
 
 import { installHooks } from "../src/core/hooks.js";
 
+function isExecutable(mode) {
+  return (mode & 0o111) !== 0;
+}
+
 test("installHooks writes a valid post-merge refresh command", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-"));
   await fs.mkdir(path.join(root, ".git", "hooks"), { recursive: true });
@@ -53,6 +57,7 @@ test("installHooks skips disabled hooks and removes managed disabled hooks", asy
     "#!/bin/sh\ncustom merge step\n\n# @agentify post-merge hook\nagentify scan\n",
     "utf8",
   );
+  await fs.chmod(path.join(hooksDir, "post-merge"), 0o755);
 
   const result = await installHooks(root, { preCommit: true, postMerge: false });
 
@@ -61,4 +66,5 @@ test("installHooks skips disabled hooks and removes managed disabled hooks", asy
   const postMerge = await fs.readFile(path.join(hooksDir, "post-merge"), "utf8");
   assert.match(preCommit, /agentify check --hook/);
   assert.equal(postMerge, "#!/bin/sh\ncustom merge step\n");
+  assert.equal(isExecutable((await fs.stat(path.join(hooksDir, "post-merge"))).mode), true);
 });
