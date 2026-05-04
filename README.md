@@ -171,6 +171,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Validate after intentional source edits | `agentify check --hook` |
 | Preview rich task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
+| Search ranked context alias | `agentify context search auth` |
 | Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
 | Run a bounded task | `agentify run "your task"` |
 | Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
@@ -195,6 +196,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `sync` | Upgrade repo-owned Agentify files, then run refresh |
 | `check` | Validate freshness, schemas, and safety rules |
 | `plan` | Preview the planner-selected context for a task |
+| `context` | Search ranked repository context |
 | `run` | Run provider template command with auto-refresh |
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write a cross-agent handoff bundle for a session |
