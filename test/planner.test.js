@@ -9,6 +9,29 @@ import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, openIndexDatabase } from "../src/core/db.js";
 import { buildExecutionPlan, renderExecutionPrompt } from "../src/core/planner.js";
 
+function baseRenderPlan(overrides = {}) {
+  return {
+    task: "fix login flow",
+    confidence: 0.77,
+    prompt_bytes: 0,
+    selected_modules: [],
+    selected_symbols: [],
+    selected_files: [],
+    related_tests: [],
+    verification_commands: [],
+    changed_files: [],
+    ...overrides,
+  };
+}
+
+function promptSection(prompt, startHeading, endHeading) {
+  const start = prompt.indexOf(startHeading);
+  const end = prompt.indexOf(endHeading, start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  return prompt.slice(start, end).trimEnd();
+}
+
 test("planner prioritizes extracted Python symbols", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-python-plan-"));
   await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"python-plan\"\n", "utf8");
@@ -211,4 +234,84 @@ test("renderExecutionPrompt uses discovery budget defaults when older plans omit
 
   assert.match(prompt, /Discovery budget before the first edit: at most 4 additional file or doc reads, and at most 1 widening step\(s\)/);
   assert.match(prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>/);
+});
+
+test("renderExecutionPrompt snapshots changed files and module dependency context", () => {
+  const prompt = renderExecutionPrompt(baseRenderPlan({
+    selected_modules: [
+      {
+        id: "web",
+        root_path: "apps/web",
+        score: 212,
+        reasons: [
+          { reason: "module/path match: login", points: 50 },
+          { reason: "matching symbols inside module", points: 120 },
+          { reason: "module contains changed files", points: 24 },
+          { reason: "used by matched module api", points: 18 },
+        ],
+        depends_on: ["api", "shared-ui"],
+        used_by: ["shell"],
+      },
+    ],
+    changed_files: [
+      { status: "M", path: "apps/web/login.tsx" },
+      { status: "R", path: "apps/web/session.ts", origPath: "apps/web/auth-session.ts" },
+    ],
+  }));
+
+  assert.equal(promptSection(prompt, "Likely modules:", "Relevant symbols:"), `Likely modules:
+- web (apps/web); score=212; reasons: matching symbols inside module (+120); module/path match: login (+50); module contains changed files (+24); depends_on: api, shared-ui; used_by: shell
+
+Recently changed files:
+- M apps/web/login.tsx
+- R apps/web/session.ts (from apps/web/auth-session.ts)`);
+  assert.ok(Buffer.byteLength(prompt, "utf8") < 2600);
+});
+
+test("renderExecutionPrompt snapshots bounded empty and high-fanout context", () => {
+  const prompt = renderExecutionPrompt(baseRenderPlan({
+    selected_modules: [
+      {
+        id: "api",
+        root_path: "services/api",
+        score: 180,
+        reasons: Array.from({ length: 8 }, (_, index) => ({
+          reason: `planner reason ${index}`,
+          points: 80 - index,
+        })),
+        depends_on: Array.from({ length: 8 }, (_, index) => `dep-${index}`),
+        used_by: Array.from({ length: 7 }, (_, index) => `consumer-${index}`),
+      },
+    ],
+    changed_files: Array.from({ length: 14 }, (_, index) => ({
+      status: index % 2 === 0 ? "M" : "??",
+      path: `src/file-${String(index).padStart(2, "0")}.ts`,
+    })),
+  }));
+
+  assert.equal(promptSection(prompt, "Likely modules:", "Relevant symbols:"), `Likely modules:
+- api (services/api); score=180; reasons: planner reason 0 (+80); planner reason 1 (+79); planner reason 2 (+78); depends_on: dep-0, dep-1, dep-2, dep-3, dep-4 (+3 more); used_by: consumer-0, consumer-1, consumer-2, consumer-3, consumer-4 (+2 more)
+
+Recently changed files:
+- M src/file-00.ts
+- ?? src/file-01.ts
+- M src/file-02.ts
+- ?? src/file-03.ts
+- M src/file-04.ts
+- ?? src/file-05.ts
+- M src/file-06.ts
+- ?? src/file-07.ts
+- M src/file-08.ts
+- ?? src/file-09.ts
+- M src/file-10.ts
+- ?? src/file-11.ts
+- ... 2 more changed file(s)`);
+  assert.ok(Buffer.byteLength(prompt, "utf8") < 3200);
+
+  const emptyPrompt = renderExecutionPrompt(baseRenderPlan());
+  assert.equal(promptSection(emptyPrompt, "Likely modules:", "Relevant symbols:"), `Likely modules:
+- none
+
+Recently changed files:
+- none`);
 });

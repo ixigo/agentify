@@ -19,6 +19,28 @@ function bytes(value) {
   return Buffer.byteLength(String(value || ""), "utf8");
 }
 
+function cleanInline(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function truncateBytes(value, maxBytes) {
+  const text = String(value || "");
+  if (bytes(text) <= maxBytes) {
+    return text;
+  }
+
+  let end = text.length;
+  while (end > 0) {
+    const candidate = `${text.slice(0, end).trimEnd()}...`;
+    if (bytes(candidate) <= maxBytes) {
+      return candidate;
+    }
+    end -= 1;
+  }
+
+  return "";
+}
+
 function normalizeToken(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9_./-]+/g, "");
 }
@@ -263,14 +285,88 @@ function dedupeCommands(commands) {
   return result;
 }
 
+function formatLimitedList(values, limit) {
+  const safeValues = (values || []).map(cleanInline).filter(Boolean);
+  if (safeValues.length === 0) {
+    return "none";
+  }
+
+  const visible = safeValues.slice(0, limit);
+  const suffix = safeValues.length > visible.length
+    ? ` (+${safeValues.length - visible.length} more)`
+    : "";
+  return `${visible.join(", ")}${suffix}`;
+}
+
+function formatTopReasons(reasons, limit) {
+  const ranked = [...(reasons || [])]
+    .map((reasonInfo) => ({
+      reason: cleanInline(reasonInfo?.reason || reasonInfo),
+      points: Number(reasonInfo?.points || 0),
+    }))
+    .filter((reasonInfo) => reasonInfo.reason)
+    .sort((left, right) => right.points - left.points || left.reason.localeCompare(right.reason))
+    .slice(0, limit)
+    .map((reasonInfo) => reasonInfo.points > 0
+      ? `${reasonInfo.reason} (+${reasonInfo.points})`
+      : reasonInfo.reason);
+
+  return ranked.length > 0 ? ranked.join("; ") : "none";
+}
+
+function renderModuleContext(modules) {
+  const safeModules = modules || [];
+  if (safeModules.length === 0) {
+    return "- none";
+  }
+
+  return safeModules.map((item) => {
+    const line = [
+      `- ${item.id} (${item.root_path})`,
+      `score=${item.score}`,
+      `reasons: ${formatTopReasons(item.reasons, 3)}`,
+      `depends_on: ${formatLimitedList(item.depends_on || [], 5)}`,
+      `used_by: ${formatLimitedList(item.used_by || [], 5)}`,
+    ].join("; ");
+    return truncateBytes(line, 420);
+  }).join("\n");
+}
+
+function renderChangedFiles(changedFiles) {
+  const files = [...(changedFiles || [])]
+    .filter((item) => item?.path)
+    .sort((left, right) => {
+      const pathCompare = String(left.path).localeCompare(String(right.path));
+      return pathCompare || String(left.status || "").localeCompare(String(right.status || ""));
+    });
+
+  if (files.length === 0) {
+    return "- none";
+  }
+
+  const limit = 12;
+  const lines = files.slice(0, limit).map((item) => {
+    const status = cleanInline(item.status || "changed");
+    const renameInfo = item.origPath && item.origPath !== item.path
+      ? ` (from ${item.origPath})`
+      : "";
+    return truncateBytes(`- ${status} ${item.path}${renameInfo}`, 220);
+  });
+
+  if (files.length > limit) {
+    lines.push(`- ... ${files.length - limit} more changed file(s)`);
+  }
+
+  return lines.join("\n");
+}
+
 export function renderExecutionPrompt(plan) {
   const executionBudget = normalizeExecutionBudget(plan.execution_budget);
   const editStartRule = executionBudget.edit_after_selected_context_unless_blocked
     ? "After checking the selected context, start editing unless you can name a concrete blocker that prevents a correct edit."
     : "Use judgment on when to start editing, while still respecting the discovery limits below.";
-  const moduleLines = plan.selected_modules.length > 0
-    ? plan.selected_modules.map((item) => `- ${item.id} (${item.root_path})`).join("\n")
-    : "- none";
+  const moduleLines = renderModuleContext(plan.selected_modules);
+  const changedFileLines = renderChangedFiles(plan.changed_files);
   const symbolLines = plan.selected_symbols.length > 0
     ? plan.selected_symbols.map((item) => `- ${item.name} (${item.kind}) in ${item.file_path}`).join("\n")
     : "- none";
@@ -309,6 +405,9 @@ Planner summary:
 
 Likely modules:
 ${moduleLines}
+
+Recently changed files:
+${changedFileLines}
 
 Relevant symbols:
 ${symbolLines}
@@ -390,8 +489,8 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
           ? loadSemanticModuleDependencies(db, moduleInfo.id)
           : { dependsOn: [], usedBy: [] };
         const dep = {
-          dependsOn: Array.from(new Set([...(structuralDep.dependsOn || []), ...(semanticDep.dependsOn || [])])),
-          usedBy: Array.from(new Set([...(structuralDep.usedBy || []), ...(semanticDep.usedBy || [])])),
+          dependsOn: Array.from(new Set([...(structuralDep.dependsOn || []), ...(semanticDep.dependsOn || [])])).sort(),
+          usedBy: Array.from(new Set([...(structuralDep.usedBy || []), ...(semanticDep.usedBy || [])])).sort(),
         };
         moduleDependencyMap.set(moduleInfo.id, dep);
         const score = base.score + symbolBoost;
