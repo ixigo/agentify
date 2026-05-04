@@ -25,7 +25,7 @@ import {
 } from "./db/structural-store.js";
 import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
-import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
+import { applySemanticHeaders, isSemanticEnabled, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
 
 export { detectTestCommand } from "./project-tests.js";
@@ -650,10 +650,10 @@ async function _runDocInner(root, config, options, progress) {
     }
   }
 
-  const semanticEnabled = Boolean(config.semantic?.tsjs?.enabled);
+  const semanticEnabled = isSemanticEnabled(config);
   if (semanticEnabled && !config.dryRun) {
-    progress.log("doc: refreshing semantic TS/JS facts");
-    progress.percent("doc", 5, "refreshing semantic TS/JS facts");
+    progress.log("doc: refreshing semantic facts");
+    progress.percent("doc", 5, "refreshing semantic facts");
     await runSemanticRefresh(root, config, {
       artifactRoot,
       silent: true,

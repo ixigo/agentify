@@ -14,6 +14,7 @@ import {
 import { loadSemanticModuleDependencies, loadSemanticPlannerFacts } from "./db/semantic-store.js";
 import { getChangedFiles } from "./git.js";
 import { stripLeadingAgentifyHeader } from "./headers.js";
+import { isSemanticEnabled } from "./semantic.js";
 
 function bytes(value) {
   return Buffer.byteLength(String(value || ""), "utf8");
@@ -342,7 +343,8 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       alias: null,
       source: "structural",
     }));
-    const semanticSymbols = config.semantic?.tsjs?.enabled
+    const semanticEnabled = isSemanticEnabled(config);
+    const semanticSymbols = semanticEnabled
       ? loadSemanticPlannerFacts(db).map((symbolInfo) => ({
           symbol_id: symbolInfo.semantic_id,
           module_id: symbolInfo.module_id || null,
@@ -386,7 +388,7 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
           .filter((symbolInfo) => symbolInfo.module_id === moduleInfo.id)
           .reduce((sum, symbolInfo) => sum + Math.min(symbolInfo.score, 50), 0);
         const structuralDep = loadModuleDependencies(db, moduleInfo.id);
-        const semanticDep = config.semantic?.tsjs?.enabled
+        const semanticDep = semanticEnabled
           ? loadSemanticModuleDependencies(db, moduleInfo.id)
           : { dependsOn: [], usedBy: [] };
         const dep = {
