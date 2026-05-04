@@ -110,6 +110,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Validate repo state | `agentify check` |
 | Preview task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
+| Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
 | Run a bounded task | `agentify run "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
@@ -136,7 +137,8 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write a cross-agent handoff bundle for a session |
 | `this` | Bootstrap this macOS repo for a provider-backed Agentify workflow |
-| `query` | Query the repository index (owner, deps, changed) |
+| `query` | Query the repository index (owner, deps, changed, def, refs, callers, impacts) |
+| `risk` | Score PR blast radius and recommend regression tests |
 | `skill` | Manage built-in agent skills |
 | `sess` | Manage provider-backed sessions |
 | `memory` | Manage agent memory helpers |
@@ -155,11 +157,13 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--strict <true|false>` | Fail closed on validation issues |
 | `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection |
 | `--dry-run` | Report planned changes without writing |
-| `--docs` | Generate docs during refresh/update flows (off by default) |
+| `--docs` | Generate docs during refresh/update flows (on by default; use `--docs=false` to skip) |
 | `--headers` | Apply `@agentify` headers to source files (off by default) |
+| `--semantic` | Show detailed semantic diagnostics with doctor |
 | `--provider-timeout-ms <ms>` | Fail provider doc calls after N milliseconds |
 | `--ghost` | Route outputs to `.current_session/` |
 | `--json` | Machine-readable JSON output only |
+| `--explain` | Include planner score breakdowns for plan output |
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |

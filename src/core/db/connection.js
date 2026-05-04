@@ -328,6 +328,7 @@ export function openIndexDatabase(root, options = {}) {
     CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_file_path ON semantic_surfaces(file_path);
     CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_kind ON semantic_surfaces(kind);
     CREATE INDEX IF NOT EXISTS idx_semantic_edges_project_id ON semantic_symbol_edges(project_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_symbol_id ON semantic_symbol_edges(to_symbol_id, edge_kind);
     CREATE INDEX IF NOT EXISTS idx_semantic_edges_from_file_path ON semantic_symbol_edges(from_file_path);
     CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_file_path ON semantic_symbol_edges(to_file_path);
   `);
