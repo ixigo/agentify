@@ -1,0 +1,82 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
+import { writeText } from "./fs.js";
+
+export const AGENTIFY_GITIGNORE_START = "# >>> agentify generated artifacts";
+export const AGENTIFY_GITIGNORE_END = "# <<< agentify generated artifacts";
+
+export const AGENTIFY_GITIGNORE_PATTERNS = [
+  ".agents/",
+  ".agentify/work/",
+  ".current_session/",
+  "AGENTIFY.md",
+  "docs/repo-map.md",
+  "docs/modules/",
+  "output.txt",
+  "agentify-report.html",
+];
+
+export function renderAgentifyGitignoreBlock() {
+  return [
+    AGENTIFY_GITIGNORE_START,
+    "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.",
+    ...AGENTIFY_GITIGNORE_PATTERNS,
+    AGENTIFY_GITIGNORE_END,
+    "",
+  ].join("\n");
+}
+
+function normalizeText(text) {
+  return text.replace(/\r\n/g, "\n");
+}
+
+function applyAgentifyGitignoreBlock(existingText) {
+  const normalized = normalizeText(existingText || "");
+  const block = renderAgentifyGitignoreBlock();
+  const startIndex = normalized.indexOf(AGENTIFY_GITIGNORE_START);
+  const endIndex = normalized.indexOf(AGENTIFY_GITIGNORE_END);
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
+    const afterEnd = endIndex + AGENTIFY_GITIGNORE_END.length;
+    const nextText = `${normalized.slice(0, startIndex)}${block}${normalized.slice(afterEnd).replace(/^\n+/, "")}`;
+    return nextText.endsWith("\n") ? nextText : `${nextText}\n`;
+  }
+
+  const prefix = normalized.trimEnd();
+  if (!prefix) {
+    return block;
+  }
+  return `${prefix}\n\n${block}`;
+}
+
+export async function ensureAgentifyGitignore(root, { dryRun = false } = {}) {
+  const gitignorePath = path.join(root, ".gitignore");
+  let existing = null;
+
+  try {
+    existing = await fs.readFile(gitignorePath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const next = applyAgentifyGitignoreBlock(existing || "");
+  const changed = existing === null || normalizeText(existing) !== next;
+
+  if (changed && !dryRun) {
+    await writeText(gitignorePath, next);
+  }
+
+  return {
+    path: gitignorePath,
+    existed: existing !== null,
+    changed,
+    status: existing === null
+      ? dryRun ? "would_create" : "created"
+      : changed
+        ? dryRun ? "would_update" : "updated"
+        : "unchanged",
+  };
+}

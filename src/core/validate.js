@@ -16,6 +16,7 @@ const ALLOWED_DOC_PATHS = [
   /^\.agentify\.yaml$/,
   /^\.agentignore$/,
   /^\.guardrails$/,
+  /^\.gitignore$/,
   /^\.agentify\/work\//,
   /^docs\//,
   /^\.agents\//,
@@ -36,7 +37,7 @@ export const FAILURE_CATEGORIES = {
 
 const REMEDIATION_HINTS = {
   [FAILURE_CATEGORIES.UNSAFE_PATH]:
-    "Only recognized Agentify paths (.agents/, docs/, .agentify/work/, provider skill dirs, .guardrails, .agentignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
+    "Only recognized Agentify paths (.agents/, docs/, .agentify/work/, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
   [FAILURE_CATEGORIES.FRESHNESS_STALE]:

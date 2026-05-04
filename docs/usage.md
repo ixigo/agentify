@@ -166,6 +166,7 @@ agentify check
 After `agentify this` or `agentify init`:
 
 - `.agentify.yaml`
+- `.gitignore` with a managed Agentify generated-artifact block
 - `.agentignore`
 - `.guardrails`
 - `.agentify/work/`
@@ -189,6 +190,8 @@ Most commands also write run evidence to:
 
 - `output.txt`
 - `agentify-report.html`
+
+Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when you want shared Agentify policy in the repo. The `.gitignore` block keeps `.agents/`, `.agentify/work/`, `.current_session/`, generated docs, and run reports out of normal Git status by default.
 
 ## How To Verify A Repo Is Really Ready
 

@@ -3,6 +3,7 @@ import path from "node:path";
 import { ensureBaselineArtifacts, runUpdate } from "./commands.js";
 import { syncConfigFile } from "./config.js";
 import { exists } from "./fs.js";
+import { ensureAgentifyGitignore } from "./gitignore.js";
 import { syncManagedHooks } from "./hooks.js";
 import { syncProjectBuiltinSkills } from "./skills.js";
 import * as ui from "./ui.js";
@@ -22,16 +23,17 @@ async function syncBaselineArtifacts(root, config) {
     before.set(relativePath, await exists(path.join(root, relativePath)));
   }
 
+  const gitignore = await ensureAgentifyGitignore(root, { dryRun: config.dryRun });
   await ensureBaselineArtifacts(root, config);
 
-  return BASELINE_ARTIFACTS.map((relativePath) => {
+  return [gitignore, ...BASELINE_ARTIFACTS.map((relativePath) => {
     const existed = before.get(relativePath);
     return {
       path: path.join(root, relativePath),
       existed,
       status: existed ? "unchanged" : config.dryRun ? "would_create" : "created",
     };
-  });
+  })];
 }
 
 function logSyncSummary(result) {

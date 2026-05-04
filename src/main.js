@@ -437,7 +437,7 @@ export async function runCli(argv) {
             command: "init",
             root,
             dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
           }, null, 2));
         } else {
           success("Initialized agentify artifacts");

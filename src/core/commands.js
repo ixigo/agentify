@@ -5,6 +5,7 @@ import path from "node:path";
 import { ensureDir, exists, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
+import { ensureAgentifyGitignore } from "./gitignore.js";
 import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { runProjectTests } from "./project-tests.js";
 import { createRunReporter } from "./run-report.js";
@@ -187,7 +188,7 @@ function renderDefaultGuardrails() {
 ## Files To Avoid Touching Without Intent
 - \`node_modules/\`
 - lockfiles unless the task changes dependencies
-- repo config such as \`.agentify.yaml\`, \`.agentignore\`, and \`.guardrails\` unless the task is about repo policy or tooling
+- repo config such as \`.agentify.yaml\`, \`.gitignore\`, \`.agentignore\`, and \`.guardrails\` unless the task is about repo policy or tooling
 `;
 }
 
@@ -209,6 +210,7 @@ export async function ensureBaselineArtifacts(root, config) {
   await ensureDir(path.join(root, "docs", "modules"));
   await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
   await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
+  await ensureAgentifyGitignore(root);
 }
 
 function resolveArtifactRoot(root, config, runId) {
