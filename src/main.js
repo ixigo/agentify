@@ -8,7 +8,7 @@ import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
-import { buildExecutionPlan } from "./core/planner.js";
+import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -45,6 +45,7 @@ const BOOLEAN_FLAGS = new Set([
   "failOnStale",
   "skipRefresh",
   "explainPlan",
+  "explain",
   "allowPartial",
   "reuseSession",
   "hook",
@@ -281,6 +282,7 @@ function printHelp() {
     `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
+    `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
@@ -475,14 +477,18 @@ export async function runCli(argv) {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
         let plan;
         try {
-          plan = await buildExecutionPlan(root, config, task);
+          plan = await buildExecutionPlan(root, config, task, { explain: args.explain === true });
         } catch (error) {
           if (isMissingIndexError(error)) {
             throw createMissingIndexGuidance(root);
           }
           throw error;
         }
-        console.log(JSON.stringify(plan, null, 2));
+        if (args.explain === true && !args.json) {
+          process.stdout.write(renderPlanExplanation(plan));
+        } else {
+          console.log(JSON.stringify(plan, null, 2));
+        }
         return;
       }
 

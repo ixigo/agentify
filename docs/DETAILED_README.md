@@ -169,7 +169,7 @@ tests:
 
 | Command | What it does | Why and when to use it | Example |
 | --- | --- | --- | --- |
-| `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. | Use before `run` when you want to inspect the exact prompt context and file selection Agentify will choose. | `agentify plan "add retry logic to checkout"` |
+| `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. Add `--explain` for score components and stable reason codes. | Use before `run` when you want to inspect the exact prompt context, file selection, or why planner scoring chose each item. | `agentify plan --explain "add retry logic to checkout"` |
 | `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex "implement payment retries"` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
@@ -327,6 +327,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
+| `--explain` | Include planner score breakdowns for `agentify plan`. Text output shows component totals; combine with `--json` for machine-readable stable reason codes. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
 | `--caveman[=level]` | Request terse output for `run` and `sess`. Supported levels include `lite`, `full`, `ultra`, and `wenyan*` variants. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
