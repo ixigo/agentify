@@ -260,9 +260,9 @@ Agentify's `--caveman` prompt modifier tells agents to suspend caveman for those
 
 The biggest practical gaps today are mostly around **depth, visibility, and feedback loops**:
 
-1. **Semantic coverage is TS/JS-first**
-   - Deep semantic graphing is strongest for TypeScript/JavaScript projects.
-   - Python/Go/Java/C# repositories get structural indexing, but not equivalent semantic richness yet.
+1. **Semantic coverage is still deepest for TS/JS**
+   - TypeScript/JavaScript uses a compiler-backed semantic worker.
+   - Python, Go, Java, and .NET now have normalized semantic adapters for projects, symbols, public surfaces, and import edges, but do not yet have full LSP-depth call graph parity.
 
 2. **Semantic internals are not obvious to new users**
    - Users can run `scan/plan/query`, but often do not understand which tables/facts are driving ranking decisions.
@@ -288,8 +288,8 @@ The biggest practical gaps today are mostly around **depth, visibility, and feed
 
 High-impact features to add next:
 
-1. **Multi-language semantic adapters**
-   - Add analyzers for Python, Go, Java, and .NET with normalized symbol/edge tables.
+1. **Deeper multi-language semantic adapters**
+   - Expand Python, Go, Java, and .NET adapters beyond normalized symbol/import facts toward richer call/type graph extraction.
    - Goal: same query/planner quality profile regardless of language stack.
 
 2. **Explainable planning mode**

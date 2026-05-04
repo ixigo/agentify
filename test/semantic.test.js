@@ -143,6 +143,64 @@ async function writeLayeredSemanticFixture(root) {
   );
 }
 
+async function writeMultiLanguageSemanticFixture(root) {
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"semantic-python\"\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "auth", "__init__.py"), "", "utf8");
+  await fs.writeFile(
+    path.join(root, "src", "auth", "service.py"),
+    "def normalize_token(raw_token: str) -> str:\n    return raw_token.strip()\n",
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(root, "src", "api.py"),
+    "from auth.service import normalize_token\n\n\ndef handle_login(raw_token: str) -> str:\n    return normalize_token(raw_token)\n",
+    "utf8"
+  );
+
+  await fs.writeFile(path.join(root, "go.mod"), "module example.com/semantic\n\ngo 1.22\n", "utf8");
+  await fs.mkdir(path.join(root, "cmd", "server"), { recursive: true });
+  await fs.mkdir(path.join(root, "internal", "auth"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "cmd", "server", "main.go"),
+    "package main\n\nimport \"example.com/semantic/internal/auth\"\n\nfunc HandleLogin(raw string) string {\n\treturn auth.NormalizeToken(raw)\n}\n",
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(root, "internal", "auth", "token.go"),
+    "package auth\n\nfunc NormalizeToken(raw string) string { return raw }\n",
+    "utf8"
+  );
+
+  await fs.writeFile(path.join(root, "pom.xml"), "<project />\n", "utf8");
+  await fs.mkdir(path.join(root, "java", "com", "example", "api"), { recursive: true });
+  await fs.mkdir(path.join(root, "java", "com", "example", "auth"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "java", "com", "example", "auth", "AuthService.java"),
+    "package com.example.auth;\n\npublic class AuthService {\n  public String normalizeToken(String raw) { return raw.trim(); }\n}\n",
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(root, "java", "com", "example", "api", "LoginController.java"),
+    "package com.example.api;\n\nimport com.example.auth.AuthService;\n\npublic class LoginController {\n  public String handleLogin(String raw) { return new AuthService().normalizeToken(raw); }\n}\n",
+    "utf8"
+  );
+
+  await fs.writeFile(path.join(root, "SemanticFixture.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n", "utf8");
+  await fs.mkdir(path.join(root, "dotnet", "Auth"), { recursive: true });
+  await fs.mkdir(path.join(root, "dotnet", "Api"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "dotnet", "Auth", "AuthService.cs"),
+    "namespace Demo.Auth;\n\npublic class AuthService\n{\n    public string NormalizeToken(string raw) { return raw.Trim(); }\n}\n",
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(root, "dotnet", "Api", "LoginController.cs"),
+    "using Demo.Auth;\n\nnamespace Demo.Api;\n\npublic class LoginController\n{\n    public string HandleLogin(string raw) { return new AuthService().NormalizeToken(raw); }\n}\n",
+    "utf8"
+  );
+}
+
 test("semantic refresh indexes TS/JS projects and surfaces", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-refresh-"));
   await writeSemanticFixture(root);
@@ -167,6 +225,39 @@ test("semantic refresh indexes TS/JS projects and surfaces", async () => {
   } finally {
     closeIndexDatabase(db);
   }
+});
+
+test("semantic refresh indexes Python, Go, Java, and .NET adapters", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-multilang-"));
+  await writeMultiLanguageSemanticFixture(root);
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    "semantic.enabled": true,
+  });
+
+  await runScan(root, config);
+  await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+
+  const db = openIndexDatabase(root);
+  try {
+    const projects = listSemanticProjects(db);
+    for (const language of ["python", "go", "java", "dotnet"]) {
+      const project = projects.find((item) => item.project_id.startsWith(`${language}:`));
+      assert.ok(project, `${language} semantic project should be indexed`);
+      assert.ok(project.symbol_count > 0, `${language} semantic project should store symbols`);
+      assert.ok(project.edge_count > 0, `${language} semantic project should store edges`);
+    }
+  } finally {
+    closeIndexDatabase(db);
+  }
+
+  const search = await querySearch(root, "NormalizeToken");
+  const plan = await buildExecutionPlan(root, config, "fix NormalizeToken auth handling");
+
+  assert.ok(search.semantic_symbols.some((symbolInfo) => symbolInfo.name === "NormalizeToken"));
+  assert.ok(search.semantic_surfaces.some((surface) => surface.display_name === "NormalizeToken"));
+  assert.ok(plan.selected_symbols.some((symbolInfo) => symbolInfo.name === "NormalizeToken" && symbolInfo.source === "symbol"));
 });
 
 test("doc uses semantic repo map and deterministic semantic headers when enabled", async () => {
