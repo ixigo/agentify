@@ -8,6 +8,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { loadModules } from "./db/structural-store.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
+import { isSemanticEnabled } from "./semantic.js";
 
 const ALLOWED_DOC_PATHS = [
   /^AGENTIFY\.md$/,
@@ -123,7 +124,7 @@ async function validateFreshness(root, failures, options = {}) {
       }
     }
 
-    if (options.config?.semantic?.tsjs?.enabled) {
+    if (isSemanticEnabled(options.config || {})) {
       const semanticProjects = listSemanticProjects(db);
       for (const projectInfo of semanticProjects) {
         if (projectInfo.status !== "ready") {
