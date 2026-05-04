@@ -8,6 +8,30 @@ import { getProviderDefinition } from "./provider-registry.js";
 
 const DEFAULT_PROVIDER_TIMEOUT_MS = 120000;
 
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export class ProviderExecutionError extends Error {
+  constructor(provider, phase, cause) {
+    super(`provider "${provider}" failed during ${phase}: ${errorMessage(cause)}`, {
+      cause
+    });
+    this.name = "ProviderExecutionError";
+    this.code = "AGENTIFY_PROVIDER_EXECUTION_FAILED";
+    this.provider = provider;
+    this.phase = phase;
+    this.status = "error";
+  }
+}
+
+function asProviderExecutionError(provider, phase, error) {
+  if (error instanceof ProviderExecutionError) {
+    return error;
+  }
+  return new ProviderExecutionError(provider, phase, error);
+}
+
 export function summarizeModule(moduleInfo, files, semantic = null) {
   const examples = files.slice(0, 5).join(", ");
   const semanticLead = semantic?.surfaces?.length
@@ -164,6 +188,11 @@ function fallbackArtifacts(moduleInfo, context) {
       stack: moduleInfo.stack
     },
     summary,
+    provider_status: {
+      status: "fallback",
+      provider: "local",
+      mode: "deterministic-local"
+    },
     public_api: inferPublicApi(context.files, context.semantic),
     start_here: inferStartHere(context),
     dependencies: {
@@ -485,6 +514,11 @@ async function runOpenCodeExec({ root, prompt, model, timeoutMs }) {
 function buildMetadataFromCodex(moduleInfo, context, response) {
   return {
     schema_version: "1.0",
+    provider_status: {
+      status: "success",
+      provider: context.providerName || "external",
+      mode: "provider-backed"
+    },
     module: {
       id: moduleInfo.id,
       name: moduleInfo.name,
@@ -565,44 +599,37 @@ function createExternalProvider(config, options) {
           plan: sanitizeManagerPlan(result.output, new Set(repoContext.modules.map((item) => item.id))),
           tokenUsage: result.usage
         };
-      } catch {
-        return {
-          plan: {
-            repo_summary: "",
-            shared_conventions: [],
-            module_focus: []
-          },
-          tokenUsage: {
-            input_tokens: 0,
-            output_tokens: 0,
-            total_tokens: 0
-          }
-        };
+      } catch (error) {
+        throw asProviderExecutionError(options.name, "manager planning", error);
       }
     },
     async generateModuleArtifacts(moduleInfo, context) {
-      const prompt = buildModulePrompt(moduleInfo, context);
-      const result = await options.run({
-        root: context.root,
-        prompt,
-        schema: buildModuleSchema(),
-        model: config.model,
-        timeoutMs
-      });
-      const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
-      const metadata = {
-        ...buildMetadataFromCodex(moduleInfo, context, sanitized),
-        summary: sanitized.summary,
-        public_api: sanitized.public_api,
-        start_here: sanitized.start_here,
-        side_effects: sanitized.side_effects
-      };
-      return {
-        markdown: renderModuleMarkdown(moduleInfo, metadata),
-        metadata,
-        headers: sanitized.header_summaries,
-        tokenUsage: result.usage
-      };
+      try {
+        const prompt = buildModulePrompt(moduleInfo, context);
+        const result = await options.run({
+          root: context.root,
+          prompt,
+          schema: buildModuleSchema(),
+          model: config.model,
+          timeoutMs
+        });
+        const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
+        const metadata = {
+          ...buildMetadataFromCodex(moduleInfo, { ...context, providerName: options.name }, sanitized),
+          summary: sanitized.summary,
+          public_api: sanitized.public_api,
+          start_here: sanitized.start_here,
+          side_effects: sanitized.side_effects
+        };
+        return {
+          markdown: renderModuleMarkdown(moduleInfo, metadata),
+          metadata,
+          headers: sanitized.header_summaries,
+          tokenUsage: result.usage
+        };
+      } catch (error) {
+        throw asProviderExecutionError(options.name, "module artifact generation", error);
+      }
     }
   };
 }

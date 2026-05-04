@@ -949,12 +949,35 @@ async function _runDocInner(root, config, options, progress) {
       }
     }
 
+    const moduleProviderStatuses = generatedModules
+      .map((item) => item.result?.metadata?.provider_status)
+      .filter(Boolean);
+    const providerStatus = moduleProviderStatuses.length > 0
+      && moduleProviderStatuses.every((status) => status.status === "fallback" && status.mode === "deterministic-local")
+      ? {
+          status: "fallback",
+          provider: "local",
+          mode: "deterministic-local"
+        }
+      : provider.name === "local"
+        ? {
+            status: "fallback",
+            provider: provider.name,
+            mode: "deterministic-local"
+          }
+        : {
+            status: "success",
+            provider: provider.name,
+            mode: "provider-backed"
+          };
+
     const runReport = {
     run_id: `${Date.now()}`,
     started_at: now,
     finished_at: new Date().toISOString(),
     provider: provider.name,
     provider_model: provider.providerModel,
+    provider_status: providerStatus,
     token_usage: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
@@ -1029,6 +1052,7 @@ async function _runDocInner(root, config, options, progress) {
       cached_modules: cachedModules,
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten,
+      provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
       wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agents/index.db", ".agents/runs/*.json"],
     };
