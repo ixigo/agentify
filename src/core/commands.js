@@ -25,7 +25,7 @@ import {
 } from "./db/structural-store.js";
 import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
-import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
+import { applySemanticHeaders, isSemanticEnabled, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
 
 export { detectTestCommand } from "./project-tests.js";
@@ -154,12 +154,21 @@ async function writeRunReport(root, report) {
 }
 
 function summarizeTestResult(testResult) {
-  return {
+  const summary = {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
+    stdout_truncated: Boolean(testResult.stdout_truncated),
+    stderr_truncated: Boolean(testResult.stderr_truncated),
+    stdout_bytes: testResult.stdout_bytes ?? 0,
+    stderr_bytes: testResult.stderr_bytes ?? 0,
+    output_max_bytes: testResult.output_max_bytes ?? null,
     exit_code: testResult.exit_code
   };
+  if (testResult.discovery_error) {
+    summary.discovery_error = testResult.discovery_error;
+  }
+  return summary;
 }
 
 function renderDefaultAgentignore() {
@@ -650,10 +659,10 @@ async function _runDocInner(root, config, options, progress) {
     }
   }
 
-  const semanticEnabled = Boolean(config.semantic?.tsjs?.enabled);
+  const semanticEnabled = isSemanticEnabled(config);
   if (semanticEnabled && !config.dryRun) {
-    progress.log("doc: refreshing semantic TS/JS facts");
-    progress.percent("doc", 5, "refreshing semantic TS/JS facts");
+    progress.log("doc: refreshing semantic facts");
+    progress.percent("doc", 5, "refreshing semantic facts");
     await runSemanticRefresh(root, config, {
       artifactRoot,
       silent: true,

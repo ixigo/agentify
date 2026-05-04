@@ -290,6 +290,44 @@ test("passes", () => {
   assert.equal(payload.tests.status, "passed");
 });
 
+test("runUpdate reports malformed package.json as a failed test discovery", async () => {
+  const previousExitCode = process.exitCode;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-malformed-pkg-"));
+  const packageJsonPath = path.join(root, "package.json");
+  await fs.writeFile(packageJsonPath, "{ invalid json\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const ok = true;\n", "utf8");
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, json: true });
+  config._suppressProgress = true;
+  const output = [];
+  const originalLog = console.log;
+
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    process.exitCode = undefined;
+    const finalOutput = await runUpdate(root, config);
+
+    assert.equal(output.length, 1);
+    const payload = JSON.parse(output[0]);
+    assert.equal(payload.validation.passed, true);
+    assert.equal(payload.tests.status, "failed");
+    assert.equal(payload.tests.passed, false);
+    assert.equal(payload.tests.command, null);
+    assert.equal(payload.tests.exit_code, null);
+    assert.deepEqual(payload, finalOutput);
+    assert.equal(payload.tests.discovery_error.type, "package_json_parse_error");
+    assert.equal(payload.tests.discovery_error.path, packageJsonPath);
+    assert.equal(process.exitCode, 1);
+  } finally {
+    console.log = originalLog;
+    process.exitCode = previousExitCode;
+  }
+});
+
 test("runUpdate persists test metadata for passing and failing up and sync run reports", async () => {
   const previousExitCode = process.exitCode;
   const cases = [
@@ -315,15 +353,18 @@ test("runUpdate persists test metadata for passing and failing up and sync run r
       }
 
       const persistedRun = await readLatestRunReport(root, testCase.commandName);
-      const expectedTests = {
-        status: testCase.expectedStatus,
-        passed: testCase.expectedPassed,
-        command: "npm test",
-        exit_code: testCase.exitCode,
-      };
-
-      assert.deepEqual(finalOutput.tests, expectedTests);
-      assert.deepEqual(persistedRun.tests, expectedTests);
+      for (const tests of [finalOutput.tests, persistedRun.tests]) {
+        assert.equal(tests.status, testCase.expectedStatus);
+        assert.equal(tests.passed, testCase.expectedPassed);
+        assert.equal(tests.command, "npm test");
+        assert.equal(tests.stdout_truncated, false);
+        assert.equal(tests.stderr_truncated, false);
+        assert.equal(typeof tests.stdout_bytes, "number");
+        assert.equal(typeof tests.stderr_bytes, "number");
+        assert.equal(tests.output_max_bytes, 49152);
+        assert.equal(tests.exit_code, testCase.exitCode);
+      }
+      assert.deepEqual(finalOutput.tests, persistedRun.tests);
     }
   } finally {
     process.exitCode = previousExitCode;
