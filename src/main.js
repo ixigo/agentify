@@ -234,6 +234,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
     runExecFlags: getExecFlags(args, {
       captureOutputMode: captureSettings.captureOutputMode,
       sessionRecord,
+      commandName: `sess ${args._?.[1] || "run"}`,
     }),
   };
 }
@@ -286,7 +287,7 @@ function printHelp() {
     `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
     `    ${c("--languages")} ${d("<auto|ts|python|go|rust|dotnet|java|kotlin|swift>")}`,
     `    ${c("--dry-run")}                   Report planned changes without writing`,
-    `    ${c("--docs")}                      Generate docs during refresh/update flows (off by default)`,
+    `    ${c("--docs")}                      Generate docs during refresh/update flows (on by default; use --docs=false to skip)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
     `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
@@ -479,7 +480,7 @@ export async function runCli(argv) {
         return;
 
       case "check":
-        await runValidate(root, config, { skipChangedFiles: args.hook === true });
+        await runValidate(root, config, { skipCodeBodyChanges: args.hook === true });
         return;
 
       case "plan": {
@@ -522,7 +523,7 @@ export async function runCli(argv) {
             providerOptions,
           );
 
-        await runExec(root, config, agentCommand, getExecFlags(args));
+        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "run" }));
         return;
       }
 
@@ -531,7 +532,7 @@ export async function runCli(argv) {
         if (agentCommand.length === 0) {
           throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
         }
-        await runExec(root, config, agentCommand, getExecFlags(args));
+        await runExec(root, config, agentCommand, getExecFlags(args, { commandName: "exec" }));
         return;
       }
 

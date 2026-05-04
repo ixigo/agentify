@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { writeText } from "./fs.js";
+import { writeJson, writeText } from "./fs.js";
 import * as ui from "./ui.js";
 
 function escapeHtml(value) {
@@ -15,11 +15,117 @@ function sanitizeForJsString(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
 }
 
+function normalizeExecutionTelemetry(value) {
+  if (!value) {
+    return null;
+  }
+
+  const changedFiles = Array.isArray(value.changed_files) ? value.changed_files : [];
+  const changedPaths = Array.isArray(value.changed_paths)
+    ? value.changed_paths
+    : changedFiles.map((file) => file?.path).filter(Boolean);
+
+  return {
+    run_id: value.run_id || `${Date.now()}-execution`,
+    started_at: value.started_at || null,
+    finished_at: value.finished_at || null,
+    duration_ms: Number.isFinite(Number(value.duration_ms)) ? Number(value.duration_ms) : null,
+    phase: value.phase || "unknown",
+    exit_code: Number.isFinite(Number(value.exit_code)) ? Number(value.exit_code) : null,
+    skipped_refresh: Boolean(value.skipped_refresh),
+    provider: value.provider || null,
+    provider_model: value.provider_model || null,
+    provider_command: value.provider_command || null,
+    capture: value.capture || {
+      mode: "inherit",
+      transcript_available: false,
+      raw_log_available: false,
+      raw_log_path: null,
+    },
+    changed_files_count: Number.isFinite(Number(value.changed_files_count))
+      ? Number(value.changed_files_count)
+      : changedPaths.length,
+    changed_paths: changedPaths,
+    changed_files: changedFiles,
+    head_changed: Boolean(value.head_changed),
+    session: value.session || null,
+  };
+}
+
+function renderExecutionOutputBlock(execution) {
+  if (!execution) {
+    return "";
+  }
+
+  const changedPaths = execution.changed_paths?.length
+    ? execution.changed_paths.join(", ")
+    : "none";
+  const command = execution.provider_command?.display || execution.provider_command?.executable || "unknown";
+  const capture = execution.capture || {};
+
+  return [
+    "[agentify] execution telemetry",
+    `[agentify] execution: phase=${execution.phase} exit=${execution.exit_code ?? "unknown"} duration_ms=${execution.duration_ms ?? "unknown"}`,
+    `[agentify] execution: provider=${execution.provider || "unknown"} command=${command}`,
+    `[agentify] execution: capture=${capture.mode || "inherit"} transcript=${capture.transcript_available ? "yes" : "no"} raw_log=${capture.raw_log_available ? "yes" : "no"}`,
+    `[agentify] execution: changed_files=${execution.changed_files_count} head_changed=${execution.head_changed ? "yes" : "no"}`,
+    `[agentify] execution: changed_paths=${changedPaths}`,
+  ].join("\n");
+}
+
 export function renderHtmlReport(summary) {
   const artifactsRaw = summary.artifacts || [];
   const artifacts = artifactsRaw.length > 0
     ? artifactsRaw.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
     : `<li class="empty">no generated artifacts recorded.</li>`;
+  const execution = normalizeExecutionTelemetry(summary.execution);
+  const executionChangedPaths = execution?.changed_paths?.length
+    ? execution.changed_paths.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
+    : `<li class="empty">no changed paths recorded.</li>`;
+  const executionCommand = execution?.provider_command?.display || execution?.provider_command?.executable || "unknown";
+  const executionCapture = execution?.capture || {};
+  const executionSection = execution
+    ? `
+      <div class="metrics" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <div class="metric">
+          <span class="metric-label">phase</span>
+          <span class="metric-value">${escapeHtml(execution.phase)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">duration ms</span>
+          <span class="metric-value">${escapeHtml(execution.duration_ms ?? "n/a")}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">changed files</span>
+          <span class="metric-value">${escapeHtml(execution.changed_files_count)}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">transcript</span>
+          <span class="metric-value">${executionCapture.transcript_available ? "yes" : "no"}</span>
+        </div>
+      </div>
+
+      <div class="token-wrap" style="margin-top: 16px;">
+        <div class="token-scroll">
+          <table class="tokens">
+            <tbody>
+              <tr><th scope="row">provider</th><td><code>${escapeHtml(execution.provider || "unknown")}</code></td></tr>
+              <tr><th scope="row">command</th><td><code>${escapeHtml(executionCommand)}</code></td></tr>
+              <tr><th scope="row">capture mode</th><td><code>${escapeHtml(executionCapture.mode || "inherit")}</code></td></tr>
+              <tr><th scope="row">raw interactive log</th><td><code>${escapeHtml(executionCapture.raw_log_available ? executionCapture.raw_log_path || "available" : "not available")}</code></td></tr>
+              <tr><th scope="row">head changed</th><td><code>${escapeHtml(execution.head_changed ? "yes" : "no")}</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <ul class="artifact-list" style="margin-top: 16px;">${executionChangedPaths}</ul>
+
+      <details class="term-details" style="margin-top: 16px;">
+        <summary>raw execution telemetry · JSON</summary>
+        <pre class="term-body small">${escapeHtml(JSON.stringify(execution, null, 2))}</pre>
+      </details>`
+    : `<p class="muted mono-sm">no execution telemetry was recorded for this report.</p>`;
 
   const tokenUsage = summary.doc?.token_usage || {
     input_tokens: 0,
@@ -92,6 +198,9 @@ export function renderHtmlReport(summary) {
   const measuredModules = (tokenUsage.by_module || []).length;
 
   const commandDisplay = summary.command || "unknown";
+  const executionPhase = execution?.phase || "not-run";
+  const executionChangedCount = execution?.changed_files_count ?? 0;
+  const executionTranscriptText = execution?.capture?.transcript_available ? "yes" : "no";
 
   const healthHeadline = validationStatus === "passed" && testStatus === "passed"
     ? "repository checks completed successfully."
@@ -775,6 +884,7 @@ export function renderHtmlReport(summary) {
 <span class="dim">→</span> validation  <span class="${validationTone === "passed" ? "ok" : validationTone === "failed" ? "r" : "w"}">${escapeHtml(validationStatus)}</span>   <span class="c">#</span> ${escapeHtml(validationCount)} failure${validationCount === 1 ? "" : "s"} recorded
 <span class="dim">→</span> tests       <span class="${testTone === "passed" ? "ok" : testTone === "failed" ? "r" : "w"}">${escapeHtml(testStatus)}</span>   <span class="c">#</span> <span class="s">${escapeHtml(summary.tests?.command || "not-run")}</span>
 <span class="dim">→</span> modules     <span class="m">${escapeHtml(moduleCount)}</span>        <span class="c">#</span> ${escapeHtml(docsWritten)} docs · ${escapeHtml(headersRefreshed)} headers
+<span class="dim">→</span> execution   <span class="m">${escapeHtml(executionPhase)}</span> <span class="c">#</span> changed: ${escapeHtml(executionChangedCount)} · transcript: ${escapeHtml(executionTranscriptText)}
 <span class="dim">→</span> tokens      <span class="m">${escapeHtml(totalTokens)}</span>        <span class="c">#</span> in: ${escapeHtml(inputTokens)} · out: ${escapeHtml(outputTokens)} · modules: ${escapeHtml(measuredModules)}
 <span class="dim">→</span> artifacts   <span class="m">${escapeHtml(artifactCount)}</span>        <span class="c">#</span> files produced this run
 
@@ -784,6 +894,8 @@ export function renderHtmlReport(summary) {
       <div class="chip-row" aria-label="quick status">
         <span class="chip ${escapeHtml(validationTone)}"><span class="label">validation</span><span class="glyph" aria-hidden="true">${validationGlyph}</span><strong>${escapeHtml(validationStatus)}</strong></span>
         <span class="chip ${escapeHtml(testTone)}"><span class="label">tests</span><span class="glyph" aria-hidden="true">${testGlyph}</span><strong>${escapeHtml(testStatus)}</strong></span>
+        <span class="chip"><span class="label">phase</span><strong>${escapeHtml(executionPhase)}</strong></span>
+        <span class="chip"><span class="label">changed</span><strong>${escapeHtml(executionChangedCount)}</strong></span>
         <span class="chip"><span class="label">tokens</span><strong>${escapeHtml(totalTokens)}</strong></span>
         <span class="chip"><span class="label">artifacts</span><strong>${escapeHtml(artifactCount)}</strong></span>
       </div>
@@ -827,10 +939,20 @@ export function renderHtmlReport(summary) {
       </div>
     </section>
 
+    <!-- ===== EXECUTION ===== -->
+    <section id="execution" aria-labelledby="execution-title">
+      <header class="section-head">
+        <span class="section-mark"><span class="caret">▶</span><span class="num">02</span><span class="slash">/</span>execution</span>
+        <h2 id="execution-title">execution telemetry</h2>
+        <p class="dek">provider command behavior, capture availability, and changed-file scope for benchmarking this run.</p>
+      </header>
+      ${executionSection}
+    </section>
+
     <!-- ===== HEALTH ===== -->
     <section id="health" aria-labelledby="health-title">
       <header class="section-head">
-        <span class="section-mark"><span class="caret">▶</span><span class="num">02</span><span class="slash">/</span>health</span>
+        <span class="section-mark"><span class="caret">▶</span><span class="num">03</span><span class="slash">/</span>health</span>
         <h2 id="health-title">validation &amp; tests</h2>
         <p class="dek">trust or reject the run from this block alone — unsafe writes, freshness drift, and test status sit side by side.</p>
       </header>
@@ -863,7 +985,7 @@ export function renderHtmlReport(summary) {
     <!-- ===== TOKENS ===== -->
     <section id="tokens" aria-labelledby="tokens-title">
       <header class="section-head">
-        <span class="section-mark"><span class="caret">▶</span><span class="num">03</span><span class="slash">/</span>tokens</span>
+        <span class="section-mark"><span class="caret">▶</span><span class="num">04</span><span class="slash">/</span>tokens</span>
         <h2 id="tokens-title">model usage</h2>
         <p class="dek">totals first, per-module breakdown second — enough to audit cost and activity without opening raw JSON.</p>
       </header>
@@ -912,7 +1034,7 @@ export function renderHtmlReport(summary) {
     <!-- ===== ARTIFACTS ===== -->
     <section id="artifacts" aria-labelledby="artifacts-title">
       <header class="section-head">
-        <span class="section-mark"><span class="caret">▶</span><span class="num">04</span><span class="slash">/</span>artifacts</span>
+        <span class="section-mark"><span class="caret">▶</span><span class="num">05</span><span class="slash">/</span>artifacts</span>
         <h2 id="artifacts-title">generated files</h2>
         <p class="dek">every path agentify recorded for this run. useful as a handoff checklist.</p>
       </header>
@@ -922,7 +1044,7 @@ export function renderHtmlReport(summary) {
     <!-- ===== RAW ===== -->
     <section id="raw" aria-labelledby="raw-title">
       <header class="section-head">
-        <span class="section-mark"><span class="caret">▶</span><span class="num">05</span><span class="slash">/</span>raw</span>
+        <span class="section-mark"><span class="caret">▶</span><span class="num">06</span><span class="slash">/</span>raw</span>
         <h2 id="raw-title">machine summary</h2>
         <p class="dek">the complete structured payload — preserved for debugging, diffing, or downstream tooling.</p>
       </header>
@@ -971,6 +1093,7 @@ export function createRunReporter(root) {
     doc: null,
     validation: null,
     tests: null,
+    execution: null,
   };
 
   function record(text) {
@@ -1018,15 +1141,29 @@ export function createRunReporter(root) {
     setTests(result) {
       summary.tests = result;
     },
+    setExecution(result) {
+      summary.execution = normalizeExecutionTelemetry(result);
+      if (summary.execution) {
+        const telemetryPath = `.agents/runs/${summary.execution.run_id}-execution-telemetry.json`;
+        summary.artifacts = Array.from(new Set([...summary.artifacts, telemetryPath]));
+        record(renderExecutionOutputBlock(summary.execution));
+      }
+    },
     async finalize() {
       const outputPath = path.join(root, "output.txt");
       const htmlPath = path.join(root, "agentify-report.html");
+      let telemetryJsonPath = null;
+      if (summary.execution) {
+        telemetryJsonPath = path.join(root, ".agents", "runs", `${summary.execution.run_id}-execution-telemetry.json`);
+        await writeJson(telemetryJsonPath, summary.execution);
+      }
       await writeText(outputPath, events.join(""));
       await writeText(htmlPath, renderHtmlReport(summary));
 
       ui.box("Run Complete", [
         ui.label("Artifacts", String(summary.artifacts.length)),
         ui.label("Modules", String(summary.doc?.modules_processed ?? 0)),
+        ui.label("Execution", summary.execution?.phase || "not run"),
         ui.label(
           "Validation",
           summary.validation
@@ -1037,7 +1174,7 @@ export function createRunReporter(root) {
         ui.label("Report", ui.dim(htmlPath)),
       ]);
 
-      return { outputPath, htmlPath };
+      return { outputPath, htmlPath, telemetryJsonPath };
     },
   };
 }

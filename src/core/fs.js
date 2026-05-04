@@ -27,7 +27,7 @@ const HARD_EXCLUDES = [
   /^docs\//,
   /^agentify-report\.html$/,
   /^output\.txt$/,
-  /^AGENTIFY\.md$/,
+  /(^|\/)AGENTIFY\.md$/,
 ];
 
 const ignorePatternCache = new Map();
