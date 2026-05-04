@@ -571,7 +571,52 @@ function resolveProviderTimeoutMs(config) {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000;
 }
 
-async function generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config) {
+function providerErrorDetail(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function withLocalFallbackStatus(result, requestedProvider, reason) {
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      provider_status: {
+        status: "fallback",
+        provider: "local",
+        mode: "deterministic-local",
+        requested_provider: requestedProvider,
+        reason,
+      },
+    },
+  };
+}
+
+async function buildManagerPlanWithFallback(provider, fallbackProvider, repoContext, progress) {
+  if (!provider.buildManagerPlan) {
+    return fallbackProvider.buildManagerPlan(repoContext);
+  }
+
+  try {
+    return await provider.buildManagerPlan(repoContext);
+  } catch (error) {
+    if (provider.name === "local") {
+      throw error;
+    }
+    const detail = providerErrorDetail(error);
+    progress.log(`doc: provider "${provider.name}" failed during manager planning (${detail}); using deterministic local plan`);
+    const fallbackResult = await fallbackProvider.buildManagerPlan(repoContext);
+    return {
+      ...fallbackResult,
+      fallback: {
+        provider: "local",
+        requested_provider: provider.name,
+        reason: detail,
+      },
+    };
+  }
+}
+
+async function generateModuleArtifactsWithWatchdog(provider, fallbackProvider, moduleInfo, context, config, progress) {
   if (provider.name === "local") {
     return provider.generateModuleArtifacts(moduleInfo, context);
   }
@@ -591,10 +636,10 @@ async function generateModuleArtifactsWithWatchdog(provider, moduleInfo, context
       })
     ]);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `doc provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}`
-    );
+    const detail = providerErrorDetail(error);
+    progress.log(`doc: provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}; using deterministic local docs`);
+    const fallbackResult = await fallbackProvider.generateModuleArtifacts(moduleInfo, context);
+    return withLocalFallbackStatus(fallbackResult, provider.name, detail);
   } finally {
     if (timeout) {
       clearTimeout(timeout);
@@ -646,6 +691,7 @@ async function _runDocInner(root, config, options, progress) {
 
   await ensureBaselineArtifacts(artifactRoot, config);
   const provider = createProvider(config.provider, config);
+  const fallbackProvider = provider.name === "local" ? provider : createProvider("local", config);
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
   const dbPath = path.join(artifactRoot, ".agents", "index.db");
@@ -735,20 +781,7 @@ async function _runDocInner(root, config, options, progress) {
             total_tokens: 0
           }
         }
-      : provider.buildManagerPlan
-        ? await provider.buildManagerPlan(repoContext)
-        : {
-            plan: {
-              repo_summary: "",
-              shared_conventions: [],
-              module_focus: []
-            },
-            tokenUsage: {
-              input_tokens: 0,
-              output_tokens: 0,
-              total_tokens: 0
-            }
-          };
+      : await buildManagerPlanWithFallback(provider, fallbackProvider, repoContext, progress);
     cachedManagerPlan = Boolean(managerPlan);
 
     inputTokens += managerResult.tokenUsage.input_tokens;
@@ -845,7 +878,7 @@ async function _runDocInner(root, config, options, progress) {
         };
       }
 
-      const result = await generateModuleArtifactsWithWatchdog(provider, moduleInfo, context, config);
+      const result = await generateModuleArtifactsWithWatchdog(provider, fallbackProvider, moduleInfo, context, config, progress);
       return {
         moduleInfo,
         fingerprint,
@@ -952,8 +985,12 @@ async function _runDocInner(root, config, options, progress) {
     const moduleProviderStatuses = generatedModules
       .map((item) => item.result?.metadata?.provider_status)
       .filter(Boolean);
+    const fallbackModuleCount = moduleProviderStatuses
+      .filter((status) => status.status === "fallback" && status.mode === "deterministic-local")
+      .length;
+    const managerFallback = managerResult.fallback || null;
     const providerStatus = moduleProviderStatuses.length > 0
-      && moduleProviderStatuses.every((status) => status.status === "fallback" && status.mode === "deterministic-local")
+      && moduleProviderStatuses.every((status) => status.status === "fallback" && status.mode === "deterministic-local" && !status.requested_provider)
       ? {
           status: "fallback",
           provider: "local",
@@ -965,7 +1002,16 @@ async function _runDocInner(root, config, options, progress) {
             provider: provider.name,
             mode: "deterministic-local"
           }
-        : {
+        : fallbackModuleCount > 0 || managerFallback
+          ? {
+              status: "partial_fallback",
+              provider: provider.name,
+              mode: "provider-backed-with-local-fallback",
+              fallback_provider: "local",
+              fallback_modules: fallbackModuleCount,
+              manager_fallback: Boolean(managerFallback)
+            }
+          : {
             status: "success",
             provider: provider.name,
             mode: "provider-backed"

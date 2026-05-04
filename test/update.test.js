@@ -517,7 +517,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
   }
 });
 
-test("runDoc fails closed when an external module provider stalls", async () => {
+test("runDoc falls back to deterministic module docs when an external provider stalls", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-timeout-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-doc-provider-bin-"));
   const moduleDocPath = path.join(root, "src", "auth", "AGENTIFY.md");
@@ -553,13 +553,26 @@ setInterval(() => {}, 1000);
     await fs.unlink(moduleDocPath);
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
 
-    await assert.rejects(
-      () => runDoc(root, config, { skipOutput: true }),
-      /doc provider "codex" failed while generating module "auth".*timed out/,
-    );
+    const result = await runDoc(root, config, { skipOutput: true });
 
-    assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true).catch(() => false), false);
-    assert.equal(await fs.stat(moduleDocPath).then(() => true).catch(() => false), false);
+    assert.equal(result.provider_status.status, "partial_fallback");
+    assert.equal(result.provider_status.provider, "codex");
+    assert.equal(result.provider_status.fallback_provider, "local");
+    assert.equal(result.provider_status.fallback_modules, 1);
+    assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
+    assert.equal(await fs.stat(moduleDocPath).then(() => true), true);
+    const moduleDoc = await fs.readFile(moduleDocPath, "utf8");
+    assert.match(moduleDoc, /auth owns code under src\/auth/);
+    const fallbackDb = openIndexDatabase(root);
+    try {
+      const artifact = getArtifact(fallbackDb, "module-doc:auth");
+      assert.equal(artifact.payload.metadata.provider_status.status, "fallback");
+      assert.equal(artifact.payload.metadata.provider_status.provider, "local");
+      assert.equal(artifact.payload.metadata.provider_status.requested_provider, "codex");
+      assert.match(artifact.payload.metadata.provider_status.reason, /timed out|failed during module artifact generation/);
+    } finally {
+      closeIndexDatabase(fallbackDb);
+    }
     assert.equal(await fs.stat(path.join(root, ".agents", ".lock")).then(() => true).catch(() => false), false);
   } finally {
     if (previousPath === undefined) {
