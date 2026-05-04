@@ -436,6 +436,22 @@ export async function installAllBuiltinSkills(rootDir, options = {}) {
   };
 }
 
+export function buildSkillInstallHint(provider = "codex", scope = "project") {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  const installProvider = SKILL_INSTALL_PROVIDERS.includes(normalizedProvider)
+    ? normalizedProvider
+    : "codex";
+  const installScope = normalizeScope(scope);
+  const command = `agentify skill install all --provider ${installProvider} --scope ${installScope}`;
+
+  return {
+    installed: false,
+    reason: "skills_are_opt_in",
+    command,
+    message: `Skills were not installed. To opt in later, run: ${command}`,
+  };
+}
+
 export async function detectProjectSkillProviders(rootDir) {
   const detected = [];
 

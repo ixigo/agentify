@@ -28,7 +28,7 @@ import { runSemanticRefresh } from "./core/semantic.js";
 import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { runRepoSync } from "./core/repo-sync.js";
-import { installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
+import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, withSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
@@ -464,15 +464,18 @@ export async function runCli(argv) {
       case "init":
         await writeDefaultConfig(root, config, { dryRun: config.dryRun });
         await ensureBaselineArtifacts(root, config);
+        const skillInstallHint = buildSkillInstallHint(config.provider, "project");
         if (config.json) {
           console.log(JSON.stringify({
             command: "init",
             root,
             dry_run: Boolean(config.dryRun),
             wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+            skill_install_hint: skillInstallHint,
           }, null, 2));
         } else {
           success("Initialized agentify artifacts");
+          log(skillInstallHint.message);
         }
         return;
 

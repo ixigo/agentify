@@ -388,6 +388,8 @@ test("runCli init writes baseline local work and guardrail files", async () => {
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "work")));
+  await assert.rejects(() => fs.access(path.join(root, ".codex", "skills")), { code: "ENOENT" });
+  await assert.rejects(() => fs.access(path.join(root, ".claude", "skills")), { code: "ENOENT" });
 });
 
 test("runCli init preserves existing gitignore entries while adding Agentify ignores", async () => {
@@ -515,6 +517,10 @@ test("runCli init --json emits a single machine-readable payload", async () => {
   assert.equal(payload.command, "init");
   assert.equal(payload.root, root);
   assert.equal(payload.dry_run, false);
+  assert.equal(payload.skill_install_hint.installed, false);
+  assert.equal(payload.skill_install_hint.reason, "skills_are_opt_in");
+  assert.match(payload.skill_install_hint.command, /^agentify skill install all --provider codex --scope project$/);
+  await assert.rejects(() => fs.access(path.join(root, ".codex", "skills")), { code: "ENOENT" });
 });
 
 test("runCli doctor --json emits a single machine-readable payload", async () => {

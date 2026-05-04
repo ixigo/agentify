@@ -8,6 +8,7 @@ import { ensureBaselineArtifacts } from "./commands.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./config.js";
 import { exists } from "./fs.js";
 import { BOOTSTRAP_PROVIDER_NAMES, getProviderBootstrap, getProviderDefinition, stripAnsi } from "./provider-registry.js";
+import { buildSkillInstallHint } from "./skills.js";
 import * as ui from "./ui.js";
 
 export const BOOTSTRAP_PROVIDERS = BOOTSTRAP_PROVIDER_NAMES;
@@ -511,6 +512,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
       target: step.target,
     })),
     auth,
+    skill_install_hint: buildSkillInstallHint(provider, "project"),
   };
 
   if (args.json) {
@@ -529,6 +531,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
     const nextStep = auth.nextStep || getProviderBootstrap(provider)?.loginCommand;
     progress.warn(`85% login required: run ${nextStep}`);
   }
+  ui.log(result.skill_install_hint.message);
 
   return result;
 }

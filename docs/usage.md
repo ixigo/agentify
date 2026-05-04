@@ -1,11 +1,68 @@
-# Agentify + Codex Usage
+# Agentify Everyday Usage
 
-This is the exact operating guide for turning a Git repository into an Agentify-managed, Codex-ready codebase.
+This is the operating guide for a normal developer using Agentify day to day. It covers first-time setup, the required `doctor` check, daily refresh and validation, provider-backed work, sessions, and session memory.
+
+`agentify doctor` is the mandatory first check for any developer environment. Run it even if you are not planning to use Agentify for a task that day: it verifies the local AI-coding toolchain and shows exactly which required or recommended tools are missing. On macOS, `agentify this --provider <provider>` can install missing bootstrap tools after `doctor` exposes the gaps. On other platforms, install the tools from the `doctor` hints with your package manager, then rerun `doctor`.
+
+## Everyday Flow
+
+For most developers, the normal lifecycle is:
+
+1. Check the machine and repo toolchain.
+
+```bash
+agentify doctor
+```
+
+2. Initialize the repo once.
+
+```bash
+agentify this --provider codex   # macOS bootstrap path
+# or
+agentify init --provider codex   # manual/pre-provisioned path
+```
+
+3. Generate or refresh repo context.
+
+```bash
+agentify up
+```
+
+4. Install hooks once per repo.
+
+```bash
+agentify hooks install
+```
+
+Skills are not installed by default. Install them only when the repo or team intentionally wants provider-specific behavior under `.codex/skills/`, `.claude/skills/`, `.gemini/skills/`, or `.opencode/skills/`.
+
+5. Use lightweight runs for small tasks and sessions for multi-step work.
+
+```bash
+agentify run "fix the checkout retry bug"
+agentify sess run --provider codex --name "checkout-retries" "implement retries and tests"
+agentify sess resume --session <session-id> "continue from the last checkpoint"
+```
+
+6. Finish with validation and risk review before handing off or opening a PR.
+
+```bash
+agentify check
+agentify risk --since origin/main
+agentify handoff --session <session-id> "handoff current state"
+```
+
+If you only want a deterministic maintenance pass and do not need model-backed docs, use:
+
+```bash
+agentify up --provider local
+```
 
 ## What "Agent Ready" Means
 
 A repository is ready when all of these are true:
 
+- `agentify doctor` reports the expected capability tier for the repo.
 - `codex --version` works.
 - `codex login status` shows Codex is logged in.
 - `.agentify.yaml` exists and the repo provider is `codex`.
@@ -30,7 +87,7 @@ Recommended local tools:
 - `tree-sitter`
 - `mempalace` for optional session-memory acceleration
 
-Agentify's macOS bootstrap command installs missing versions of those tools automatically.
+`agentify doctor` reports these tools and prints install hints for anything missing. Agentify's macOS bootstrap command installs missing versions of the required native tools automatically.
 
 ## Fastest Setup On macOS
 
@@ -51,10 +108,17 @@ pnpm link --global
 cd /path/to/your/repo
 ```
 
-### 3. Bootstrap the repo for Codex
+### 3. Run doctor first
 
 ```bash
 agentify doctor
+```
+
+Treat `doctor` as the environment gate. If it reports missing tier tools, either let the macOS bootstrap install them in the next step or install them yourself and rerun `agentify doctor`.
+
+### 4. Bootstrap the repo for Codex
+
+```bash
 agentify this --provider codex
 ```
 
@@ -67,14 +131,22 @@ What this does:
 - Writes repo-local Agentify config and baseline artifacts.
 - Checks whether Codex auth is ready.
 
-### 4. If bootstrap says login is required, authenticate Codex
+### 5. If bootstrap says login is required, authenticate Codex
 
 ```bash
 codex login
 codex login status
 ```
 
-### 5. Generate the index, validation output, and run tests
+### 6. Re-run doctor after bootstrap
+
+```bash
+agentify doctor
+```
+
+This confirms the installed tools are now visible on `PATH`.
+
+### 7. Generate the index, validation output, and run tests
 
 ```bash
 agentify up
@@ -90,7 +162,7 @@ Detected commands include common JavaScript/TypeScript package scripts plus Pyth
 
 `doc` runs by default in `up`. Pass `--docs=false` only when you explicitly want to skip markdown refreshes.
 
-### 6. Confirm the repo is ready
+### 8. Confirm the repo is ready
 
 ```bash
 agentify check
@@ -134,12 +206,19 @@ codex login status
 cd /path/to/your/repo
 ```
 
-### 5. Initialize Agentify with Codex as the repo provider
+### 5. Run doctor before initializing the repo
+
+```bash
+agentify doctor
+```
+
+Fix missing tools from the printed install hints before continuing. This step matters even on machines where you do not plan to run Agentify commands often, because the same toolchain powers fast repo search, semantic indexing, and provider context quality.
+
+### 6. Initialize Agentify with Codex as the repo provider
 
 For a fresh repo with no existing Agentify config:
 
 ```bash
-agentify doctor
 agentify init --provider codex
 ```
 
@@ -149,7 +228,7 @@ If the repo already has `.agentify.yaml`, make sure it contains:
 provider: codex
 ```
 
-### 6. Generate repository artifacts
+### 7. Generate repository artifacts
 
 ```bash
 agentify up
@@ -216,6 +295,31 @@ You should also confirm:
 
 Use `agentify run` instead of calling `codex exec` directly when you want Agentify to keep the repo fresh.
 
+### Start the day with a health check
+
+Run this after switching repos, pulling a large branch, changing Node/provider installs, or onboarding to a new machine:
+
+```bash
+agentify doctor
+```
+
+`doctor` is read-only. It does not initialize the repo and does not change generated artifacts. It tells you whether the machine has the required baseline tools and whether optional accelerators such as semantic indexing and MemPalace are available.
+
+For a cheap daily refresh that does not spend provider tokens:
+
+```bash
+git pull
+agentify up --provider local
+agentify check
+```
+
+Use the default provider only when you want provider-backed docs or normal agent execution:
+
+```bash
+agentify up
+agentify run "fix the failing checkout test"
+```
+
 ### Run a normal task
 
 ```bash
@@ -263,14 +367,41 @@ Template runs are interactive by default across providers.
 
 ### Use sessions for longer work
 
+Use `sess` whenever the work is likely to span multiple prompts, multiple days, or multiple people. Sessions are the default path for durable memory.
+
 ```bash
 agentify sess run --provider codex --name "payments-v2" "implement initial module"
 agentify sess resume --session <session-id> "continue from the last checkpoint"
 agentify sess fork --from <session-id> --name "payments-alt" "try an alternate design"
+agentify sess list
 agentify handoff --session <session-id> "handoff to the next agent"
 ```
 
-`agentify handoff` writes `.agents/session/<id>/handoff.md` and `handoff.json` with ranked context, touched symbols, recommended tests, unresolved TODO/risk lines, and overlap hints from recent session handoffs.
+Each session writes durable artifacts under `.agents/session/<id>/`:
+
+- `bootstrap.md` with the starting context given to the provider
+- `context.json` and `checklist.json` with selected repo context and tasks
+- `memory-context.md` with recalled prior session memory
+- `transcript.md`, `turns.jsonl`, and `launches.jsonl` when capture is available
+- `handoff.md` and `handoff.json` after `agentify handoff`
+
+`agentify handoff` writes ranked context, touched symbols, recommended tests, unresolved TODO/risk lines, and overlap hints from recent session handoffs. Use it before handing work to another developer or another agent.
+
+### How session memory works day to day
+
+Session memory is automatic when you use `agentify sess run`, `sess resume`, or `sess fork`.
+
+- Without MemPalace, Agentify still uses local session artifacts and recent structured history.
+- With MemPalace installed, Agentify can mine prior session transcripts and inject more relevant memory into future sessions.
+- Normal `agentify run` can reuse existing session memory, but it does not create durable session history. Use `sess *` when future recall matters.
+
+The normal memory-aware loop is:
+
+```bash
+agentify sess run --provider codex --name "feature-name" "start the task"
+agentify sess resume --session <session-id> "continue after review feedback"
+agentify handoff --session <session-id> "summarize state for the next developer"
+```
 
 ### Launch opted-in issues in parallel
 
@@ -331,13 +462,15 @@ This adds:
   source-file edits in the working tree, so ordinary commits are not blocked.
 - a `post-merge` hook that refreshes the scan and deterministic local docs
 
-### 2. Install project-local skills for Codex
+### 2. Optionally install project-local skills for Codex
+
+Agentify does not install skills during `doctor`, `init`, `this`, `up`, `run`, or `sess`. Skill installation is intentionally explicit because it writes provider-specific agent instructions into the repo or user scope.
 
 ```bash
 agentify skill install all --provider codex --scope project
 ```
 
-This installs all built-in skills in one shot and is the recommended baseline for advanced teams.
+This installs all built-in skills in one shot. Use it only when the team has decided the repo should carry the full built-in skill set.
 
 ```bash
 agentify skill install worktree-autopilot --provider codex --scope project
@@ -345,7 +478,7 @@ agentify skill install grill-me --provider codex --scope project
 agentify skill install issue-killer --provider codex --scope project
 ```
 
-Use project scope when you want the repo to carry its own agent behavior under `.codex/skills/`.
+Use project scope when you want the repo to carry its own agent behavior under `.codex/skills/`. Use user scope when the behavior should stay local to one developer machine.
 
 ### 3. Keep guardrails repo-specific
 
@@ -441,13 +574,15 @@ cd /path/to/agentify
 pnpm install
 pnpm link --global
 cd /path/to/your/repo
+agentify doctor
 agentify this --provider codex
 codex login            # only if bootstrap reports login_required
+agentify doctor
 agentify up
 agentify check
 agentify hooks install
-agentify skill install worktree-autopilot --provider codex --scope project
-agentify skill install grill-me --provider codex --scope project
+# optional, intentional:
+# agentify skill install all --provider codex --scope project
 ```
 
 If you want the shortest exact sequence for a fresh repo without bootstrap:
@@ -460,12 +595,13 @@ pnpm link --global
 pnpm add --global @openai/codex tree-sitter-cli
 codex login
 cd /path/to/your/repo
+agentify doctor
 agentify init --provider codex
 agentify up
 agentify check
 agentify hooks install
-agentify skill install worktree-autopilot --provider codex --scope project
-agentify skill install grill-me --provider codex --scope project
+# optional, intentional:
+# agentify skill install all --provider codex --scope project
 ```
 
 ## Common Pitfalls
@@ -476,6 +612,7 @@ agentify skill install grill-me --provider codex --scope project
 - `init --provider codex` only sets the provider when `.agentify.yaml` does not already exist.
 - Sticky provider updates happen on `run`, `exec`, `sess run`, `sess resume`, and `sess fork`.
 - `local` is valid for `scan`, `doc`, `up`, and `check`, but not for `run` or `sess *`.
+- Skills are never installed by default; `agentify skill install ...` is an intentional opt-in step.
 - MemPalace is optional acceleration, not a hard requirement.
 - `run` is lightweight; use `sess *` when you want durable memory artifacts under `.agents/session/`.
 

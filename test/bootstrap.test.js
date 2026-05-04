@@ -228,6 +228,9 @@ test("runBootstrapCommand bootstraps a repo and persists provider", async () => 
   const config = await loadConfig(root);
   assert.equal(result.status, "ready");
   assert.equal(config.provider, "codex");
+  assert.equal(result.skill_install_hint.installed, false);
+  assert.equal(result.skill_install_hint.reason, "skills_are_opt_in");
+  assert.equal(result.skill_install_hint.command, "agentify skill install all --provider codex --scope project");
   assert.deepEqual(runtime.installs, [
     "brew:ripgrep",
     "brew:fd",
@@ -237,6 +240,7 @@ test("runBootstrapCommand bootstraps a repo and persists provider", async () => 
   ]);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agents")));
   await assert.doesNotReject(() => fs.access(path.join(root, "docs", "modules")));
+  await assert.rejects(() => fs.access(path.join(root, ".codex", "skills")), { code: "ENOENT" });
 });
 
 test("runBootstrapCommand bootstraps the exact requested root inside a larger git repository", async () => {
