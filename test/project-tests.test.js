@@ -56,7 +56,7 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
 });
 
-test("detectTestCommand discovers Python unittest repositories without package.json", async () => {
+test("detectTestCommand prefers pytest for Python file-pattern test signals", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-"));
   await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
   await fs.mkdir(path.join(root, "tests"), { recursive: true });
@@ -66,7 +66,7 @@ test("detectTestCommand discovers Python unittest repositories without package.j
 
   assert.deepEqual(result, {
     command: process.platform === "win32" ? "python" : "python3",
-    args: ["-m", "unittest", "discover"],
+    args: ["-m", "pytest"],
   });
 });
 

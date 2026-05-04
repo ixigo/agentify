@@ -43,7 +43,7 @@ async function createFakePython(binDir, markerPath) {
   await fs.writeFile(pythonPath, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(markerPath)}, process.argv.slice(2).join(" "));
-process.exit(process.argv[2] === "-m" && process.argv[3] === "unittest" && process.argv[4] === "discover" ? 0 : 2);
+process.exit(process.argv[2] === "-m" && process.argv[3] === "pytest" ? 0 : 2);
 `, "utf8");
   await fs.chmod(pythonPath, 0o755);
 }
@@ -307,8 +307,8 @@ test("runUpdate runs a discovered Python test command", async () => {
     const finalOutput = await runUpdate(root, config);
 
     assert.equal(finalOutput.tests.status, "passed");
-    assert.equal(finalOutput.tests.command, `${process.platform === "win32" ? "python" : "python3"} -m unittest discover`);
-    assert.equal(await fs.readFile(markerPath, "utf8"), "-m unittest discover");
+    assert.equal(finalOutput.tests.command, `${process.platform === "win32" ? "python" : "python3"} -m pytest`);
+    assert.equal(await fs.readFile(markerPath, "utf8"), "-m pytest");
   } finally {
     console.log = originalLog;
   }

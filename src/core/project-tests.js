@@ -179,7 +179,7 @@ async function detectPythonTestCommand(root) {
   const hasTestsDir = await exists(path.join(root, "tests"));
   const hasUnittestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
   if (hasTestsDir || hasUnittestFiles) {
-    return { command: pythonCommand(), args: ["-m", "unittest", "discover"] };
+    return { command: pythonCommand(), args: ["-m", "pytest"] };
   }
 
   return null;
@@ -209,10 +209,10 @@ async function detectDotnetTestCommand(root) {
 }
 
 async function detectJvmTestCommand(root) {
-  if (await exists(path.join(root, "gradlew"))) {
+  if (await exists(path.join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew"))) {
     return { command: process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew", args: ["test"] };
   }
-  if (await exists(path.join(root, "mvnw"))) {
+  if (await exists(path.join(root, process.platform === "win32" ? "mvnw.cmd" : "mvnw"))) {
     return { command: process.platform === "win32" ? ".\\mvnw.cmd" : "./mvnw", args: ["test"] };
   }
   if (await exists(path.join(root, "build.gradle")) || await exists(path.join(root, "build.gradle.kts"))) {
