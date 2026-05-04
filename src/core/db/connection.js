@@ -74,56 +74,52 @@ function createIndexSnapshot(dbPath) {
   return { tempDir, snapshotPath };
 }
 
-export function openIndexDatabase(root, options = {}) {
-  const sourceDbPath = getIndexDbPath(root);
-  const readOnly = Boolean(options.readOnly);
-  let dbPath = sourceDbPath;
-  let tempDir = null;
-  if (!readOnly) {
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  } else if (!fs.existsSync(sourceDbPath)) {
-    throw new Error(`missing index database at ${sourceDbPath}`);
-  } else {
-    const snapshot = createIndexSnapshot(sourceDbPath);
-    dbPath = snapshot.snapshotPath;
-    tempDir = snapshot.tempDir;
-  }
-  const openOptions = tempDir ? { ...options, readOnly: false } : options;
+function openDatabaseFile(dbPath, options = {}) {
   let implementation = driver;
   let db = null;
 
   if (implementation?.name === "better-sqlite3") {
     try {
-      db = openWithBetterSqlite3(dbPath, openOptions).db;
+      db = openWithBetterSqlite3(dbPath, options).db;
     } catch {
       implementation = null;
     }
   }
 
   if (!db && implementation?.name === "node:sqlite") {
-    db = openWithNodeSqlite(dbPath, openOptions).db;
+    try {
+      db = openWithNodeSqlite(dbPath, options).db;
+    } catch {
+      implementation = null;
+    }
   }
 
   if (!db) {
     try {
-      const opened = openWithBetterSqlite3(dbPath, openOptions);
+      const opened = openWithBetterSqlite3(dbPath, options);
       implementation = { name: opened.name };
       db = opened.db;
     } catch {
-      const opened = openWithNodeSqlite(dbPath, openOptions);
+      const opened = openWithNodeSqlite(dbPath, options);
       implementation = { name: opened.name };
       db = opened.db;
     }
   }
 
   driver = implementation;
-  if (tempDir) {
-    db.__agentifyTempDir = tempDir;
+  return { db, implementation };
+}
+
+function configureIndexConnection(db, implementation, { readOnly }) {
+  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec("PRAGMA foreign_keys = ON");
+
+  if (readOnly) {
+    db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version' LIMIT 1").get();
+    return;
   }
 
-  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS repo_meta (
@@ -335,8 +331,48 @@ export function openIndexDatabase(root, options = {}) {
     .run("schema_version", toJson(DB_SCHEMA_VERSION));
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
     .run("db_driver", toJson(implementation.name));
+}
 
-  return db;
+function openReadOnlyIndexDatabase(sourceDbPath, options) {
+  try {
+    const opened = openDatabaseFile(sourceDbPath, options);
+    try {
+      configureIndexConnection(opened.db, opened.implementation, { readOnly: true });
+      return opened.db;
+    } catch (error) {
+      opened.db.close();
+      throw error;
+    }
+  } catch {
+    const snapshot = createIndexSnapshot(sourceDbPath);
+    try {
+      const opened = openDatabaseFile(snapshot.snapshotPath, { ...options, readOnly: false });
+      opened.db.__agentifyTempDir = snapshot.tempDir;
+      configureIndexConnection(opened.db, opened.implementation, { readOnly: false });
+      return opened.db;
+    } catch (error) {
+      fs.rmSync(snapshot.tempDir, { recursive: true, force: true });
+      throw error;
+    }
+  }
+}
+
+export function openIndexDatabase(root, options = {}) {
+  const sourceDbPath = getIndexDbPath(root);
+  const readOnly = Boolean(options.readOnly);
+
+  if (readOnly) {
+    if (!fs.existsSync(sourceDbPath)) {
+      throw new Error(`missing index database at ${sourceDbPath}`);
+    }
+    return openReadOnlyIndexDatabase(sourceDbPath, options);
+  }
+
+  fs.mkdirSync(path.dirname(sourceDbPath), { recursive: true });
+  const opened = openDatabaseFile(sourceDbPath, options);
+  configureIndexConnection(opened.db, opened.implementation, { readOnly: false });
+
+  return opened.db;
 }
 
 export function closeIndexDatabase(db) {
