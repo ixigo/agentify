@@ -28,6 +28,12 @@ function octalMode(stats) {
   return (stats.mode & 0o777).toString(8);
 }
 
+function explainDetails(db, sql, ...params) {
+  return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params)
+    .map((row) => String(row.detail || ""))
+    .join("\n");
+}
+
 test("openIndexDatabase read-only snapshots use user-only permissions", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
@@ -140,6 +146,19 @@ test("structural store writes and searches repository index data", async () => {
     assert.equal(loadFiles(db, "app").length, 2);
     assert.equal(loadSymbols(db, "app")[0].name, "startApp");
     assert.equal(searchIndex(db, "start").symbols[0].name, "startApp");
+    assert.equal(searchIndex(db, "APP").symbols[0].name, "startApp");
+
+    const plan = explainDetails(db, `
+      SELECT name, kind, file_path, module_id, exported
+      FROM query_search_fts search
+      JOIN symbols ON symbols.symbol_id = CAST(search.entity_id AS INTEGER)
+      WHERE search.entity_type = 'symbol'
+        AND search.search_text LIKE ? ESCAPE '\\'
+      ORDER BY file_path, start_line
+      LIMIT ?
+    `, "%start%", 20);
+    assert.match(plan, /VIRTUAL TABLE/i);
+    assert.doesNotMatch(plan, /SCAN symbols/i);
   } finally {
     closeIndexDatabase(db);
   }
@@ -247,6 +266,18 @@ test("semantic store replaces snapshots and loads focused semantic facts", async
     assert.equal(loadSemanticProjectFactsByFile(db)[0].surface.displayName, "Dashboard");
     assert.equal(loadSemanticFileContext(db, "src/app/dashboard/page.tsx").exports[0].export_name, "default");
     assert.equal(searchSemanticIndex(db, "dashboard").semantic_surfaces[0].surface_key, "/dashboard");
+
+    const plan = explainDetails(db, `
+      SELECT surface_id, project_id, file_path, kind, role, surface_key, display_name
+      FROM query_search_fts search
+      JOIN semantic_surfaces ON semantic_surfaces.surface_id = search.entity_id
+      WHERE search.entity_type = 'semantic_surface'
+        AND search.search_text LIKE ? ESCAPE '\\'
+      ORDER BY file_path, kind, role
+      LIMIT ?
+    `, "%dashboard%", 20);
+    assert.match(plan, /VIRTUAL TABLE/i);
+    assert.doesNotMatch(plan, /SCAN semantic_surfaces/i);
   } finally {
     closeIndexDatabase(db);
   }
