@@ -498,7 +498,7 @@ setInterval(() => {}, 1000);
     } finally {
       closeIndexDatabase(db);
     }
-    await fs.unlink(path.join(root, "docs", "modules", "auth.md"));
+    await fs.unlink(path.join(root, "src", "auth", "AGENTIFY.md"));
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
 
     await assert.rejects(

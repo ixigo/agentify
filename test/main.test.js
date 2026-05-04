@@ -172,6 +172,42 @@ test("getSessionCaptureSettings preserves inherited stdio for custom session com
   );
 });
 
+test("prepareSessionLaunch records interactive template sessions through PTY capture for Codex and Claude", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-provider-template-capture-"));
+  const task = "Capture the provider transcript.";
+
+  for (const provider of ["codex", "claude"]) {
+    const sessionResult = {
+      manifest: {
+        session_id: `sess_${provider}_capture`,
+        provider,
+        name: `${provider} capture session`,
+      },
+      bootstrap: `# Session Context\n- Provider: ${provider}`,
+    };
+    const config = {
+      provider,
+      session: {
+        memoryPromptMaxKb: 4,
+        memoryResults: 3,
+        memoryTurns: 6,
+      },
+    };
+    const launch = await prepareSessionLaunch(root, config, parseArgs(["sess", "run", task]), sessionResult, task);
+
+    assert.equal(launch.provider, provider);
+    assert.equal(launch.captureSettings.captureMode, "interactive-pty");
+    assert.equal(launch.runExecFlags.captureOutputMode, "pty");
+    assert.equal(launch.sessionRecord.captureMode, "interactive-pty");
+    assert.equal(launch.sessionRecord.provider, provider);
+    assert.equal(launch.sessionRecord.task, task);
+    assert.equal(launch.runExecFlags.sessionRecord, launch.sessionRecord);
+    assert.equal(launch.agentCommand[0], provider);
+    assert.doesNotMatch(launch.agentCommand.join(" "), /\bexec\b|-p\b/);
+    assert.match(launch.agentCommand.at(-1), /Current task: Capture the provider transcript\./);
+  }
+});
+
 test("buildSessionPrompt injects automatic memory excerpts before the current task", () => {
   const prompt = buildSessionPrompt(
     "# Session Context\n- Provider: codex",
