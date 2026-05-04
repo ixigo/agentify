@@ -330,6 +330,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
+| `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |
@@ -421,9 +422,10 @@ Important behavior:
 ```bash
 agentify run --provider codex "implement payment retries"
 agentify run "add tests for retry backoff"
+agentify run --with-context "add tests for retry backoff"
 ```
 
-Use this for focused tasks where you want Agentify to build context and refresh the repo afterward, but you do not need a named durable workstream.
+Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` sends a compact first prompt by default; add `--with-context` when you want Agentify to build and inject the selected context.
 
 If the task is large or you want to inspect the selected context first:
 

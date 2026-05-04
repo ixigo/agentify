@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
-import { buildExecutionPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildMinimalRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,6 +17,16 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
   await execFileAsync("git", ["add", "."], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+}
+
+async function installFakeCodex(binDir, capturePath) {
+  const codexPath = path.join(binDir, "codex");
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(process.argv.slice(2)));
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+  return codexPath;
 }
 
 async function captureHelpText() {
@@ -146,6 +156,11 @@ test("getProviderTemplateOptions defaults non-codex template commands to interac
   assert.equal(options.interactive, true);
 });
 
+test("getProviderTemplateOptions allows explicit non-interactive template runs", () => {
+  const options = getProviderTemplateOptions({ interactive: false }, "/tmp/repo", "codex", true);
+  assert.equal(options.interactive, false);
+});
+
 test("getSessionCaptureSettings preserves inherited stdio for custom session commands", () => {
   assert.deepEqual(
     getSessionCaptureSettings(false, { interactive: false }),
@@ -230,6 +245,16 @@ test("buildExecutionPrompt prepends automatic memory before a normal run prompt"
   assert.ok(prompt.indexOf("Automatic Session Memory") < prompt.indexOf("Implement retry handling"));
 });
 
+test("buildMinimalRunPrompt keeps interactive run prompts compact", () => {
+  const prompt = buildMinimalRunPrompt("Implement retry handling for checkout refresh.");
+
+  assert.match(prompt, /Agentify-prepared repository/);
+  assert.match(prompt, /Task: Implement retry handling/);
+  assert.doesNotMatch(prompt, /Planner summary/);
+  assert.doesNotMatch(prompt, /Selected file slices/);
+  assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
 test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
   const prompt = buildExecutionPrompt("Summarize the auth module.", "", { caveman: "ultra" });
 
@@ -303,6 +328,74 @@ test("prepareSessionLaunch keeps sess subcommands on the same runExec payload pa
   assert.match(baseline.prompt, /Current task: Finish launch preparation/);
   assert.match(baseline.prompt, /Automatic Session Memory/);
   assert.deepEqual(baseline.agentCommand.slice(0, 3), ["opencode", "--dir", root]);
+});
+
+test("runCli passes a minimal prompt to interactive codex run by default", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-minimal-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(argv.slice(0, 2), ["--cd", root]);
+  assert.match(prompt, /Task: Implement login retries/);
+  assert.doesNotMatch(prompt, /Planner summary/);
+  assert.doesNotMatch(prompt, /Selected file slices/);
+  assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
+test("runCli passes planner context to interactive codex run when requested", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-context-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "login.js"), "export function login() { return true; }\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  await runCli(["scan", "--root", root]);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--with-context",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /Planner summary/);
+  assert.match(prompt, /Selected file slices/);
+  assert.match(prompt, /Task:\nImplement login retries/);
 });
 
 test("runCli supports skill install with provider all", async () => {

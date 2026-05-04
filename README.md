@@ -126,6 +126,12 @@ agentify run "implement the retry backoff"
 agentify check
 ```
 
+Interactive `run` starts with a compact prompt by default. Use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
+
+```bash
+agentify run --with-context "implement the retry backoff"
+```
+
 For longer workstreams, use sessions:
 
 ```bash
@@ -163,10 +169,11 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Refresh index, checks, and detected tests | `agentify up` |
 | Validate repo state | `agentify check` |
 | Validate after intentional source edits | `agentify check --hook` |
-| Preview task context | `agentify plan "your task"` |
+| Preview rich task context | `agentify plan "your task"` |
 | Search indexed repo context | `agentify query search --term auth` |
 | Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
 | Run a bounded task | `agentify run "your task"` |
+| Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
 | Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
@@ -220,6 +227,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--json` | Machine-readable JSON output only |
 | `--explain` | Include planner score breakdowns for plan output |
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
+| `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |

@@ -77,7 +77,10 @@ Run a small task:
 
 ```bash
 agentify run "fix the checkout retry bug"
+agentify run --with-context "fix the checkout retry bug"
 ```
+
+The default interactive `run` prompt is intentionally small. Use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
 
 Use a session for work that will continue later:
 
@@ -128,6 +131,7 @@ source ~/.zshrc
 | Validate generated state | `agentify check` |
 | Validate after intentional source edits | `agentify check --hook` |
 | One-off provider task | `agentify run "task"` |
+| One-off task with injected context | `agentify run --with-context "task"` |
 | Durable multi-step work | `agentify sess run ...` |
 | Continue durable work | `agentify sess resume --session <id> ...` |
 | Handoff work | `agentify handoff --session <id> ...` |

@@ -60,6 +60,7 @@ const BOOLEAN_FLAGS = new Set([
   "allowPartial",
   "reuseSession",
   "hook",
+  "withContext",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
@@ -151,7 +152,7 @@ function createMissingIndexGuidance(root) {
 
 export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
   const interactiveByDefault = usingTemplateCommand;
-  const interactive = args.interactive === true ? true : interactiveByDefault;
+  const interactive = hasOwn(args, "interactive") ? args.interactive === true : interactiveByDefault;
 
   return {
     root,
@@ -193,6 +194,17 @@ export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = 
   const prompt = String(basePrompt || "").trim();
   const promptWithMemory = [memoryMarkdown.trim(), prompt].filter(Boolean).join("\n\n");
   return applyCavemanPreamble(promptWithMemory, options.caveman, { promptKind: options.promptKind });
+}
+
+export function buildMinimalRunPrompt(userPrompt, options = {}) {
+  const task = buildRunPrompt(userPrompt);
+  const prompt = [
+    "You are running inside an Agentify-prepared repository.",
+    "Follow the user's task. Load repo docs or installed skills only when they are needed or explicitly invoked.",
+    "",
+    `Task: ${task}`,
+  ].join("\n");
+  return applyCavemanPreamble(prompt, options.caveman, { promptKind: options.promptKind });
 }
 
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
@@ -311,6 +323,7 @@ function printHelp() {
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
+    `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
@@ -527,16 +540,21 @@ export async function runCli(argv) {
       case "run": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
         const caveman = resolveCavemanLevel(args);
-        const memoryContext = await loadAutomaticRunMemory(root, task, config);
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
-        const plan = !args._exec?.length
+        const richContext = usingTemplateCommand && (providerOptions.interactive !== true || args.withContext === true || args.explainPlan === true);
+        const memoryContext = richContext
+          ? await loadAutomaticRunMemory(root, task, config)
+          : { markdown: "" };
+        const plan = richContext
           ? await buildExecutionPlan(root, config, task)
           : null;
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
-        const prompt = buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman });
+        const prompt = richContext
+          ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman })
+          : buildMinimalRunPrompt(task, { caveman });
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
