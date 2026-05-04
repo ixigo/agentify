@@ -103,7 +103,7 @@ Why this is better than a minimal setup:
 - `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
 - project-scoped skills make provider behavior more repeatable across contributors and sessions.
 - hooks keep the repo healthier between manual runs.
-- `up` and `check` ensure the repo is indexed and validated before agent work starts; docs are optional in `up` unless `--docs=true`.
+- `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts; use `--docs=false` only when you want a scan/check/test pass without markdown refresh.
 
 ## Single-File LLM Instructions
 
@@ -128,12 +128,12 @@ It is written so the model treats the current working directory as the target re
 
 | Command | What it does | Why and when to use it | Example |
 | --- | --- | --- | --- |
-| `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/work/`, `.agents/`, and `docs/modules/`. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
+| `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/work/`, `.agents/`, and `docs/modules/` for root-module fallback docs. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
 | `agentify index` | Scans the repo and writes the SQLite index. | Use when you want the machine-readable repo graph refreshed but do not need markdown docs yet. | `agentify index` |
 | `agentify scan` | Alias for `index`. | Use it when you prefer the word "scan" in scripts or team docs. Functionally it is the same as `index`. | `agentify scan` |
 | `agentify doc` | Generates `AGENTIFY.md`, module docs, repo map updates, and refreshes eligible file headers. | Use after indexing when you want human-readable and agent-readable documentation updated. | `agentify doc` |
-| `agentify up` | Runs the full maintenance pipeline: `index -> check -> tests` (and `doc` only when `--docs=true`). | Use as the default maintenance command when you want the repo refreshed and validated in one step, and opt into docs refresh explicitly when needed. | `agentify up --docs=true` |
-| `agentify sync` | Upgrades repo-owned Agentify files, refreshes repo-scoped built-in skills and managed hooks, then runs a local `scan -> check -> tests` pass (and `doc` only when `--docs=true`). | Use after upgrading the Agentify CLI itself when you want an already-Agentified repo to pick up newly added config keys, baseline artifacts, hook templates, or built-in project skills. | `agentify sync --docs=true` |
+| `agentify up` | Runs the full maintenance pipeline: `index -> doc -> check -> tests` unless `--docs=false` is set. | Use as the default maintenance command when you want the repo refreshed, documented, and validated in one step. | `agentify up` |
+| `agentify sync` | Upgrades repo-owned Agentify files, refreshes repo-scoped built-in skills and managed hooks, then runs a local `scan -> doc -> check -> tests` pass unless `--docs=false` is set. | Use after upgrading the Agentify CLI itself when you want an already-Agentified repo to pick up newly added config keys, baseline artifacts, hook templates, or built-in project skills. | `agentify sync` |
 | `agentify check` | Validates freshness, schema state, and guardrail/safety expectations. | Use before committing, after a large refresh, or inside hooks/CI to confirm Agentify artifacts are consistent. | `agentify check` |
 | `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
@@ -535,7 +535,8 @@ Common generated paths:
 ```txt
 AGENTIFY.md
 docs/repo-map.md
-docs/modules/*.md
+<module-root>/AGENTIFY.md
+docs/modules/*.md for repository-root module fallback
 .agents/index.db
 .agents/runs/*.json
 .agentignore

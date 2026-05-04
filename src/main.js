@@ -277,7 +277,7 @@ function printHelp() {
     `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,
     `    ${c("--languages")} ${d("<auto|ts|python|go|rust|dotnet|java|kotlin|swift>")}`,
     `    ${c("--dry-run")}                   Report planned changes without writing`,
-    `    ${c("--docs")}                      Generate docs during refresh/update flows (off by default)`,
+    `    ${c("--docs")}                      Generate docs during refresh/update flows (on by default; use --docs=false to skip)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
     `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,

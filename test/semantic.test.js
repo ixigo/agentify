@@ -267,7 +267,7 @@ test("doc uses semantic repo map and deterministic semantic headers when enabled
 
   const repoMap = await fs.readFile(path.join(root, "docs", "repo-map.md"), "utf8");
   const pageSource = await fs.readFile(path.join(root, "src", "app", "dashboard", "page.tsx"), "utf8");
-  const appDoc = await fs.readFile(path.join(root, "docs", "modules", "app.md"), "utf8");
+  const appDoc = await fs.readFile(path.join(root, "src", "app", "AGENTIFY.md"), "utf8");
 
   assert.match(repoMap, /## Semantic Projects/);
   assert.match(repoMap, /## Routes/);

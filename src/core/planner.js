@@ -402,7 +402,7 @@ Execution rules:
 - Discovery budget before the first edit: at most ${executionBudget.max_additional_reads_before_edit} additional file or doc reads, and at most ${executionBudget.max_widenings} widening step(s) outside the selected context.
 - ${editStartRule}
 - Before each widening step, declare \`INSUFFICIENT_CONTEXT: blocker=<specific missing fact>; needed=<specific file, symbol, or doc>; reads_used=<n>; widenings_used=<n>\`.
-- If you still need more context within the budget, read \`AGENTIFY.md\`, \`docs/repo-map.md\`, and \`docs/modules/*.md\` before widening further.
+- If you still need more context within the budget, read root \`AGENTIFY.md\`, \`docs/repo-map.md\`, and relevant module-root \`AGENTIFY.md\` files before widening further.
 
 Task:
 ${plan.task}

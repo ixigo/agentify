@@ -59,7 +59,7 @@ test("scan and doc generate required artifacts", async () => {
 
   assert.equal(result.passed, true);
   assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   const summary = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
   assert.match(summary, /# AGENTIFY\.md/);
@@ -370,7 +370,7 @@ test("passes", () => {
 });
 `);
 
-  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: false });
   await runUpdate(root, config);
 
   assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
@@ -464,7 +464,7 @@ setInterval(() => {}, 1000);
     );
 
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true).catch(() => false), false);
-    assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true).catch(() => false), false);
+    assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true).catch(() => false), false);
     assert.equal(await fs.stat(path.join(root, ".agents", ".lock")).then(() => true).catch(() => false), false);
   } finally {
     if (previousPath === undefined) {
@@ -478,7 +478,7 @@ setInterval(() => {}, 1000);
   await runDoc(root, localConfig, { skipOutput: true });
 
   assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true), true);
 });
 
 test("runDoc refreshes cached markdown and summary with current module metadata", async () => {
@@ -517,7 +517,7 @@ test("runDoc refreshes cached markdown and summary with current module metadata"
 
   await runDoc(root, config);
 
-  const moduleDoc = await fs.readFile(path.join(root, "docs", "modules", "auth.md"), "utf8");
+  const moduleDoc = await fs.readFile(path.join(root, "src", "auth", "AGENTIFY.md"), "utf8");
   const repoDoc = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
   assert.doesNotMatch(moduleDoc, /undefined/);
   assert.doesNotMatch(repoDoc, /undefined/);
