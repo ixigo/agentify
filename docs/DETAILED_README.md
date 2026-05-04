@@ -147,6 +147,7 @@ Configure overrides in `.agentify.yaml` under the `tests.env` key:
 
 ```yaml
 tests:
+  outputMaxKb: 48        # max stdout bytes and max stderr bytes captured in run reports
   env:
     inherit: false        # set to true to forward the entire host environment (legacy behavior, not recommended)
     passthrough: []       # list of additional env var names to forward from the host shell

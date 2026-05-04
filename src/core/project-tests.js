@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
+import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import { exists, readJson } from "./fs.js";
 
 const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
@@ -81,17 +82,21 @@ export function buildTestEnv(testsConfig = {}, sourceEnv = process.env) {
   return env;
 }
 
-async function runChildCommand(command, args, { cwd, env } = {}) {
-  const stdoutChunks = [];
-  const stderrChunks = [];
+function getTestOutputMaxBytes(testsConfig = {}) {
+  return normalizeCaptureMaxBytes(testsConfig.outputMaxKb, DEFAULT_CAPTURE_MAX_KB);
+}
+
+async function runChildCommand(command, args, { cwd, env, outputMaxBytes } = {}) {
+  const stdoutCapture = createBoundedCaptureBuffer(outputMaxBytes);
+  const stderrCapture = createBoundedCaptureBuffer(outputMaxBytes);
 
   const code = await new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env });
     child.stdout.on("data", (chunk) => {
-      stdoutChunks.push(String(chunk));
+      stdoutCapture.append(chunk);
     });
     child.stderr.on("data", (chunk) => {
-      stderrChunks.push(String(chunk));
+      stderrCapture.append(chunk);
     });
     child.on("error", reject);
     child.on("close", resolve);
@@ -99,8 +104,13 @@ async function runChildCommand(command, args, { cwd, env } = {}) {
 
   return {
     code: Number(code ?? 1),
-    stdout: stdoutChunks.join(""),
-    stderr: stderrChunks.join(""),
+    stdout: stdoutCapture.toString(),
+    stderr: stderrCapture.toString(),
+    stdoutTruncated: stdoutCapture.truncated,
+    stderrTruncated: stderrCapture.truncated,
+    stdoutBytes: stdoutCapture.seenBytes,
+    stderrBytes: stderrCapture.seenBytes,
+    outputMaxBytes,
   };
 }
 
@@ -142,6 +152,8 @@ export async function detectTestCommand(root) {
 }
 
 export async function runProjectTests(root, reporter, options = {}) {
+  const testsConfig = options.config?.tests || options.tests || {};
+  const outputMaxBytes = getTestOutputMaxBytes(testsConfig);
   const testCommand = await detectTestCommand(root);
   if (!testCommand) {
     const result = {
@@ -150,6 +162,11 @@ export async function runProjectTests(root, reporter, options = {}) {
       command: null,
       stdout: "",
       stderr: "",
+      stdout_truncated: false,
+      stderr_truncated: false,
+      stdout_bytes: 0,
+      stderr_bytes: 0,
+      output_max_bytes: outputMaxBytes,
       exit_code: null,
     };
     reporter.log("tests: skipped because no package.json test script was found");
@@ -157,14 +174,19 @@ export async function runProjectTests(root, reporter, options = {}) {
     return result;
   }
 
-  const testsConfig = options.config?.tests || options.tests || {};
   const env = buildTestEnv(testsConfig);
 
   reporter.log(`tests: running ${testCommand.command} ${testCommand.args.join(" ")}`);
   if (testsConfig.env?.inherit !== true) {
     reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
   }
-  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env });
+  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env, outputMaxBytes });
+  if (outcome.stdoutTruncated) {
+    reporter.log(`tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`);
+  }
+  if (outcome.stderrTruncated) {
+    reporter.log(`tests: stderr truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stderrBytes} bytes; configure tests.outputMaxKb to adjust`);
+  }
   if (outcome.stdout) {
     reporter.appendSection("[tests stdout]", outcome.stdout);
   }
@@ -178,6 +200,11 @@ export async function runProjectTests(root, reporter, options = {}) {
     command: `${testCommand.command} ${testCommand.args.join(" ")}`,
     stdout: outcome.stdout,
     stderr: outcome.stderr,
+    stdout_truncated: outcome.stdoutTruncated,
+    stderr_truncated: outcome.stderrTruncated,
+    stdout_bytes: outcome.stdoutBytes,
+    stderr_bytes: outcome.stderrBytes,
+    output_max_bytes: outcome.outputMaxBytes,
     exit_code: outcome.code,
   };
   reporter.log(`tests: ${result.status}`);

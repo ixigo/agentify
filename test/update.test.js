@@ -296,15 +296,18 @@ test("runUpdate persists test metadata for passing and failing up and sync run r
       }
 
       const persistedRun = await readLatestRunReport(root, testCase.commandName);
-      const expectedTests = {
-        status: testCase.expectedStatus,
-        passed: testCase.expectedPassed,
-        command: "npm test",
-        exit_code: testCase.exitCode,
-      };
-
-      assert.deepEqual(finalOutput.tests, expectedTests);
-      assert.deepEqual(persistedRun.tests, expectedTests);
+      for (const tests of [finalOutput.tests, persistedRun.tests]) {
+        assert.equal(tests.status, testCase.expectedStatus);
+        assert.equal(tests.passed, testCase.expectedPassed);
+        assert.equal(tests.command, "npm test");
+        assert.equal(tests.stdout_truncated, false);
+        assert.equal(tests.stderr_truncated, false);
+        assert.equal(typeof tests.stdout_bytes, "number");
+        assert.equal(typeof tests.stderr_bytes, "number");
+        assert.equal(tests.output_max_bytes, 49152);
+        assert.equal(tests.exit_code, testCase.exitCode);
+      }
+      assert.deepEqual(finalOutput.tests, persistedRun.tests);
     }
   } finally {
     process.exitCode = previousExitCode;
