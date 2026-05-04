@@ -265,7 +265,10 @@ Template runs are interactive by default across providers.
 agentify sess run --provider codex --name "payments-v2" "implement initial module"
 agentify sess resume --session <session-id> "continue from the last checkpoint"
 agentify sess fork --from <session-id> --name "payments-alt" "try an alternate design"
+agentify handoff --session <session-id> "handoff to the next agent"
 ```
+
+`agentify handoff` writes `.agents/session/<id>/handoff.md` and `handoff.json` with ranked context, touched symbols, recommended tests, unresolved TODO/risk lines, and overlap hints from recent session handoffs.
 
 ### Launch opted-in issues in parallel
 

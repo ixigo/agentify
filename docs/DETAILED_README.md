@@ -176,9 +176,10 @@ tests:
 | `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
+| `agentify handoff` | Writes deterministic Markdown and JSON handoff artifacts for a session. | Use before switching agents or worktrees so the next agent gets ranked context, touched symbols, tests, TODO/risk lines, and recent-session overlap hints. | `agentify handoff --session sess_20260331_ab12cd "next task"` |
 | `agentify issue-killer` | Launches opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude prompt running with provider permission checks bypassed. | Use when you want several labelled or explicit issues handled in parallel without giving agents arbitrary access to the whole issue backlog. | `agentify issue-killer --label agentify-ready --agent-provider codex --limit 5` |
 
-Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command. Handoff bundles live beside those artifacts as `handoff.md` and `handoff.json`.
 
 Normal `run` is intentionally lightweight. It does not persist durable session memory artifacts under `.agents/session/`; if you need reusable memory across multiple launches, use `sess *`.
 
@@ -228,6 +229,7 @@ agentify sess run [--provider <name>] [--name <label>] [--from <parent-id>] "tas
 agentify sess list
 agentify sess resume --session <id> "task"
 agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
+agentify handoff --session <id> "next task"
 ```
 
 Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
