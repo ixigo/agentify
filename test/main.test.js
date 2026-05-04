@@ -519,7 +519,7 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.match(gitignoreText, /# >>> agentify generated artifacts/);
   assert.match(gitignoreText, /^\.agents\/$/m);
   assert.match(skillText, /Interview the user relentlessly/);
-  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
+  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
 });

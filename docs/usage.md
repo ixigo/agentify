@@ -323,7 +323,7 @@ This adds:
   validator still checks freshness and unsafe generated artifacts under
   `.agents/` and `docs/`, but it does not flag intentional source-file edits in
   the working tree, so ordinary commits are not blocked.
-- a `post-merge` hook that refreshes the scan
+- a `post-merge` hook that refreshes the scan and deterministic local docs
 
 ### 2. Install project-local skills for Codex
 
