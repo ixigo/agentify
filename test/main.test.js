@@ -315,6 +315,61 @@ test("runCli plan reports actionable guidance when the index is missing", async 
   );
 });
 
+test("runCli plan --explain renders text and JSON score breakdowns", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-explain-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "auth", "service.js"),
+    "export function loginUser(rawToken) {\n  return rawToken.trim();\n}\n",
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const stdoutChunks = [];
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk, encoding, callback) => {
+    stdoutChunks.push(String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  });
+
+  try {
+    await runCli(["plan", "--root", root, "--explain", "fix loginUser"]);
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+  }
+
+  const text = stdoutChunks.join("");
+  assert.match(text, /Agentify plan explanation/);
+  assert.match(text, /lexical\/token match=/);
+  assert.match(text, /recency\/changed-file boost=/);
+  assert.match(text, /lexical\.symbol\.direct_name_match/);
+
+  const jsonOutput = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    jsonOutput.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["plan", "--root", root, "--explain", "--json", "fix loginUser"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(jsonOutput.length, 1);
+  const payload = JSON.parse(jsonOutput[0]);
+  assert.equal(payload.explain.schema_version, 1);
+  assert.ok(payload.selected_files.some((fileInfo) => typeof fileInfo.score_breakdown?.total === "number"));
+  assert.ok(payload.selected_symbols.some((symbolInfo) => symbolInfo.reasons.some((reason) => reason.code === "lexical.symbol.direct_name_match")));
+});
+
 test("runCli query reports actionable guidance when the index is missing", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-query-missing-index-"));
   await runCli(["init", "--root", root]);
