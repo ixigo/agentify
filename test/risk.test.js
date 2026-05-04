@@ -63,6 +63,25 @@ test("buildRiskReport marks shared dependency changes high risk and prioritizes 
   assert.ok(report.prioritized_test_commands.some((commandInfo) => commandInfo.command_line === "npm run test"));
 });
 
+test("buildRiskReport keeps unresolved structural imports in impact graph", async () => {
+  const root = await withFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "src/domain.ts", "export function domain() { return true; }\n");
+    await writeFile(fixtureRoot, "src/runtime.ts", "import { domain } from './domain';\nexport const value = domain();\n");
+  });
+  const db = openIndexDatabase(root);
+  try {
+    db.prepare("UPDATE imports SET to_path = NULL, to_module_id = NULL WHERE from_path = ?").run("src/runtime.ts");
+  } finally {
+    closeIndexDatabase(db);
+  }
+
+  const report = await buildRiskReport(root, {
+    changedFiles: [{ status: "D", path: "src/domain.ts" }],
+  });
+
+  assert.ok(report.impacted.files.some((fileInfo) => fileInfo.path === "src/runtime.ts" && fileInfo.distance === 1));
+});
+
 test("buildRiskReport keeps isolated test-only changes low risk", async () => {
   const root = await withFixture(async (fixtureRoot) => {
     await writeFile(fixtureRoot, "src/core.ts", "export function core() { return true; }\n");
@@ -196,4 +215,11 @@ test("runCli risk --json emits a stable machine-readable report", async () => {
   assert.equal(payload.command, "risk");
   assert.equal(payload.changed_files[0].path, "src/core.ts");
   assert.ok(Array.isArray(payload.prioritized_test_commands));
+});
+
+test("runCli risk rejects --since without a value", async () => {
+  await assert.rejects(
+    () => runCli(["risk", "--since"]),
+    /risk --since requires a commit or ref value/,
+  );
 });

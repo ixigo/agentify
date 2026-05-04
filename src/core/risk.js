@@ -57,18 +57,46 @@ function addEdge(map, from, to, kind) {
   map.get(fromPath).push({ path: toPath, kind });
 }
 
+function unresolvedImportTargets(fromPath, specifier) {
+  const rawSpecifier = String(specifier || "");
+  if (!rawSpecifier.startsWith(".")) {
+    return [];
+  }
+
+  const basePath = normalizePath(path.join(path.dirname(fromPath), rawSpecifier));
+  return [
+    basePath,
+    `${basePath}.js`,
+    `${basePath}.jsx`,
+    `${basePath}.mjs`,
+    `${basePath}.cjs`,
+    `${basePath}.ts`,
+    `${basePath}.tsx`,
+    `${basePath}/index.js`,
+    `${basePath}/index.jsx`,
+    `${basePath}/index.mjs`,
+    `${basePath}/index.cjs`,
+    `${basePath}/index.ts`,
+    `${basePath}/index.tsx`,
+  ];
+}
+
 function loadImportEdges(db) {
   const structural = normalizeRows(db.prepare(`
-    SELECT from_path, to_path, kind
+    SELECT from_path, to_path, specifier, kind
     FROM imports
-    WHERE to_path IS NOT NULL
     ORDER BY from_path, to_path, kind
-  `).all()).map((row) => ({
-    from: row.from_path,
-    to: row.to_path,
-    kind: `import:${row.kind}`,
-    source: "structural",
-  }));
+  `).all()).flatMap((row) => {
+    const targets = row.to_path
+      ? [row.to_path]
+      : unresolvedImportTargets(row.from_path, row.specifier);
+    return targets.map((target) => ({
+      from: row.from_path,
+      to: target,
+      kind: `import:${row.kind}${row.to_path ? "" : ":unresolved"}`,
+      source: "structural",
+    }));
+  });
 
   const semantic = normalizeRows(db.prepare(`
     SELECT from_file_path, to_file_path, edge_kind, edge_domain, confidence

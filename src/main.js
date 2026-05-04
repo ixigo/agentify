@@ -556,6 +556,9 @@ export async function runCli(argv) {
       case "risk": {
         let result;
         try {
+          if (args.since === true) {
+            throw new Error("risk --since requires a commit or ref value");
+          }
           result = await buildRiskReport(root, {
             since: args.since ? String(args.since) : null,
           });
