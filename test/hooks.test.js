@@ -6,12 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { installHooks } from "../src/core/hooks.js";
+import { installHooks, syncManagedHooks } from "../src/core/hooks.js";
 
 const execFileAsync = promisify(execFile);
 
-function isExecutable(mode) {
-  return (mode & 0o111) !== 0;
+function fileMode(mode) {
+  return mode & 0o777;
 }
 
 test("installHooks writes a valid post-merge refresh command", async () => {
@@ -88,7 +88,7 @@ test("installHooks skips disabled hooks and removes managed disabled hooks", asy
     "#!/bin/sh\ncustom merge step\n\n# @agentify post-merge hook\nagentify scan\n",
     "utf8",
   );
-  await fs.chmod(path.join(hooksDir, "post-merge"), 0o755);
+  await fs.chmod(path.join(hooksDir, "post-merge"), 0o700);
 
   const result = await installHooks(root, { preCommit: true, postMerge: false });
 
@@ -97,5 +97,24 @@ test("installHooks skips disabled hooks and removes managed disabled hooks", asy
   const postMerge = await fs.readFile(path.join(hooksDir, "post-merge"), "utf8");
   assert.match(preCommit, /agentify check --hook/);
   assert.equal(postMerge, "#!/bin/sh\ncustom merge step\n");
-  assert.equal(isExecutable((await fs.stat(path.join(hooksDir, "post-merge"))).mode), true);
+  assert.equal(fileMode((await fs.stat(path.join(hooksDir, "post-merge"))).mode), 0o700);
+});
+
+test("syncManagedHooks preserves mode when pruning disabled managed hook content", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-"));
+  const hooksDir = path.join(root, ".git", "hooks");
+  const hookPath = path.join(hooksDir, "pre-commit");
+  await fs.mkdir(hooksDir, { recursive: true });
+  await fs.writeFile(
+    hookPath,
+    "#!/bin/sh\ncustom pre-commit step\n\n# @agentify pre-commit hook\nagentify check\n",
+    "utf8",
+  );
+  await fs.chmod(hookPath, 0o710);
+
+  const result = await syncManagedHooks(root, { settings: { preCommit: false, postMerge: true } });
+
+  assert.equal(result.results.find((item) => item.name === "pre-commit")?.status, "removed_disabled");
+  assert.equal(await fs.readFile(hookPath, "utf8"), "#!/bin/sh\ncustom pre-commit step\n");
+  assert.equal(fileMode((await fs.stat(hookPath)).mode), 0o710);
 });

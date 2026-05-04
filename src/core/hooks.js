@@ -36,6 +36,22 @@ async function safeRead(filePath) {
   }
 }
 
+async function readFileMode(filePath) {
+  try {
+    return (await fs.stat(filePath)).mode & 0o777;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTextPreservingMode(filePath, text) {
+  const mode = await readFileMode(filePath);
+  await writeText(filePath, text);
+  if (mode !== null) {
+    await fs.chmod(filePath, mode);
+  }
+}
+
 function stripAgentifyBlock(content) {
   const lines = String(content || "").split(/\r?\n/);
   const filtered = [];
@@ -80,8 +96,7 @@ async function removeManagedHookBlock(hookPath) {
 
   const { remaining } = stripAgentifyBlock(content);
   if (remaining && remaining !== "#!/bin/sh") {
-    await writeText(hookPath, `${remaining}\n`);
-    await fs.chmod(hookPath, 0o755);
+    await writeTextPreservingMode(hookPath, `${remaining}\n`);
   } else {
     await fs.unlink(hookPath).catch(() => {});
   }
@@ -187,8 +202,7 @@ export async function syncManagedHooks(root, { dryRun = false, settings = {} } =
 
       if (!dryRun) {
         if (remaining && remaining !== "#!/bin/sh") {
-          await writeText(hookPath, `${remaining}\n`);
-          await fs.chmod(hookPath, 0o755);
+          await writeTextPreservingMode(hookPath, `${remaining}\n`);
         } else {
           await fs.unlink(hookPath).catch(() => {});
         }
