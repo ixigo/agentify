@@ -174,6 +174,12 @@ const BUILTIN_SKILLS = [
       "Guide pull request creation across GitHub, GitLab, or Azure DevOps by checking CLI prerequisites/auth first, then opening a draft PR and returning the link.",
   },
   {
+    name: "pr-convention-learner",
+    aliases: [],
+    description:
+      "Fetch Azure DevOps PR review comments, resolve actionable feedback, extract recurring reviewer patterns into per-repo conventions, and check new code against learned conventions before PR creation.",
+  },
+  {
     name: "commit-creator",
     aliases: [],
     description:

@@ -154,6 +154,29 @@ test("installBuiltinSkill copies pr creator skill bundle into project scope", as
   assert.equal(await exists(uiPath), true);
 });
 
+test("installBuiltinSkill copies pr convention learner skill bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-pr-convention-"));
+  const result = await installBuiltinSkill(root, {
+    name: "pr-convention-learner",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const basePath = path.join(root, ".codex", "skills", "pr-convention-learner");
+  const skillPath = path.join(basePath, "SKILL.md");
+  const uiPath = path.join(basePath, "agents", "openai.yaml");
+  const fetchScriptPath = path.join(basePath, "scripts", "fetch_pr.sh");
+  const extractScriptPath = path.join(basePath, "scripts", "extract_conventions.sh");
+  const checkScriptPath = path.join(basePath, "scripts", "check_conventions.sh");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+  assert.equal(await exists(fetchScriptPath), true);
+  assert.equal(await exists(extractScriptPath), true);
+  assert.equal(await exists(checkScriptPath), true);
+});
+
 test("installBuiltinSkill copies commit creator skill bundle into project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-commit-creator-"));
   const result = await installBuiltinSkill(root, {
