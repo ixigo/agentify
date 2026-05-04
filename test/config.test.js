@@ -30,6 +30,17 @@ test("loadConfig applies nested semantic flags", async () => {
   assert.equal(config.semantic.tsjs.workerConcurrency, 2);
 });
 
+test("loadConfig keeps doctor --semantic from replacing semantic settings", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-doctor-semantic-"));
+
+  const config = await loadConfig(root, {
+    semantic: true,
+    "semantic.tsjs.enabled": true,
+  });
+
+  assert.equal(config.semantic.tsjs.enabled, true);
+});
+
 test("loadConfig applies planner execution budget overrides", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-planner-budget-"));
   await fs.writeFile(

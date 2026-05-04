@@ -255,6 +255,42 @@ async function computeFingerprint(root, filePaths, cache = null, instrumentation
   return crypto.createHash("sha256").update(entries.sort().join("\n")).digest("hex");
 }
 
+export async function computeSemanticProjectFingerprint(root, filePaths) {
+  return computeFingerprint(root, filePaths);
+}
+
+function formatTsDiagnostic(diagnostic) {
+  return ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
+}
+
+export async function discoverSemanticProjectParseFailures(root) {
+  const relFiles = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
+  const configFiles = relFiles.filter(isConfigCandidate).map(normalizeRepoPath).sort();
+  const failures = [];
+
+  for (const configPath of configFiles) {
+    const absoluteConfigPath = path.join(root, configPath);
+    const configFile = ts.readConfigFile(absoluteConfigPath, ts.sys.readFile);
+    if (configFile.error) {
+      failures.push({
+        config_path: configPath,
+        message: formatTsDiagnostic(configFile.error),
+      });
+      continue;
+    }
+
+    const parsed = ts.parseJsonConfigFileContent(configFile.config || {}, ts.sys, path.dirname(absoluteConfigPath));
+    for (const diagnostic of parsed.errors || []) {
+      failures.push({
+        config_path: configPath,
+        message: formatTsDiagnostic(diagnostic),
+      });
+    }
+  }
+
+  return failures;
+}
+
 function pruneFileHashCache(cache, discoveredProjects) {
   const discoveredFiles = new Set(discoveredProjects.flatMap((project) => project.filePaths));
   for (const filePath of Object.keys(cache.files)) {

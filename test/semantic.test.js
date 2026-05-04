@@ -15,6 +15,7 @@ import {
 import { buildExecutionPlan } from "../src/core/planner.js";
 import { queryDeps, queryOwner, querySearch } from "../src/core/query.js";
 import { runSemanticRefresh } from "../src/core/semantic.js";
+import { runDoctor } from "../src/core/toolchain.js";
 import { setSilent } from "../src/core/ui.js";
 
 async function writeSemanticFixture(root) {
@@ -341,6 +342,150 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
   } finally {
     closeIndexDatabase(db);
   }
+});
+
+test("doctor --semantic --json reports healthy semantic project diagnostics", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-healthy-"));
+  await writeSemanticFixture(root);
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    json: true,
+    "semantic.tsjs.enabled": true,
+  });
+
+  await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runDoctor(root, config, { semantic: true });
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(output.length, 1);
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.command, "doctor");
+  assert.equal(payload.semantic.schema_version, "semantic-doctor-v1");
+  assert.equal(payload.semantic.discovered_project_count, 1);
+  assert.equal(payload.semantic.healthy_project_count, 1);
+  assert.equal(payload.semantic.stale_project_count, 0);
+  assert.equal(payload.semantic.failures.length, 0);
+  assert.ok(payload.semantic.projects[0].symbol_count > 0);
+  assert.ok(payload.semantic.projects[0].surface_count > 0);
+  assert.ok(payload.semantic.projects[0].edge_count > 0);
+  assert.ok(payload.semantic.projects[0].trend_hints.includes("Semantic snapshot is current."));
+});
+
+test("doctor --semantic detects stale fingerprints and failed semantic projects for CI", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-stale-"));
+  await writeSemanticFixture(root);
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    json: true,
+    "semantic.tsjs.enabled": true,
+  });
+
+  await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+  await fs.appendFile(path.join(root, "src", "auth", "useAuth.tsx"), "export const stale = true;\n");
+
+  const db = openIndexDatabase(root);
+  try {
+    db.prepare("UPDATE semantic_projects SET status = 'failed', last_error = ?").run("intentional semantic fixture failure");
+  } finally {
+    closeIndexDatabase(db);
+  }
+
+  const output = [];
+  const originalLog = console.log;
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runDoctor(root, config, { semantic: true, failOnStale: true });
+    assert.equal(process.exitCode, 80);
+  } finally {
+    console.log = originalLog;
+    process.exitCode = originalExitCode;
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.semantic.stale_project_count, 1);
+  assert.equal(payload.semantic.stale_fingerprints.length, 1);
+  assert.ok(payload.semantic.failures.some((failure) => failure.category === "analysis-failed"));
+  assert.match(payload.semantic.projects[0].last_error, /intentional semantic fixture failure/);
+});
+
+test("doctor --semantic reports parse failures from broken tsconfig fixtures", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-parse-"));
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "broken-semantic-fixture" }, null, 2));
+  await fs.writeFile(path.join(root, "tsconfig.json"), "{ invalid json\n");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "app.ts"), "export const app = true;\n");
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    json: true,
+    "semantic.tsjs.enabled": true,
+  });
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runDoctor(root, config, { semantic: true });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.ok(payload.semantic.failures.some((failure) => failure.category === "parse-failed"));
+});
+
+test("doctor --semantic reports parse failures in text output when no projects are discovered", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-parse-empty-"));
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "broken-empty-semantic-fixture" }, null, 2));
+  await fs.writeFile(path.join(root, "tsconfig.json"), "{ invalid json\n");
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    json: false,
+    "semantic.tsjs.enabled": true,
+  });
+
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (chunk, encoding, callback) => {
+    stderr += String(chunk);
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await runDoctor(root, config, { semantic: true });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  assert.match(stderr, /No TS\/JS semantic projects discovered\./);
+  assert.match(stderr, /Semantic issues:/);
+  assert.match(stderr, /parse-failed config:tsconfig\.json:/);
 });
 
 test("doc --json emits a single payload when semantic refresh is enabled", async () => {
