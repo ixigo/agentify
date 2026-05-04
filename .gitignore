@@ -3,6 +3,8 @@ node_modules/
 .agents/session/
 .agents/cache/
 .agents/.lock
+.agents/*
+.claude/*
 *.tmp
 .codex/*
 !.codex/skills/

@@ -71,7 +71,8 @@ function normalizeBranchPart(value) {
     .replace(/\/{2,}/g, "/")
     .replace(/-+/g, "-")
     .replace(/^[-/.]+|[-/.]+$/g, "")
-    .slice(0, 70);
+    .slice(0, 70)
+    .replace(/^[-/.]+|[-/.]+$/g, "");
 }
 
 function parseGitHubIssueUrl(url) {
@@ -225,7 +226,10 @@ async function loadIssues(root, options) {
 
 function createBranchName(issue, branchPrefix) {
   const prefix = normalizeBranchPart(branchPrefix || "issue") || "issue";
-  const slug = normalizeBranchPart(issue.title) || `issue-${issue.number}`;
+  const slug = normalizeBranchPart(issue.title)
+    .replaceAll("/", "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "") || `issue-${issue.number}`;
   return `${prefix}/${issue.number}-${slug}`;
 }
 
@@ -245,6 +249,12 @@ async function getWorktreePathForBranch(root, branch) {
 }
 
 async function createWorktree(root, assignment, options) {
+  try {
+    return await getWorktreePathForBranch(root, assignment.branch);
+  } catch {
+    // No existing worktree for this branch; create one below.
+  }
+
   const args = ["-C", root, "switch", "--create", "--yes"];
   if (options.base && options.base !== true) {
     args.push("--base", String(options.base));
@@ -295,9 +305,40 @@ async function tmuxSessionExists(name) {
   }
 }
 
+async function splitOrCreateWindow(session, windowTarget, shellArgs, assignment) {
+  try {
+    await execFileAsync("tmux", [
+      "split-window",
+      "-t",
+      windowTarget,
+      "-c",
+      assignment.worktreePath,
+      ...shellArgs,
+    ]);
+  } catch (error) {
+    const output = `${error?.stdout || ""}\n${error?.stderr || ""}`;
+    if (!output.includes("no space for new pane")) {
+      throw error;
+    }
+
+    await execFileAsync("tmux", [
+      "new-window",
+      "-d",
+      "-t",
+      `${session}:`,
+      "-n",
+      `issue-${assignment.issue.number}`,
+      "-c",
+      assignment.worktreePath,
+      ...shellArgs,
+    ]);
+  }
+}
+
 async function launchTmux(assignments, options) {
   const shell = process.env.SHELL || "sh";
   const session = options.sessionName;
+  const windowTarget = `${session}:`;
   const exists = await tmuxSessionExists(session);
   if (exists && !options.reuseSession) {
     throw new Error(`tmux session "${session}" already exists. Pass --reuse-session or choose --session-name.`);
@@ -321,19 +362,12 @@ async function launchTmux(assignments, options) {
         ...shellArgs,
       ]);
     } else {
-      await execFileAsync("tmux", [
-        "split-window",
-        "-t",
-        `${session}:0`,
-        "-c",
-        assignment.worktreePath,
-        ...shellArgs,
-      ]);
+      await splitOrCreateWindow(session, windowTarget, shellArgs, assignment);
     }
   }
 
   if (assignments.length > 1) {
-    await execFileAsync("tmux", ["select-layout", "-t", `${session}:0`, "tiled"]);
+    await execFileAsync("tmux", ["select-layout", "-t", windowTarget, "tiled"]);
   }
 }
 
