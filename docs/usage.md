@@ -86,6 +86,8 @@ agentify up
 - `check`
 - repo tests when a runnable test command is detected
 
+Detected commands include common JavaScript/TypeScript package scripts plus Python, Go, Rust, .NET, Java/Kotlin, and Swift project test commands. If a non-JS stack is detected but Agentify cannot identify a runnable command, the test phase reports `unsupported` and `up` exits non-zero instead of presenting a false-green run.
+
 `doc` runs by default in `up`. Pass `--docs=false` only when you explicitly want to skip markdown refreshes.
 
 ### 6. Confirm the repo is ready
@@ -385,6 +387,7 @@ agentify check
 ```
 
 Use `agentify doctor` afterward to confirm semantic projects are being reported.
+Use `agentify doctor --semantic --json --fail-on-stale` in CI when stale fingerprints, parse failures, analysis failures, or partial semantic coverage should fail the job.
 
 ### 6. Enable MemPalace-backed session-memory acceleration
 

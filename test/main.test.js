@@ -292,6 +292,32 @@ test("runCli supports skill install all for codex project scope", async () => {
   }
 });
 
+test("runCli hooks install honors hook settings from .agentify.yaml", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-hooks-config-"));
+  await fs.mkdir(path.join(root, ".git", "hooks"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    "hooks:\n  preCommit: true\n  postMerge: false\n",
+    "utf8",
+  );
+
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await runCli(["hooks", "install", "--root", root]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const preCommit = await fs.readFile(path.join(root, ".git", "hooks", "pre-commit"), "utf8");
+  assert.match(preCommit, /agentify check --hook/);
+  await assert.rejects(() => fs.access(path.join(root, ".git", "hooks", "post-merge")), { code: "ENOENT" });
+});
+
 test("runCli memory compress reports placeholder status", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-memory-compress-"));
   const output = [];

@@ -292,6 +292,107 @@ test("renderExecutionPrompt uses discovery budget defaults when older plans omit
   assert.match(prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>/);
 });
 
+test("planner stages verification commands by command type", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-command-staging-"));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        lint: "eslint .",
+        build: "tsc -p tsconfig.json",
+        test: "node --test",
+      },
+    }, null, 2),
+    "utf8",
+  );
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "runner.ts"),
+    "export function runTask() { return 'ok'; }\n",
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+
+  const plan = await buildExecutionPlan(root, config, "fix runTask validation");
+
+  assert.deepEqual(
+    plan.verification_commands.map((commandInfo) => commandInfo.command_type),
+    ["test", "build", "lint"],
+  );
+  assert.match(plan.prompt, /- \[test: early focused\/sanity check\] npm run test/);
+  assert.match(plan.prompt, /- \[build: final compile\/package check\] npm run build/);
+  assert.match(plan.prompt, /- \[lint: final static\/style check\] npm run lint/);
+});
+
+test("planner keeps command type and module coverage when limiting verification commands", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-command-coverage-"));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      workspaces: ["packages/*"],
+    }, null, 2),
+    "utf8",
+  );
+
+  for (const moduleName of ["app", "api", "worker"]) {
+    const moduleRoot = path.join(root, "packages", moduleName);
+    await fs.mkdir(path.join(moduleRoot, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(moduleRoot, "package.json"),
+      JSON.stringify({
+        name: `@example/${moduleName}`,
+        scripts: {
+          test: "node --test",
+          build: "tsc -p tsconfig.json",
+          lint: "eslint .",
+        },
+      }, null, 2),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(moduleRoot, "src", "index.ts"),
+      `export const ${moduleName.replace(/[^a-z]/g, "")}Value = true;\n`,
+      "utf8",
+    );
+  }
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+
+  const plan = await buildExecutionPlan(root, config, "update workspace validation");
+  const commandTypes = new Set(plan.verification_commands.map((commandInfo) => commandInfo.command_type));
+  const moduleIds = new Set(plan.verification_commands.map((commandInfo) => commandInfo.module_id));
+
+  assert.equal(plan.verification_commands.length, 6);
+  assert.deepEqual([...commandTypes].sort(), ["build", "lint", "test"]);
+  assert.equal(moduleIds.size, 3);
+});
+
+test("renderExecutionPrompt preserves verification command categories", () => {
+  const prompt = renderExecutionPrompt({
+    task: "update validation",
+    confidence: 0.5,
+    prompt_bytes: 0,
+    selected_modules: [],
+    selected_symbols: [],
+    selected_files: [],
+    related_tests: [],
+    verification_commands: [
+      { command_type: "lint", command: "pnpm", args: ["lint"] },
+      { command_type: "test", command: "pnpm", args: ["test"] },
+      { command_type: "build", command: "pnpm", args: ["build"] },
+    ],
+  });
+
+  assert.match(prompt, /- \[lint: final static\/style check\] pnpm lint/);
+  assert.match(prompt, /- \[test: early focused\/sanity check\] pnpm test/);
+  assert.match(prompt, /- \[build: final compile\/package check\] pnpm build/);
+  assert.ok(prompt.indexOf("[test:") < prompt.indexOf("[build:"));
+  assert.ok(prompt.indexOf("[build:") < prompt.indexOf("[lint:"));
+});
+
 test("renderExecutionPrompt snapshots changed files and module dependency context", () => {
   const prompt = renderExecutionPrompt(baseRenderPlan({
     selected_modules: [

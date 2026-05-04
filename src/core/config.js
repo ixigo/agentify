@@ -31,7 +31,6 @@ const DEFAULT_CONFIG = {
   hooks: {
     preCommit: true,
     postMerge: true,
-    autoRefresh: false,
   },
   cache: {
     enabled: true,
@@ -146,6 +145,7 @@ function applyNestedFlags(config, flags) {
 
   for (const [key, value] of Object.entries(flags)) {
     if (key === "_") continue;
+    if (key === "semantic" && typeof value === "boolean") continue;
     const parts = key
       .split(".")
       .filter(Boolean)
@@ -153,6 +153,15 @@ function applyNestedFlags(config, flags) {
     setNested(result, parts, value);
   }
   return result;
+}
+
+function normalizeConfig(config) {
+  const normalized = { ...config };
+  if (normalized.hooks && typeof normalized.hooks === "object" && !Array.isArray(normalized.hooks)) {
+    const { autoRefresh: _autoRefresh, ...hooks } = normalized.hooks;
+    normalized.hooks = hooks;
+  }
+  return normalized;
 }
 
 export async function loadConfig(root, flags = {}) {
@@ -168,7 +177,7 @@ export async function loadConfig(root, flags = {}) {
   }
 
   const merged = deepMerge(DEFAULT_CONFIG, fileConfig);
-  return applyNestedFlags(merged, flags);
+  return normalizeConfig(applyNestedFlags(merged, flags));
 }
 
 export async function writeDefaultConfig(root, config, { dryRun = false } = {}) {
@@ -198,7 +207,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     topKeyFilesPerModule: config.topKeyFilesPerModule,
     budgets: config.budgets,
     toolchain: config.toolchain,
-    hooks: config.hooks,
+    hooks: normalizeConfig(config).hooks,
     cache: config.cache,
     cleanup: config.cleanup,
     session: config.session,
@@ -229,7 +238,7 @@ export async function syncConfigFile(root, config, { dryRun = false } = {}) {
     }
   }
 
-  const merged = deepMerge(DEFAULT_CONFIG, fileConfig);
+  const merged = normalizeConfig(deepMerge(DEFAULT_CONFIG, fileConfig));
   if (!existing && config?.provider) {
     merged.provider = config.provider;
   }

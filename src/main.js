@@ -8,6 +8,7 @@ import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { queryOwner, queryDeps, queryChanged, querySearch } from "./core/query.js";
+import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
 import { forkSession, listSessions, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
@@ -42,6 +43,7 @@ const BOOLEAN_FLAGS = new Set([
   "interactive",
   "docs",
   "headers",
+  "semantic",
   "failOnStale",
   "skipRefresh",
   "explainPlan",
@@ -88,6 +90,17 @@ function normalizeProvider(value) {
   }
   assertSupportedProvider(provider);
   return provider;
+}
+
+function normalizeOptionalSince(args, commandName) {
+  if (!hasOwn(args, "since")) {
+    return null;
+  }
+  const since = String(args.since).trim();
+  if (!since || since === "true") {
+    throw new Error(`${commandName} --since requires a commit or ref value`);
+  }
+  return since;
 }
 
 async function maybePersistProvider(root, config, args, command, subcommand) {
@@ -260,6 +273,7 @@ function printHelp() {
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed)")}`,
+    `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("sess")}            ${d("Manage provider-backed sessions")}`,
     `    ${c("handoff")}         ${d("Write a cross-agent handoff bundle for a session")}`,
@@ -280,6 +294,7 @@ function printHelp() {
     `    ${c("--dry-run")}                   Report planned changes without writing`,
     `    ${c("--docs")}                      Generate docs during refresh/update flows (on by default; use --docs=false to skip)`,
     `    ${c("--headers")}                   Apply @agentify headers to source files (off by default)`,
+    `    ${c("--semantic")}                  Show detailed semantic diagnostics with doctor`,
     `    ${c("--provider-timeout-ms")} ${d("<ms>")}     Fail provider doc calls after N milliseconds`,
     `    ${c("--ghost")}                     Route outputs to .current_session/`,
     `    ${c("--json")}                      Machine-readable JSON output only`,
@@ -307,6 +322,8 @@ function printHelp() {
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
     `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
+    `    ${d("$")} agentify risk --since origin/main`,
+    `    ${d("$")} agentify risk --json`,
     `    ${d("$")} agentify skill list`,
     `    ${d("$")} agentify skill install all --provider codex --scope project`,
     `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
@@ -592,6 +609,26 @@ export async function runCli(argv) {
         return;
       }
 
+      case "risk": {
+        let result;
+        try {
+          result = await buildRiskReport(root, {
+            since: normalizeOptionalSince(args, "risk"),
+          });
+        } catch (error) {
+          if (isMissingIndexError(error)) {
+            throw createMissingIndexGuidance(root);
+          }
+          throw error;
+        }
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log(renderRiskReport(result));
+        }
+        return;
+      }
+
       case "skill":
       case "skills": {
         if (subcommand === "list") {
@@ -774,11 +811,15 @@ export async function runCli(argv) {
 
       case "hooks": {
         if (subcommand === "install") {
-          const installed = await installHooks(root);
+          const { installed, removed } = await installHooks(root, config.hooks);
           if (installed.length > 0) {
             success(`Installed hooks: ${installed.join(", ")}`);
-          } else {
-            log("All hooks already installed.");
+          }
+          if (removed.length > 0) {
+            success(`Removed disabled hooks: ${removed.join(", ")}`);
+          }
+          if (installed.length === 0 && removed.length === 0) {
+            log("Enabled hooks already installed.");
           }
         } else if (subcommand === "remove") {
           const removed = await removeHooks(root);
@@ -804,7 +845,7 @@ export async function runCli(argv) {
       }
 
       case "doctor":
-        await runDoctor(root, config);
+        await runDoctor(root, config, { semantic: args.semantic === true, failOnStale: args.failOnStale === true });
         return;
 
       case "semantic":

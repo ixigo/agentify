@@ -16,9 +16,13 @@ agentify scan --json >/dev/null 2>&1 && agentify doc --provider local --json >/d
 `;
 
 const HOOK_BODIES = [
-  ["pre-commit", PRE_COMMIT_BODY],
-  ["post-merge", POST_MERGE_BODY],
+  { name: "pre-commit", configKey: "preCommit", body: PRE_COMMIT_BODY },
+  { name: "post-merge", configKey: "postMerge", body: POST_MERGE_BODY },
 ];
+
+function isHookEnabled(settings, configKey) {
+  return settings?.[configKey] !== false;
+}
 
 function renderHookScript(body) {
   return `#!/bin/sh\n${body.trimEnd()}\n`;
@@ -29,6 +33,22 @@ async function safeRead(filePath) {
     return await fs.readFile(filePath, "utf8");
   } catch {
     return null;
+  }
+}
+
+async function readFileMode(filePath) {
+  try {
+    return (await fs.stat(filePath)).mode & 0o777;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTextPreservingMode(filePath, text) {
+  const mode = await readFileMode(filePath);
+  await writeText(filePath, text);
+  if (mode !== null) {
+    await fs.chmod(filePath, mode);
   }
 }
 
@@ -70,16 +90,37 @@ function composeHookContent(existing, body) {
   return `${remaining}\n\n${body.trimEnd()}\n`;
 }
 
-export async function installHooks(root) {
+async function removeManagedHookBlock(hookPath) {
+  const content = await safeRead(hookPath);
+  if (!content || !content.includes(AGENTIFY_MARKER)) return false;
+
+  const { remaining } = stripAgentifyBlock(content);
+  if (remaining && remaining !== "#!/bin/sh") {
+    await writeTextPreservingMode(hookPath, `${remaining}\n`);
+  } else {
+    await fs.unlink(hookPath).catch(() => {});
+  }
+  return true;
+}
+
+export async function installHooks(root, settings = {}) {
   const hooksDir = path.join(root, ".git", "hooks");
   if (!(await exists(hooksDir))) {
     throw new Error(".git/hooks directory not found — is this a git repository?");
   }
 
   const installed = [];
+  const removed = [];
 
-  for (const [name, body] of HOOK_BODIES) {
+  for (const { name, configKey, body } of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
+    if (!isHookEnabled(settings, configKey)) {
+      if (await removeManagedHookBlock(hookPath)) {
+        removed.push(name);
+      }
+      continue;
+    }
+
     const existing = await safeRead(hookPath);
     const next = composeHookContent(existing, body);
 
@@ -92,7 +133,7 @@ export async function installHooks(root) {
     installed.push(name);
   }
 
-  return installed;
+  return { installed, removed };
 }
 
 export async function removeHooks(root) {
@@ -100,7 +141,7 @@ export async function removeHooks(root) {
   if (!(await exists(hooksDir))) return [];
 
   const removed = [];
-  for (const [name] of HOOK_BODIES) {
+  for (const { name } of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
     const content = await safeRead(hookPath);
     if (!content || !content.includes(AGENTIFY_MARKER)) continue;
@@ -108,6 +149,7 @@ export async function removeHooks(root) {
     const { remaining } = stripAgentifyBlock(content);
     if (remaining && remaining !== "#!/bin/sh") {
       await writeText(hookPath, `${remaining}\n`);
+      await fs.chmod(hookPath, 0o755);
     } else {
       await fs.unlink(hookPath).catch(() => {});
     }
@@ -130,7 +172,7 @@ export async function statusHooks(root) {
   };
 }
 
-export async function syncManagedHooks(root, { dryRun = false } = {}) {
+export async function syncManagedHooks(root, { dryRun = false, settings = {} } = {}) {
   const hooksDir = path.join(root, ".git", "hooks");
   if (!(await exists(hooksDir))) {
     return {
@@ -142,9 +184,39 @@ export async function syncManagedHooks(root, { dryRun = false } = {}) {
 
   const results = [];
 
-  for (const [name, body] of HOOK_BODIES) {
+  for (const { name, configKey, body } of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
     const existing = await safeRead(hookPath);
+
+    if (!isHookEnabled(settings, configKey)) {
+      if (!existing) {
+        results.push({ name, path: hookPath, managed: false, status: "skipped_disabled" });
+        continue;
+      }
+
+      const { hadMarker, remaining } = stripAgentifyBlock(existing);
+      if (!hadMarker) {
+        results.push({ name, path: hookPath, managed: false, status: "skipped_disabled_unmanaged" });
+        continue;
+      }
+
+      if (!dryRun) {
+        if (remaining && remaining !== "#!/bin/sh") {
+          await writeTextPreservingMode(hookPath, `${remaining}\n`);
+        } else {
+          await fs.unlink(hookPath).catch(() => {});
+        }
+      }
+
+      results.push({
+        name,
+        path: hookPath,
+        managed: true,
+        status: dryRun ? "would_remove_disabled" : "removed_disabled",
+      });
+      continue;
+    }
+
     if (!existing) {
       results.push({ name, path: hookPath, managed: false, status: "skipped_missing" });
       continue;
@@ -175,7 +247,9 @@ export async function syncManagedHooks(root, { dryRun = false } = {}) {
     });
   }
 
-  const changed = results.some((item) => item.status === "updated" || item.status === "would_update");
+  const changed = results.some((item) =>
+    ["updated", "would_update", "removed_disabled", "would_remove_disabled"].includes(item.status)
+  );
   return {
     git_repository: true,
     results,
