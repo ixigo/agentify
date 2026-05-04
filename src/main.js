@@ -151,6 +151,14 @@ function createMissingIndexGuidance(root) {
   );
 }
 
+function getSearchTerm(args, commandName) {
+  const term = args.term === undefined ? args._[2] : args.term;
+  if (!term || term === true) {
+    throw new Error(`${commandName} search requires --term <value> or a positional search term`);
+  }
+  return String(term);
+}
+
 export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
   const interactiveByDefault = usingTemplateCommand;
   const interactive = hasOwn(args, "interactive") ? args.interactive === true : interactiveByDefault;
@@ -709,8 +717,7 @@ export async function runCli(argv) {
             if (!args.since) throw new Error("query changed requires --since <commit>");
             result = await queryChanged(root, args.since);
           } else if (subcommand === "search") {
-            if (!args.term) throw new Error("query search requires --term <value>");
-            result = await querySearch(root, args.term);
+            result = await querySearch(root, getSearchTerm(args, "query"));
           } else if (subcommand === "def") {
             if (!args.symbol) throw new Error("query def requires --symbol <name>");
             result = await queryDef(root, args.symbol);

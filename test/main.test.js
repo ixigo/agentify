@@ -415,6 +415,41 @@ test("runCli passes planner context to interactive codex run when requested", as
   assert.match(prompt, /Task:\nImplement login retries/);
 });
 
+test("runCli context search returns ranked repo context without provider CLI", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-search-"));
+  const output = [];
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
+  await fs.mkdir(path.join(root, "src", "billing"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "auth", "login.js"),
+    "export function loginUser() { return true; }\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(root, "src", "billing", "invoice.js"),
+    "export function buildInvoice() { return true; }\n",
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  try {
+    await runCli(["context", "search", "login", "--root", root]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const payload = JSON.parse(output.join("\n"));
+  assert.equal(payload.term, "login");
+  assert.ok(payload.refs.some((ref) => ref.path === "src/auth/login.js"));
+  assert.ok(payload.refs.some((ref) => ref.name === "loginUser"));
+});
+
 test("runCli passes routed context prompt to codex run", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-bin-"));
@@ -449,6 +484,45 @@ test("runCli passes routed context prompt to codex run", async () => {
   assert.match(prompt, /agentify context search <term>/);
   assert.match(prompt, /No full source file bodies are injected/);
   assert.doesNotMatch(prompt, /Selected file slices/);
+});
+
+test("runCli sess run builds routed context with a fake codex provider", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-default-context-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "route.js"), "export function routeRequest() { return true; }\n", "utf8");
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "sess",
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--interactive=false",
+      "--skip-refresh",
+      "--name",
+      "routed-context",
+      "Use routed context",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(argv.slice(0, 2), ["exec", prompt]);
+  assert.match(prompt, /Full routing: host shell -> \.agents\/index\.db/);
+  assert.match(prompt, /Current task: Use routed context/);
+  assert.match(prompt, /Automatic Session Memory/);
 });
 
 test("runCli passes routed context prompt to codex sess run and compacts facts", async () => {

@@ -242,6 +242,38 @@ test("planner surfaces explicit discovery budget and edit-start contract", async
   assert.match(plan.prompt, /Edit after selected context unless blocked: true/);
 });
 
+test("planner slices selected files around matched symbols and honors byte caps", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-symbol-slice-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  const prefix = Array.from({ length: 80 }, (_, index) => `export const unrelated${index} = ${index};`).join("\n");
+  const suffix = Array.from({ length: 80 }, (_, index) => `export const tail${index} = ${index};`).join("\n");
+  await fs.writeFile(
+    path.join(root, "src", "checkout.js"),
+    `${prefix}\nexport function calculateRetryBackoff(attempt) {\n  return Math.min(attempt * 100, 1000);\n}\n${suffix}\n`,
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  config.planner = {
+    ...config.planner,
+    maxFiles: 1,
+    maxSymbols: 1,
+    maxSourceBytes: 420,
+  };
+  config.budgets.perFile = 420;
+  await runScan(root, config);
+
+  const plan = await buildExecutionPlan(root, config, "fix calculateRetryBackoff cap");
+  const file = plan.selected_files.find((fileInfo) => fileInfo.path === "src/checkout.js");
+
+  assert.ok(file);
+  assert.ok(file.excerpt_bytes <= 420);
+  assert.match(file.excerpt, /calculateRetryBackoff/);
+  assert.doesNotMatch(file.excerpt, /unrelated0/);
+  assert.match(file.excerpt, /\.\.\.$/);
+});
+
 test("planner explain mode emits stable reason codes and complete score breakdowns", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-explain-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
