@@ -131,6 +131,8 @@ function fitContext(manifest, index, checklist, options, config) {
   const memoryArtifacts = getSessionArtifactPaths(options.root || "", manifest.session_id);
   const transcriptRef = options.root ? `.agents/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
   const memoryContextRef = options.root ? `.agents/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
+  const handoffJsonRef = options.root ? `.agents/session/${manifest.session_id}/handoff.json` : memoryArtifacts.handoffJsonPath;
+  const handoffMarkdownRef = options.root ? `.agents/session/${manifest.session_id}/handoff.md` : memoryArtifacts.handoffMarkdownPath;
   const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
   const rawInteractiveLogRef = options.root ? `.agents/session/${manifest.session_id}/interactive.log` : memoryArtifacts.rawInteractiveLogPath;
   const turnsRef = options.root ? `.agents/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
@@ -146,6 +148,7 @@ function fitContext(manifest, index, checklist, options, config) {
   for (const attempt of attempts) {
     const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
     const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
+    const includeHandoffRefs = attempt !== attempts[attempts.length - 1];
     const candidate = {
       schema_version: "1.0",
       session_id: manifest.session_id,
@@ -168,6 +171,10 @@ function fitContext(manifest, index, checklist, options, config) {
         checklist: `.agents/session/${manifest.session_id}/checklist.json`,
         transcript: transcriptRef,
         memory_context: memoryContextRef,
+        ...(includeHandoffRefs ? {
+          handoff_json: handoffJsonRef,
+          handoff_markdown: handoffMarkdownRef,
+        } : {}),
         launches: launchesRef,
         raw_interactive_log: rawInteractiveLogRef,
         turns: turnsRef,
@@ -317,6 +324,8 @@ export async function forkSession(root, config, options = {}) {
       `.agents/session/${sessionId}/checklist.json`,
       `.agents/session/${sessionId}/launches.jsonl`,
       `.agents/session/${sessionId}/turns.jsonl`,
+      `.agents/session/${sessionId}/handoff.json`,
+      `.agents/session/${sessionId}/handoff.md`,
       `.agents/session/${sessionId}/bootstrap.md`,
       `.agents/session/${sessionId}/transcript.md`,
       `.agents/session/${sessionId}/memory-context.md`,
@@ -333,11 +342,13 @@ export async function forkSession(root, config, options = {}) {
         "checklist.json",
         "launches.jsonl",
         "turns.jsonl",
+        "handoff.json",
       ],
       optional_markdown_artifacts: [
         "bootstrap.md",
         "transcript.md",
         "memory-context.md",
+        "handoff.md",
         "interactive.log",
       ],
     },
