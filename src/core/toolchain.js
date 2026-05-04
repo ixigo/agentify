@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
 import { exists } from "./fs.js";
+import { isSemanticEnabled } from "./semantic.js";
 import * as ui from "./ui.js";
 
 const execFileAsync = promisify(execFile);
@@ -147,14 +148,14 @@ export async function runDoctor(root, config) {
   ui.log(ui.label("Node.js", process.version));
   ui.log(ui.label("Platform", `${process.platform} ${process.arch}`));
 
-  if (config.semantic?.tsjs?.enabled && root) {
+  if (isSemanticEnabled(config) && root) {
     const dbPath = `${root}/.agents/index.db`;
     if (await exists(dbPath)) {
       const db = openIndexDatabase(root, { readOnly: true });
       try {
         const semanticProjects = listSemanticProjects(db);
         ui.newline();
-        ui.log(ui.bold("Semantic TS/JS"));
+        ui.log(ui.bold("Semantic"));
         if (semanticProjects.length === 0) {
           ui.log(ui.dim("No semantic projects indexed yet. Run `agentify semantic refresh`."));
         } else {

@@ -346,15 +346,16 @@ In the second command, Agentify reuses `codex` for the same repo.
 - `run` and `sess *` require an external provider CLI: `codex`, `claude`, `gemini`, or `opencode`.
 - `agentify this` supports provider-backed bootstrap on macOS and requires Homebrew for package installation.
 
-## Semantic TypeScript/JavaScript Indexing
+## Semantic Indexing
 
-Semantic indexing is optional, but it is one of the highest-value features for TypeScript and JavaScript repositories.
+Semantic indexing is optional, but it is one of the highest-value features for richer planner and query context. Agentify indexes TypeScript/JavaScript with the TS compiler-backed worker, and also stores normalized semantic facts for Python, Go, Java, and .NET repositories.
 
 Enable it in `.agentify.yaml`:
 
 ```yaml
 provider: codex
 semantic:
+  enabled: true
   tsjs:
     enabled: true
     workerConcurrency: 2
@@ -373,16 +374,16 @@ agentify check
 
 Why use it:
 
-- richer planner context for TS/JS repos
+- richer planner context for TS/JS, Python, Go, Java, and .NET repos
 - semantic surfaces in `query search`
 - better repo-map output
 - deterministic semantic headers during doc generation
 
-Use it when the repository is TypeScript- or JavaScript-heavy and raw dependency scanning is not enough.
+Use it when raw dependency scanning is not enough and planner/query results should include symbols, public surfaces, and import edges.
 
 How to verify it is active:
 
-- `agentify doctor` shows a `Semantic TS/JS` section when semantic indexing is enabled and the repo has been indexed.
+- `agentify doctor` shows a `Semantic` section when semantic indexing is enabled and the repo has been indexed.
 - `agentify query search --term <term>` starts returning semantic surfaces in addition to structural matches.
 - `docs/repo-map.md` and module docs become richer after refreshes.
 

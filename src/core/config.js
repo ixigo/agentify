@@ -69,12 +69,25 @@ const DEFAULT_CONFIG = {
     editAfterSelectedContextUnlessBlocked: true,
   },
   semantic: {
+    enabled: false,
     tsjs: {
       enabled: false,
       workerConcurrency: 1,
       timeoutMs: 45000,
       memoryMb: 1536,
       analyzerVersion: "semantic-tsjs-v1",
+    },
+    python: {
+      analyzerVersion: "semantic-python-v1",
+    },
+    go: {
+      analyzerVersion: "semantic-go-v1",
+    },
+    java: {
+      analyzerVersion: "semantic-java-v1",
+    },
+    dotnet: {
+      analyzerVersion: "semantic-dotnet-v1",
     },
   },
   tests: {

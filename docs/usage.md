@@ -361,19 +361,20 @@ agentify up --provider local
 
 `up` is not a sticky-provider command, so this does not switch the repo away from Codex.
 
-### 5. Enable semantic TS/JS indexing for TypeScript and JavaScript repos
+### 5. Enable semantic indexing
 
-For TS/JS-heavy repos, turn this on in `.agentify.yaml`:
+For TS/JS, Python, Go, Java, and .NET repos that need richer planner and query context, turn this on in `.agentify.yaml`:
 
 ```yaml
 provider: codex
 semantic:
+  enabled: true
   tsjs:
     enabled: true
     workerConcurrency: 2
 ```
 
-This improves semantic surfaces, deterministic headers, and repo-map quality for TS/JS projects.
+This improves semantic surfaces, deterministic headers, and repo-map quality. The TS/JS adapter uses the compiler-backed worker; Python, Go, Java, and .NET adapters store normalized project, symbol, surface, and edge facts.
 
 After enabling it:
 
