@@ -51,7 +51,12 @@ test("openIndexDatabase read-only opens source database without snapshot when po
   }
 });
 
-test("openIndexDatabase read-only fallback snapshots use user-only permissions", async () => {
+test("openIndexDatabase read-only fallback snapshots use user-only permissions", async (t) => {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    t.skip("root can bypass chmod restrictions needed to force snapshot fallback");
+    return;
+  }
+
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
