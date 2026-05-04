@@ -56,6 +56,18 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
 });
 
+test("detectTestCommand returns a discovery error for malformed package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-malformed-pkg-"));
+  const packageJsonPath = path.join(root, "package.json");
+  await fs.writeFile(packageJsonPath, "{ invalid json\n", "utf8");
+
+  const result = await detectTestCommand(root);
+
+  assert.equal(result.error.type, "package_json_parse_error");
+  assert.equal(result.error.path, packageJsonPath);
+  assert.match(result.error.message, /JSON|Expected property name|Unexpected token/);
+});
+
 test("buildTestEnv strips arbitrary host variables by default", () => {
   const sourceEnv = {
     PATH: "/usr/bin:/bin",
@@ -143,6 +155,23 @@ test("runProjectTests does not leak host secrets to the test subprocess by defau
       process.env.SENTINEL_SECRET = previous;
     }
   }
+});
+
+test("runProjectTests fails when package.json test discovery fails", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-discovery-failure-"));
+  await fs.writeFile(path.join(root, "package.json"), "{ invalid json\n", "utf8");
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.passed, false);
+  assert.equal(result.command, null);
+  assert.equal(result.exit_code, null);
+  assert.equal(result.discovery_error.type, "package_json_parse_error");
+  assert.match(result.stderr, /package\.json test discovery failed:/);
+  assert.deepEqual(reporter.tests, result);
+  assert.deepEqual(reporter.logs, ["tests: failed to discover package.json test script (package_json_parse_error)"]);
 });
 
 test("runProjectTests forwards a configured passthrough variable", async () => {

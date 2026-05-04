@@ -104,45 +104,74 @@ async function runChildCommand(command, args, { cwd, env } = {}) {
   };
 }
 
+function formatPackageJsonDiscoveryError(packageJsonPath, error) {
+  const type = error instanceof SyntaxError
+    ? "package_json_parse_error"
+    : "package_json_read_error";
+  return {
+    type,
+    path: packageJsonPath,
+    message: error.message,
+  };
+}
+
 export async function detectTestCommand(root) {
   const packageJsonPath = path.join(root, "package.json");
   if (!(await exists(packageJsonPath))) {
     return null;
   }
+
+  let packageJson;
   try {
-    const packageJson = await readJson(packageJsonPath);
-    if (packageJson?.scripts?.test) {
-      const packageManager = typeof packageJson.packageManager === "string"
-        ? packageJson.packageManager.split("@")[0]
-        : null;
-      if (packageManager === "pnpm") {
-        return { command: "pnpm", args: ["test"] };
-      }
-      if (packageManager === "yarn") {
-        return { command: "yarn", args: ["test"] };
-      }
-      if (packageManager === "bun") {
-        return { command: "bun", args: ["test"] };
-      }
-      if (await exists(path.join(root, "pnpm-lock.yaml"))) {
-        return { command: "pnpm", args: ["test"] };
-      }
-      if (await exists(path.join(root, "yarn.lock"))) {
-        return { command: "yarn", args: ["test"] };
-      }
-      if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
-        return { command: "bun", args: ["test"] };
-      }
-      return { command: "npm", args: ["test"] };
+    packageJson = await readJson(packageJsonPath);
+  } catch (error) {
+    return { error: formatPackageJsonDiscoveryError(packageJsonPath, error) };
+  }
+
+  if (packageJson?.scripts?.test) {
+    const packageManager = typeof packageJson.packageManager === "string"
+      ? packageJson.packageManager.split("@")[0]
+      : null;
+    if (packageManager === "pnpm") {
+      return { command: "pnpm", args: ["test"] };
     }
-  } catch {
-    return null;
+    if (packageManager === "yarn") {
+      return { command: "yarn", args: ["test"] };
+    }
+    if (packageManager === "bun") {
+      return { command: "bun", args: ["test"] };
+    }
+    if (await exists(path.join(root, "pnpm-lock.yaml"))) {
+      return { command: "pnpm", args: ["test"] };
+    }
+    if (await exists(path.join(root, "yarn.lock"))) {
+      return { command: "yarn", args: ["test"] };
+    }
+    if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
+      return { command: "bun", args: ["test"] };
+    }
+    return { command: "npm", args: ["test"] };
   }
   return null;
 }
 
 export async function runProjectTests(root, reporter, options = {}) {
   const testCommand = await detectTestCommand(root);
+  if (testCommand?.error) {
+    const result = {
+      status: "failed",
+      passed: false,
+      command: null,
+      stdout: "",
+      stderr: `package.json test discovery failed: ${testCommand.error.message}`,
+      exit_code: null,
+      discovery_error: testCommand.error,
+    };
+    reporter.log(`tests: failed to discover package.json test script (${testCommand.error.type})`);
+    reporter.setTests(result);
+    return result;
+  }
+
   if (!testCommand) {
     const result = {
       status: "skipped",
