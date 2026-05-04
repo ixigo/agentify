@@ -19,6 +19,36 @@ async function initGitRepo(root) {
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
 }
 
+async function captureHelpText() {
+  const chunks = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = function write(chunk, encoding, callback) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await runCli(["--help"]);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  return chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function extractHelpSection(help, heading, nextHeading) {
+  const start = help.indexOf(heading);
+  assert.notEqual(start, -1, `missing help heading ${heading}`);
+  const end = nextHeading ? help.indexOf(nextHeading, start + heading.length) : help.length;
+  assert.notEqual(end, -1, `missing help heading ${nextHeading}`);
+  return help.slice(start + heading.length, end);
+}
+
 test("parseArgs normalizes dashed flags to camelCase", () => {
   const args = parseArgs([
     "doc",
@@ -32,6 +62,30 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
   assert.equal(args.provider, "codex");
   assert.equal(args.moduleConcurrency, 6);
   assert.equal(args.maxFilesPerModule, 12);
+});
+
+test("README CLI reference includes every command and option from help", async () => {
+  const help = await captureHelpText();
+  const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
+  const commandSection = extractHelpSection(help, "COMMANDS", "OPTIONS");
+  const optionSection = extractHelpSection(help, "OPTIONS", "EXEC FLAGS");
+  const execFlagSection = extractHelpSection(help, "EXEC FLAGS", "EXAMPLES");
+
+  const commands = [...commandSection.matchAll(/^\s{4}([a-z][a-z-]*)\s{2,}/gm)].map((match) => match[1]);
+  const flags = [...`${optionSection}\n${execFlagSection}`.matchAll(/(--[a-z][a-z-]*(?:\[\=level\])?)/g)]
+    .map((match) => match[1])
+    .filter((flag, index, all) => all.indexOf(flag) === index);
+
+  assert.ok(commands.length > 0, "expected commands in help");
+  assert.ok(flags.length > 0, "expected flags in help");
+
+  for (const command of commands) {
+    assert.match(readme, new RegExp(`\\| \`${command}\` \\|`), `README is missing command ${command}`);
+  }
+
+  for (const flag of flags) {
+    assert.match(readme, new RegExp(`\\| \`${flag.replace("[", "\\[").replace("]", "\\]")}`), `README is missing flag ${flag}`);
+  }
 });
 
 test("parseArgs supports short help and version flags", () => {
