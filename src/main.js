@@ -811,11 +811,15 @@ export async function runCli(argv) {
 
       case "hooks": {
         if (subcommand === "install") {
-          const installed = await installHooks(root);
+          const { installed, removed } = await installHooks(root, config.hooks);
           if (installed.length > 0) {
             success(`Installed hooks: ${installed.join(", ")}`);
-          } else {
-            log("All hooks already installed.");
+          }
+          if (removed.length > 0) {
+            success(`Removed disabled hooks: ${removed.join(", ")}`);
+          }
+          if (installed.length === 0 && removed.length === 0) {
+            log("Enabled hooks already installed.");
           }
         } else if (subcommand === "remove") {
           const removed = await removeHooks(root);
