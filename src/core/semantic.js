@@ -205,6 +205,10 @@ function statFingerprint(stat) {
   ].join(":");
 }
 
+function hasHighResolutionTimestamp(stat) {
+  return !Number.isInteger(stat.mtimeMs) || !Number.isInteger(stat.ctimeMs);
+}
+
 async function computeFingerprint(root, filePaths, cache = null, instrumentation = null) {
   const entries = [];
   for (const filePath of filePaths) {
@@ -213,7 +217,7 @@ async function computeFingerprint(root, filePaths, cache = null, instrumentation
       const stat = await fs.stat(absolutePath);
       const metadataFingerprint = statFingerprint(stat);
       const cached = cache?.files?.[filePath];
-      let contentHash = cached?.metadata === metadataFingerprint ? cached.hash : null;
+      let contentHash = cached?.metadata === metadataFingerprint && hasHighResolutionTimestamp(stat) ? cached.hash : null;
 
       if (!contentHash) {
         const content = await fs.readFile(absolutePath, "utf8");
