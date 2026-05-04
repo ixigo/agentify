@@ -62,6 +62,50 @@ test("loadConfig applies planner execution budget overrides", async () => {
   assert.equal(config.planner.editAfterSelectedContextUnlessBlocked, false);
 });
 
+test("loadConfig provides context orchestration defaults", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-context-defaults-"));
+
+  const config = await loadConfig(root);
+
+  assert.deepEqual(config.context, {
+    mode: "compact",
+    routedDefaultProvider: null,
+    compactAfterRun: true,
+    autoPrepareChildAboveKb: 96,
+    maxFetchBytes: 12000,
+    maxSearchResults: 12,
+    allowProviderSummary: true,
+  });
+});
+
+test("loadConfig applies nested context file and flag overrides", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-context-overrides-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "context:",
+      "  routedDefaultProvider: codex",
+      "  maxFetchBytes: 8000",
+      "  allowProviderSummary: false",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root, {
+    "context.mode": "routed",
+    "context.max-search-results": 5,
+    "context.auto-prepare-child-above-kb": 128,
+  });
+
+  assert.equal(config.context.mode, "routed");
+  assert.equal(config.context.routedDefaultProvider, "codex");
+  assert.equal(config.context.maxFetchBytes, 8000);
+  assert.equal(config.context.maxSearchResults, 5);
+  assert.equal(config.context.autoPrepareChildAboveKb, 128);
+  assert.equal(config.context.allowProviderSummary, false);
+});
+
 test("hook config drops deprecated autoRefresh setting", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-hooks-"));
   await fs.writeFile(

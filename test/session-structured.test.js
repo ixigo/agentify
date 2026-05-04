@@ -49,6 +49,8 @@ test("forkSession initializes structured run_history and rolling_summary in cont
   assert.equal(result.context.rolling_summary, "");
   assert.ok(result.context.cache_refs.turns.endsWith("turns.jsonl"));
   assert.ok(result.manifest.metadata.runtime_artifacts.includes("turns.jsonl"));
+  assert.ok(result.manifest.cache_refs.some((item) => item.endsWith("context-events.jsonl")));
+  assert.ok(result.manifest.metadata.runtime_artifacts.includes("context-events.jsonl"));
   assert.ok(result.manifest.metadata.optional_markdown_artifacts.includes("bootstrap.md"));
 });
 

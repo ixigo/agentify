@@ -329,6 +329,7 @@ export async function forkSession(root, config, options = {}) {
       `.agents/session/${sessionId}/checklist.json`,
       `.agents/session/${sessionId}/launches.jsonl`,
       `.agents/session/${sessionId}/turns.jsonl`,
+      `.agents/session/${sessionId}/context-events.jsonl`,
       `.agents/session/${sessionId}/handoff.json`,
       `.agents/session/${sessionId}/handoff.md`,
       `.agents/session/${sessionId}/bootstrap.md`,
@@ -347,6 +348,7 @@ export async function forkSession(root, config, options = {}) {
         "checklist.json",
         "launches.jsonl",
         "turns.jsonl",
+        "context-events.jsonl",
         "handoff.json",
       ],
       optional_markdown_artifacts: [
