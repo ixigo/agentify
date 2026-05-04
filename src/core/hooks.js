@@ -11,8 +11,8 @@ agentify check --hook
 `;
 
 const POST_MERGE_BODY = `${AGENTIFY_MARKER} post-merge hook
-# Refreshes index and metadata after merge
-agentify scan --json >/dev/null 2>&1 || true
+# Refreshes index, docs, and metadata after merge
+agentify scan --json >/dev/null 2>&1 && agentify doc --provider local --json >/dev/null 2>&1 || true
 `;
 
 const HOOK_BODIES = [
