@@ -301,18 +301,17 @@ function renderSemanticDoctorReport(report) {
 
   if (report.projects.length === 0) {
     ui.log(ui.dim("No TS/JS semantic projects discovered."));
-    return;
+  } else {
+    const rows = report.projects.map((project) => [
+      projectLabel(project),
+      project.status,
+      project.stale ? "stale" : "current",
+      String(project.file_count),
+      `${project.symbol_count}/${project.surface_count}/${project.edge_count}`,
+      project.trend_hints[0] || "",
+    ]);
+    process.stderr.write(ui.table(["Project", "Status", "Freshness", "Files", "Symbols/Surfaces/Edges", "Hint"], rows) + "\n");
   }
-
-  const rows = report.projects.map((project) => [
-    projectLabel(project),
-    project.status,
-    project.stale ? "stale" : "current",
-    String(project.file_count),
-    `${project.symbol_count}/${project.surface_count}/${project.edge_count}`,
-    project.trend_hints[0] || "",
-  ]);
-  process.stderr.write(ui.table(["Project", "Status", "Freshness", "Files", "Symbols/Surfaces/Edges", "Hint"], rows) + "\n");
 
   if (report.failures.length > 0) {
     ui.newline();
