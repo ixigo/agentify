@@ -10,7 +10,7 @@ import { applyHeaderToSource, renderHeader } from "../src/core/headers.js";
 import { loadConfig } from "../src/core/config.js";
 import { runDoc, runScan, runUpdate } from "../src/core/commands.js";
 import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
-import { getArtifact, upsertArtifact } from "../src/core/db/artifact-store.js";
+import { getArtifact, removeArtifact, upsertArtifact } from "../src/core/db/artifact-store.js";
 import { getRepoMeta } from "../src/core/db/metadata-store.js";
 import { validateRepo } from "../src/core/validate.js";
 
@@ -372,12 +372,22 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
 
   assert.equal(docResult?.cached_manager_plan, true);
   assert.equal(docResult?.cached_modules, 1);
+  assert.deepEqual(docResult?.provider_status, {
+    status: "fallback",
+    provider: "local",
+    mode: "deterministic-local"
+  });
 
   const runDir = path.join(root, ".agents", "runs");
   const runFiles = (await fs.readdir(runDir)).sort();
   const latestRun = JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
   assert.equal(latestRun.results.cached_manager_plan, true);
   assert.equal(latestRun.results.cached_modules, 1);
+  assert.deepEqual(latestRun.provider_status, {
+    status: "fallback",
+    provider: "local",
+    mode: "deterministic-local"
+  });
   const db = openIndexDatabase(root);
   try {
     const meta = getRepoMeta(db);
@@ -385,6 +395,11 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
     const moduleArtifact = getArtifact(db, "module-doc:auth");
     assert.equal(meta.module_count, 1);
     assert.ok(managerPlanArtifact);
+    assert.deepEqual(moduleArtifact?.payload?.metadata?.provider_status, {
+      status: "fallback",
+      provider: "local",
+      mode: "deterministic-local"
+    });
     assert.match(moduleArtifact?.payload?.metadata?.freshness?.content_fingerprint || "", /^[a-f0-9]{64}$/);
   } finally {
     closeIndexDatabase(db);
@@ -415,6 +430,15 @@ setInterval(() => {}, 1000);
       providerTimeoutMs: 50,
     });
     await runScan(root, config, { skipOutput: true });
+    const localConfig = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+    await runDoc(root, localConfig, { skipOutput: true });
+    const db = openIndexDatabase(root);
+    try {
+      removeArtifact(db, "module-doc:auth");
+    } finally {
+      closeIndexDatabase(db);
+    }
+    await fs.unlink(path.join(root, "docs", "modules", "auth.md"));
     assert.equal(await fs.stat(path.join(root, "docs", "repo-map.md")).then(() => true), true);
 
     await assert.rejects(

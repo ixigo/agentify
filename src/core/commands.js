@@ -939,6 +939,17 @@ async function _runDocInner(root, config, options, progress) {
     finished_at: new Date().toISOString(),
     provider: provider.name,
     provider_model: provider.providerModel,
+    provider_status: provider.name === "local"
+      ? {
+          status: "fallback",
+          provider: provider.name,
+          mode: "deterministic-local"
+        }
+      : {
+          status: "success",
+          provider: provider.name,
+          mode: "provider-backed"
+        },
     token_usage: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
@@ -1013,6 +1024,7 @@ async function _runDocInner(root, config, options, progress) {
       cached_modules: cachedModules,
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten,
+      provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
       wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/repo-map.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
     };
