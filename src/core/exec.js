@@ -178,23 +178,25 @@ function runWrappedCommand(argv, options) {
     child.on("error", reject);
     child.on("close", async (code) => {
       if (timer) clearTimeout(timer);
-      try {
-        let interactiveTranscript = "";
-        if (captureMode === "pty" && options.capturePath) {
+      let interactiveTranscript = "";
+      let interactiveCaptureError = "";
+      if (captureMode === "pty" && options.capturePath) {
+        try {
           const raw = await fs.readFile(options.capturePath, "utf8");
           interactiveTranscript = normalizeInteractiveCapture(raw);
+        } catch (error) {
+          interactiveCaptureError = `Unable to read PTY transcript log: ${error.message}`;
         }
-
-        resolve({
-          exitCode: code ?? 1,
-          stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
-          stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
-          interactiveTranscript,
-          rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
-        });
-      } catch (error) {
-        reject(error);
       }
+
+      resolve({
+        exitCode: code ?? 1,
+        stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
+        stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
+        interactiveTranscript,
+        interactiveCaptureError,
+        rawInteractiveLogPath: captureMode === "pty" && !interactiveCaptureError ? options.capturePath : null,
+      });
     });
   });
 }
@@ -250,6 +252,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -281,6 +284,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -304,6 +308,7 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
@@ -332,6 +337,7 @@ export async function runExec(root, config, agentCommand, flags) {
     stdout: commandResult.stdout,
     stderr: commandResult.stderr,
     interactiveTranscript: commandResult.interactiveTranscript,
+    interactiveCaptureError: commandResult.interactiveCaptureError,
     rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
   };
   if (preparedSessionMemory) {

@@ -971,6 +971,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       `Validation: ${validationSummary}`,
       `Capture mode used: ${sessionRecord.captureMode}`,
       outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
+      outcome?.interactiveCaptureError ? `Interactive capture warning: ${outcome.interactiveCaptureError}` : null,
       `Ended: ${endedAt}`,
       ""
     ].filter(Boolean).join("\n");
@@ -1001,6 +1002,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     validation: validationSummary,
     stdout: clipToBytes(outcome?.stdout || "", captureMaxBytes),
     stderr: clipToBytes(outcome?.stderr || "", captureMaxBytes),
+    interactive_capture_error: outcome?.interactiveCaptureError || null,
   };
   await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
 
