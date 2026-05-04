@@ -427,20 +427,19 @@ async function syncMemPalaceSessionExports(root, transcripts) {
   return { synced: false, fingerprint, palacePath, exportDir, syncStatePath, cached: false, transcriptCount: transcripts.length };
 }
 
-async function runMemPalace(root, args, palacePath) {
+async function runMemPalace(root, args, palacePath, command = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace") {
   const env = {
     ...process.env,
     MEMPALACE_PALACE_PATH: palacePath,
   };
-  return execFileAsync(process.env.AGENTIFY_MEMPALACE_CMD || "mempalace", args, {
+  return execFileAsync(command, args, {
     cwd: root,
     env,
     maxBuffer: 8 * 1024 * 1024,
   });
 }
 
-async function resolveMemPalaceBinary() {
-  const cmd = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace";
+async function resolveCommandBinary(cmd) {
   if (cmd.includes("/") || cmd.includes("\\") || path.isAbsolute(cmd)) {
     try {
       await fs.access(cmd, fsConstants.X_OK);
@@ -474,8 +473,16 @@ async function resolveMemPalaceBinary() {
   return null;
 }
 
+async function resolveMemPalaceBinary() {
+  const configured = process.env.AGENTIFY_MEMPALACE_CMD
+    ? await resolveCommandBinary(process.env.AGENTIFY_MEMPALACE_CMD)
+    : null;
+  return configured || await resolveCommandBinary("mempalace");
+}
+
 async function createMemPalaceBackend(root, query, config, sharedInventory = {}) {
   const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
+  const command = sharedInventory.mempalaceBinary || await resolveMemPalaceBinary();
   const tokens = tokenizeQuery(query);
 
   return {
@@ -490,7 +497,7 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
       try {
         const sync = await syncMemPalaceSessionExports(root, transcripts);
         if (!sync.cached) {
-          await runMemPalace(root, ["mine", exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], palacePath);
+          await runMemPalace(root, ["mine", exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], palacePath, command);
           await writeText(sync.syncStatePath, `${JSON.stringify({
             schema_version: "1.0",
             fingerprint: sync.fingerprint,
@@ -499,7 +506,7 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
           }, null, 2)}\n`);
         }
         const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
-        const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath);
+        const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath, command);
         const excerpt = clipToBytes(stdout.trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
         const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
         const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
@@ -719,6 +726,7 @@ async function createMemoryBackends(root, options, config) {
   if (needsTranscriptInventory) {
     const mempalaceBinary = await resolveMemPalaceBinary();
     if (mempalaceBinary) {
+      sharedInventory.mempalaceBinary = mempalaceBinary;
       backends.push(await createMemPalaceBackend(root, query, config, sharedInventory));
     }
     backends.push(await createTranscriptSearchBackend(root, query, config, sharedInventory));
