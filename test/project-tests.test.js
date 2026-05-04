@@ -176,3 +176,37 @@ test("runProjectTests forwards a configured passthrough variable", async () => {
     }
   }
 });
+
+test("runProjectTests bounds captured stdout and stderr and reports truncation", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-output-bound-"));
+  const scriptPath = path.join(root, "emit-output.js");
+  const stdoutPayload = "a".repeat(1536);
+  const stderrPayload = "b".repeat(1536);
+
+  await fs.writeFile(scriptPath, `
+    process.stdout.write(${JSON.stringify(stdoutPayload)});
+    process.stderr.write(${JSON.stringify(stderrPayload)});
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-output-bound",
+    scripts: { test: "node emit-output.js" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter, {
+    config: { tests: { outputMaxKb: 1 } },
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.stdout_truncated, true);
+  assert.equal(result.stderr_truncated, true);
+  assert.equal(result.output_max_bytes, 1024);
+  assert.equal(Buffer.byteLength(result.stdout, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(result.stderr, "utf8"), 1024);
+  assert.equal(reporter.tests.stdout_truncated, true);
+  assert.equal(reporter.tests.stderr_truncated, true);
+  assert.match(reporter.logs.join("\n"), /stdout truncated to 1024 bytes/);
+  assert.match(reporter.logs.join("\n"), /stderr truncated to 1024 bytes/);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"), 1024);
+  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
+});

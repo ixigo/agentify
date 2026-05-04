@@ -78,6 +78,7 @@ const DEFAULT_CONFIG = {
     },
   },
   tests: {
+    outputMaxKb: 48,
     env: {
       inherit: false,
       passthrough: [],

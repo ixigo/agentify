@@ -158,6 +158,11 @@ function summarizeTestResult(testResult) {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
+    stdout_truncated: Boolean(testResult.stdout_truncated),
+    stderr_truncated: Boolean(testResult.stderr_truncated),
+    stdout_bytes: testResult.stdout_bytes ?? 0,
+    stderr_bytes: testResult.stderr_bytes ?? 0,
+    output_max_bytes: testResult.output_max_bytes ?? null,
     exit_code: testResult.exit_code
   };
 }
