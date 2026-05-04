@@ -33,7 +33,7 @@ function assertPortableDependencySpec(name, spec, groupName) {
   assert.notEqual(name, "agentify", `${groupName} must not depend on the package itself`);
   assert.doesNotMatch(
     spec,
-    /^(?:file|link|portal|workspace):|^(?:~|\/|[A-Za-z]:[\\/])/,
+    /^(?:file|link|portal|workspace):|^(?:\/|[A-Za-z]:[\\/])/,
     `${groupName}.${name} must use a registry-portable version range, not ${spec}`
   );
 }
