@@ -86,6 +86,8 @@ agentify up
 - `check`
 - repo tests when a runnable test command is detected
 
+Detected commands include common JavaScript/TypeScript package scripts plus Python, Go, Rust, .NET, Java/Kotlin, and Swift project test commands. If a non-JS stack is detected but Agentify cannot identify a runnable command, the test phase reports `unsupported` and `up` exits non-zero instead of presenting a false-green run.
+
 `doc` is skipped by default in `up`. Pass `--docs=true` when you explicitly want docs refreshed as part of the pipeline.
 
 ### 6. Confirm the repo is ready

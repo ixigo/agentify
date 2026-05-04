@@ -56,6 +56,46 @@ test("detectTestCommand falls back to lockfile detection", async () => {
   assert.deepEqual(result, { command: "yarn", args: ["test"] });
 });
 
+test("detectTestCommand discovers Python unittest repositories without package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-"));
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
+  await fs.mkdir(path.join(root, "tests"), { recursive: true });
+  await fs.writeFile(path.join(root, "tests", "test_example.py"), "import unittest\n");
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, {
+    command: process.platform === "win32" ? "python" : "python3",
+    args: ["-m", "unittest", "discover"],
+  });
+});
+
+test("detectTestCommand discovers Go repositories without package.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-go-"));
+  await fs.writeFile(path.join(root, "go.mod"), "module example.test/agentify\n\ngo 1.22\n");
+  await fs.writeFile(path.join(root, "main_test.go"), "package main\n");
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, { command: "go", args: ["test", "./..."] });
+});
+
+test("runProjectTests reports unsupported test detection for non-JS repositories", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-python-unsupported-"));
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
+  await fs.writeFile(path.join(root, "app.py"), "def main():\n    return True\n");
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, "unsupported_test_detection");
+  assert.equal(result.command, null);
+  assert.match(result.message, /python/);
+  assert.match(reporter.logs.join("\n"), /tests: unsupported/);
+});
+
 test("buildTestEnv strips arbitrary host variables by default", () => {
   const sourceEnv = {
     PATH: "/usr/bin:/bin",

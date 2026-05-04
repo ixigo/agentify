@@ -37,6 +37,17 @@ async function createRepoWithScriptedTest(prefix, exitCode) {
   return root;
 }
 
+async function createFakePython(binDir, markerPath) {
+  const binaryName = process.platform === "win32" ? "python.cmd" : "python3";
+  const pythonPath = path.join(binDir, binaryName);
+  await fs.writeFile(pythonPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(markerPath)}, process.argv.slice(2).join(" "));
+process.exit(process.argv[2] === "-m" && process.argv[3] === "unittest" && process.argv[4] === "discover" ? 0 : 2);
+`, "utf8");
+  await fs.chmod(pythonPath, 0o755);
+}
+
 async function readLatestRunReport(root, commandName) {
   const runDir = path.join(root, ".agents", "runs");
   const runFiles = (await fs.readdir(runDir))
@@ -269,6 +280,63 @@ test("passes", () => {
   assert.equal(payload.command, "up");
   assert.equal(payload.validation.passed, true);
   assert.equal(payload.tests.status, "passed");
+});
+
+test("runUpdate runs a discovered Python test command", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-python-tests-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-python-bin-"));
+  const markerPath = path.join(root, "python-command.txt");
+  await createFakePython(binDir, markerPath);
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
+  await fs.writeFile(path.join(root, "app.py"), "def main():\n    return True\n");
+  await fs.mkdir(path.join(root, "tests"), { recursive: true });
+  await fs.writeFile(path.join(root, "tests", "test_app.py"), "import unittest\n");
+
+  const originalLog = console.log;
+  console.log = () => {};
+
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, json: true });
+    config.tests = {
+      env: {
+        extra: {
+          PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
+        },
+      },
+    };
+    const finalOutput = await runUpdate(root, config);
+
+    assert.equal(finalOutput.tests.status, "passed");
+    assert.equal(finalOutput.tests.command, `${process.platform === "win32" ? "python" : "python3"} -m unittest discover`);
+    assert.equal(await fs.readFile(markerPath, "utf8"), "-m unittest discover");
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test("runUpdate reports unsupported test detection for non-JS repositories", async () => {
+  const previousExitCode = process.exitCode;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-python-unsupported-"));
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"agentify-python-fixture\"\n");
+  await fs.writeFile(path.join(root, "app.py"), "def main():\n    return True\n");
+
+  const originalLog = console.log;
+  console.log = () => {};
+
+  try {
+    process.exitCode = undefined;
+    const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, json: true });
+    const finalOutput = await runUpdate(root, config);
+
+    assert.equal(finalOutput.tests.status, "unsupported");
+    assert.equal(finalOutput.tests.passed, false);
+    assert.equal(finalOutput.tests.reason, "unsupported_test_detection");
+    assert.match(finalOutput.tests.message, /python/);
+    assert.equal(process.exitCode, 1);
+  } finally {
+    console.log = originalLog;
+    process.exitCode = previousExitCode;
+  }
 });
 
 test("runUpdate persists test metadata for passing and failing up and sync run reports", async () => {

@@ -154,12 +154,22 @@ async function writeRunReport(root, report) {
 }
 
 function summarizeTestResult(testResult) {
-  return {
+  const summary = {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
     exit_code: testResult.exit_code
   };
+  if (testResult.reason) {
+    summary.reason = testResult.reason;
+  }
+  if (testResult.message) {
+    summary.message = testResult.message;
+  }
+  if (testResult.detected_stacks) {
+    summary.detected_stacks = testResult.detected_stacks;
+  }
+  return summary;
 }
 
 function renderDefaultAgentignore() {
@@ -1160,7 +1170,7 @@ export async function runUpdate(root, config, options = {}) {
       progress.log(`${commandName}: validation warnings found but --strict is false, continuing`);
     }
   }
-  if (testResult.status === "failed") {
+  if (testResult.status === "failed" || testResult.status === "unsupported") {
     process.exitCode = 1;
   }
   return finalOutput;

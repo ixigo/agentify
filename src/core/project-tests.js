@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import { exists, readJson } from "./fs.js";
+import { detectStacks } from "./detect.js";
+import { exists, readJson, relative, walkFiles } from "./fs.js";
 
 const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
   "PATH",
@@ -85,7 +86,7 @@ async function runChildCommand(command, args, { cwd, env } = {}) {
   const stdoutChunks = [];
   const stderrChunks = [];
 
-  const code = await new Promise((resolve, reject) => {
+  const code = await new Promise((resolve) => {
     const child = spawn(command, args, { cwd, env });
     child.stdout.on("data", (chunk) => {
       stdoutChunks.push(String(chunk));
@@ -93,7 +94,10 @@ async function runChildCommand(command, args, { cwd, env } = {}) {
     child.stderr.on("data", (chunk) => {
       stderrChunks.push(String(chunk));
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      stderrChunks.push(`${error.message}\n`);
+      resolve(127);
+    });
     child.on("close", resolve);
   });
 
@@ -104,7 +108,15 @@ async function runChildCommand(command, args, { cwd, env } = {}) {
   };
 }
 
-export async function detectTestCommand(root) {
+function pythonCommand() {
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+async function rootFiles(root) {
+  return (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+}
+
+async function detectNodeTestCommand(root) {
   const packageJsonPath = path.join(root, "package.json");
   if (!(await exists(packageJsonPath))) {
     return null;
@@ -141,18 +153,143 @@ export async function detectTestCommand(root) {
   return null;
 }
 
-export async function runProjectTests(root, reporter, options = {}) {
-  const testCommand = await detectTestCommand(root);
-  if (!testCommand) {
-    const result = {
-      status: "skipped",
+async function detectPythonTestCommand(root) {
+  if (await exists(path.join(root, "tox.ini"))) {
+    return { command: "tox", args: [] };
+  }
+  if (await exists(path.join(root, "noxfile.py"))) {
+    return { command: "nox", args: [] };
+  }
+  if (
+    await exists(path.join(root, "pytest.ini"))
+    || await exists(path.join(root, "conftest.py"))
+  ) {
+    return { command: pythonCommand(), args: ["-m", "pytest"] };
+  }
+
+  const files = await rootFiles(root);
+  const hasPythonSignals = await exists(path.join(root, "pyproject.toml"))
+    || await exists(path.join(root, "requirements.txt"))
+    || await exists(path.join(root, "setup.py"))
+    || files.some((file) => file.endsWith(".py"));
+  if (!hasPythonSignals) {
+    return null;
+  }
+
+  const hasTestsDir = await exists(path.join(root, "tests"));
+  const hasUnittestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
+  if (hasTestsDir || hasUnittestFiles) {
+    return { command: pythonCommand(), args: ["-m", "unittest", "discover"] };
+  }
+
+  return null;
+}
+
+async function detectGoTestCommand(root) {
+  const files = await rootFiles(root);
+  if (await exists(path.join(root, "go.mod")) || files.some((file) => file.endsWith("_test.go"))) {
+    return { command: "go", args: ["test", "./..."] };
+  }
+  return null;
+}
+
+async function detectRustTestCommand(root) {
+  if (await exists(path.join(root, "Cargo.toml"))) {
+    return { command: "cargo", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectDotnetTestCommand(root) {
+  const files = await rootFiles(root);
+  if (files.some((file) => file.endsWith(".sln") || file.endsWith(".csproj"))) {
+    return { command: "dotnet", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectJvmTestCommand(root) {
+  if (await exists(path.join(root, "gradlew"))) {
+    return { command: process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew", args: ["test"] };
+  }
+  if (await exists(path.join(root, "mvnw"))) {
+    return { command: process.platform === "win32" ? ".\\mvnw.cmd" : "./mvnw", args: ["test"] };
+  }
+  if (await exists(path.join(root, "build.gradle")) || await exists(path.join(root, "build.gradle.kts"))) {
+    return { command: "gradle", args: ["test"] };
+  }
+  if (await exists(path.join(root, "pom.xml"))) {
+    return { command: "mvn", args: ["test"] };
+  }
+  return null;
+}
+
+async function detectSwiftTestCommand(root) {
+  if (await exists(path.join(root, "Package.swift"))) {
+    return { command: "swift", args: ["test"] };
+  }
+  return null;
+}
+
+export async function detectTestCommand(root) {
+  const detectors = [
+    detectNodeTestCommand,
+    detectPythonTestCommand,
+    detectGoTestCommand,
+    detectRustTestCommand,
+    detectDotnetTestCommand,
+    detectJvmTestCommand,
+    detectSwiftTestCommand,
+  ];
+
+  for (const detector of detectors) {
+    const command = await detector(root);
+    if (command) {
+      return command;
+    }
+  }
+
+  return null;
+}
+
+async function buildNoTestCommandResult(root, options) {
+  const detectedStacks = await detectStacks(root, options.config || {});
+  const nonNodeStacks = detectedStacks
+    .map((stack) => stack.name)
+    .filter((name) => name !== "ts");
+
+  if (nonNodeStacks.length > 0) {
+    return {
+      status: "unsupported",
       passed: false,
       command: null,
       stdout: "",
       stderr: "",
       exit_code: null,
+      reason: "unsupported_test_detection",
+      detected_stacks: detectedStacks,
+      message: `No runnable test command was detected for supported non-JS stack(s): ${nonNodeStacks.join(", ")}`,
     };
-    reporter.log("tests: skipped because no package.json test script was found");
+  }
+
+  return {
+    status: "skipped",
+    passed: false,
+    command: null,
+    stdout: "",
+    stderr: "",
+    exit_code: null,
+    reason: "no_test_command",
+    detected_stacks: detectedStacks,
+    message: "No runnable test command was detected",
+  };
+}
+
+export async function runProjectTests(root, reporter, options = {}) {
+  const testCommand = await detectTestCommand(root);
+  if (!testCommand) {
+    const result = await buildNoTestCommandResult(root, options);
+    reporter.log(`tests: ${result.status} - ${result.message}`);
     reporter.setTests(result);
     return result;
   }
