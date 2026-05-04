@@ -52,6 +52,22 @@ async function captureHelpText() {
   return chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+async function captureConsoleLog(fn) {
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+  }
+
+  return output;
+}
+
 function extractHelpSection(help, heading, nextHeading) {
   const start = help.indexOf(heading);
   assert.notEqual(start, -1, `missing help heading ${heading}`);
@@ -719,7 +735,7 @@ test("runCli plan reports actionable guidance when the index is missing", async 
   );
   await assert.rejects(
     () => runCli(["plan", "--root", root, "summarize setup"]),
-    /Run "agentify scan --root .*" or "agentify up --root .*" before using plan\/query commands\./,
+    /Run "agentify scan --root .*" or "agentify up --root .*" before using plan\/query\/context commands\./,
   );
 });
 
@@ -784,8 +800,51 @@ test("runCli query reports actionable guidance when the index is missing", async
 
   await assert.rejects(
     () => runCli(["query", "owner", "--root", root, "--file", "src/app.ts"]),
-    /before using plan\/query commands\./,
+    /before using plan\/query\/context commands\./,
   );
+});
+
+test("runCli context fetch returns exact bounded slices by lines and symbol", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-fetch-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src", "analytics"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "analytics", "report.js"),
+    [
+      "export function buildReport(events) {",
+      "  return events.length;",
+      "}",
+      "",
+      "export const reportName = 'analytics';",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await initGitRepo(root);
+  await runCli(["scan", "--root", root]);
+
+  const searchOutput = await captureConsoleLog(() =>
+    runCli(["context", "search", "analytics", "--root", root])
+  );
+  const searchPayload = JSON.parse(searchOutput[0]);
+  assert.ok(searchPayload.refs.some((ref) => ref.path === "src/analytics/report.js"));
+
+  const lineOutput = await captureConsoleLog(() =>
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--lines", "1:2"])
+  );
+  const linePayload = JSON.parse(lineOutput[0]);
+  assert.equal(linePayload.path, "src/analytics/report.js");
+  assert.equal(linePayload.command, "context fetch");
+  assert.equal(linePayload.content, "   1: export function buildReport(events) {\n   2:   return events.length;");
+
+  const symbolOutput = await captureConsoleLog(() =>
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--symbol", "buildReport"])
+  );
+  const symbolPayload = JSON.parse(symbolOutput[0]);
+  assert.equal(symbolPayload.command, "context fetch");
+  assert.equal(symbolPayload.symbol.symbol, "buildReport");
+  assert.match(symbolPayload.content, /export function buildReport/);
+  assert.doesNotMatch(symbolPayload.content, /reportName/);
 });
 
 test("runCli init --json emits a single machine-readable payload", async () => {
