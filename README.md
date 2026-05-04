@@ -117,7 +117,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Install built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 
-> **Note** — `agentify up` runs the repo's detected `package.json` test script in a **sanitized environment** by default. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
 
 ## CLI Reference
 
@@ -137,7 +137,8 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write a cross-agent handoff bundle for a session |
 | `this` | Bootstrap this macOS repo for a provider-backed Agentify workflow |
-| `query` | Query the repository index (owner, deps, changed) |
+| `query` | Query the repository index (owner, deps, changed, def, refs, callers, impacts) |
+| `risk` | Score PR blast radius and recommend regression tests |
 | `skill` | Manage built-in agent skills |
 | `sess` | Manage provider-backed sessions |
 | `memory` | Manage agent memory helpers |
@@ -156,11 +157,13 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--strict <true|false>` | Fail closed on validation issues |
 | `--languages <auto|ts|python|go|rust|dotnet|java|kotlin|swift>` | Override language detection |
 | `--dry-run` | Report planned changes without writing |
-| `--docs` | Generate docs during refresh/update flows (off by default) |
+| `--docs` | Generate docs during refresh/update flows (on by default; use `--docs=false` to skip) |
 | `--headers` | Apply `@agentify` headers to source files (off by default) |
+| `--semantic` | Show detailed semantic diagnostics with doctor |
 | `--provider-timeout-ms <ms>` | Fail provider doc calls after N milliseconds |
 | `--ghost` | Route outputs to `.current_session/` |
 | `--json` | Machine-readable JSON output only |
+| `--explain` | Include planner score breakdowns for plan output |
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |

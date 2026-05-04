@@ -341,6 +341,61 @@ test("runExec records interactive provider output into a raw PTY log and normali
   }
 });
 
+test("runExec writes a fallback transcript when PTY capture is unavailable", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-interactive-fallback-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  const session = await forkSession(root, config, { name: "interactive-fallback" });
+  const command = [process.execPath, "--input-type=module", "-e", ""];
+  const originalPath = process.env.PATH;
+  process.env.PATH = "";
+
+  try {
+    const result = await runExec(
+      root,
+      config,
+      command,
+      {
+        captureOutputMode: "pty",
+        skipRefresh: true,
+        sessionRecord: {
+          sessionId: session.sessionId,
+          provider: "codex",
+          prompt: "Continue the interactive fallback session.",
+          task: "Verify interactive fallback transcript persistence.",
+          command,
+          memoryContext: {
+            sourceSessionId: null,
+            transcriptRelativePath: null,
+            excerpt: "",
+            markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
+          },
+          captureMode: "interactive-pty",
+        },
+      }
+    );
+
+    const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
+    const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
+    const launch = JSON.parse(launches.trim().split(/\r?\n/).at(-1));
+
+    assert.equal(result.phase, "complete");
+    assert.equal(result.exitCode, 0);
+    assert.match(transcript, /full assistant transcript was not captured/);
+    assert.match(transcript, /Capture mode used: interactive-fallback/);
+    assert.equal(launch.capture_mode, "interactive-fallback");
+    assert.equal(launch.raw_interactive_log_path, null);
+    await assert.rejects(
+      () => fs.access(path.join(session.sessionDir, "interactive.log")),
+      /ENOENT/
+    );
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
 test("runExec finalizes session memory when the PTY recorder log is unavailable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-interactive-log-missing-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");

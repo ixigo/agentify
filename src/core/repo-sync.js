@@ -68,7 +68,7 @@ export async function runRepoSync(root, config, options = {}) {
     maintenance_provider: maintenanceConfig.provider,
     config: await syncConfigFile(root, config, { dryRun: config.dryRun }),
     baseline: await syncBaselineArtifacts(root, config),
-    hooks: await syncManagedHooks(root, { dryRun: config.dryRun }),
+    hooks: await syncManagedHooks(root, { dryRun: config.dryRun, settings: config.hooks }),
     skills: await syncProjectBuiltinSkills(root, {
       provider: skillProviderSelection,
       dryRun: config.dryRun,
