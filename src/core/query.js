@@ -1,15 +1,12 @@
 import path from "node:path";
 
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { loadModuleDependencies, loadModules, searchIndex } from "./db/structural-store.js";
 import {
-  closeIndexDatabase,
-  loadModuleDependencies,
   loadSemanticFileContext,
   loadSemanticModuleDependencies,
-  loadModules,
-  openIndexDatabase,
   searchSemanticIndex,
-  searchIndex,
-} from "./db.js";
+} from "./db/semantic-store.js";
 import { getChangedFilesSince } from "./git.js";
 
 function normalizePath(filePath) {

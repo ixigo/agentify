@@ -4,7 +4,10 @@ import path from "node:path";
 import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
-import { closeIndexDatabase, getRepoMeta, listSemanticProjects, loadModules, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
+import { loadModules } from "./db/structural-store.js";
+import { listSemanticProjects } from "./db/semantic-store.js";
 
 const ALLOWED_DOC_PATHS = [
   /^AGENTIFY\.md$/,

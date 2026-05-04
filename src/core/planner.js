@@ -1,19 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { getRepoMeta } from "./db/metadata-store.js";
 import {
-  closeIndexDatabase,
-  getRepoMeta,
   loadCommands,
   loadFiles,
   loadModuleDependencies,
-  loadSemanticModuleDependencies,
-  loadSemanticPlannerFacts,
   loadModules,
   loadSymbols,
   loadTests,
-  openIndexDatabase,
-} from "./db.js";
+} from "./db/structural-store.js";
+import { loadSemanticModuleDependencies, loadSemanticPlannerFacts } from "./db/semantic-store.js";
 import { getChangedFiles } from "./git.js";
 import { stripLeadingAgentifyHeader } from "./headers.js";
 

@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
-import { closeIndexDatabase, loadModules, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { loadModules } from "./db/structural-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 
 function generateSessionId() {

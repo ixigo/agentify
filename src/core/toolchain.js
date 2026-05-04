@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { closeIndexDatabase, listSemanticProjects, openIndexDatabase } from "./db.js";
+import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { listSemanticProjects } from "./db/semantic-store.js";
 import { exists } from "./fs.js";
 import * as ui from "./ui.js";
 

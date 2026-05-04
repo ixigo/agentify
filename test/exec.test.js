@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 
 import { runDoc, runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
-import { getRepoMeta, openIndexDatabase, closeIndexDatabase } from "../src/core/db.js";
+import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
+import { getRepoMeta } from "../src/core/db/metadata-store.js";
 import { runExec } from "../src/core/exec.js";
 import { getHeadCommit } from "../src/core/git.js";
 import { forkSession } from "../src/core/session.js";
