@@ -3,6 +3,7 @@ export const SCHEMA_VERSIONS = {
   MODULE_METADATA: "1.1",
   SESSION: "1.0",
   CACHE: "1.0",
+  CONTEXT_EVENT: "1.0",
 };
 
 export function checkSchema(artifact, expectedVersion) {

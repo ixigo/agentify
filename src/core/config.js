@@ -37,6 +37,15 @@ const DEFAULT_CONFIG = {
     maxAgeDays: 7,
     maxSizeMb: 100,
   },
+  context: {
+    mode: "compact",
+    routedDefaultProvider: null,
+    compactAfterRun: true,
+    autoPrepareChildAboveKb: 96,
+    maxFetchBytes: 12000,
+    maxSearchResults: 12,
+    allowProviderSummary: true,
+  },
   cleanup: {
     keepRuns: 20,
     maxRunAgeDays: 14,
@@ -209,6 +218,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     toolchain: config.toolchain,
     hooks: normalizeConfig(config).hooks,
     cache: config.cache,
+    context: config.context,
     cleanup: config.cleanup,
     session: config.session,
     planner: config.planner,

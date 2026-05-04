@@ -772,6 +772,7 @@ export function getSessionArtifactPaths(root, sessionId) {
     handoffMarkdownPath: path.join(sessionDir, "handoff.md"),
     launchesPath: path.join(sessionDir, "launches.jsonl"),
     turnsPath: path.join(sessionDir, "turns.jsonl"),
+    contextEventsPath: path.join(sessionDir, "context-events.jsonl"),
     contextFactsPath: path.join(sessionDir, "context-facts.json"),
     contextFactsMarkdownPath: path.join(sessionDir, "context-facts.md"),
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
