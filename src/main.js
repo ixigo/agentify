@@ -465,7 +465,7 @@ export async function runCli(argv) {
         return;
 
       case "check":
-        await runValidate(root, config, { skipChangedFiles: args.hook === true });
+        await runValidate(root, config, { skipCodeBodyChanges: args.hook === true });
         return;
 
       case "plan": {
