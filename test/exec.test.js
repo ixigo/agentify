@@ -246,6 +246,7 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
   const memoryContext = await fs.readFile(path.join(session.sessionDir, "memory-context.md"), "utf8");
   const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
+  const launchRecord = JSON.parse(launches.trim().split(/\r?\n/).at(-1));
 
   assert.equal(result.phase, "complete");
   assert.equal(result.exitCode, 0);
@@ -255,6 +256,14 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.match(memoryContext, /Automatic Session Memory/);
   assert.match(launches, /captured-pipe/);
   assert.match(launches, /Continue this session using the remembered context/);
+  assert.equal(launchRecord.managed_context.estimate, true);
+  assert.equal(launchRecord.managed_context.basis, "managed_context_bytes");
+  assert.equal(launchRecord.managed_context.rollover_threshold_bytes, 96 * 1024);
+  assert.ok(launchRecord.managed_context.estimated_managed_context_bytes >= launchRecord.managed_context.bytes.prompt);
+  assert.equal(typeof launchRecord.managed_context.bytes.transcript, "number");
+  assert.equal(typeof launchRecord.managed_context.bytes.fetch_outputs, "number");
+  assert.equal(typeof launchRecord.managed_context.bytes.memory_artifacts, "number");
+  assert.match(launchRecord.managed_context.note, /provider live context usage is not directly observable/);
 });
 
 test("runExec bounds captured stdout and stderr to the configured capture limit", async () => {

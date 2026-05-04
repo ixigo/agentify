@@ -91,6 +91,12 @@ function normalizeExecutionBudget(executionBudget = {}) {
   };
 }
 
+function normalizeContextMode(value) {
+  return String(value || "selected").trim().toLowerCase() === "routed"
+    ? "routed"
+    : "selected";
+}
+
 export const PLAN_EXPLAIN_COMPONENTS = Object.freeze([
   "lexical_token_match",
   "dependency_proximity",
@@ -584,7 +590,27 @@ function renderChangedFiles(changedFiles) {
   return lines.join("\n");
 }
 
-export function renderExecutionPrompt(plan) {
+function renderSelectedFileRoutes(files) {
+  const safeFiles = files || [];
+  if (safeFiles.length === 0) {
+    return "- none";
+  }
+
+  return safeFiles.map((item) => {
+    const reasons = Array.isArray(item.reasons)
+      ? item.reasons.map((reason) => cleanInline(reason?.reason || reason)).filter(Boolean)
+      : [];
+    const reasonText = reasons.length > 0 ? `; reasons: ${formatLimitedList(reasons, 3)}` : "";
+    return truncateBytes(`- ${cleanInline(item.path)}${reasonText}`, 320);
+  }).join("\n");
+}
+
+export function renderExecutionPrompt(plan, options = {}) {
+  const contextMode = normalizeContextMode(options.contextMode || plan.context?.mode);
+  const includeSource = options.includeSource !== undefined
+    ? options.includeSource !== false
+    : plan.context?.source_included !== false;
+  const routedWithoutSource = contextMode === "routed" && !includeSource;
   const executionBudget = normalizeExecutionBudget(plan.execution_budget);
   const editStartRule = executionBudget.edit_after_selected_context_unless_blocked
     ? "After checking the selected context, start editing unless you can name a concrete blocker that prevents a correct edit."
@@ -597,18 +623,33 @@ export function renderExecutionPrompt(plan) {
   const fileBlocks = plan.selected_files.length > 0
     ? plan.selected_files.map((item) => `FILE: ${item.path}\nREASONS: ${item.reasons.map((reason) => reason.reason).join("; ")}\n\`\`\`\n${item.excerpt}\n\`\`\``).join("\n\n")
     : "No source files selected.";
+  const routedFileRoutes = renderSelectedFileRoutes(plan.selected_files);
   const testLines = plan.related_tests.length > 0
     ? plan.related_tests.map((item) => `- ${item.file_path}${item.related_path ? ` (targets ${item.related_path})` : ""}`).join("\n")
     : "- none";
   const commandLines = plan.verification_commands.length > 0
     ? [...plan.verification_commands].sort(compareVerificationCommands).map(formatVerificationCommand).join("\n")
     : "- none";
+  const contextRule = routedWithoutSource
+    ? "Routed context is active: do not inject or request full source upfront. Use only bounded retrieval commands: `agentify context search ...` and `agentify context fetch <path> --symbol <name>` or `--lines A:B`."
+    : "Use the selected file slices below before running new discovery commands.";
+  const selectedFileSection = routedWithoutSource
+    ? `Selected file routes:
+${routedFileRoutes}
+
+Bounded retrieval guidance:
+- Start from the file routes, likely modules, symbols, related tests, and generated markdown docs in this prompt.
+- Use \`agentify context search <terms>\` only when you need a ranked path list.
+- Use \`agentify context fetch <path> --symbol <name>\` or \`agentify context fetch <path> --lines A:B\` only for exact code needed to edit or verify.
+- Keep retrieval within the discovery budget and do not broaden into unbounded source dumps.`
+    : `Selected file slices:
+${fileBlocks}`;
 
   return `You are working in a repository prepared by Agentify. Use the selected context first and start editing once that context is enough for a correct change.
 
 Execution rules:
-- Prefer the selected file slices and generated markdown docs before running new discovery commands.
-- Do not invoke nested \`agentify plan\`, \`agentify query\`, or raw SQLite inspection from inside the provider session unless the selected context is insufficient; those host-side artifacts may be unavailable in sandboxed providers.
+- ${contextRule}
+- Do not invoke nested \`agentify plan\`, \`agentify query\`, \`agentify up\`, \`agentify doc\`, or raw SQLite inspection from inside the provider session; those host-side artifacts may be unavailable in sandboxed providers.
 - Discovery budget before the first edit: at most ${executionBudget.max_additional_reads_before_edit} additional file or doc reads, and at most ${executionBudget.max_widenings} widening step(s) outside the selected context.
 - ${editStartRule}
 - Before each widening step, declare \`INSUFFICIENT_CONTEXT: blocker=<specific missing fact>; needed=<specific file, symbol, or doc>; reads_used=<n>; widenings_used=<n>\`.
@@ -623,6 +664,8 @@ Planner summary:
 - Files selected: ${plan.selected_files.length}
 - Symbols selected: ${plan.selected_symbols.length}
 - Prompt bytes: ${plan.prompt_bytes}
+- Context mode: ${contextMode}
+- Source included: ${includeSource}
 - Max additional reads before edit: ${executionBudget.max_additional_reads_before_edit}
 - Max widenings: ${executionBudget.max_widenings}
 - Edit after selected context unless blocked: ${executionBudget.edit_after_selected_context_unless_blocked}
@@ -642,8 +685,7 @@ ${testLines}
 Verification commands:
 ${commandLines}
 
-Selected file slices:
-${fileBlocks}`;
+${selectedFileSection}`;
 }
 
 function legacyReason(reason) {
@@ -697,10 +739,30 @@ function addScoreBreakdown(item) {
   };
 }
 
-function preparePlanForOutput(plan, { explain = false } = {}) {
+function stripSelectedFileSource(item) {
+  const { excerpt: _excerpt, ...rest } = item;
+  return {
+    ...rest,
+    excerpt_omitted: true,
+  };
+}
+
+function preparePlanForOutput(plan, { explain = false, contextMode = "selected", includeSource = true } = {}) {
+  const context = {
+    mode: normalizeContextMode(contextMode),
+    source_included: includeSource !== false,
+    source_policy: includeSource !== false
+      ? "selected_file_slices_included"
+      : "routed_bounded_retrieval_only",
+  };
+  const selectedFiles = includeSource !== false
+    ? plan.selected_files
+    : plan.selected_files.map(stripSelectedFileSource);
+
   if (explain) {
     return {
       ...plan,
+      context,
       explain: {
         schema_version: 1,
         reason_code_format: "namespace.entity.reason",
@@ -710,15 +772,16 @@ function preparePlanForOutput(plan, { explain = false } = {}) {
         })),
       },
       selected_modules: plan.selected_modules.map(addScoreBreakdown),
-      selected_files: plan.selected_files.map(addScoreBreakdown),
+      selected_files: selectedFiles.map(addScoreBreakdown),
       selected_symbols: plan.selected_symbols.map(addScoreBreakdown),
     };
   }
 
   return {
     ...plan,
+    context,
     selected_modules: plan.selected_modules.map(stripExplainReasonMetadata),
-    selected_files: plan.selected_files.map(stripExplainReasonMetadata),
+    selected_files: selectedFiles.map(stripExplainReasonMetadata),
     selected_symbols: plan.selected_symbols.map(stripExplainReasonMetadata),
   };
 }
@@ -987,7 +1050,13 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       ],
     };
 
-    const outputPlan = preparePlanForOutput(plan, { explain: options.explain === true });
+    const includeSource = options.includeSource !== false;
+    const contextMode = normalizeContextMode(options.contextMode);
+    const outputPlan = preparePlanForOutput(plan, {
+      explain: options.explain === true,
+      contextMode,
+      includeSource,
+    });
     let prompt = renderExecutionPrompt({
       ...outputPlan,
       prompt_bytes: 0,

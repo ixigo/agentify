@@ -202,7 +202,7 @@ test("planner uses a read-only index and warns providers away from nested Agenti
   try {
     const plan = await buildExecutionPlan(root, config, "summarize the app entry point");
     assert.ok(plan.selected_files.some((fileInfo) => fileInfo.path === "src/app.ts"));
-    assert.match(plan.prompt, /Do not invoke nested `agentify plan`, `agentify query`, or raw SQLite inspection/);
+    assert.match(plan.prompt, /Do not invoke nested `agentify plan`, `agentify query`, `agentify up`, `agentify doc`, or raw SQLite inspection/);
     assert.match(plan.prompt, /AGENTIFY\.md/);
   } finally {
     await fs.chmod(dbDir, 0o755);
@@ -290,6 +290,64 @@ test("renderExecutionPrompt uses discovery budget defaults when older plans omit
 
   assert.match(prompt, /Discovery budget before the first edit: at most 4 additional file or doc reads, and at most 1 widening step\(s\)/);
   assert.match(prompt, /INSUFFICIENT_CONTEXT: blocker=<specific missing fact>/);
+});
+
+test("renderExecutionPrompt routed mode allows bounded context commands without source slices", () => {
+  const prompt = renderExecutionPrompt(baseRenderPlan({
+    context: {
+      mode: "routed",
+      source_included: false,
+    },
+    selected_files: [
+      {
+        path: "src/auth/service.js",
+        reasons: [{ reason: "direct file match: auth", points: 120 }],
+        excerpt: "export const secretSource = true;\n",
+      },
+    ],
+  }));
+
+  assert.match(prompt, /Context mode: routed/);
+  assert.match(prompt, /Source included: false/);
+  assert.match(prompt, /agentify context search <terms>/);
+  assert.match(prompt, /agentify context fetch <path> --symbol <name>/);
+  assert.match(prompt, /Selected file routes:/);
+  assert.doesNotMatch(prompt, /Selected file slices:/);
+  assert.doesNotMatch(prompt, /secretSource/);
+  assert.match(prompt, /Do not invoke nested `agentify plan`, `agentify query`, `agentify up`, `agentify doc`, or raw SQLite inspection/);
+});
+
+test("planner routed mode omits selected file excerpts unless source is explicitly included", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-plan-routed-source-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "login.js"),
+    "export function loginWithRetry() { return 'full source should stay routed'; }\n",
+    "utf8",
+  );
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+
+  const routedPlan = await buildExecutionPlan(root, config, "fix loginWithRetry", {
+    contextMode: "routed",
+    includeSource: false,
+  });
+  const explicitPlan = await buildExecutionPlan(root, config, "fix loginWithRetry", {
+    contextMode: "routed",
+    includeSource: true,
+  });
+
+  assert.equal(routedPlan.context.mode, "routed");
+  assert.equal(routedPlan.context.source_included, false);
+  assert.ok(routedPlan.selected_files.some((fileInfo) => fileInfo.path === "src/login.js" && fileInfo.excerpt_omitted));
+  assert.doesNotMatch(routedPlan.prompt, /full source should stay routed/);
+  assert.match(routedPlan.prompt, /Selected file routes:/);
+
+  assert.equal(explicitPlan.context.source_included, true);
+  assert.ok(explicitPlan.selected_files.some((fileInfo) => /full source should stay routed/.test(fileInfo.excerpt)));
+  assert.match(explicitPlan.prompt, /Selected file slices:/);
 });
 
 test("planner stages verification commands by command type", async () => {

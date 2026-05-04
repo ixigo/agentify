@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
-import { buildExecutionPrompt, buildMinimalRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildMinimalRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,6 +72,18 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
   assert.equal(args.provider, "codex");
   assert.equal(args.moduleConcurrency, 6);
   assert.equal(args.maxFilesPerModule, 12);
+});
+
+test("parseArgs and config resolve context mode explicitly", () => {
+  const args = parseArgs(["run", "--context-mode", "routed", "implement login"]);
+
+  assert.equal(args.contextMode, "routed");
+  assert.equal(resolveRunContextMode(args, { context: { mode: "compact" } }), "routed");
+  assert.equal(resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }), "compact");
+  assert.throws(
+    () => resolveRunContextMode(parseArgs(["run", "--context-mode", "wide", "implement login"]), {}),
+    /--context-mode must be "compact" or "routed"/,
+  );
 });
 
 test("README CLI reference includes every command and option from help", async () => {
@@ -396,6 +408,84 @@ test("runCli passes planner context to interactive codex run when requested", as
   assert.match(prompt, /Planner summary/);
   assert.match(prompt, /Selected file slices/);
   assert.match(prompt, /Task:\nImplement login retries/);
+});
+
+test("runCli passes routed context guidance without source by context mode", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "login.js"), "export function login() { return 'source stays out'; }\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  await runCli(["scan", "--root", root]);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--context-mode",
+      "routed",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /Context mode: routed/);
+  assert.match(prompt, /Source included: false/);
+  assert.match(prompt, /agentify context search <terms>/);
+  assert.match(prompt, /agentify context fetch <path> --symbol <name>/);
+  assert.match(prompt, /Do not invoke nested `agentify plan`, `agentify query`, `agentify up`, `agentify doc`, or raw SQLite inspection/);
+  assert.doesNotMatch(prompt, /Selected file slices/);
+  assert.doesNotMatch(prompt, /source stays out/);
+});
+
+test("runCli lets --with-context explicitly include source in routed context mode", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-with-context-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-routed-with-context-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "login.js"), "export function login() { return 'explicit source included'; }\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  await runCli(["scan", "--root", root]);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--context-mode",
+      "routed",
+      "--with-context",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /Context mode: routed/);
+  assert.match(prompt, /Source included: true/);
+  assert.match(prompt, /Selected file slices/);
+  assert.match(prompt, /explicit source included/);
 });
 
 test("runCli supports skill install with provider all", async () => {

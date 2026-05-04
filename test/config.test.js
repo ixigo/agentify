@@ -62,6 +62,29 @@ test("loadConfig applies planner execution budget overrides", async () => {
   assert.equal(config.planner.editAfterSelectedContextUnlessBlocked, false);
 });
 
+test("loadConfig applies context defaults and nested overrides", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-context-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "context:",
+      "  mode: routed",
+      "  autoPrepareChildAboveKb: 64",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root, {
+    "context.max-fetch-bytes": 4096,
+  });
+
+  assert.equal(config.context.mode, "routed");
+  assert.equal(config.context.autoPrepareChildAboveKb, 64);
+  assert.equal(config.context.maxFetchBytes, 4096);
+  assert.equal(config.context.maxSearchResults, 12);
+});
+
 test("hook config drops deprecated autoRefresh setting", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-hooks-"));
   await fs.writeFile(

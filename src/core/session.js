@@ -136,6 +136,7 @@ function fitContext(manifest, index, checklist, options, config) {
   const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
   const rawInteractiveLogRef = options.root ? `.agents/session/${manifest.session_id}/interactive.log` : memoryArtifacts.rawInteractiveLogPath;
   const turnsRef = options.root ? `.agents/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
+  const fetchOutputsRef = options.root ? `.agents/session/${manifest.session_id}/context-fetches.jsonl` : memoryArtifacts.fetchOutputsPath;
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048, runHistoryLimit: 10, runSummaryBytes: 256, rollingSummaryBytes: 1024 },
     { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024, runHistoryLimit: 6, runSummaryBytes: 180, rollingSummaryBytes: 512 },
@@ -166,6 +167,7 @@ function fitContext(manifest, index, checklist, options, config) {
       launches: launchesRef,
       raw_interactive_log: rawInteractiveLogRef,
       turns: turnsRef,
+      context_fetches: fetchOutputsRef,
     };
     const candidate = {
       schema_version: "1.0",
@@ -335,6 +337,7 @@ export async function forkSession(root, config, options = {}) {
       `.agents/session/${sessionId}/transcript.md`,
       `.agents/session/${sessionId}/memory-context.md`,
       `.agents/session/${sessionId}/interactive.log`,
+      `.agents/session/${sessionId}/context-fetches.jsonl`,
     ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
