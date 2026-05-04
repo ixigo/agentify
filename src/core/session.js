@@ -141,7 +141,7 @@ function fitContext(manifest, index, checklist, options, config) {
     { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024, runHistoryLimit: 6, runSummaryBytes: 180, rollingSummaryBytes: 512 },
     { moduleLimit: 24, checklistLimit: 10, checklistTextBytes: 140, parentSummaryBytes: 512, runHistoryLimit: 4, runSummaryBytes: 140, rollingSummaryBytes: 256 },
     { moduleLimit: 8, checklistLimit: 5, checklistTextBytes: 100, parentSummaryBytes: 256, runHistoryLimit: 2, runSummaryBytes: 96, rollingSummaryBytes: 128 },
-    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 120, runHistoryLimit: 0, runSummaryBytes: 0, rollingSummaryBytes: 0 },
+    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 64, runHistoryLimit: 0, runSummaryBytes: 0, rollingSummaryBytes: 0, minimalRefs: true },
   ];
 
   let selected = null;
@@ -149,6 +149,24 @@ function fitContext(manifest, index, checklist, options, config) {
     const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
     const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
     const includeHandoffRefs = attempt !== attempts[attempts.length - 1];
+    const cacheRefs = attempt.minimalRefs ? {
+      repo_index: ".agents/index.db",
+      repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
+      checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+    } : {
+      repo_index: ".agents/index.db",
+      repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
+      checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+      transcript: transcriptRef,
+      memory_context: memoryContextRef,
+      ...(includeHandoffRefs ? {
+        handoff_json: handoffJsonRef,
+        handoff_markdown: handoffMarkdownRef,
+      } : {}),
+      launches: launchesRef,
+      raw_interactive_log: rawInteractiveLogRef,
+      turns: turnsRef,
+    };
     const candidate = {
       schema_version: "1.0",
       session_id: manifest.session_id,
@@ -165,20 +183,7 @@ function fitContext(manifest, index, checklist, options, config) {
         displayed_items: previewChecklist.length,
         remaining_items: Math.max(0, checklist.length - previewChecklist.length),
       },
-      cache_refs: {
-        repo_index: ".agents/index.db",
-        repo_docs: "docs/modules/",
-        checklist: `.agents/session/${manifest.session_id}/checklist.json`,
-        transcript: transcriptRef,
-        memory_context: memoryContextRef,
-        ...(includeHandoffRefs ? {
-          handoff_json: handoffJsonRef,
-          handoff_markdown: handoffMarkdownRef,
-        } : {}),
-        launches: launchesRef,
-        raw_interactive_log: rawInteractiveLogRef,
-        turns: turnsRef,
-      },
+      cache_refs: cacheRefs,
       parent_summary: clipToBytes(options.parentSummary || "", attempt.parentSummaryBytes),
       run_history: runHistory,
       rolling_summary: clipToBytes(options.rollingSummary || "", attempt.rollingSummaryBytes),
@@ -243,8 +248,8 @@ function fitBootstrap(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
   const baseStartHere = options.startHere || [
-    "- Read `AGENTIFY.md` for the current repo snapshot and module guidance.",
-    "- Use `docs/repo-map.md` and `docs/modules/` for deterministic structure before reaching for provider tools.",
+    "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
+    "- Use `docs/repo-map.md` and module-root `AGENTIFY.md` files for deterministic structure before reaching for provider tools.",
     "- Treat `.agents/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
   ].join("\n");
   const attempts = [

@@ -14,7 +14,7 @@ const DEFAULT_CONFIG = {
   moduleConcurrency: 4,
   providerTimeoutMs: 120000,
   tokenReport: true,
-  docs: false,
+  docs: true,
   headers: false,
   headerWindow: 80,
   topKeyFilesPerModule: 15,

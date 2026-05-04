@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createProvider, parseCodexJsonl, runChild } from "../src/core/provider.js";
+import { createProvider, parseCodexJsonl, ProviderExecutionError, runChild } from "../src/core/provider.js";
 
 test("parseCodexJsonl extracts token usage from turn.completed", () => {
   const usage = parseCodexJsonl([
@@ -28,6 +28,86 @@ test("runChild times out stalled provider subprocesses", async () => {
     }),
     /timed out after 50ms/,
   );
+});
+
+test("external provider manager planning surfaces unavailable provider failures", async () => {
+  const provider = createProvider("codex");
+  const previousPath = process.env.PATH;
+  process.env.PATH = "";
+
+  try {
+    await assert.rejects(
+      () => provider.buildManagerPlan({
+        repoName: "agentify-fixture",
+        root: process.cwd(),
+        defaultStack: "ts",
+        stacks: [{ name: "ts", confidence: 1 }],
+        entrypoints: [],
+        modules: [{ id: "auth", rootPath: "src/auth" }],
+        sampleFiles: [],
+      }),
+      (error) => {
+        assert.equal(error instanceof ProviderExecutionError, true);
+        assert.equal(error.code, "AGENTIFY_PROVIDER_EXECUTION_FAILED");
+        assert.equal(error.provider, "codex");
+        assert.equal(error.phase, "manager planning");
+        assert.equal(error.status, "error");
+        assert.match(error.message, /spawn codex ENOENT/);
+        return true;
+      },
+    );
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  }
+});
+
+test("external provider module generation surfaces unavailable provider failures", async () => {
+  const provider = createProvider("codex");
+  const previousPath = process.env.PATH;
+  process.env.PATH = "";
+
+  try {
+    await assert.rejects(
+      () => provider.generateModuleArtifacts(
+        { id: "auth", name: "auth", rootPath: "src/auth", stack: "ts", slug: "auth" },
+        {
+          root: process.cwd(),
+          files: [{ path: "src/auth/index.ts", content: "export const login = () => true;" }],
+          semantic: null,
+          keyFiles: ["src/auth/index.ts"],
+          dependsOn: [],
+          usedBy: [],
+          now: "2026-04-06T00:00:00.000Z",
+          headCommit: "deadbeef",
+          managerPlan: {
+            repo_summary: "",
+            shared_conventions: [],
+            module_focus: []
+          },
+          managerFocus: ""
+        },
+      ),
+      (error) => {
+        assert.equal(error instanceof ProviderExecutionError, true);
+        assert.equal(error.code, "AGENTIFY_PROVIDER_EXECUTION_FAILED");
+        assert.equal(error.provider, "codex");
+        assert.equal(error.phase, "module artifact generation");
+        assert.equal(error.status, "error");
+        assert.match(error.message, /spawn codex ENOENT/);
+        return true;
+      },
+    );
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+  }
 });
 
 test("gemini provider execution preserves the readiness credential home", async () => {

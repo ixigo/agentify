@@ -131,11 +131,11 @@ async function rootFiles(root) {
     .map((filePath) => relative(root, filePath));
 }
 
-function pythonCommand() {
-  return process.platform === "win32" ? "python" : "python3";
+function pythonCommand(platform = process.platform) {
+  return platform === "win32" ? "python" : "python3";
 }
 
-async function detectPythonTestCommand(root) {
+async function detectPythonTestCommand(root, { platform = process.platform } = {}) {
   if (await exists(path.join(root, "tox.ini"))) {
     return { command: "tox", args: [] };
   }
@@ -150,6 +150,12 @@ async function detectPythonTestCommand(root) {
   }
 
   const files = await rootFiles(root);
+  const hasTestsDir = await exists(path.join(root, "tests"));
+  const hasPythonTestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
+  if (hasTestsDir || hasPythonTestFiles) {
+    return { command: pythonCommand(platform), args: ["-m", "pytest"] };
+  }
+
   const hasPythonSignals = await exists(path.join(root, "pyproject.toml"))
     || await exists(path.join(root, "requirements.txt"))
     || await exists(path.join(root, "setup.py"))
@@ -157,13 +163,6 @@ async function detectPythonTestCommand(root) {
   if (!hasPythonSignals) {
     return null;
   }
-
-  const hasTestsDir = await exists(path.join(root, "tests"));
-  const hasPythonTestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
-  if (hasTestsDir || hasPythonTestFiles) {
-    return { command: pythonCommand(), args: ["-m", "pytest"] };
-  }
-
   return null;
 }
 
@@ -190,12 +189,21 @@ async function detectDotnetTestCommand(root) {
   return null;
 }
 
-async function detectJvmTestCommand(root) {
-  if (await exists(path.join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew"))) {
-    return { command: process.platform === "win32" ? ".\\gradlew.bat" : "./gradlew", args: ["test"] };
-  }
-  if (await exists(path.join(root, process.platform === "win32" ? "mvnw.cmd" : "mvnw"))) {
-    return { command: process.platform === "win32" ? ".\\mvnw.cmd" : "./mvnw", args: ["test"] };
+async function detectJvmTestCommand(root, { platform = process.platform } = {}) {
+  if (platform === "win32") {
+    if (await exists(path.join(root, "gradlew.bat"))) {
+      return { command: ".\\gradlew.bat", args: ["test"] };
+    }
+    if (await exists(path.join(root, "mvnw.cmd"))) {
+      return { command: ".\\mvnw.cmd", args: ["test"] };
+    }
+  } else {
+    if (await exists(path.join(root, "gradlew"))) {
+      return { command: "./gradlew", args: ["test"] };
+    }
+    if (await exists(path.join(root, "mvnw"))) {
+      return { command: "./mvnw", args: ["test"] };
+    }
   }
   if (await exists(path.join(root, "build.gradle")) || await exists(path.join(root, "build.gradle.kts"))) {
     return { command: "gradle", args: ["test"] };
@@ -213,7 +221,7 @@ async function detectSwiftTestCommand(root) {
   return null;
 }
 
-async function detectNonNodeTestCommand(root) {
+async function detectNonNodeTestCommand(root, options = {}) {
   const detectors = [
     detectPythonTestCommand,
     detectGoTestCommand,
@@ -224,7 +232,7 @@ async function detectNonNodeTestCommand(root) {
   ];
 
   for (const detector of detectors) {
-    const command = await detector(root);
+    const command = await detector(root, options);
     if (command) {
       return command;
     }
@@ -233,10 +241,10 @@ async function detectNonNodeTestCommand(root) {
   return null;
 }
 
-export async function detectTestCommand(root) {
+export async function detectTestCommand(root, options = {}) {
   const packageJsonPath = path.join(root, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return detectNonNodeTestCommand(root);
+    return detectNonNodeTestCommand(root, options);
   }
 
   let packageJson;

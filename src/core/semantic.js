@@ -12,6 +12,7 @@ import { getRepoMeta } from "./db/metadata-store.js";
 import { loadFiles, loadModules } from "./db/structural-store.js";
 import {
   clearSemanticProjectState,
+  getSemanticMeta,
   listSemanticProjects,
   replaceSemanticProjectSnapshot,
   upsertSemanticMeta,
@@ -195,17 +196,72 @@ function defaultCompilerConfig(root, filePaths) {
   };
 }
 
-async function computeFingerprint(root, filePaths) {
+const SEMANTIC_FILE_HASH_CACHE_KEY = "semantic_file_hash_cache";
+
+function normalizeFileHashCache(value) {
+  if (!value || typeof value !== "object" || value.version !== 1 || !value.files || typeof value.files !== "object") {
+    return { version: 1, files: {} };
+  }
+  return {
+    version: 1,
+    files: { ...value.files },
+  };
+}
+
+function statFingerprint(stat) {
+  return [
+    stat.size,
+    stat.mtimeMs,
+    stat.ctimeMs,
+    stat.dev,
+    stat.ino,
+  ].join(":");
+}
+
+function hasHighResolutionTimestamp(stat) {
+  return !Number.isInteger(stat.mtimeMs) || !Number.isInteger(stat.ctimeMs);
+}
+
+async function computeFingerprint(root, filePaths, cache = null, instrumentation = null) {
   const entries = [];
   for (const filePath of filePaths) {
     try {
-      const content = await fs.readFile(path.join(root, filePath), "utf8");
-      entries.push(`${filePath}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+      const absolutePath = path.join(root, filePath);
+      const stat = await fs.stat(absolutePath);
+      const metadataFingerprint = statFingerprint(stat);
+      const cached = cache?.files?.[filePath];
+      let contentHash = cached?.metadata === metadataFingerprint && hasHighResolutionTimestamp(stat) ? cached.hash : null;
+
+      if (!contentHash) {
+        const content = await fs.readFile(absolutePath, "utf8");
+        instrumentation?.onContentRead?.(filePath);
+        contentHash = crypto.createHash("sha256").update(content).digest("hex");
+        if (cache?.files) {
+          cache.files[filePath] = {
+            metadata: metadataFingerprint,
+            hash: contentHash,
+          };
+        }
+      }
+
+      entries.push(`${filePath}:${contentHash}`);
     } catch {
       // Ignore unreadable files.
+      if (cache?.files) {
+        delete cache.files[filePath];
+      }
     }
   }
   return crypto.createHash("sha256").update(entries.sort().join("\n")).digest("hex");
+}
+
+function pruneFileHashCache(cache, discoveredProjects) {
+  const discoveredFiles = new Set(discoveredProjects.flatMap((project) => project.filePaths));
+  for (const filePath of Object.keys(cache.files)) {
+    if (!discoveredFiles.has(filePath)) {
+      delete cache.files[filePath];
+    }
+  }
 }
 
 function normalizeSourceFiles(files, language) {
@@ -684,6 +740,9 @@ export async function runSemanticRefresh(root, config, options = {}) {
   }
   const db = openIndexDatabase(artifactRoot);
   const { projects: discoveredProjects, repoIndex } = await discoverAllSemanticProjects(root, config);
+  const semanticMeta = getSemanticMeta(db);
+  const fileHashCache = normalizeFileHashCache(semanticMeta[SEMANTIC_FILE_HASH_CACHE_KEY]);
+  pruneFileHashCache(fileHashCache, discoveredProjects);
   const existingProjects = new Map(listSemanticProjects(db).map((item) => [item.project_id, item]));
   const refreshedIds = new Set();
   const refreshed = [];
@@ -700,7 +759,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
     }
 
     for (const project of discoveredProjects) {
-      const contentFingerprint = await computeFingerprint(root, project.filePaths);
+      const contentFingerprint = await computeFingerprint(root, project.filePaths, fileHashCache, options.instrumentation);
       const existing = existingProjects.get(project.id);
       if (!shouldRefreshProject(project, existing, contentFingerprint)) {
         skipped.push(project.id);
@@ -713,10 +772,14 @@ export async function runSemanticRefresh(root, config, options = {}) {
         upsertSemanticMeta(db, "semantic_enabled", true);
         upsertSemanticMeta(db, `semantic_${project.adapterId}_enabled`, true);
         upsertSemanticMeta(db, `semantic_${project.adapterId}_analyzer_version`, project.analyzerVersion);
+        upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
       });
       refreshedIds.add(project.id);
       refreshed.push(project.id);
     }
+    inTransaction(db, () => {
+      upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
+    });
   } finally {
     const projects = listSemanticProjects(db);
     const result = {
@@ -768,7 +831,11 @@ ${(meta.detected_stacks || []).map((stack) => `- \`${stack.name}\` (${stack.conf
 ${structuralEntrypoints.length > 0 ? structuralEntrypoints.map((entry) => `- \`${entry}\``).join("\n") : "- No entrypoints detected."}
 
 ## Modules
-${modules.map((moduleInfo) => `- [${moduleInfo.name}](./modules/${path.basename(moduleInfo.doc_path)})`).join("\n")}
+${modules.map((moduleInfo) => {
+  const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
+  const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+  return `- [${moduleInfo.name}](${href})`;
+}).join("\n")}
 
 ## Semantic Projects
 ${projectLines.join("\n")}
