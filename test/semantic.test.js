@@ -221,9 +221,18 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     dryRun: false,
     "semantic.tsjs.enabled": true,
   });
+  const fingerprintReads = [];
+  const instrumentation = {
+    onContentRead(filePath) {
+      fingerprintReads.push(filePath);
+    },
+  };
 
-  const first = await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
-  const second = await runSemanticRefresh(root, config, { silent: true, skipOutput: true });
+  const first = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
+  assert.ok(fingerprintReads.length > 0);
+
+  fingerprintReads.length = 0;
+  const second = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
 
   const db = openIndexDatabase(root);
   try {
@@ -234,6 +243,7 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     assert.ok(first.refreshed_projects.length >= 2);
     assert.equal(second.refreshed_projects.length, 0);
     assert.ok(second.skipped_projects.length >= 2);
+    assert.deepEqual(fingerprintReads, []);
     assert.ok(projects.every((project) => project.config_path !== "tsconfig.base.json"));
     assert.equal(routeSurfaces.length, 1);
     assert.equal(reactSurfaces.length, 1);

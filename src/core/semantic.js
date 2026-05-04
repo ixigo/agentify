@@ -11,6 +11,7 @@ import { getRepoMeta } from "./db/metadata-store.js";
 import { loadFiles, loadModules } from "./db/structural-store.js";
 import {
   clearSemanticProjectState,
+  getSemanticMeta,
   listSemanticProjects,
   replaceSemanticProjectSnapshot,
   upsertSemanticMeta,
@@ -182,17 +183,68 @@ function defaultCompilerConfig(root, filePaths) {
   };
 }
 
-async function computeFingerprint(root, filePaths) {
+const SEMANTIC_FILE_HASH_CACHE_KEY = "semantic_tsjs_file_hash_cache";
+
+function normalizeFileHashCache(value) {
+  if (!value || typeof value !== "object" || value.version !== 1 || !value.files || typeof value.files !== "object") {
+    return { version: 1, files: {} };
+  }
+  return {
+    version: 1,
+    files: { ...value.files },
+  };
+}
+
+function statFingerprint(stat) {
+  return [
+    stat.size,
+    stat.mtimeMs,
+    stat.ctimeMs,
+    stat.dev,
+    stat.ino,
+  ].join(":");
+}
+
+async function computeFingerprint(root, filePaths, cache = null, instrumentation = null) {
   const entries = [];
   for (const filePath of filePaths) {
     try {
-      const content = await fs.readFile(path.join(root, filePath), "utf8");
-      entries.push(`${filePath}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+      const absolutePath = path.join(root, filePath);
+      const stat = await fs.stat(absolutePath);
+      const metadataFingerprint = statFingerprint(stat);
+      const cached = cache?.files?.[filePath];
+      let contentHash = cached?.metadata === metadataFingerprint ? cached.hash : null;
+
+      if (!contentHash) {
+        const content = await fs.readFile(absolutePath, "utf8");
+        instrumentation?.onContentRead?.(filePath);
+        contentHash = crypto.createHash("sha256").update(content).digest("hex");
+        if (cache?.files) {
+          cache.files[filePath] = {
+            metadata: metadataFingerprint,
+            hash: contentHash,
+          };
+        }
+      }
+
+      entries.push(`${filePath}:${contentHash}`);
     } catch {
       // Ignore unreadable files.
+      if (cache?.files) {
+        delete cache.files[filePath];
+      }
     }
   }
   return crypto.createHash("sha256").update(entries.sort().join("\n")).digest("hex");
+}
+
+function pruneFileHashCache(cache, discoveredProjects) {
+  const discoveredFiles = new Set(discoveredProjects.flatMap((project) => project.filePaths));
+  for (const filePath of Object.keys(cache.files)) {
+    if (!discoveredFiles.has(filePath)) {
+      delete cache.files[filePath];
+    }
+  }
 }
 
 export async function discoverSemanticProjects(root) {
@@ -355,6 +407,9 @@ export async function runSemanticRefresh(root, config, options = {}) {
   const db = openIndexDatabase(artifactRoot);
   const discoveredProjects = await discoverSemanticProjects(root);
   const analyzerVersion = config.semantic?.tsjs?.analyzerVersion || "semantic-tsjs-v1";
+  const semanticMeta = getSemanticMeta(db);
+  const fileHashCache = normalizeFileHashCache(semanticMeta[SEMANTIC_FILE_HASH_CACHE_KEY]);
+  pruneFileHashCache(fileHashCache, discoveredProjects);
   const existingProjects = new Map(listSemanticProjects(db).map((item) => [item.project_id, item]));
   const refreshedIds = new Set();
   const refreshed = [];
@@ -371,7 +426,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
     }
 
     for (const project of discoveredProjects) {
-      const contentFingerprint = await computeFingerprint(root, project.filePaths);
+      const contentFingerprint = await computeFingerprint(root, project.filePaths, fileHashCache, options.instrumentation);
       const existing = existingProjects.get(project.id);
       if (!shouldRefreshProject(project, existing, analyzerVersion, contentFingerprint)) {
         skipped.push(project.id);
@@ -383,10 +438,15 @@ export async function runSemanticRefresh(root, config, options = {}) {
         replaceSemanticProjectSnapshot(db, snapshot);
         upsertSemanticMeta(db, "semantic_tsjs_enabled", true);
         upsertSemanticMeta(db, "semantic_tsjs_analyzer_version", analyzerVersion);
+        upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
       });
       refreshedIds.add(project.id);
       refreshed.push(project.id);
     }
+
+    inTransaction(db, () => {
+      upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
+    });
   } finally {
     const projects = listSemanticProjects(db);
     const result = {
