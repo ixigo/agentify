@@ -4,10 +4,11 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import process from "node:process";
 
+import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.js";
 import { toJson } from "./utils.js";
 
 const require = createRequire(import.meta.url);
-const DB_SCHEMA_VERSION = "3.0";
+const DB_SCHEMA_VERSION = "3.1";
 const SNAPSHOT_DIR_MODE = 0o700;
 const SNAPSHOT_FILE_MODE = 0o600;
 
@@ -326,11 +327,15 @@ function configureIndexConnection(db, implementation, { readOnly }) {
     CREATE INDEX IF NOT EXISTS idx_semantic_edges_from_file_path ON semantic_symbol_edges(from_file_path);
     CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_file_path ON semantic_symbol_edges(to_file_path);
   `);
+  createSearchSchema(db);
 
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
     .run("schema_version", toJson(DB_SCHEMA_VERSION));
   db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
     .run("db_driver", toJson(implementation.name));
+  if (!readOnly) {
+    refreshSearchIndexIfNeeded(db);
+  }
 }
 
 function openReadOnlyIndexDatabase(sourceDbPath, options) {

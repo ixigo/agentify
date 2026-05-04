@@ -25,7 +25,7 @@ import {
 } from "./db/structural-store.js";
 import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
-import { applySemanticHeaders, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
+import { applySemanticHeaders, isSemanticEnabled, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
 import * as ui from "./ui.js";
 
 export { detectTestCommand } from "./project-tests.js";
@@ -106,7 +106,8 @@ ${detectedStacks}
 ${sharedConventions}
 
 ## Conventions
-- Generated docs live under \`docs/\`
+- Generated repo docs live under \`docs/\`
+- Generated module docs live at each module root as \`AGENTIFY.md\` when the module is not the repository root
 - Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
 - Repo guardrails live in \`.guardrails\`
 - Local working RFCs and notes live under \`.agentify/work/\`
@@ -134,6 +135,12 @@ ${moduleBlocks}
 }
 
 function renderRepoMap(index) {
+  const moduleLink = (moduleInfo) => {
+    const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
+    const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+    return `- [${moduleInfo.name}](${href})`;
+  };
+
   return `# Repo Map
 
 ## Stacks
@@ -143,7 +150,7 @@ ${index.repo.detected_stacks.map((stack) => `- \`${stack.name}\` (${stack.confid
 ${index.entrypoints.length > 0 ? index.entrypoints.map((entry) => `- \`${entry}\``).join("\n") : "- No entrypoints detected."}
 
 ## Modules
-${index.modules.map((moduleInfo) => `- [${moduleInfo.name}](./modules/${path.basename(moduleInfo.doc_path)})`).join("\n")}
+${index.modules.map(moduleLink).join("\n")}
 `;
 }
 
@@ -154,12 +161,21 @@ async function writeRunReport(root, report) {
 }
 
 function summarizeTestResult(testResult) {
-  return {
+  const summary = {
     status: testResult.status,
     passed: testResult.passed,
     command: testResult.command,
+    stdout_truncated: Boolean(testResult.stdout_truncated),
+    stderr_truncated: Boolean(testResult.stderr_truncated),
+    stdout_bytes: testResult.stdout_bytes ?? 0,
+    stderr_bytes: testResult.stderr_bytes ?? 0,
+    output_max_bytes: testResult.output_max_bytes ?? null,
     exit_code: testResult.exit_code
   };
+  if (testResult.discovery_error) {
+    summary.discovery_error = testResult.discovery_error;
+  }
+  return summary;
 }
 
 function renderDefaultAgentignore() {
@@ -181,7 +197,7 @@ function renderDefaultGuardrails() {
 - Do not commit knowingly broken code just to checkpoint progress.
 
 ## Protected Paths
-- Do not edit \`.agents/\`, \`docs/modules/\`, \`AGENTIFY.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
+- Do not edit \`.agents/\`, generated \`AGENTIFY.md\` files, \`docs/repo-map.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
 - Do not edit provider-installed skill directories under \`.codex/\`, \`.claude/\`, \`.gemini/\`, or \`.opencode/\` unless the task is specifically about those files.
 - Put local architecture RFCs, notes, and scratch outputs under \`.agentify/work/\`.
 
@@ -650,10 +666,10 @@ async function _runDocInner(root, config, options, progress) {
     }
   }
 
-  const semanticEnabled = Boolean(config.semantic?.tsjs?.enabled);
+  const semanticEnabled = isSemanticEnabled(config);
   if (semanticEnabled && !config.dryRun) {
-    progress.log("doc: refreshing semantic TS/JS facts");
-    progress.percent("doc", 5, "refreshing semantic TS/JS facts");
+    progress.log("doc: refreshing semantic facts");
+    progress.percent("doc", 5, "refreshing semantic facts");
     await runSemanticRefresh(root, config, {
       artifactRoot,
       silent: true,
@@ -802,7 +818,7 @@ async function _runDocInner(root, config, options, progress) {
             stack: moduleInfo.stack,
           },
           summary: summarizeModule(moduleInfo, context.files.map((item) => item.path), context.semantic),
-          docs: [`docs/modules/${moduleInfo.slug}.md`],
+          docs: [moduleInfo.doc_path],
           tags: Array.from(new Set([...(cachedArtifact.metadata?.tags || []), moduleInfo.stack])),
         }, {
           now,
@@ -933,12 +949,35 @@ async function _runDocInner(root, config, options, progress) {
       }
     }
 
+    const moduleProviderStatuses = generatedModules
+      .map((item) => item.result?.metadata?.provider_status)
+      .filter(Boolean);
+    const providerStatus = moduleProviderStatuses.length > 0
+      && moduleProviderStatuses.every((status) => status.status === "fallback" && status.mode === "deterministic-local")
+      ? {
+          status: "fallback",
+          provider: "local",
+          mode: "deterministic-local"
+        }
+      : provider.name === "local"
+        ? {
+            status: "fallback",
+            provider: provider.name,
+            mode: "deterministic-local"
+          }
+        : {
+            status: "success",
+            provider: provider.name,
+            mode: "provider-backed"
+          };
+
     const runReport = {
     run_id: `${Date.now()}`,
     started_at: now,
     finished_at: new Date().toISOString(),
     provider: provider.name,
     provider_model: provider.providerModel,
+    provider_status: providerStatus,
     token_usage: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
@@ -1013,8 +1052,9 @@ async function _runDocInner(root, config, options, progress) {
       cached_modules: cachedModules,
       files_with_headers: filesWithHeaders,
       docs_written: docsWritten,
+      provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "docs/repo-map.md", "docs/modules/*.md", ".agents/index.db", ".agents/runs/*.json"],
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agents/index.db", ".agents/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);
@@ -1110,7 +1150,7 @@ export async function runUpdate(root, config, options = {}) {
     }
     progress.percent(commandName, 67, "doc complete");
   } else {
-    progress.log("doc: skipped (set --docs=true to generate docs during update)");
+    progress.log("doc: skipped because --docs=false");
     progress.percent(commandName, 67, "doc skipped");
   }
   const result = await validateRepo(root, config, { artifactRoot, skipFreshness: config.dryRun });

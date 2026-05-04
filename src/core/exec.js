@@ -2,15 +2,16 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getChangedFiles, getHeadCommit } from "./git.js";
+import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
+import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun } from "./session-memory.js";
+import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
-const DEFAULT_CAPTURE_MAX_KB = 48;
 
 function getSnapshotKey(file) {
   return `${file.status}:${file.path}`;
@@ -90,6 +91,22 @@ function diffSnapshots(preFiles, postFiles, preDigests = new Map(), postDigests 
   return changes;
 }
 
+function combineChanges(...groups) {
+  const seen = new Set();
+  const changes = [];
+  for (const group of groups) {
+    for (const file of group || []) {
+      const key = getSnapshotKey(file);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      changes.push(file);
+    }
+  }
+  return changes;
+}
+
 function posixShellQuote(value) {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
@@ -110,30 +127,89 @@ function buildScriptCommand(argv, capturePath) {
 }
 
 function getCaptureBufferMaxBytes(config) {
-  const maxKb = Number(config?.session?.captureMaxKb);
-  const normalizedKb = Number.isFinite(maxKb) && maxKb > 0 ? maxKb : DEFAULT_CAPTURE_MAX_KB;
-  return normalizedKb * 1024;
+  return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
-function createBoundedCaptureBuffer(maxBytes) {
-  const chunks = [];
-  let totalBytes = 0;
+function normalizeCommandForDisplay(argv) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    return "";
+  }
+
+  return argv.map((part) => {
+    const text = String(part);
+    if (!/[\s"'\\]/.test(text)) {
+      return text;
+    }
+    return `"${text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
+  }).join(" ");
+}
+
+function summarizeProviderCommand(argv) {
+  const parts = Array.isArray(argv) ? argv.map(String) : [];
+  return {
+    executable: parts[0] || null,
+    argv: parts,
+    argc: parts.length,
+    display: normalizeCommandForDisplay(parts),
+  };
+}
+
+function summarizeChangedFiles(files) {
+  return files.map((file) => ({
+    status: file.status,
+    path: file.path,
+    ...(file.origPath ? { orig_path: file.origPath } : {}),
+  }));
+}
+
+function buildExecutionTelemetry({
+  runId,
+  startedAt,
+  finishedAt,
+  durationMs,
+  result,
+  config,
+  agentCommand,
+  commandResult,
+  agentChanges,
+  headChanged,
+  flags,
+}) {
+  const changedFiles = summarizeChangedFiles(agentChanges || []);
+  const captureMode = commandResult?.captureMode || flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
+  const transcript = commandResult?.interactiveTranscript || result.interactiveTranscript || "";
+  const rawLogPath = commandResult?.rawInteractiveLogPath || result.rawInteractiveLogPath || null;
 
   return {
-    append(chunk) {
-      if (maxBytes <= 0 || totalBytes >= maxBytes || !chunk?.length) {
-        return;
-      }
-
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const remaining = maxBytes - totalBytes;
-      const slice = buffer.length <= remaining ? buffer : buffer.subarray(0, remaining);
-      chunks.push(Buffer.from(slice));
-      totalBytes += slice.length;
+    run_id: runId,
+    started_at: startedAt.toISOString(),
+    finished_at: finishedAt.toISOString(),
+    duration_ms: durationMs,
+    phase: result.phase,
+    exit_code: result.exitCode,
+    skipped_refresh: Boolean(result.skippedRefresh),
+    provider: config.provider || null,
+    provider_model: config.providerModel || config.provider_model || null,
+    provider_command: summarizeProviderCommand(agentCommand),
+    capture: {
+      mode: flags.sessionRecord?.captureMode || captureMode,
+      output_mode: captureMode,
+      transcript_available: transcript.length > 0,
+      transcript_bytes: Buffer.byteLength(transcript, "utf8"),
+      raw_log_available: Boolean(rawLogPath),
+      raw_log_path: rawLogPath,
     },
-    toString() {
-      return totalBytes > 0 ? Buffer.concat(chunks, totalBytes).toString("utf8") : "";
-    },
+    changed_files_count: changedFiles.length,
+    changed_paths: changedFiles.map((file) => file.path),
+    changed_files: changedFiles,
+    head_changed: Boolean(headChanged),
+    session: flags.sessionRecord
+      ? {
+          session_id: flags.sessionRecord.sessionId || null,
+          provider: flags.sessionRecord.provider || null,
+          capture_mode: flags.sessionRecord.captureMode || null,
+        }
+      : null,
   };
 }
 
@@ -178,28 +254,38 @@ function runWrappedCommand(argv, options) {
     child.on("error", reject);
     child.on("close", async (code) => {
       if (timer) clearTimeout(timer);
-      try {
-        let interactiveTranscript = "";
-        if (captureMode === "pty" && options.capturePath) {
+      let interactiveTranscript = "";
+      let interactiveCaptureError = "";
+      if (captureMode === "pty" && options.capturePath) {
+        try {
           const raw = await fs.readFile(options.capturePath, "utf8");
           interactiveTranscript = normalizeInteractiveCapture(raw);
+        } catch (error) {
+          interactiveCaptureError = `Unable to read PTY transcript log: ${error.message}`;
         }
-
-        resolve({
-          exitCode: code ?? 1,
-          stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
-          stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
-          interactiveTranscript,
-          rawInteractiveLogPath: captureMode === "pty" ? options.capturePath : null,
-        });
-      } catch (error) {
-        reject(error);
       }
+
+      resolve({
+        exitCode: code ?? 1,
+        stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
+        stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
+        interactiveTranscript,
+        interactiveCaptureError,
+        rawInteractiveLogPath: captureMode === "pty" && !interactiveCaptureError ? options.capturePath : null,
+      });
     });
   });
 }
 
 export async function runExec(root, config, agentCommand, flags) {
+  const commandName = flags.commandName || "exec";
+  const runId = `${Date.now()}-${commandName.replace(/[^a-z0-9_.-]+/gi, "-")}`;
+  const startedAt = new Date();
+  const startMs = Date.now();
+  const progress = flags.reporter || createRunReporter(root);
+  progress.setCommand(commandName);
+  progress.log(`${commandName}: starting provider command`);
+
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
   const preFileDigests = await captureDirtyFileDigests(root, preFiles);
@@ -235,11 +321,69 @@ export async function runExec(root, config, agentCommand, flags) {
           stderr: error.message,
         }, config);
       }
+      const finishedAt = new Date();
+      const result = {
+        phase: "spawn-error",
+        exitCode: 1,
+        stderr: error.message,
+        stdout: "",
+        interactiveTranscript: "",
+        rawInteractiveLogPath: null,
+      };
+      const executionTelemetry = buildExecutionTelemetry({
+        runId,
+        startedAt,
+        finishedAt,
+        durationMs: Date.now() - startMs,
+        result,
+        config,
+        agentCommand,
+        commandResult: null,
+        agentChanges: [],
+        headChanged: false,
+        flags,
+      });
+      progress.setCommand(commandName);
+      progress.setExecution(executionTelemetry);
+      await progress.finalize();
       throw error;
     }
   }
   let exitCode = commandResult.exitCode || 0;
   const commandFailed = exitCode !== 0;
+
+  const postHeadCommit = await getHeadCommit(root);
+  const postFiles = await getChangedFiles(root);
+  const postFileDigests = await captureDirtyFileDigests(root, postFiles);
+  const headChanged = postHeadCommit !== preHeadCommit;
+  const committedChanges = headChanged && preHeadCommit !== "nogit"
+    ? await getChangedFilesSince(root, preHeadCommit)
+    : [];
+  const agentChanges = combineChanges(
+    diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests),
+    committedChanges,
+  );
+
+  async function finalizeResult(result) {
+    const finishedAt = new Date();
+    result.executionTelemetry = buildExecutionTelemetry({
+      runId,
+      startedAt,
+      finishedAt,
+      durationMs: Date.now() - startMs,
+      result,
+      config,
+      agentCommand,
+      commandResult,
+      agentChanges,
+      headChanged,
+      flags,
+    });
+    progress.setCommand(commandName);
+    progress.setExecution(result.executionTelemetry);
+    await progress.finalize();
+    return result;
+  }
 
   if (flags.skipRefresh) {
     process.exitCode = exitCode;
@@ -250,19 +394,14 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    return finalizeResult(result);
   }
-
-  const postHeadCommit = await getHeadCommit(root);
-  const postFiles = await getChangedFiles(root);
-  const postFileDigests = await captureDirtyFileDigests(root, postFiles);
-  const agentChanges = diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests);
-  const headChanged = postHeadCommit !== preHeadCommit;
   if (agentChanges.length === 0 && !headChanged) {
     const validation = await validateRepo(root, config);
     if (!validation.passed && flags.failOnStale && !commandFailed) {
@@ -281,17 +420,19 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: commandResult.stderr,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    progress.setValidation(validation);
+    return finalizeResult(result);
   }
 
   try {
-    await runScan(root, config, { skipFinalize: true });
-    await runDoc(root, config, { skipFinalize: true });
+    await runScan(root, config, { reporter: progress, skipFinalize: true });
+    await runDoc(root, config, { reporter: progress, skipFinalize: true });
   } catch (error) {
     ui.error(`refresh error: ${error.message}`);
     if (flags.failOnStale && !commandFailed) {
@@ -304,15 +445,17 @@ export async function runExec(root, config, agentCommand, flags) {
       stdout: commandResult.stdout,
       stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
       interactiveTranscript: commandResult.interactiveTranscript,
+      interactiveCaptureError: commandResult.interactiveCaptureError,
       rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
     }
-    return result;
+    return finalizeResult(result);
   }
 
   const validation = await validateRepo(root, config);
+  progress.setValidation(validation);
 
   if (!validation.passed) {
     if (flags.failOnStale && !commandFailed) {
@@ -332,10 +475,11 @@ export async function runExec(root, config, agentCommand, flags) {
     stdout: commandResult.stdout,
     stderr: commandResult.stderr,
     interactiveTranscript: commandResult.interactiveTranscript,
+    interactiveCaptureError: commandResult.interactiveCaptureError,
     rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
   };
   if (preparedSessionMemory) {
     await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
   }
-  return result;
+  return finalizeResult(result);
 }

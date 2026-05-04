@@ -170,6 +170,14 @@ async function loadWorkspacePatterns(root) {
   return Array.from(patterns).filter(Boolean);
 }
 
+function resolveModuleDocPath(moduleInfo) {
+  const rootPath = moduleInfo.rootPath || ".";
+  if (rootPath === ".") {
+    return `docs/modules/${moduleInfo.slug}.md`;
+  }
+  return `${rootPath}/AGENTIFY.md`;
+}
+
 async function detectTypeScriptModules(root, config, relFiles) {
   const patterns = await loadWorkspacePatterns(root);
   const packageFiles = relFiles.filter((file) => file === "package.json" || file.endsWith("/package.json"));
@@ -197,14 +205,14 @@ async function detectTypeScriptModules(root, config, relFiles) {
   }
 
   if (modules.length > 0) {
-    return modules.sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+    return withTypeScriptSourceFallbackModule(modules, relFiles);
   }
 
   const fallbackModules = await detectModules(root, config, "ts");
-  return fallbackModules.map((moduleInfo) => ({
+  return withTypeScriptSourceFallbackModule(fallbackModules.map((moduleInfo) => ({
     ...moduleInfo,
     packageName: null,
-  }));
+  })), relFiles);
 }
 
 function findOwningModule(filePath, modules) {
@@ -215,6 +223,49 @@ function findOwningModule(filePath, modules) {
     }
   }
   return null;
+}
+
+function withTypeScriptSourceFallbackModule(modules, relFiles) {
+  const sortedModules = modules.slice().sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+  const hasSrcModule = sortedModules.some((moduleInfo) => moduleInfo.rootPath === "src");
+  if (hasSrcModule) {
+    return sortedModules;
+  }
+
+  const hasUnownedSrcSource = relFiles.some((filePath) => (
+    filePath.startsWith("src/")
+    && TS_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+    && !findOwningModule(filePath, sortedModules)
+  ));
+
+  if (!hasUnownedSrcSource) {
+    return sortedModules;
+  }
+
+  const fallbackId = uniqueModuleId("src", sortedModules);
+  return [
+    ...sortedModules,
+    {
+      id: fallbackId,
+      name: fallbackId,
+      rootPath: "src",
+      stack: "ts",
+      packageName: null,
+    },
+  ].sort((left, right) => left.rootPath.localeCompare(right.rootPath));
+}
+
+function uniqueModuleId(baseId, modules) {
+  const ids = new Set(modules.map((moduleInfo) => moduleInfo.id));
+  if (!ids.has(baseId)) {
+    return baseId;
+  }
+
+  let suffix = 2;
+  while (ids.has(`${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseId}-${suffix}`;
 }
 
 function detectPackageManager(rootFiles, rootPackageJson) {
@@ -1348,7 +1399,7 @@ export async function buildRepositoryIndex(root, config) {
 
     moduleInfo.entry_files = entryFiles;
     moduleInfo.key_files = keyFiles;
-    moduleInfo.doc_path = `docs/modules/${moduleInfo.slug}.md`;
+    moduleInfo.doc_path = resolveModuleDocPath(moduleInfo);
     moduleInfo.fingerprint = fingerprint;
 
     for (const row of currentFiles) {

@@ -1,6 +1,12 @@
 import { fromJson, normalizeRows, toJson } from "./utils.js";
+import {
+  clearSemanticProjectSearchIndex,
+  rebuildSemanticProjectSearchIndex,
+  searchLikePattern,
+} from "./search-store.js";
 
 export function clearSemanticProjectState(db, projectId) {
+  clearSemanticProjectSearchIndex(db, projectId);
   db.prepare("DELETE FROM semantic_symbol_edges WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM semantic_surfaces WHERE project_id = ?").run(projectId);
   db.prepare("DELETE FROM semantic_symbols WHERE project_id = ?").run(projectId);
@@ -188,6 +194,8 @@ export function replaceSemanticProjectSnapshot(db, snapshot) {
       edgeInfo.metadata_json || null
     );
   }
+
+  rebuildSemanticProjectSearchIndex(db, snapshot.project.project_id);
 }
 
 export function listSemanticProjects(db) {
@@ -364,37 +372,35 @@ export function loadSemanticPlannerFacts(db) {
 }
 
 export function searchSemanticIndex(db, term, limit = 20) {
-  const normalized = `%${String(term || "").trim().toLowerCase()}%`;
+  const pattern = searchLikePattern(term);
   return {
     semantic_projects: normalizeRows(db.prepare(`
       SELECT project_id, config_path, project_root, status, file_count, symbol_count, surface_count, edge_count
-      FROM semantic_projects
-      WHERE lower(coalesce(config_path, '')) LIKE ?
-        OR lower(project_root) LIKE ?
-        OR lower(project_id) LIKE ?
+      FROM query_search_fts search
+      JOIN semantic_projects ON semantic_projects.project_id = search.entity_id
+      WHERE search.entity_type = 'semantic_project'
+        AND search.search_text LIKE ? ESCAPE '\\'
       ORDER BY coalesce(config_path, project_root), project_id
       LIMIT ?
-    `).all(normalized, normalized, normalized, limit)),
+    `).all(pattern, limit)),
     semantic_surfaces: normalizeRows(db.prepare(`
       SELECT surface_id, project_id, file_path, kind, role, surface_key, display_name
-      FROM semantic_surfaces
-      WHERE lower(file_path) LIKE ?
-        OR lower(kind) LIKE ?
-        OR lower(role) LIKE ?
-        OR lower(surface_key) LIKE ?
-        OR lower(display_name) LIKE ?
+      FROM query_search_fts search
+      JOIN semantic_surfaces ON semantic_surfaces.surface_id = search.entity_id
+      WHERE search.entity_type = 'semantic_surface'
+        AND search.search_text LIKE ? ESCAPE '\\'
       ORDER BY file_path, kind, role
       LIMIT ?
-    `).all(normalized, normalized, normalized, normalized, normalized, limit)),
+    `).all(pattern, limit)),
     semantic_symbols: normalizeRows(db.prepare(`
       SELECT symbol_id, project_id, file_path, name, kind, export_name, is_exported
-      FROM semantic_symbols
-      WHERE lower(name) LIKE ?
-        OR lower(file_path) LIKE ?
-        OR lower(coalesce(export_name, '')) LIKE ?
+      FROM query_search_fts search
+      JOIN semantic_symbols ON semantic_symbols.symbol_id = search.entity_id
+      WHERE search.entity_type = 'semantic_symbol'
+        AND search.search_text LIKE ? ESCAPE '\\'
       ORDER BY file_path, start_line
       LIMIT ?
-    `).all(normalized, normalized, normalized, limit)),
+    `).all(pattern, limit)),
   };
 }
 
