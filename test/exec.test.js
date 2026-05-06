@@ -151,6 +151,42 @@ test("runExec includes committed edits in execution telemetry", async () => {
   assert.deepEqual(result.executionTelemetry.changed_paths, ["src/index.js"]);
 });
 
+test("runExec provider validation allows non-code app config edits", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-env-edit-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const value = true;\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false });
+  await runScan(root, config);
+  await runDoc(root, config);
+
+  const script = [
+    "import fs from 'node:fs/promises';",
+    "await fs.writeFile('.env.development', 'FEATURE_FLAG=true\\n', 'utf8');",
+  ].join("");
+
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    const result = await runExec(
+      root,
+      config,
+      ["node", "--input-type=module", "-e", script],
+      { skipCodeBodyChanges: true }
+    );
+
+    assert.equal(result.phase, "complete");
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.validation?.passed, true);
+    assert.equal(result.validation?.failures.some((failure) => failure.path === ".env.development"), false);
+  } finally {
+    process.exitCode = originalExitCode;
+  }
+});
+
 test("runExec hook-friendly validation still records failing commands after source edits", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-failed-refresh-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");

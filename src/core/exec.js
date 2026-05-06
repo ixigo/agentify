@@ -194,6 +194,14 @@ function summarizeChangedFiles(files) {
   }));
 }
 
+function getPostProviderValidationOptions(flags) {
+  const providerMayChangeRepoFiles = flags.skipCodeBodyChanges === true;
+  return {
+    skipCodeBodyChanges: providerMayChangeRepoFiles,
+    skipChangedFiles: providerMayChangeRepoFiles,
+  };
+}
+
 function buildExecutionTelemetry({
   runId,
   startedAt,
@@ -440,9 +448,7 @@ export async function runExec(root, config, agentCommand, flags) {
     return finalizeResult(result);
   }
   if (refreshRelevantChanges.length === 0) {
-    const validation = await validateRepo(root, config, {
-      skipCodeBodyChanges: flags.skipCodeBodyChanges === true,
-    });
+    const validation = await validateRepo(root, config, getPostProviderValidationOptions(flags));
     if (!validation.passed && flags.failOnStale && !commandFailed) {
       exitCode = AGENTIFY_EXIT_VALIDATE_FAILED;
     } else if (!validation.passed) {
@@ -493,9 +499,7 @@ export async function runExec(root, config, agentCommand, flags) {
     return finalizeResult(result);
   }
 
-  const validation = await validateRepo(root, config, {
-    skipCodeBodyChanges: flags.skipCodeBodyChanges === true,
-  });
+  const validation = await validateRepo(root, config, getPostProviderValidationOptions(flags));
   progress.setValidation(validation);
 
   if (!validation.passed) {
