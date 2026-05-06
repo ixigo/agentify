@@ -53,7 +53,7 @@ Paste a single prompt to your AI assistant — it handles install, bootstrap, an
 
 ## 👤 For Humans
 
-<details open>
+<details >
 <summary><b>1. Prerequisites</b></summary>
 
 | Tool | Version | Required |
@@ -65,7 +65,7 @@ Paste a single prompt to your AI assistant — it handles install, bootstrap, an
 
 </details>
 
-<details open>
+<details >
 <summary><b>2. Install Agentify</b></summary>
 
 ```bash
@@ -78,7 +78,7 @@ agentify --version
 
 </details>
 
-<details open>
+<details >
 <summary><b>3. Bootstrap a target repo</b></summary>
 
 ```bash
