@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -87,6 +88,49 @@ function isAgentIgnored(relativePath, patterns) {
   return patterns.some((p) => p.test(relativePath));
 }
 
+async function loadGitIgnored(root) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "git",
+      ["-C", root, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const chunks = [];
+
+    child.stdout.on("data", (chunk) => chunks.push(chunk));
+    child.on("error", () => resolve(new Set()));
+    child.on("close", (code) => {
+      if (code !== 0) {
+        resolve(new Set());
+        return;
+      }
+      const ignored = Buffer.concat(chunks)
+        .toString("utf8")
+        .split("\0")
+        .filter(Boolean)
+        .map((ignoredPath) => ignoredPath.replace(/^\.\//, "").split(path.sep).join("/"));
+      resolve(new Set(ignored));
+    });
+  });
+}
+
+function isGitIgnored(relativePath, ignoredPaths) {
+  if (ignoredPaths.size === 0) {
+    return false;
+  }
+  if (ignoredPaths.has(relativePath) || ignoredPaths.has(relativePath.endsWith("/") ? relativePath : `${relativePath}/`)) {
+    return true;
+  }
+  let slashIndex = relativePath.indexOf("/");
+  while (slashIndex !== -1) {
+    if (ignoredPaths.has(`${relativePath.slice(0, slashIndex)}/`)) {
+      return true;
+    }
+    slashIndex = relativePath.indexOf("/", slashIndex + 1);
+  }
+  return false;
+}
+
 export function resetIgnoreCache() {
   ignorePatternCache.clear();
 }
@@ -119,6 +163,7 @@ export async function writeJson(targetPath, value) {
 export async function walkFiles(root, { respectIgnore = false } = {}) {
   const files = [];
   const ignorePatterns = respectIgnore ? await loadAgentignore(root) : [];
+  const gitIgnoredPaths = respectIgnore ? await loadGitIgnored(root) : new Set();
 
   async function visit(current) {
     const entries = await fs.readdir(current, { withFileTypes: true });
@@ -134,7 +179,12 @@ export async function walkFiles(root, { respectIgnore = false } = {}) {
         }
         if (respectIgnore) {
           const relDir = `${rel}/`;
-          if (isHardExcluded(relDir) || isAgentIgnored(rel, ignorePatterns) || isAgentIgnored(relDir, ignorePatterns)) {
+          if (
+            isHardExcluded(relDir) ||
+            isAgentIgnored(rel, ignorePatterns) ||
+            isAgentIgnored(relDir, ignorePatterns) ||
+            isGitIgnored(relDir, gitIgnoredPaths)
+          ) {
             continue;
           }
         }
@@ -142,7 +192,7 @@ export async function walkFiles(root, { respectIgnore = false } = {}) {
         continue;
       }
       if (respectIgnore) {
-        if (isHardExcluded(rel) || isAgentIgnored(rel, ignorePatterns)) {
+        if (isHardExcluded(rel) || isAgentIgnored(rel, ignorePatterns) || isGitIgnored(rel, gitIgnoredPaths)) {
           continue;
         }
       }
