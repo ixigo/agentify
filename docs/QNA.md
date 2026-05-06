@@ -391,3 +391,76 @@ When a repo is kept fresh with `agentify up`, agents gain:
    - run manifests/session artifacts make autonomous behavior inspectable and reproducible.
 
 In practice, this means better first-pass patches, fewer corrective loops, and easier multi-agent collaboration in large repositories.
+
+---
+
+## 25) What landed recently? (implementation log)
+
+The roadmap items in section 22 have largely shipped. Recent implementations now in main:
+
+1. **LSP-bridge query commands** (PR #131)
+   - `query def`, `query refs`, `query callers`, `query impacts` are wired to the semantic graph and resolve symbols/files against persisted edges.
+
+2. **Semantic health diagnostics** (PR #130)
+   - `agentify doctor --semantic` reports project discovery, parse failures, fingerprint staleness, and symbol/edge coverage.
+
+3. **PR-risk and regression prediction** (PR #132)
+   - Dependency + semantic edges now drive blast-radius estimates and prioritized test surfacing.
+
+4. **Read-only index lookups isolated** (PR #124)
+   - Reads snapshot SQLite to avoid writer contention; index events stay consistent under concurrent CLI use.
+
+5. **Verification command types preserved** (PR #114)
+   - Planner output retains typed verification commands (test/lint/build) so agents can stage checks deterministically.
+
+6. **Session runs no longer leak provider conversations** (PR #117)
+   - `.agents/sess` artifacts stop persisting raw provider chat state, keeping session manifests reproducible without provider-specific noise.
+
+7. **`agentify up` runs tests on non-node repos** (PR #128)
+   - Test phase no longer silently skips when `package.json` is absent; falls back to repo-declared verification commands.
+
+8. **Hook settings wired up** (PR #125)
+   - Inert `.agentify.yaml` hook entries now actually fire (or are removed); no more dead config.
+
+9. **Provider template capture coverage** (PR #136)
+   - Interactive provider templates have test coverage so prompt capture stays stable across CLI variants.
+
+---
+
+## 26) What is "routed context mode"?
+
+Routed context mode (PRs #145, #147, #148, #149, #150) is a new execution path that streams only the context the provider needs for the current step rather than dumping a full prompt up front.
+
+Key properties:
+
+- **Bounded prompts**: routed prompts are size-capped and validated before dispatch (PR #148) so a runaway plan cannot blow past provider limits.
+- **Local event schema**: a new context event schema (PR #147) records what context was routed, when, and why — making routed runs auditable.
+- **Configurable**: routed mode is opt-in via context config; defaults preserve existing behavior for teams not ready to adopt it.
+- **Provider-CLI-free tests**: the routed pipeline is covered by tests that do not require a real provider CLI (PR #150), so CI stays hermetic.
+- **Documented compaction limits**: docs now describe how routed context interacts with compaction so users understand when context is dropped vs. summarized (PR #149).
+
+When to use it: long multi-step tasks where a single mega-prompt would be wasteful or would exceed provider context budgets.
+
+---
+
+## 27) Configured tool detection hardening
+
+PR #145 / commit `50e65b5` hardened how Agentify detects which provider tooling is actually configured on the host. Previously, partial installs or stale PATH entries could cause Agentify to attempt commands against a tool that was not really available; detection now verifies executable presence and version surface before dispatch, failing fast with an actionable message.
+
+---
+
+## 28) Skill catalog and Jira skill
+
+- **Skill catalog** (`skill-catalog.html`, commit `5cac581`): a static, browsable index of available skills (grill-me, gh-issue-autopilot, jira-solve, auto-pilot, etc.) so operators can discover playbooks without reading source.
+- **Jira skill** (commit `e97e2c4`): adds a Jira-aware skill that maps tickets to the standard `scan -> plan -> run -> commit -> PR` loop, mirroring the GitHub issue autopilot flow for teams on Jira.
+- **Static explainer pages** (`agentify-explainer.html`, `index.html`, commit `7037aaf`): self-contained HTML pages that explain Agentify's pipeline visually, suitable for sharing with stakeholders who do not run the CLI.
+
+---
+
+## 29) Are the section 22 gaps still open?
+
+Mostly closed, with two caveats:
+
+- **Closed**: explainable planning surfaces, semantic health diagnostics, LSP-bridge query commands, PR-risk prediction, agent handoff bundles (folded into routed context + sessions).
+- **Still open**: deeper non-TS/JS semantic adapters (Python/Go/Java/.NET still at normalized-facts depth, not full call-graph parity).
+- **Still open**: cross-agent conflict detection for parallel worktree changes — sessions help, but two agents touching overlapping symbols still rely on git-level conflict resolution rather than semantic-aware coordination.
