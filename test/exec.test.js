@@ -441,7 +441,7 @@ test("runExec bounds captured stdout and stderr to the configured capture limit"
   }
 });
 
-test("runExec records interactive provider output into a raw PTY log and normalized transcript", async () => {
+test("runExec records redacted interactive provider output without retaining a raw PTY log", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-interactive-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
@@ -449,10 +449,16 @@ test("runExec records interactive provider output into a raw PTY log and normali
   for (const provider of ["codex", "claude"]) {
     const config = await loadConfig(root, { provider, dryRun: false, tokenReport: false });
     const session = await forkSession(root, config, { name: `${provider}-interactive` });
+    const command = [
+      "node",
+      "--input-type=module",
+      "-e",
+      "process.stdout.write('interactive transcript\\nOPENAI_API_KEY=sk-pty-secret12345\\n')",
+    ];
     const result = await runExec(
       root,
       config,
-      ["node", "--input-type=module", "-e", "process.stdout.write('interactive transcript\\n')"],
+      command,
       {
         captureOutputMode: "pty",
         sessionRecord: {
@@ -460,7 +466,7 @@ test("runExec records interactive provider output into a raw PTY log and normali
           provider,
           prompt: `Continue the ${provider} interactive session.`,
           task: `Verify PTY capture for ${provider}.`,
-          command: ["node", "--input-type=module", "-e", "process.stdout.write('interactive transcript\\n')"],
+          command,
           memoryContext: {
             sourceSessionId: null,
             transcriptRelativePath: null,
@@ -474,15 +480,26 @@ test("runExec records interactive provider output into a raw PTY log and normali
 
     const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
     const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
-    const rawLog = await fs.readFile(path.join(session.sessionDir, "interactive.log"), "utf8");
+    const turns = await fs.readFile(path.join(session.sessionDir, "turns.jsonl"), "utf8");
+    const context = await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8");
+    const manifest = await fs.readFile(path.join(session.sessionDir, "session-manifest.json"), "utf8");
+    const combined = [transcript, launches, turns, context, manifest].join("\n");
+    const launch = JSON.parse(launches.trim().split(/\r?\n/).at(-1));
 
     assert.equal(result.phase, "complete");
     assert.equal(result.exitCode, 0);
-    assert.match(transcript, /interactive transcript/);
-    assert.match(transcript, /Raw interactive log:/);
-    assert.match(launches, /interactive-pty/);
-    assert.match(launches, /interactive\.log/);
-    assert.match(rawLog, /interactive transcript/);
+    assert.equal(result.rawInteractiveLogPath, null);
+    assert.match(combined, /interactive transcript/);
+    assert.match(combined, /\[REDACTED\]/);
+    assert.doesNotMatch(combined, /sk-pty-secret12345/);
+    assert.doesNotMatch(combined, /interactive\.log/);
+    assert.doesNotMatch(transcript, /Raw interactive log:/);
+    assert.equal(launch.capture_mode, "interactive-pty");
+    assert.equal(launch.raw_interactive_log_path, null);
+    await assert.rejects(
+      () => fs.access(path.join(session.sessionDir, "interactive.log")),
+      /ENOENT/
+    );
   }
 });
 
