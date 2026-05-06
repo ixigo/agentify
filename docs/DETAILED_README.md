@@ -371,7 +371,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--continue` | Resume the provider's most recent session for `run`. Omit it when you want the default fresh provider task. |
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
-| `--context-mode <direct|routed>` | Use `routed` to launch `run` and `sess` with docs/DB-first instructions and only bounded `agentify context ...` retrieval commands. |
+| `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `compact` is the default; `direct` is accepted as a backward-compatible alias for `compact`. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |

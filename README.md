@@ -312,13 +312,14 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
-| `index` / `scan` | Build the SQLite repository index |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for index |
 | `doc` | Generate docs, metadata, key-file headers |
 | `up` | scan → optional doc → check → test pipeline |
 | `sync` | Upgrade repo-owned Agentify files, then refresh |
 | `check` | Validate freshness, schemas, safety rules |
 | `plan` | Preview planner-selected context for a task |
-| `context` | Search indexed context, fetch bounded slices |
+| `context` | Search, fetch, compact, and inspect routed context |
 | `run` | Run provider with auto-refresh |
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write cross-agent handoff bundle for a session |
@@ -356,9 +357,8 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--continue` | Resume the provider's most recent session for `run`; omitted means a fresh provider task |
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
-| `--context-mode` | Choose `compact` or `routed` run prompt behavior |
+| `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
-| `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |
 | `--bypass-permissions` | Explicitly bypass provider permission prompts for `issue-killer` panes |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output (`lite`, `full`, `ultra`, `wenyan*`) |

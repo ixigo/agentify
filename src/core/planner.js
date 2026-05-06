@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
+import { toPlannerContextMode } from "./context-mode.js";
 import {
   loadCommands,
   loadFiles,
@@ -89,12 +90,6 @@ function normalizeExecutionBudget(executionBudget = {}) {
     max_widenings: nonNegativeInteger(executionBudget.max_widenings, 1),
     edit_after_selected_context_unless_blocked: executionBudget.edit_after_selected_context_unless_blocked !== false,
   };
-}
-
-function normalizeContextMode(value) {
-  return String(value || "selected").trim().toLowerCase() === "routed"
-    ? "routed"
-    : "selected";
 }
 
 export const PLAN_EXPLAIN_COMPONENTS = Object.freeze([
@@ -606,7 +601,7 @@ function renderSelectedFileRoutes(files) {
 }
 
 export function renderExecutionPrompt(plan, options = {}) {
-  const contextMode = normalizeContextMode(options.contextMode || plan.context?.mode);
+  const contextMode = toPlannerContextMode(options.contextMode || plan.context?.mode, { fallback: "selected" });
   const includeSource = options.includeSource !== undefined
     ? options.includeSource !== false
     : plan.context?.source_included !== false;
@@ -749,7 +744,7 @@ function stripSelectedFileSource(item) {
 
 function preparePlanForOutput(plan, { explain = false, contextMode = "selected", includeSource = true } = {}) {
   const context = {
-    mode: normalizeContextMode(contextMode),
+    mode: toPlannerContextMode(contextMode, { fallback: "selected" }),
     source_included: includeSource !== false,
     source_policy: includeSource !== false
       ? "selected_file_slices_included"
@@ -1051,7 +1046,7 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
     };
 
     const includeSource = options.includeSource !== false;
-    const contextMode = normalizeContextMode(options.contextMode);
+    const contextMode = toPlannerContextMode(options.contextMode);
     const outputPlan = preparePlanForOutput(plan, {
       explain: options.explain === true,
       contextMode,

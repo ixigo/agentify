@@ -31,6 +31,13 @@ import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateComm
 import { runRepoSync } from "./core/repo-sync.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
+import {
+  CONTEXT_MODE_DEFAULT,
+  CONTEXT_MODE_DESCRIPTION,
+  CONTEXT_MODE_HELP_LABEL,
+  normalizeContextMode,
+  toPlannerContextMode,
+} from "./core/context-mode.js";
 import { VERSION, withSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
@@ -228,24 +235,10 @@ function resolveRunTask(args, startIndex) {
   return buildRunPrompt(getPromptFromArgs(args, startIndex));
 }
 
-function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
-  const raw = value === undefined || value === null || value === false
-    ? fallback
-    : value;
-  const mode = String(raw).trim().toLowerCase();
-  if (mode === "compact" || mode === "direct") {
-    return "compact";
-  }
-  if (mode === "routed") {
-    return "routed";
-  }
-  throw new Error(`--context-mode must be "compact", "direct", or "routed", received "${raw}".`);
-}
-
 export function resolveRunContextMode(args = {}, config = {}) {
-  return normalizeRunContextMode(
+  return normalizeContextMode(
     hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
-    { fallback: "compact" },
+    { fallback: CONTEXT_MODE_DEFAULT },
   );
 }
 
@@ -314,7 +307,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const usingTemplateCommand = !args._exec?.length;
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const contextMode = hasOwn(args, "contextMode") ? normalizeSessionContextMode(args.contextMode) : "direct";
+  const contextMode = normalizeSessionContextMode(hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT);
   const subcommand = args._?.[1] || "run";
   const resumeMode = subcommand === "resume" || args.resume === true;
   const sessionInstruction = task
@@ -394,11 +387,10 @@ function printHelp() {
     `    ${c("sync")}            ${d("Upgrade repo-owned Agentify files, then run refresh")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
-    `    ${c("context")}         ${d("Search indexed context and fetch exact bounded file slices")}`,
+    `    ${c("context")}         ${d("Search, fetch, compact, and inspect routed context")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
-    `    ${c("context")}         ${d("Search, fetch, compact, and inspect routed context")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed, def, refs, callers, impacts)")}`,
     `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
@@ -429,9 +421,8 @@ function printHelp() {
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--continue")}                  Resume the provider's most recent session for run`,
     `    ${c("--resume")}                    Alias for run --continue; with session/sess, resume Agentify session context`,
-    `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
+    `    ${c("--context-mode")} ${d(CONTEXT_MODE_HELP_LABEL)}  ${CONTEXT_MODE_DESCRIPTION}`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
-    `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
     `    ${c("--bypass-permissions")}        Explicitly bypass provider permission prompts for issue-killer panes`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
@@ -638,13 +629,13 @@ export async function runCli(argv, runtime = {}) {
 
       case "plan": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
-        const contextMode = normalizeRunContextMode(args.contextMode, { fallback: "compact" });
+        const contextMode = normalizeContextMode(args.contextMode, { fallback: CONTEXT_MODE_DEFAULT });
         const includeSource = contextMode !== "routed" || args.withContext === true;
         let plan;
         try {
           plan = await buildExecutionPlan(root, config, task, {
             explain: args.explain === true,
-            contextMode: contextMode === "routed" ? "routed" : "selected",
+            contextMode: toPlannerContextMode(contextMode),
             includeSource,
           });
         } catch (error) {
@@ -688,7 +679,7 @@ export async function runCli(argv, runtime = {}) {
             : { markdown: "" };
           plan = usesManagedContext && task
             ? await buildExecutionPlan(root, config, task, {
-              contextMode: contextMode === "routed" ? "routed" : "selected",
+              contextMode: toPlannerContextMode(contextMode),
               includeSource,
             })
             : null;
