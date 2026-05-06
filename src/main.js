@@ -150,10 +150,33 @@ function isMissingIndexError(error) {
   return error instanceof Error && /missing index database at /.test(error.message);
 }
 
+function isInvalidIndexDatabaseError(error) {
+  return error instanceof Error && (
+    error.code === "AGENTIFY_INDEX_DATABASE_INVALID"
+    || /invalid index database at /.test(error.message)
+  );
+}
+
 function createMissingIndexGuidance(root) {
   return new Error(
     `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`
   );
+}
+
+function createInvalidIndexGuidance(root) {
+  return new Error(
+    `Agentify index unreadable for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" to rebuild it before using plan/query/context commands.`
+  );
+}
+
+function throwWithIndexGuidance(error, root) {
+  if (isMissingIndexError(error)) {
+    throw createMissingIndexGuidance(root);
+  }
+  if (isInvalidIndexDatabaseError(error)) {
+    throw createInvalidIndexGuidance(root);
+  }
+  throw error;
 }
 
 function getSearchTerm(args, commandName) {
@@ -625,10 +648,7 @@ export async function runCli(argv, runtime = {}) {
             includeSource,
           });
         } catch (error) {
-          if (isMissingIndexError(error)) {
-            throw createMissingIndexGuidance(root);
-          }
-          throw error;
+          throwWithIndexGuidance(error, root);
         }
         if (args.explain === true && !args.json) {
           process.stdout.write(renderPlanExplanation(plan));
@@ -658,17 +678,23 @@ export async function runCli(argv, runtime = {}) {
           || args.explainPlan === true
         );
         const includeSource = contextMode !== "routed" || args.withContext === true;
-        const memoryContext = noTaskInteractiveLaunch
-          ? await loadAutomaticRunMemory(root, "", config)
-          : usesManagedContext
-          ? await loadAutomaticRunMemory(root, task, config)
-          : { markdown: "" };
-        const plan = usesManagedContext && task
-          ? await buildExecutionPlan(root, config, task, {
-            contextMode: contextMode === "routed" ? "routed" : "selected",
-            includeSource,
-          })
-          : null;
+        let memoryContext;
+        let plan;
+        try {
+          memoryContext = noTaskInteractiveLaunch
+            ? await loadAutomaticRunMemory(root, "", config)
+            : usesManagedContext
+            ? await loadAutomaticRunMemory(root, task, config)
+            : { markdown: "" };
+          plan = usesManagedContext && task
+            ? await buildExecutionPlan(root, config, task, {
+              contextMode: contextMode === "routed" ? "routed" : "selected",
+              includeSource,
+            })
+            : null;
+        } catch (error) {
+          throwWithIndexGuidance(error, root);
+        }
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
@@ -731,10 +757,7 @@ export async function runCli(argv, runtime = {}) {
             throw new Error("context requires a subcommand: search, fetch, compact, or status");
           }
         } catch (error) {
-          if (isMissingIndexError(error)) {
-            throw createMissingIndexGuidance(root);
-          }
-          throw error;
+          throwWithIndexGuidance(error, root);
         }
         console.log(JSON.stringify(result, null, 2));
         return;
@@ -819,10 +842,7 @@ export async function runCli(argv, runtime = {}) {
             throw new Error("query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts");
           }
         } catch (error) {
-          if (isMissingIndexError(error)) {
-            throw createMissingIndexGuidance(root);
-          }
-          throw error;
+          throwWithIndexGuidance(error, root);
         }
         console.log(JSON.stringify(result, null, 2));
         return;
@@ -835,10 +855,7 @@ export async function runCli(argv, runtime = {}) {
             since: normalizeOptionalSince(args, "risk"),
           });
         } catch (error) {
-          if (isMissingIndexError(error)) {
-            throw createMissingIndexGuidance(root);
-          }
-          throw error;
+          throwWithIndexGuidance(error, root);
         }
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));

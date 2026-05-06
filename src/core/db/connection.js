@@ -59,20 +59,48 @@ export function getIndexDbPath(root) {
 function createIndexSnapshot(dbPath) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentify-index-"));
   const snapshotPath = path.join(tempDir, "index.db");
-  fs.chmodSync(tempDir, SNAPSHOT_DIR_MODE);
-  fs.copyFileSync(dbPath, snapshotPath);
-  fs.chmodSync(snapshotPath, SNAPSHOT_FILE_MODE);
 
-  for (const suffix of ["-wal", "-shm"]) {
-    const sourcePath = `${dbPath}${suffix}`;
-    if (fs.existsSync(sourcePath)) {
-      const snapshotSidecarPath = `${snapshotPath}${suffix}`;
-      fs.copyFileSync(sourcePath, snapshotSidecarPath);
-      fs.chmodSync(snapshotSidecarPath, SNAPSHOT_FILE_MODE);
+  try {
+    fs.chmodSync(tempDir, SNAPSHOT_DIR_MODE);
+    fs.copyFileSync(dbPath, snapshotPath);
+    fs.chmodSync(snapshotPath, SNAPSHOT_FILE_MODE);
+
+    for (const suffix of ["-wal", "-shm"]) {
+      const sourcePath = `${dbPath}${suffix}`;
+      if (fs.existsSync(sourcePath)) {
+        const snapshotSidecarPath = `${snapshotPath}${suffix}`;
+        fs.copyFileSync(sourcePath, snapshotSidecarPath);
+        fs.chmodSync(snapshotSidecarPath, SNAPSHOT_FILE_MODE);
+      }
     }
-  }
 
-  return { tempDir, snapshotPath };
+    return { tempDir, snapshotPath };
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function getErrorReason(error) {
+  return error instanceof Error && error.message
+    ? `: ${error.message}`
+    : "";
+}
+
+function createInvalidIndexDatabaseError(dbPath, cause) {
+  const error = new Error(
+    `invalid index database at ${dbPath}${getErrorReason(cause)}. Rebuild the index with "agentify scan" or "agentify up".`
+  );
+  error.code = "AGENTIFY_INDEX_DATABASE_INVALID";
+  error.cause = cause;
+  return error;
+}
+
+function shouldUseReadOnlySnapshotFallback(error) {
+  const message = error instanceof Error ? error.message : "";
+  return error?.code === "SQLITE_READONLY"
+    || error?.errcode === 1544
+    || /attempt to write a readonly database|read-?only database/i.test(message);
 }
 
 function openDatabaseFile(dbPath, options = {}) {
@@ -116,7 +144,14 @@ function configureIndexConnection(db, implementation, { readOnly }) {
   db.exec("PRAGMA foreign_keys = ON");
 
   if (readOnly) {
-    db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version' LIMIT 1").get();
+    const row = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version' LIMIT 1").get();
+    if (!row) {
+      throw new Error("index database is missing schema_version metadata");
+    }
+    const schemaVersion = JSON.parse(row.value_json);
+    if (schemaVersion !== DB_SCHEMA_VERSION) {
+      throw new Error(`index database schema version ${schemaVersion} is not supported; expected ${DB_SCHEMA_VERSION}`);
+    }
     return;
   }
 
@@ -347,18 +382,33 @@ function openReadOnlyIndexDatabase(sourceDbPath, options) {
       return opened.db;
     } catch (error) {
       opened.db.close();
-      throw error;
+      if (shouldUseReadOnlySnapshotFallback(error)) {
+        throw error;
+      }
+      throw createInvalidIndexDatabaseError(sourceDbPath, error);
     }
-  } catch {
-    const snapshot = createIndexSnapshot(sourceDbPath);
+  } catch (openError) {
+    if (openError?.code === "AGENTIFY_INDEX_DATABASE_INVALID") {
+      throw openError;
+    }
+
+    let snapshot;
     try {
+      snapshot = createIndexSnapshot(sourceDbPath);
       const opened = openDatabaseFile(snapshot.snapshotPath, { ...options, readOnly: false });
+      try {
+        configureIndexConnection(opened.db, opened.implementation, { readOnly: true });
+      } catch (error) {
+        opened.db.close();
+        throw error;
+      }
       opened.db.__agentifyTempDir = snapshot.tempDir;
-      configureIndexConnection(opened.db, opened.implementation, { readOnly: false });
       return opened.db;
     } catch (error) {
-      fs.rmSync(snapshot.tempDir, { recursive: true, force: true });
-      throw error;
+      if (snapshot) {
+        fs.rmSync(snapshot.tempDir, { recursive: true, force: true });
+      }
+      throw createInvalidIndexDatabaseError(sourceDbPath, error);
     }
   }
 }

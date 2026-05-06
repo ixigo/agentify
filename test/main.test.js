@@ -1057,6 +1057,22 @@ test("runCli plan reports actionable guidance when the index is missing", async 
   );
 });
 
+test("runCli plan reports actionable guidance when the index is unreadable", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-invalid-index-"));
+  await runCli(["init", "--root", root]);
+  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agents", "index.db"), "not sqlite", "utf8");
+
+  await assert.rejects(
+    () => runCli(["plan", "--root", root, "summarize setup"]),
+    new RegExp(`Agentify index unreadable for ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+  );
+  await assert.rejects(
+    () => runCli(["plan", "--root", root, "summarize setup"]),
+    /Run "agentify scan --root .*" or "agentify up --root .*" to rebuild it before using plan\/query\/context commands\./,
+  );
+});
+
 test("runCli plan --explain renders text and JSON score breakdowns", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-explain-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
