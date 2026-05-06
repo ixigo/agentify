@@ -36,12 +36,14 @@ What this gives you:
 ## 3) Standard daily workflow
 
 ```bash
+agentify run
 agentify run "implement <task>"
 ```
 
 Use sessions for longer initiatives:
 
 ```bash
+agentify sess run --provider codex --name "<stream-name>"
 agentify sess run --provider codex --name "<stream-name>" "<task>"
 agentify sess resume --session <session-id> "<next-step>"
 ```

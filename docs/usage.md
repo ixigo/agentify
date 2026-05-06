@@ -76,15 +76,17 @@ agentify check
 Run a small task:
 
 ```bash
+agentify run
 agentify run "fix the checkout retry bug"
 agentify run --with-context "fix the checkout retry bug"
 ```
 
-The default interactive `run` starts a fresh provider task with a small prompt. Run `agentify run` without a task to be prompted, or pass the task directly as `agentify run "task"`. Add `--continue` only when you want to resume the provider's most recent session, and use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
+The default interactive `run` starts a fresh provider task with a small prompt. Run `agentify run` without a task to open the provider with Agentify context and let the provider ask what to do next, or pass the task directly as `agentify run "task"`. Add `--resume` or `--continue` only when you want to resume the provider's most recent session, and use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
 
 Use a session for work that will continue later:
 
 ```bash
+agentify sess run --provider codex --name "checkout-retries"
 agentify sess run --provider codex --name "checkout-retries" "implement retries and tests"
 agentify sess resume --session <session-id> "continue from review feedback"
 agentify handoff --session <session-id> "summarize current state"
@@ -130,6 +132,8 @@ source ~/.zshrc
 | Cheap deterministic refresh | `agentify up --provider local` |
 | Validate generated state | `agentify check` |
 | Validate after intentional source edits | `agentify check --hook` |
+| Open provider with context | `agentify run` |
+| Continue previous provider conversation | `agentify run --resume` |
 | One-off provider task | `agentify run "task"` |
 | One-off task with injected context | `agentify run --with-context "task"` |
 | Durable multi-step work | `agentify sess run ...` |

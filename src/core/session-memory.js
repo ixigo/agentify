@@ -1064,7 +1064,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
     role: "user",
     session_id: sessionRecord.sessionId,
     timestamp: startedAt,
-    content: sessionRecord.task || "Continue this session from the latest repository state.",
+    content: sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one.",
   });
 
   if (emitMarkdown) {
@@ -1092,7 +1092,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
       redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
       "",
       "> Current task",
-      redactSensitiveText(sessionRecord.task || "Continue this session from the latest repository state."),
+      redactSensitiveText(sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one."),
       ""
     );
 

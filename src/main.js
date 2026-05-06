@@ -1,6 +1,5 @@
 import path from "node:path";
 import process from "node:process";
-import { createInterface } from "node:readline/promises";
 
 import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
@@ -64,9 +63,12 @@ const BOOLEAN_FLAGS = new Set([
   "hook",
   "withContext",
   "continue",
+  "resume",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
+const NO_TASK_PROVIDER_INSTRUCTION = "No task was provided. Do not infer a task or continue prior work. Use this context only to orient yourself, then ask the user what task they want to work on before making changes.";
+const RESUME_PROVIDER_INSTRUCTION = "Resume mode is active. Use the previous provider or Agentify session context for continuity. If the next step is unclear, ask the user what to do next before making changes.";
 const CAVEMAN_FLAG_VALUES = new Set([
   "lite",
   "full",
@@ -198,38 +200,8 @@ function buildRunPrompt(userPrompt) {
   return String(userPrompt || "").trim();
 }
 
-async function promptForRunTask(runtime = {}) {
-  const ask = runtime.prompt || runtime.ask;
-  if (ask) {
-    return String(await ask("Task: ")).trim();
-  }
-
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('agentify run requires a task. Pass one as `agentify run "task"`.');
-  }
-
-  const prompts = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  try {
-    return String(await prompts.question("Task: ")).trim();
-  } finally {
-    prompts.close();
-  }
-}
-
-async function resolveRunTask(args, startIndex, runtime = {}) {
-  const task = buildRunPrompt(getPromptFromArgs(args, startIndex));
-  if (task) {
-    return task;
-  }
-
-  const promptedTask = await promptForRunTask(runtime);
-  if (!promptedTask) {
-    throw new Error('agentify run requires a non-empty task. Pass one as `agentify run "task"`.');
-  }
-  return promptedTask;
+function resolveRunTask(args, startIndex) {
+  return buildRunPrompt(getPromptFromArgs(args, startIndex));
 }
 
 function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
@@ -277,8 +249,21 @@ export function buildMinimalRunPrompt(userPrompt, options = {}) {
   return applyCavemanPreamble(prompt, options.caveman, { promptKind: options.promptKind });
 }
 
+export function buildNoTaskRunPrompt(memoryMarkdown = "", options = {}) {
+  const instruction = options.resume ? RESUME_PROVIDER_INSTRUCTION : NO_TASK_PROVIDER_INSTRUCTION;
+  const sections = [
+    "You are running inside an Agentify-prepared repository.",
+    "Load repo docs or installed skills only when they are needed or explicitly invoked.",
+  ];
+  if (memoryMarkdown.trim()) {
+    sections.push("", memoryMarkdown.trim());
+  }
+  sections.push("", instruction);
+  return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
+}
+
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
-  const task = userPrompt || DEFAULT_SESSION_TASK;
+  const task = buildRunPrompt(userPrompt);
   const sections = [
     "You are continuing an Agentify session.",
     "",
@@ -287,7 +272,11 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", o
   if (memoryMarkdown.trim()) {
     sections.push("", memoryMarkdown.trim());
   }
-  sections.push("", `Current task: ${task}`);
+  if (task) {
+    sections.push("", `Current task: ${task}`);
+  } else {
+    sections.push("", options.resume ? RESUME_PROVIDER_INSTRUCTION : NO_TASK_PROVIDER_INSTRUCTION);
+  }
   return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
 }
 
@@ -302,9 +291,13 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
   const contextMode = hasOwn(args, "contextMode") ? normalizeSessionContextMode(args.contextMode) : "direct";
+  const subcommand = args._?.[1] || "run";
+  const resumeMode = subcommand === "resume" || args.resume === true;
+  const sessionInstruction = task
+    || (resumeMode ? DEFAULT_SESSION_TASK : NO_TASK_PROVIDER_INSTRUCTION);
   const prompt = contextMode === "routed"
-    ? buildRoutedExecutionPrompt(`${task || DEFAULT_SESSION_TASK}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman })
-    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman });
+    ? buildRoutedExecutionPrompt(`${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman })
+    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman, resume: resumeMode });
   const agentCommand = args._exec?.length
     ? args._exec
     : buildProviderTemplateCommand(
@@ -316,7 +309,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
     sessionId: sessionResult.manifest.session_id,
     provider,
     prompt,
-    task: task || DEFAULT_SESSION_TASK,
+    task: task || (resumeMode ? DEFAULT_SESSION_TASK : ""),
     command: agentCommand,
     memoryContext,
     captureMode: captureSettings.captureMode,
@@ -411,6 +404,7 @@ function printHelp() {
     `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--continue")}                  Resume the provider's most recent session for run`,
+    `    ${c("--resume")}                    Alias for run --continue; with session/sess, resume Agentify session context`,
     `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
     `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
@@ -433,7 +427,9 @@ function printHelp() {
     `    ${d("$")} agentify up --provider codex`,
     `    ${d("$")} agentify sync`,
     `    ${d("$")} agentify clean --dry-run`,
+    `    ${d("$")} agentify run --provider codex`,
     `    ${d("$")} agentify run --provider codex "implement payment retries"`,
+    `    ${d("$")} agentify run --provider codex --resume`,
     `    ${d("$")} agentify run --provider codex --caveman=ultra "summarize auth risks"`,
     `    ${d("$")} agentify run --provider codex --interactive "fix auth bug"`,
     `    ${d("$")} agentify context search analytics`,
@@ -446,6 +442,7 @@ function printHelp() {
     `    ${d("$")} agentify skill install grill-me --provider claude --scope project`,
     `    ${d("$")} agentify skill install god-mode --provider all --scope project`,
     `    ${d("$")} agentify memory compress AGENTIFY.md`,
+    `    ${d("$")} agentify sess run --provider codex --name "payments-v2"`,
     `    ${d("$")} agentify sess run --provider codex --name "payments-v2" "add tests"`,
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
     `    ${d("$")} agentify handoff --session sess_20260101000000_abcdef "continue payments-v2"`,
@@ -523,6 +520,12 @@ export function parseArgs(argv) {
 
 export async function runCli(argv, runtime = {}) {
   const args = parseArgs(argv);
+  if (args._[0] === "session") {
+    args._[0] = "sess";
+  }
+  if (args._[0] === "sess" && args.resume === true && args._[1] !== "resume") {
+    args._ = ["sess", "resume", ...args._.slice(1)];
+  }
   const [command = "help", subcommand] = args._;
 
   if (args.version) {
@@ -545,10 +548,6 @@ export async function runCli(argv, runtime = {}) {
   if (command === "validate") {
     throw new Error("command \"validate\" was removed. Use \"check\".");
   }
-  if (command === "session") {
-    throw new Error("command \"session\" was removed. Use \"sess\".");
-  }
-
   if (command === "this") {
     await runBootstrapCommand(args);
     return;
@@ -637,13 +636,17 @@ export async function runCli(argv, runtime = {}) {
       }
 
       case "run": {
-        const task = await resolveRunTask(args, 1, runtime);
+        const task = resolveRunTask(args, 1);
         const caveman = resolveCavemanLevel(args);
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = {
           ...getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand),
-          continueSession: args.continue === true,
+          continueSession: args.continue === true || args.resume === true,
         };
+        const noTaskInteractiveLaunch = !task && usingTemplateCommand && providerOptions.interactive === true;
+        if (!task && !noTaskInteractiveLaunch) {
+          throw new Error('agentify run requires a task when not launching an interactive provider. Pass one as `agentify run "task"`.');
+        }
         const contextMode = resolveRunContextMode(args, config);
         const usesManagedContext = usingTemplateCommand && (
           contextMode === "routed"
@@ -652,10 +655,12 @@ export async function runCli(argv, runtime = {}) {
           || args.explainPlan === true
         );
         const includeSource = contextMode !== "routed" || args.withContext === true;
-        const memoryContext = usesManagedContext
+        const memoryContext = noTaskInteractiveLaunch
+          ? await loadAutomaticRunMemory(root, "", config)
+          : usesManagedContext
           ? await loadAutomaticRunMemory(root, task, config)
           : { markdown: "" };
-        const plan = usesManagedContext
+        const plan = usesManagedContext && task
           ? await buildExecutionPlan(root, config, task, {
             contextMode: contextMode === "routed" ? "routed" : "selected",
             includeSource,
@@ -664,7 +669,9 @@ export async function runCli(argv, runtime = {}) {
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
-        const prompt = usesManagedContext
+        const prompt = noTaskInteractiveLaunch
+          ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession })
+          : usesManagedContext
           ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman })
           : buildMinimalRunPrompt(task, { caveman });
         const agentCommand = args._exec?.length

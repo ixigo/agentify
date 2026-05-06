@@ -100,10 +100,16 @@ agentify skill install all --provider codex --scope project
 # Preview task context before running a provider.
 agentify plan "your task"
 
+# Open the provider with Agentify context and let it ask for the task.
+agentify run --provider codex
+
 # Run a bounded task.
 agentify run --provider codex "your task"
 
 # Use durable session memory for a longer workstream.
+# Open a durable session with context and let the provider ask for the task.
+agentify sess run --provider codex --name "<stream>"
+
 agentify sess run --provider codex --name "<stream>" "<first task>"
 agentify sess resume --session <session-id> "<next task>"
 agentify handoff --session <session-id> "handoff for the next agent"
@@ -126,10 +132,10 @@ agentify run "implement the retry backoff"
 agentify check
 ```
 
-Interactive `run` starts a fresh provider task with a compact prompt. Run `agentify run` without a task to be prompted, or pass the task directly as `agentify run "task"`. Add `--continue` only when you want to resume the provider's most recent session. Use `--context-mode routed` when you want bounded retrieval guidance without full source excerpts. Add `--with-context` when you explicitly want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
+Interactive `run` starts a fresh provider task with a compact prompt. Run `agentify run` without a task to open the provider with Agentify context and let the provider ask what to do next, or pass the task directly as `agentify run "task"`. Add `--resume` or `--continue` only when you want to resume the provider's most recent session. Use `--context-mode routed` when you want bounded retrieval guidance without full source excerpts. Add `--with-context` when you explicitly want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
 
 ```bash
-agentify run --continue "finish the retry backoff"
+agentify run --resume "finish the retry backoff"
 agentify run --with-context "implement the retry backoff"
 agentify run --context-mode routed "implement the retry backoff"
 ```
@@ -137,6 +143,7 @@ agentify run --context-mode routed "implement the retry backoff"
 For longer workstreams, use sessions:
 
 ```bash
+agentify sess run --provider codex --name "checkout-retries"
 agentify sess run --provider codex --name "checkout-retries" "map the current checkout flow"
 agentify sess resume --session <session-id> "finish the implementation"
 agentify handoff --session <session-id> "handoff to the next agent"
@@ -193,10 +200,12 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | Search indexed repo context | `agentify query search --term auth` |
 | Search routed context | `agentify context search auth` |
 | Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
+| Open provider with context | `agentify run` |
+| Continue previous provider conversation | `agentify run --resume` |
 | Run a bounded task | `agentify run "your task"` |
 | Run with routed retrieval | `agentify run --context-mode routed "your task"` |
 | Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
-| Start durable multi-run work | `agentify sess run --name "<stream>" "your task"` |
+| Start durable multi-run work | `agentify sess run --name "<stream>"` |
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
 | Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
@@ -252,6 +261,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--explain` | Include planner score breakdowns for plan output |
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--continue` | Resume the provider's most recent session for `run`; omitted means a fresh provider task |
+| `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
 | `--context-mode` | Choose `compact` or `routed` run prompt behavior |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |

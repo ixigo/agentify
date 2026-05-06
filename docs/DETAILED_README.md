@@ -173,11 +173,11 @@ tests:
 | `agentify plan` | Builds the planner-selected execution context for a task and prints it as JSON. | Use before `run` when you want to inspect the exact prompt context and file selection Agentify will choose. | `agentify plan "add retry logic to checkout"` |
 | `agentify context search` | Searches indexed routed context for files, symbols, summaries, and semantic surfaces. | Use when selected context is too narrow and you need a bounded host-side lookup before fetching exact code. | `agentify context search analytics` |
 | `agentify context fetch` | Reads an exact bounded slice from a repo file by indexed symbol or 1-based line range. | Use after `plan` or `context search` identifies the path you need and summaries are not enough. | `agentify context fetch src/analytics/report.ts --symbol buildReport` |
-| `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex "implement payment retries"` |
+| `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. Without a task, launches interactive provider context and asks the provider to collect one. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex` |
 | `agentify context` | Searches indexed refs, fetches bounded source slices, compacts session facts, and reports routed context status. | Use with `--context-mode routed` prompts when agents should retrieve context through bounded Agentify commands instead of receiving full file bodies. | `agentify context fetch src/auth.ts --lines 20:80` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
-| `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. | Use for work that will span multiple agent runs and needs durable context under `.agents/session/`. | `agentify sess run --provider codex --name "payments-v2" "add tests"` |
+| `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. Without a task, asks the provider to collect one. | Use for work that will span multiple agent runs and needs durable context under `.agents/session/`. | `agentify sess run --provider codex --name "payments-v2"` |
 | `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
@@ -257,9 +257,9 @@ agentify exec --timeout 600 -- codex exec "implement retry logic"
 ### `sess` Commands
 
 ```bash
-agentify sess run [--provider <name>] [--name <label>] [--from <parent-id>] "task"
+agentify sess run [--provider <name>] [--name <label>] [--from <parent-id>] ["task"]
 agentify sess list
-agentify sess resume --session <id> "task"
+agentify sess resume --session <id> ["task"]
 agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 ```
 
@@ -368,6 +368,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
 | `--continue` | Resume the provider's most recent session for `run`. Omit it when you want the default fresh provider task. |
+| `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
 | `--context-mode <direct|routed>` | Use `routed` to launch `run` and `sess` with docs/DB-first instructions and only bounded `agentify context ...` retrieval commands. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
@@ -459,12 +460,13 @@ Important behavior:
 ### One-off bounded work
 
 ```bash
+agentify run --provider codex
 agentify run --provider codex "implement payment retries"
 agentify run "add tests for retry backoff"
 agentify run --with-context "add tests for retry backoff"
 ```
 
-Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` starts a fresh provider task and sends a compact first prompt; run `agentify run` without a task to be prompted, or pass the task directly as `agentify run "task"`. Add `--continue` to resume the provider's most recent session, or add `--with-context` when you want Agentify to build and inject the selected context.
+Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` starts a fresh provider task and sends a compact first prompt; run `agentify run` without a task to open the provider with Agentify context and let the provider ask what to do next, or pass the task directly as `agentify run "task"`. Add `--resume` or `--continue` to resume the provider's most recent session, or add `--with-context` when you want Agentify to build and inject the selected context.
 
 If the task is large or you want to inspect the selected context first:
 
@@ -477,6 +479,7 @@ agentify run "add retry logic to checkout"
 ### Long-running work with durable memory
 
 ```bash
+agentify sess run --provider codex --name "payments-v2"
 agentify sess run --provider codex --name "payments-v2" "implement initial module"
 agentify sess list
 agentify sess resume --session <session-id> "finish the remaining tests"

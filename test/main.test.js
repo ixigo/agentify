@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
-import { buildExecutionPrompt, buildMinimalRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
+import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -152,6 +152,13 @@ test("parseArgs supports explicit continue flag for run", () => {
   assert.deepEqual(args._, ["run", "implement login"]);
 });
 
+test("parseArgs supports explicit resume flag for run and sess aliases", () => {
+  const args = parseArgs(["run", "--resume", "implement login"]);
+
+  assert.equal(args.resume, true);
+  assert.deepEqual(args._, ["run", "implement login"]);
+});
+
 test("parseArgs supports caveman flag forms", () => {
   const bareArgs = parseArgs(["run", "--caveman", "summarize auth"]);
   assert.equal(bareArgs.caveman, true);
@@ -175,7 +182,6 @@ test("resolveCavemanLevel uses CLI before environment", () => {
 test("runCli rejects removed legacy command names", async () => {
   await assert.rejects(() => runCli(["update"]), /Use "up"/);
   await assert.rejects(() => runCli(["validate"]), /Use "check"/);
-  await assert.rejects(() => runCli(["session"]), /Use "sess"/);
 });
 
 test("runCli rejects removed --tool flag", async () => {
@@ -298,6 +304,16 @@ test("buildMinimalRunPrompt rejects empty run tasks", () => {
   );
 });
 
+test("buildNoTaskRunPrompt asks the provider to collect the task", () => {
+  const prompt = buildNoTaskRunPrompt("## Automatic Session Memory\n- none");
+
+  assert.match(prompt, /Agentify-prepared repository/);
+  assert.match(prompt, /Automatic Session Memory/);
+  assert.match(prompt, /No task was provided/);
+  assert.match(prompt, /ask the user what task/);
+  assert.doesNotMatch(prompt, /Task:/);
+});
+
 test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
   const prompt = buildExecutionPrompt("Summarize the auth module.", "", { caveman: "ultra" });
 
@@ -407,7 +423,7 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
 });
 
-test("runCli prompts for a task when run is invoked without one", async () => {
+test("runCli launches interactive provider context without prompting when run has no task", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-prompt-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
   const capturePath = path.join(root, "codex-argv.json");
@@ -429,7 +445,7 @@ test("runCli prompts for a task when run is invoked without one", async () => {
     ], {
       prompt: async (question) => {
         questions.push(question);
-        return "Implement prompted task";
+        return "This should not be called";
       },
     });
   } finally {
@@ -438,9 +454,11 @@ test("runCli prompts for a task when run is invoked without one", async () => {
 
   const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
   const prompt = argv.at(-1);
-  assert.deepEqual(questions, ["Task: "]);
-  assert.match(prompt, /Task: Implement prompted task/);
-  assert.doesNotMatch(prompt, /Start a fresh implementation task/);
+  assert.deepEqual(questions, []);
+  assert.deepEqual(argv.slice(0, 2), ["--cd", root]);
+  assert.match(prompt, /No task was provided/);
+  assert.match(prompt, /ask the user what task/);
+  assert.doesNotMatch(prompt, /Task:/);
 });
 
 test("runCli rejects non-interactive bare run instead of inventing a task", async () => {
@@ -455,11 +473,10 @@ test("runCli rejects non-interactive bare run instead of inventing a task", asyn
       root,
       "--provider",
       "codex",
+      "--interactive=false",
       "--skip-refresh",
-    ], {
-      prompt: async () => "",
-    }),
-    /requires a non-empty task/,
+    ]),
+    /requires a task when not launching an interactive provider/,
   );
 });
 
@@ -492,6 +509,37 @@ test("runCli resumes the provider session only with --continue", async () => {
   const prompt = argv.at(-1);
   assert.deepEqual(argv.slice(0, 4), ["resume", "--last", "--cd", root]);
   assert.match(prompt, /Task: Implement login retries/);
+});
+
+test("runCli supports --resume as provider session continuity alias", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-resume-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--resume",
+      "--skip-refresh",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(argv.slice(0, 4), ["resume", "--last", "--cd", root]);
+  assert.match(prompt, /Resume mode is active/);
+  assert.doesNotMatch(prompt, /Task:/);
 });
 
 test("runCli passes planner context to interactive codex run when requested", async () => {
@@ -679,6 +727,83 @@ test("runCli sess run builds routed context with a fake codex provider", async (
   assert.match(prompt, /Full routing: host shell -> \.agents\/index\.db/);
   assert.match(prompt, /Current task: Use routed context/);
   assert.match(prompt, /Automatic Session Memory/);
+});
+
+test("runCli sess run without a task asks the provider to collect one", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-no-task-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-no-task-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "sess",
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+      "--name",
+      "context-only",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /No task was provided/);
+  assert.match(prompt, /ask the user what task/);
+  assert.doesNotMatch(prompt, /Current task: Continue this session/);
+
+  const sessionsRoot = path.join(root, ".agents", "session");
+  const [sessionId] = await fs.readdir(sessionsRoot);
+  const launches = await fs.readFile(path.join(sessionsRoot, sessionId, "launches.jsonl"), "utf8");
+  assert.match(launches, /"task":""/);
+});
+
+test("runCli supports session --resume as a sess resume alias", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-resume-alias-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-resume-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  const created = await forkContextSession(root, {
+    provider: "codex",
+    session: {
+      memoryPromptMaxKb: 4,
+      memoryResults: 3,
+      memoryTurns: 6,
+    },
+  }, { name: "resume alias" });
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "session",
+      "--resume",
+      "--session",
+      created.sessionId,
+      "--root",
+      root,
+      "--skip-refresh",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.match(prompt, /Resume mode is active|Current task: Continue this session/);
+  const launches = await fs.readFile(path.join(created.sessionDir, "launches.jsonl"), "utf8");
+  assert.match(launches, /Continue this session from the latest repository state/);
 });
 
 test("runCli passes routed context prompt to codex sess run and compacts facts", async () => {
