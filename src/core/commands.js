@@ -170,7 +170,11 @@ function summarizeTestResult(testResult) {
     stdout_bytes: testResult.stdout_bytes ?? 0,
     stderr_bytes: testResult.stderr_bytes ?? 0,
     output_max_bytes: testResult.output_max_bytes ?? null,
-    exit_code: testResult.exit_code
+    exit_code: testResult.exit_code,
+    signal: testResult.signal ?? null,
+    timed_out: Boolean(testResult.timed_out),
+    timeout_ms: testResult.timeout_ms ?? null,
+    reason: testResult.reason ?? null,
   };
   if (testResult.discovery_error) {
     summary.discovery_error = testResult.discovery_error;

@@ -281,6 +281,29 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 
 ---
 
+| Goal | Command |
+| --- | --- |
+| Check local readiness | `agentify doctor` |
+| Set up the current repo on macOS | `agentify this --provider codex` |
+| Set up manually | `agentify init --provider codex` |
+| Refresh index, checks, and detected tests | `agentify up` |
+| Validate repo state | `agentify check` |
+| Validate after intentional source edits | `agentify check --hook` |
+| Preview rich task context | `agentify plan "your task"` |
+| Search indexed repo context | `agentify query search --term auth` |
+| Search routed context | `agentify context search auth` |
+| Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
+| Open provider with context | `agentify run` |
+| Continue previous provider conversation | `agentify run --resume` |
+| Run a bounded task | `agentify run "your task"` |
+| Run with routed retrieval | `agentify run --context-mode routed "your task"` |
+| Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
+| Start durable multi-run work | `agentify sess run --name "<stream>"` |
+| Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
+| Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
+| Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
+
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
 ## 📖 CLI Reference
 
 <details>

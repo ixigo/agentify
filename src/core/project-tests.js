@@ -5,6 +5,9 @@ import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMax
 import { detectStacks } from "./detect.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 
+const DEFAULT_TEST_TIMEOUT_MS = 10 * 60 * 1000;
+const FORCE_KILL_TIMEOUT_MS = 1000;
+
 const DEFAULT_PASSTHROUGH_ENV = Object.freeze([
   "PATH",
   "HOME",
@@ -87,24 +90,80 @@ function getTestOutputMaxBytes(testsConfig = {}) {
   return normalizeCaptureMaxBytes(testsConfig.outputMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
-async function runChildCommand(command, args, { cwd, env, outputMaxBytes } = {}) {
+function getTestTimeoutMs(testsConfig = {}) {
+  const timeoutMs = Number(testsConfig.timeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TEST_TIMEOUT_MS;
+}
+
+function killChildProcess(child, signal) {
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      if (error?.code === "ESRCH") return;
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // The process may have exited between timeout scheduling and signal delivery.
+  }
+}
+
+async function runChildCommand(command, args, { cwd, env, outputMaxBytes, timeoutMs } = {}) {
   const stdoutCapture = createBoundedCaptureBuffer(outputMaxBytes);
   const stderrCapture = createBoundedCaptureBuffer(outputMaxBytes);
 
-  const code = await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env });
+  const outcome = await new Promise((resolve, reject) => {
+    let timedOut = false;
+    let timeout = null;
+    let killTimer = null;
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    function clearTimers() {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+    }
+
+    timeout = setTimeout(() => {
+      timedOut = true;
+      killChildProcess(child, "SIGTERM");
+      killTimer = setTimeout(() => {
+        killChildProcess(child, "SIGKILL");
+      }, FORCE_KILL_TIMEOUT_MS);
+    }, timeoutMs);
+
     child.stdout.on("data", (chunk) => {
       stdoutCapture.append(chunk);
     });
     child.stderr.on("data", (chunk) => {
       stderrCapture.append(chunk);
     });
-    child.on("error", reject);
-    child.on("close", resolve);
+    child.on("error", (error) => {
+      clearTimers();
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimers();
+      resolve({ code, signal, timedOut });
+    });
   });
 
   return {
-    code: Number(code ?? 1),
+    code: outcome.timedOut ? null : Number(outcome.code ?? 1),
+    signal: outcome.signal || null,
+    timedOut: outcome.timedOut,
+    timeoutMs,
     stdout: stdoutCapture.toString(),
     stderr: stderrCapture.toString(),
     stdoutTruncated: stdoutCapture.truncated,
@@ -327,6 +386,7 @@ async function buildNoTestCommandResult(root, options, outputMaxBytes) {
 export async function runProjectTests(root, reporter, options = {}) {
   const testsConfig = options.config?.tests || options.tests || {};
   const outputMaxBytes = getTestOutputMaxBytes(testsConfig);
+  const timeoutMs = getTestTimeoutMs(testsConfig);
   const testCommand = await detectTestCommand(root);
   if (testCommand?.error) {
     const result = {
@@ -356,7 +416,7 @@ export async function runProjectTests(root, reporter, options = {}) {
   if (testsConfig.env?.inherit !== true) {
     reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
   }
-  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env, outputMaxBytes });
+  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env, outputMaxBytes, timeoutMs });
   if (outcome.stdoutTruncated) {
     reporter.log(`tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`);
   }
@@ -369,10 +429,13 @@ export async function runProjectTests(root, reporter, options = {}) {
   if (outcome.stderr) {
     reporter.appendSection("[tests stderr]", outcome.stderr);
   }
+  if (outcome.timedOut) {
+    reporter.log(`tests: timed out after ${outcome.timeoutMs}ms; terminated subprocess`);
+  }
 
   const result = {
-    status: outcome.code === 0 ? "passed" : "failed",
-    passed: outcome.code === 0,
+    status: outcome.code === 0 && !outcome.timedOut ? "passed" : "failed",
+    passed: outcome.code === 0 && !outcome.timedOut,
     command: `${testCommand.command} ${testCommand.args.join(" ")}`,
     stdout: outcome.stdout,
     stderr: outcome.stderr,
@@ -382,7 +445,13 @@ export async function runProjectTests(root, reporter, options = {}) {
     stderr_bytes: outcome.stderrBytes,
     output_max_bytes: outcome.outputMaxBytes,
     exit_code: outcome.code,
+    signal: outcome.signal,
+    timed_out: outcome.timedOut,
+    timeout_ms: outcome.timeoutMs,
   };
+  if (outcome.timedOut) {
+    result.reason = "timeout";
+  }
   reporter.log(`tests: ${result.status}`);
   reporter.setTests(result);
   return result;
