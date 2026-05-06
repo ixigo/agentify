@@ -12,6 +12,38 @@ import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
+const REFRESH_NEUTRAL_PATH_PATTERNS = [
+  /^\.agents(\/|$)/,
+  /^\.current_session(\/|$)/,
+  /^\.agentify\/work(\/|$)/,
+  /^docs\/repo-map\.md$/,
+  /^docs\/modules(\/|$)/,
+  /^output\.txt$/,
+  /^agentify-report\.html$/,
+  /(^|\/)AGENTIFY\.md$/,
+];
+
+function normalizeRepoPath(value) {
+  return String(value || "")
+    .split(path.sep)
+    .join("/")
+    .replace(/^\.\//, "")
+    .replace(/\/{2,}/g, "/");
+}
+
+function isRefreshNeutralPath(filePath) {
+  const normalized = normalizeRepoPath(filePath);
+  return Boolean(normalized) && REFRESH_NEUTRAL_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isRefreshNeutralChange(file) {
+  const paths = [file?.path, file?.origPath].filter(Boolean);
+  return paths.length > 0 && paths.every(isRefreshNeutralPath);
+}
+
+function getRefreshRelevantChanges(files) {
+  return (files || []).filter((file) => !isRefreshNeutralChange(file));
+}
 
 function getSnapshotKey(file) {
   return `${file.status}:${file.path}`;
@@ -367,6 +399,7 @@ export async function runExec(root, config, agentCommand, flags) {
     diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests),
     committedChanges,
   );
+  const refreshRelevantChanges = getRefreshRelevantChanges(agentChanges);
 
   async function finalizeResult(result) {
     const finishedAt = new Date();
@@ -379,7 +412,7 @@ export async function runExec(root, config, agentCommand, flags) {
       config,
       agentCommand,
       commandResult,
-      agentChanges,
+      agentChanges: refreshRelevantChanges,
       headChanged,
       flags,
     });
@@ -406,7 +439,7 @@ export async function runExec(root, config, agentCommand, flags) {
     }
     return finalizeResult(result);
   }
-  if (agentChanges.length === 0 && !headChanged) {
+  if (refreshRelevantChanges.length === 0) {
     const validation = await validateRepo(root, config, {
       skipCodeBodyChanges: flags.skipCodeBodyChanges === true,
     });

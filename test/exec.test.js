@@ -266,6 +266,50 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.match(launchRecord.managed_context.note, /provider live context usage is not directly observable/);
 });
 
+test("runExec skips refresh when only Agentify session artifacts change", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-session-artifacts-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false, docs: true });
+  const session = await forkSession(root, config, { name: "artifact-refresh" });
+  await execFileAsync("git", ["add", ".agents"], { cwd: root });
+  await execFileAsync("git", ["commit", "-m", "track session artifact baseline"], { cwd: root });
+
+  const result = await runExec(
+    root,
+    config,
+    ["node", "--input-type=module", "-e", "process.stdout.write('session artifact only\\n')"],
+    {
+      captureOutput: true,
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider: "codex",
+        prompt: "Continue the session.",
+        task: "Verify session artifact refresh behavior.",
+        command: ["node", "--input-type=module", "-e", "process.stdout.write('session artifact only\\n')"],
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
+        },
+        captureMode: "captured-pipe",
+      },
+    }
+  );
+
+  assert.equal(result.phase, "complete");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.skippedRefresh, true);
+  assert.equal(result.executionTelemetry.changed_files_count, 0);
+  assert.deepEqual(result.executionTelemetry.changed_paths, []);
+  await assert.rejects(
+    () => fs.access(path.join(root, "AGENTIFY.md")),
+    /ENOENT/
+  );
+});
+
 test("runExec redacts obvious secrets from session memory artifacts", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-redaction-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
