@@ -129,12 +129,15 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
     );
 
     assert.equal(result.assignments.length, 2);
+    assert.equal(result.provider_permission_bypass, false);
     assert.ok(result.assignments[0].worktree_path.endsWith("wt-issue-101-fix-login-redirect"));
     assert.ok(result.assignments[1].worktree_path.endsWith("wt-issue-102-add-billing-retry"));
     assert.match(result.assignments[0].pane_command, /^'codex' '--cd'/);
-    assert.match(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
+    assert.doesNotMatch(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
-    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
+    assert.doesNotMatch(result.assignments[0].pane_command, /permissions pre-approved/);
+    assert.doesNotMatch(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
+    assert.match(result.assignments[0].pane_command, /Respect provider permission prompts and sandbox approvals/);
     assert.match(result.assignments[0].pane_command, /Do not force-push, rewrite unrelated history, or weaken tests to pass checks/);
 
     const tmuxCalls = await fs.readFile(tmuxLog, "utf8");
@@ -144,7 +147,28 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
   });
 });
 
-test("issue-killer launches claude with bypass permissions", async () => {
+test("issue-killer can explicitly bypass codex permissions", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-issue-killer-codex-bypass-"));
+  await initGitRepo(root);
+
+  await withFakePath(root, async () => {
+    const result = await withQuietConsole(() =>
+      runIssueKiller(root, { provider: "codex", dryRun: false, json: true }, {
+        label: "agentify-ready",
+        limit: 1,
+        bypassPermissions: true,
+      })
+    );
+
+    assert.equal(result.provider_permission_bypass, true);
+    assert.match(result.assignments[0].pane_command, /^'codex' '--cd'/);
+    assert.match(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
+    assert.match(result.assignments[0].pane_command, /Provider permission bypass was explicitly requested/);
+    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
+  });
+});
+
+test("issue-killer launches claude without bypass permissions by default", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-issue-killer-claude-"));
   await initGitRepo(root);
 
@@ -158,8 +182,34 @@ test("issue-killer launches claude with bypass permissions", async () => {
     );
 
     assert.equal(result.agent_provider, "claude");
+    assert.equal(result.provider_permission_bypass, false);
+    assert.match(result.assignments[0].pane_command, /^'claude'/);
+    assert.doesNotMatch(result.assignments[0].pane_command, /--dangerously-skip-permissions/);
+    assert.doesNotMatch(result.assignments[0].pane_command, /--permission-mode' 'bypassPermissions/);
+    assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
+    assert.match(result.assignments[0].pane_command, /Respect provider permission prompts and sandbox approvals/);
+  });
+});
+
+test("issue-killer can explicitly bypass claude permissions", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-issue-killer-claude-bypass-"));
+  await initGitRepo(root);
+
+  await withFakePath(root, async () => {
+    const result = await withQuietConsole(() =>
+      runIssueKiller(root, { provider: "claude", dryRun: false, json: true }, {
+        label: "agentify-ready",
+        limit: 1,
+        agentProvider: "claude",
+        bypassPermissions: true,
+      })
+    );
+
+    assert.equal(result.agent_provider, "claude");
+    assert.equal(result.provider_permission_bypass, true);
     assert.match(result.assignments[0].pane_command, /^'claude' '--dangerously-skip-permissions' '--permission-mode' 'bypassPermissions'/);
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
+    assert.match(result.assignments[0].pane_command, /Provider permission bypass was explicitly requested/);
   });
 });
 

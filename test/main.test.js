@@ -91,6 +91,18 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
   assert.equal(args.maxFilesPerModule, 12);
 });
 
+test("parseArgs treats issue-killer bypass permissions as a boolean flag", () => {
+  const args = parseArgs([
+    "issue-killer",
+    "--bypass-permissions",
+    "--label",
+    "agentify-ready",
+  ]);
+
+  assert.equal(args.bypassPermissions, true);
+  assert.equal(args.label, "agentify-ready");
+});
+
 test("parseArgs and config resolve context mode explicitly", () => {
   const args = parseArgs(["run", "--context-mode", "routed", "implement login"]);
 

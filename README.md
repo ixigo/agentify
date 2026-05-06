@@ -353,11 +353,13 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | `--ghost` | Route outputs to `.current_session/` |
 | `--json` | Machine-readable JSON output only |
 | `--explain` | Include planner score breakdowns for plan output |
-| `--interactive`, `-i` | Force interactive mode |
-| `--continue` | Resume provider's most recent session |
-| `--resume` | Alias for `run --continue`; resumes session context for `sess` |
-| `--context-mode <direct\|routed>` | Routed retrieval for `run`/`sess` |
-| `--with-context` | Inject planner-selected files, tests, memory |
+| `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
+| `--continue` | Resume the provider's most recent session for `run`; omitted means a fresh provider task |
+| `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
+| `--context-mode` | Choose `compact` or `routed` run prompt behavior |
+| `--with-context` | Inject planner-selected files, tests, and memory into `run` |
+| `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |
+| `--bypass-permissions` | Explicitly bypass provider permission prompts for `issue-killer` panes |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |
