@@ -306,3 +306,34 @@ test("runProjectTests bounds captured stdout and stderr and reports truncation",
   assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"), 1024);
   assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
 });
+
+test("runProjectTests times out a hanging test command", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-timeout-"));
+  const scriptPath = path.join(root, "hang.js");
+
+  await fs.writeFile(scriptPath, `
+    process.stdout.write("started");
+    setInterval(() => {}, 1000);
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-timeout",
+    scripts: { test: "node hang.js" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const started = Date.now();
+  const result = await runProjectTests(root, reporter, {
+    config: { tests: { timeoutMs: 75 } },
+  });
+  const durationMs = Date.now() - started;
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.passed, false);
+  assert.equal(result.exit_code, null);
+  assert.equal(result.timed_out, true);
+  assert.equal(result.timeout_ms, 75);
+  assert.equal(result.reason, "timeout");
+  assert.equal(reporter.tests, result);
+  assert.match(reporter.logs.join("\n"), /tests: timed out after 75ms; terminated subprocess/);
+  assert.ok(durationMs < 3000, `timeout test took ${durationMs}ms`);
+});

@@ -62,6 +62,14 @@ test("loadConfig applies planner execution budget overrides", async () => {
   assert.equal(config.planner.editAfterSelectedContextUnlessBlocked, false);
 });
 
+test("loadConfig provides project test timeout defaults", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-test-timeout-"));
+
+  const config = await loadConfig(root);
+
+  assert.equal(config.tests.timeoutMs, 600000);
+});
+
 test("loadConfig provides context orchestration defaults", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-context-defaults-"));
 

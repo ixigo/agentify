@@ -108,6 +108,7 @@ const DEFAULT_CONFIG = {
     },
   },
   tests: {
+    timeoutMs: 600000,
     outputMaxKb: 48,
     env: {
       inherit: false,
