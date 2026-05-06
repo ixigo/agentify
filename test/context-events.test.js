@@ -61,7 +61,7 @@ test("appendContextEvent persists session events under ignored session artifacts
     now: "2026-05-04T01:00:00.000Z",
   });
 
-  assert.equal(result.path, path.join(root, ".agents", "session", "sess_context", "context-events.jsonl"));
+  assert.equal(result.path, path.join(root, ".agentify", "session", "sess_context", "context-events.jsonl"));
   const raw = await fs.readFile(result.path, "utf8");
   assert.equal(raw.trim().split(/\r?\n/).length, 1);
 

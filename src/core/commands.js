@@ -108,7 +108,7 @@ ${sharedConventions}
 ## Conventions
 - Generated repo docs live under \`docs/\`
 - Generated module docs live at each module root as \`AGENTIFY.md\` when the module is not the repository root
-- Indexed metadata lives under \`.agents/index.db\` and is best accessed from the host shell
+- Indexed metadata lives under \`.agentify/index.db\` and is best accessed from the host shell
 - Repo guardrails live in \`.guardrails\`
 - Local working RFCs and notes live under \`.agentify/work/\`
 - Use \`.agentignore\` to keep local-only artifacts out of scans
@@ -116,8 +116,8 @@ ${sharedConventions}
 
 ## Artifacts
 - Repo map: \`docs/repo-map.md\`
-- Machine index: \`.agents/index.db\` (host shell access is the most reliable path)
-- Run report: \`.agents/runs/${runReport.run_id}.json\`
+- Machine index: \`.agentify/index.db\` (host shell access is the most reliable path)
+- Run report: \`.agentify/runs/${runReport.run_id}.json\`
 
 ## Run Metrics
 - Modules processed: ${runReport.results.modules_processed}
@@ -155,7 +155,7 @@ ${index.modules.map(moduleLink).join("\n")}
 }
 
 async function writeRunReport(root, report) {
-  const runPath = path.join(root, ".agents", "runs", `${report.run_id}.json`);
+  const runPath = path.join(root, ".agentify", "runs", `${report.run_id}.json`);
   await writeJson(runPath, report);
   return runPath;
 }
@@ -201,7 +201,7 @@ function renderDefaultGuardrails() {
 - Do not commit knowingly broken code just to checkpoint progress.
 
 ## Protected Paths
-- Do not edit \`.agents/\`, generated \`AGENTIFY.md\` files, \`docs/repo-map.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
+- Do not edit \`.agentify/\`, generated \`AGENTIFY.md\` files, \`docs/repo-map.md\`, \`output.txt\`, or \`agentify-report.html\` directly; regenerate them through Agentify commands.
 - Do not edit provider-installed skill directories under \`.codex/\`, \`.claude/\`, \`.gemini/\`, or \`.opencode/\` unless the task is specifically about those files.
 - Put local architecture RFCs, notes, and scratch outputs under \`.agentify/work/\`.
 
@@ -224,8 +224,8 @@ export async function ensureBaselineArtifacts(root, config) {
   if (config.dryRun) {
     return;
   }
-  await ensureDir(path.join(root, ".agents"));
-  await ensureDir(path.join(root, ".agents", "runs"));
+  await ensureDir(path.join(root, ".agentify"));
+  await ensureDir(path.join(root, ".agentify", "runs"));
   await ensureDir(path.join(root, ".agentify", "work"));
   await ensureDir(path.join(root, "docs", "modules"));
   await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
@@ -271,7 +271,7 @@ function buildRenderableIndex(root, meta, modules) {
     entrypoints: modules.flatMap((moduleInfo) => moduleInfo.entry_files || []),
     symbol_index_hint: {
       enabled: true,
-      note: "symbol spans are stored in .agents/index.db"
+      note: "symbol spans are stored in .agentify/index.db"
     }
   };
 }
@@ -494,7 +494,7 @@ async function _runScanInner(root, config, options, progress) {
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
-    wrote: config.dryRun ? [] : [".agents/index.db", "docs/repo-map.md"],
+    wrote: config.dryRun ? [] : [".agentify/index.db", "docs/repo-map.md"],
   };
   progress.setCommand(options.commandName || "scan");
   progress.setScan(result);
@@ -698,7 +698,7 @@ async function _runDocInner(root, config, options, progress) {
   const fallbackProvider = provider.name === "local" ? provider : createProvider("local", config);
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
-  const dbPath = path.join(artifactRoot, ".agents", "index.db");
+  const dbPath = path.join(artifactRoot, ".agentify", "index.db");
   const scanSnapshot = options.scanSnapshot || null;
 
   if (!config.dryRun && (scanSnapshot || !(await exists(dbPath)))) {
@@ -1104,7 +1104,7 @@ async function _runDocInner(root, config, options, progress) {
       docs_written: docsWritten,
       provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agents/index.db", ".agents/runs/*.json"],
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agentify/index.db", ".agentify/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);

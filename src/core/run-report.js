@@ -1210,7 +1210,7 @@ export function createRunReporter(root) {
       loader.clear();
       summary.execution = normalizeExecutionTelemetry(result);
       if (summary.execution) {
-        const telemetryPath = `.agents/runs/${summary.execution.run_id}-execution-telemetry.json`;
+        const telemetryPath = `.agentify/runs/${summary.execution.run_id}-execution-telemetry.json`;
         summary.artifacts = Array.from(new Set([...summary.artifacts, telemetryPath]));
         record(renderExecutionOutputBlock(summary.execution));
       }
@@ -1220,7 +1220,7 @@ export function createRunReporter(root) {
       const htmlPath = path.join(root, "agentify-report.html");
       let telemetryJsonPath = null;
       if (summary.execution) {
-        telemetryJsonPath = path.join(root, ".agents", "runs", `${summary.execution.run_id}-execution-telemetry.json`);
+        telemetryJsonPath = path.join(root, ".agentify", "runs", `${summary.execution.run_id}-execution-telemetry.json`);
         await writeJson(telemetryJsonPath, summary.execution);
       }
       await writeText(outputPath, events.join(""));
