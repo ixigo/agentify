@@ -61,6 +61,8 @@ Optional:
 
 - `mempalace` for stronger session-memory recall
 
+`doctor` also reports whether `pnpm` is available and whether external provider binaries (`codex`, `claude`, `gemini`, `opencode`) are installed. Provider binary presence is reported separately from provider auth readiness.
+
 </details>
 
 ## Daily Commands
@@ -153,9 +155,10 @@ source ~/.zshrc
 It reports:
 
 - local capability tier
+- `pnpm` package-manager readiness
 - required tools such as `rg` and `fd`
 - richer analysis tools such as `ast-grep` and `tree-sitter`
-- provider binaries such as `codex`
+- provider binaries such as `codex`, with auth status reported separately
 - optional memory tooling such as `mempalace`
 - semantic indexing status when enabled
 

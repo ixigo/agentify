@@ -100,7 +100,7 @@ agentify check
 
 Why this is better than a minimal setup:
 
-- `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
+- `doctor` tells you whether `pnpm`, external provider binaries, required tier tools, and optional features like MemPalace are available. Provider binary presence is reported separately from auth readiness.
 - project-scoped skills make provider behavior more repeatable across contributors and sessions.
 - hooks keep the repo healthier between manual runs.
 - `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts; use `--docs=false` only when you want a scan/check/test pass without markdown refresh.
@@ -137,7 +137,7 @@ It is written so the model treats the current working directory as the target re
 | `agentify check` | Validates freshness, schema state, and guardrail/safety expectations. | Use before committing, after a large refresh, or inside hooks/CI to confirm Agentify artifacts are consistent. | `agentify check` |
 | `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
-| `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
+| `agentify doctor` | Checks setup readiness, provider CLI health, and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
 
 #### Project Test Environment
 

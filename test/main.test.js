@@ -30,6 +30,13 @@ fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(process.argv.sli
   return codexPath;
 }
 
+async function installFakeExecutable(binDir, name, script) {
+  const binPath = path.join(binDir, name);
+  await fs.writeFile(binPath, script, "utf8");
+  await fs.chmod(binPath, 0o755);
+  return binPath;
+}
+
 async function captureHelpText() {
   const chunks = [];
   const originalWrite = process.stderr.write;
@@ -1226,6 +1233,132 @@ test("runCli doctor --json emits a single machine-readable payload", async () =>
   assert.ok(typeof payload.tier === "number");
   assert.ok(payload.tools && typeof payload.tools === "object");
   assert.ok(payload.tools.mempalace && typeof payload.tools.mempalace.available === "boolean");
+  assert.equal(payload.package_manager.name, "pnpm");
+  assert.ok(typeof payload.package_manager.available === "boolean");
+  assert.deepEqual(Object.keys(payload.providers).sort(), ["claude", "codex", "gemini", "opencode"]);
+  assert.equal(payload.providers.codex.binary, "codex");
+  assert.ok(typeof payload.providers.codex.available === "boolean");
+  assert.ok(payload.providers.codex.auth && typeof payload.providers.codex.auth.state === "string");
+});
+
+test("runCli doctor --json reports package manager and provider readiness", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-readiness-"));
+  const binDir = path.join(root, "bin");
+  const homeDir = path.join(root, "home");
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.mkdir(path.join(homeDir, ".gemini"), { recursive: true });
+  await fs.writeFile(path.join(homeDir, ".gemini", "oauth_creds.json"), "{}\n", "utf8");
+  await installFakeExecutable(binDir, "pnpm", "#!/bin/sh\necho '10.1.2'\n");
+  await installFakeExecutable(binDir, "codex", `#!/bin/sh
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  echo "Logged in"
+  exit 0
+fi
+echo "codex 1.2.3"
+`);
+  await installFakeExecutable(binDir, "claude", `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  echo '{"loggedIn":true,"authMethod":"test"}'
+  exit 0
+fi
+echo "claude 2.3.4"
+`);
+  await installFakeExecutable(binDir, "gemini", "#!/bin/sh\necho 'gemini 3.4.5'\n");
+
+  const originalLog = console.log;
+  const originalPath = process.env.PATH;
+  const originalHome = process.env.HOME;
+  const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+  const originalGoogleApiKey = process.env.GOOGLE_API_KEY;
+  const originalGoogleCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const output = [];
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.PATH = `${binDir}:/bin:/usr/bin`;
+  process.env.HOME = homeDir;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalGeminiApiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiApiKey;
+    }
+    if (originalGoogleApiKey === undefined) {
+      delete process.env.GOOGLE_API_KEY;
+    } else {
+      process.env.GOOGLE_API_KEY = originalGoogleApiKey;
+    }
+    if (originalGoogleCredentials === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = originalGoogleCredentials;
+    }
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.package_manager.available, true);
+  assert.equal(payload.package_manager.version, "10.1.2");
+  assert.equal(payload.providers.codex.available, true);
+  assert.equal(payload.providers.codex.version, "1.2.3");
+  assert.equal(payload.providers.codex.auth.state, "ready");
+  assert.equal(payload.providers.claude.available, true);
+  assert.equal(payload.providers.claude.auth.state, "ready");
+  assert.equal(payload.providers.gemini.available, true);
+  assert.equal(payload.providers.gemini.auth.state, "ready");
+  assert.equal(payload.providers.opencode.available, false);
+  assert.equal(payload.providers.opencode.auth.state, "skipped");
+  assert.equal(payload.providers.local, undefined);
+});
+
+test("runCli doctor --json marks missing pnpm and provider binaries", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-missing-readiness-"));
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+
+  const originalLog = console.log;
+  const originalPath = process.env.PATH;
+  const output = [];
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.PATH = `${binDir}:/bin:/usr/bin`;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.package_manager.available, false);
+  assert.equal(payload.package_manager.reason, "command not found");
+  for (const provider of ["codex", "claude", "gemini", "opencode"]) {
+    assert.equal(payload.providers[provider].available, false);
+    assert.equal(payload.providers[provider].auth.state, "skipped");
+    assert.equal(payload.providers[provider].auth.detail, "binary missing");
+  }
 });
 
 test("runCli sync upgrades repo-owned Agentify assets and emits sync json", async () => {
