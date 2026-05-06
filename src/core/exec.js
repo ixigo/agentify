@@ -6,7 +6,7 @@ import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
-import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun } from "./session-memory.js";
+import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import * as ui from "./ui.js";
 
@@ -158,6 +158,20 @@ function buildScriptCommand(argv, capturePath) {
   };
 }
 
+async function removeRawInteractiveLog(capturePath, raw) {
+  try {
+    await fs.rm(capturePath, { force: true });
+    return "";
+  } catch (removeError) {
+    try {
+      await fs.writeFile(capturePath, redactSensitiveText(raw), "utf8");
+      return `Unable to remove PTY transcript log; redacted it in place instead: ${removeError.message}`;
+    } catch (redactError) {
+      return `Unable to remove PTY transcript log: ${removeError.message}; unable to redact it in place: ${redactError.message}`;
+    }
+  }
+}
+
 function getCaptureBufferMaxBytes(config) {
   return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
@@ -300,6 +314,7 @@ function runWrappedCommand(argv, options) {
         try {
           const raw = await fs.readFile(options.capturePath, "utf8");
           interactiveTranscript = normalizeInteractiveCapture(raw);
+          interactiveCaptureError = await removeRawInteractiveLog(options.capturePath, raw);
         } catch (error) {
           interactiveCaptureError = `Unable to read PTY transcript log: ${error.message}`;
         }
@@ -311,7 +326,7 @@ function runWrappedCommand(argv, options) {
         stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
         interactiveTranscript,
         interactiveCaptureError,
-        rawInteractiveLogPath: captureMode === "pty" && !interactiveCaptureError ? options.capturePath : null,
+        rawInteractiveLogPath: null,
       });
     });
   });
