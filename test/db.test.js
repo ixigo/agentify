@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,6 +24,8 @@ import {
   replaceSemanticProjectSnapshot,
   searchSemanticIndex,
 } from "../src/core/db/semantic-store.js";
+
+const require = createRequire(import.meta.url);
 
 function octalMode(stats) {
   return (stats.mode & 0o777).toString(8);
@@ -57,12 +60,35 @@ test("openIndexDatabase read-only opens source database without snapshot when po
   }
 });
 
-test("openIndexDatabase read-only fallback snapshots use user-only permissions", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
-  const dbDir = path.join(root, ".agents");
-  const dbPath = path.join(dbDir, "index.db");
-  await fs.mkdir(dbDir, { recursive: true });
-  await fs.writeFile(dbPath, "");
+test("openIndexDatabase read-only fallback snapshots valid databases without initializing them", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-fallback-"));
+  const writeDb = openIndexDatabase(root);
+  try {
+    writeDb.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
+      .run("fixture_marker", JSON.stringify("source"));
+  } finally {
+    closeIndexDatabase(writeDb);
+  }
+
+  const dbPath = path.join(root, ".agents", "index.db");
+  const sqlite = require("node:sqlite");
+  const OriginalDatabaseSync = sqlite.DatabaseSync;
+  const betterSqlitePath = require.resolve("better-sqlite3");
+  const betterSqliteCache = require.cache[betterSqlitePath];
+  const originalBetterSqlite = betterSqliteCache?.exports;
+
+  // Simulate the narrow case where the source cannot be opened read-only but its copied snapshot can be read.
+  sqlite.DatabaseSync = function DatabaseSync(filename, options) {
+    if (filename === dbPath && options?.readOnly) {
+      throw new Error("simulated read-only source open failure");
+    }
+    return new OriginalDatabaseSync(filename, options);
+  };
+  if (betterSqliteCache) {
+    betterSqliteCache.exports = function BetterSqlite3() {
+      throw new Error("simulated better-sqlite3 source open failure");
+    };
+  }
 
   let db;
   let tempDir;
@@ -70,8 +96,11 @@ test("openIndexDatabase read-only fallback snapshots use user-only permissions",
     db = openIndexDatabase(root, { readOnly: true });
     tempDir = db.__agentifyTempDir;
     assert.ok(tempDir);
-    const snapshotPath = path.join(tempDir, "index.db");
+    const marker = db.prepare("SELECT value_json FROM repo_meta WHERE key = ?")
+      .get("fixture_marker");
+    assert.equal(marker.value_json, JSON.stringify("source"));
 
+    const snapshotPath = path.join(tempDir, "index.db");
     assert.equal(octalMode(await fs.stat(tempDir)), "700");
     assert.equal(octalMode(await fs.stat(snapshotPath)), "600");
 
@@ -83,12 +112,59 @@ test("openIndexDatabase read-only fallback snapshots use user-only permissions",
       }
     }
   } finally {
+    sqlite.DatabaseSync = OriginalDatabaseSync;
+    if (betterSqliteCache) {
+      betterSqliteCache.exports = originalBetterSqlite;
+    }
     if (db) {
       closeIndexDatabase(db);
     }
   }
 
   await assert.rejects(() => fs.access(tempDir));
+});
+
+test("openIndexDatabase read-only rejects blank index database instead of initializing a snapshot", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
+  const dbDir = path.join(root, ".agents");
+  const dbPath = path.join(dbDir, "index.db");
+  await fs.mkdir(dbDir, { recursive: true });
+  await fs.writeFile(dbPath, "");
+
+  assert.throws(
+    () => openIndexDatabase(root, { readOnly: true }),
+    /invalid index database at .*index\.db: no such table: repo_meta/,
+  );
+
+  assert.equal((await fs.stat(dbPath)).size, 0);
+});
+
+test("openIndexDatabase read-only rejects corrupt index database instead of initializing a snapshot", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
+  const dbDir = path.join(root, ".agents");
+  await fs.mkdir(dbDir, { recursive: true });
+  await fs.writeFile(path.join(dbDir, "index.db"), "not sqlite", "utf8");
+
+  assert.throws(
+    () => openIndexDatabase(root, { readOnly: true }),
+    /invalid index database at .*index\.db: file is not a database/,
+  );
+});
+
+test("openIndexDatabase read-only rejects unsupported index schema version", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
+  const db = openIndexDatabase(root);
+  try {
+    db.prepare("UPDATE repo_meta SET value_json = ? WHERE key = 'schema_version'")
+      .run(JSON.stringify("0.1"));
+  } finally {
+    closeIndexDatabase(db);
+  }
+
+  assert.throws(
+    () => openIndexDatabase(root, { readOnly: true }),
+    /invalid index database at .*index\.db: index database schema version 0\.1 is not supported; expected 3\.1/,
+  );
 });
 
 test("structural store writes and searches repository index data", async () => {
