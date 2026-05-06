@@ -12,6 +12,7 @@ import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
+const FORCE_KILL_TIMEOUT_MS = 5000;
 const REFRESH_NEUTRAL_PATH_PATTERNS = [
   /^\.agents(\/|$)/,
   /^\.current_session(\/|$)/,
@@ -158,6 +159,14 @@ function buildScriptCommand(argv, capturePath) {
   };
 }
 
+function killChildProcess(child, signal) {
+  try {
+    child.kill(signal);
+  } catch {
+    // The process may have exited between timeout scheduling and signal delivery.
+  }
+}
+
 async function removeRawInteractiveLog(capturePath, raw) {
   try {
     await fs.rm(capturePath, { force: true });
@@ -208,6 +217,44 @@ function summarizeChangedFiles(files) {
   }));
 }
 
+function normalizeTimeoutMs(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildTimeoutOutcomeFields(source) {
+  const timedOut = Boolean(source?.timedOut);
+  const timeoutMs = normalizeTimeoutMs(source?.timeoutMs);
+  const signal = source?.signal || null;
+  return {
+    timedOut,
+    timeoutMs,
+    signal,
+    ...(timedOut ? { reason: "timeout" } : {}),
+  };
+}
+
+function buildTimeoutTelemetryFields(source) {
+  const timeout = buildTimeoutOutcomeFields(source);
+  return {
+    timed_out: timeout.timedOut,
+    timeout_ms: timeout.timeoutMs,
+    signal: timeout.signal,
+    ...(timeout.timedOut ? { reason: "timeout" } : {}),
+  };
+}
+
+function buildCommandResultOutcomeFields(commandResult) {
+  return {
+    stdout: commandResult.stdout,
+    stderr: commandResult.stderr,
+    interactiveTranscript: commandResult.interactiveTranscript,
+    interactiveCaptureError: commandResult.interactiveCaptureError,
+    rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    ...buildTimeoutOutcomeFields(commandResult),
+  };
+}
+
 function getPostProviderValidationOptions(flags) {
   const providerMayChangeRepoFiles = flags.skipCodeBodyChanges === true;
   return {
@@ -241,6 +288,7 @@ function buildExecutionTelemetry({
     duration_ms: durationMs,
     phase: result.phase,
     exit_code: result.exitCode,
+    ...buildTimeoutTelemetryFields(commandResult || result),
     skipped_refresh: Boolean(result.skippedRefresh),
     provider: config.provider || null,
     provider_model: config.providerModel || config.provider_model || null,
@@ -298,16 +346,30 @@ function runWrappedCommand(argv, options) {
     }
 
     let timer;
+    let killTimer;
+    let timedOut = false;
+    function clearTimers() {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+    }
     if (options.timeout) {
       timer = setTimeout(() => {
-        child.kill("SIGTERM");
-        setTimeout(() => child.kill("SIGKILL"), 5000);
+        timedOut = true;
+        killChildProcess(child, "SIGTERM");
+        killTimer = setTimeout(() => killChildProcess(child, "SIGKILL"), FORCE_KILL_TIMEOUT_MS);
       }, options.timeout);
     }
 
-    child.on("error", reject);
-    child.on("close", async (code) => {
-      if (timer) clearTimeout(timer);
+    child.on("error", (error) => {
+      clearTimers();
+      reject(error);
+    });
+    child.on("close", async (code, signal) => {
+      clearTimers();
       let interactiveTranscript = "";
       let interactiveCaptureError = "";
       if (captureMode === "pty" && options.capturePath) {
@@ -322,6 +384,10 @@ function runWrappedCommand(argv, options) {
 
       resolve({
         exitCode: code ?? 1,
+        timedOut,
+        timeoutMs: normalizeTimeoutMs(options.timeout),
+        signal: signal || null,
+        ...(timedOut ? { reason: "timeout" } : {}),
         stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
         stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
         interactiveTranscript,
@@ -451,11 +517,7 @@ export async function runExec(root, config, agentCommand, flags) {
       phase: commandFailed ? "command" : "complete",
       exitCode,
       skippedRefresh: true,
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...buildCommandResultOutcomeFields(commandResult),
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -477,11 +539,7 @@ export async function runExec(root, config, agentCommand, flags) {
       exitCode,
       validation,
       skippedRefresh: true,
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...buildCommandResultOutcomeFields(commandResult),
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -499,14 +557,12 @@ export async function runExec(root, config, agentCommand, flags) {
       exitCode = AGENTIFY_EXIT_REFRESH_ERROR;
     }
     process.exitCode = exitCode;
+    const commandOutcome = buildCommandResultOutcomeFields(commandResult);
     const result = {
       phase: "refresh-error",
       exitCode,
-      stdout: commandResult.stdout,
-      stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...commandOutcome,
+      stderr: `${commandOutcome.stderr}${commandOutcome.stderr ? "\n" : ""}${error.message}`,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -532,11 +588,7 @@ export async function runExec(root, config, agentCommand, flags) {
     phase: "complete",
     exitCode,
     validation,
-    stdout: commandResult.stdout,
-    stderr: commandResult.stderr,
-    interactiveTranscript: commandResult.interactiveTranscript,
-    interactiveCaptureError: commandResult.interactiveCaptureError,
-    rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    ...buildCommandResultOutcomeFields(commandResult),
   };
   if (preparedSessionMemory) {
     await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);

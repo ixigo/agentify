@@ -302,6 +302,84 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.match(launchRecord.managed_context.note, /provider live context usage is not directly observable/);
 });
 
+test("runExec preserves timeout state in telemetry, reports, and session memory", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-timeout-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  const session = await forkSession(root, config, { name: "timeout" });
+  const command = [process.execPath, "--input-type=module", "-e", "setInterval(() => {}, 1000);"];
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    const result = await runExec(root, config, command, {
+      captureOutput: true,
+      skipRefresh: true,
+      timeout: 0.05,
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider: "codex",
+        prompt: "Continue the timeout session.",
+        task: "Verify timeout persistence.",
+        command,
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
+        },
+        captureMode: "captured-pipe",
+      },
+    });
+
+    const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+    const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+    const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+    const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+    const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
+    const turns = (await fs.readFile(path.join(session.sessionDir, "turns.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    const launches = (await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    const context = JSON.parse(await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8"));
+    const runEnd = turns.find((turn) => turn.turn_type === "run_end");
+    const launchRecord = launches.at(-1);
+    const runHistoryEntry = context.run_history.at(-1);
+
+    assert.equal(result.phase, "command");
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.timedOut, true);
+    assert.equal(result.timeoutMs, 50);
+    assert.match(result.signal, /^SIG(TERM|KILL)$/);
+    assert.equal(result.reason, "timeout");
+    assert.equal(telemetry.timed_out, true);
+    assert.equal(telemetry.timeout_ms, 50);
+    assert.equal(telemetry.signal, result.signal);
+    assert.equal(telemetry.reason, "timeout");
+    assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIG(?:TERM|KILL) reason=timeout/);
+    assert.match(html, /yes, after 50ms \(SIG(?:TERM|KILL)\)/);
+    assert.match(transcript, /Timeout: yes after 50ms \(signal: SIG(?:TERM|KILL)\)/);
+    assert.equal(runEnd.timed_out, true);
+    assert.equal(runEnd.timeout_ms, 50);
+    assert.equal(runEnd.signal, result.signal);
+    assert.equal(launchRecord.timed_out, true);
+    assert.equal(launchRecord.timeout_ms, 50);
+    assert.equal(launchRecord.reason, "timeout");
+    assert.equal(runHistoryEntry.timed_out, true);
+    assert.equal(runHistoryEntry.timeout_ms, 50);
+    assert.equal(context.context_facts.latest_timed_out, true);
+    assert.equal(context.context_facts.latest_timeout_ms, 50);
+  } finally {
+    process.exitCode = originalExitCode;
+  }
+});
+
 test("runExec skips refresh when only Agentify session artifacts change", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-session-artifacts-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
