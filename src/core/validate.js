@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { getChangedFiles, getFileContentAtHead, getHeadCommit } from "./git.js";
+import { getChangedFiles, getFileContentsAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
@@ -154,6 +154,8 @@ async function validateFreshness(root, failures, options = {}) {
 
 async function validateChangedFiles(root, config, failures, options = {}) {
   const changedFiles = await getChangedFiles(root);
+  const codeEntries = [];
+
   for (const entry of changedFiles) {
     const relPath = entry.path;
 
@@ -172,10 +174,15 @@ async function validateChangedFiles(root, config, failures, options = {}) {
     if (!ALLOWED_CODE_EXTENSIONS.test(relPath)) {
       continue;
     }
+    codeEntries.push(entry);
+  }
 
+  const headContents = await getFileContentsAtHead(root, codeEntries.map((entry) => entry.path));
+  for (const entry of codeEntries) {
+    const relPath = entry.path;
     try {
       const after = await fs.readFile(path.join(root, relPath), "utf8");
-      const before = await getFileContentAtHead(root, relPath);
+      const before = headContents.get(relPath);
       const result = validateHeaderOnlyChange(before ?? "", after, relPath, config.headerWindow);
       if (!result.passed && !options.skipCodeBodyChanges) {
         failures.push(

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -74,6 +74,86 @@ async function getGitContext(root) {
 
   contextCache.set(cacheKey, contextPromise);
   return contextPromise;
+}
+
+function readBatchEntry(buffer, offset, separator) {
+  const headerEnd = buffer.indexOf(separator, offset);
+  if (headerEnd === -1) {
+    return null;
+  }
+
+  const header = buffer.toString("utf8", offset, headerEnd);
+  if (header.endsWith(" missing")) {
+    return { missing: true, nextOffset: headerEnd + 1 };
+  }
+
+  const sizeMatch = header.match(/^[0-9a-f]+ \S+ (\d+)$/);
+  if (!sizeMatch) {
+    return null;
+  }
+
+  const size = Number(sizeMatch[1]);
+  const contentStart = headerEnd + 1;
+  const contentEnd = contentStart + size;
+  const nextOffset = contentEnd + 1;
+  if (contentEnd > buffer.length || buffer[contentEnd] !== separator) {
+    return null;
+  }
+
+  return {
+    content: buffer.toString("utf8", contentStart, contentEnd),
+    nextOffset,
+  };
+}
+
+async function runCatFileBatchOnce(root, specs, args, separator, inputSeparator) {
+  if (!specs.length) {
+    return [];
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: root,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+        reject(new Error(stderr || `git cat-file exited with code ${code}`));
+        return;
+      }
+
+      const stdout = Buffer.concat(stdoutChunks);
+      const entries = [];
+      let offset = 0;
+      for (let i = 0; i < specs.length; i += 1) {
+        const entry = readBatchEntry(stdout, offset, separator);
+        if (!entry) {
+          reject(new Error("Unable to parse git cat-file --batch output"));
+          return;
+        }
+        entries.push(entry.missing ? null : entry.content);
+        offset = entry.nextOffset;
+      }
+      resolve(entries);
+    });
+
+    child.stdin.end(`${specs.join(inputSeparator)}${inputSeparator}`, "utf8");
+  });
+}
+
+async function runCatFileBatch(root, specs) {
+  try {
+    return await runCatFileBatchOnce(root, specs, ["cat-file", "--batch", "-Z"], 0x00, "\0");
+  } catch {
+    return runCatFileBatchOnce(root, specs, ["cat-file", "--batch"], 0x0a, "\n");
+  }
 }
 
 export async function getHeadCommit(root) {
@@ -229,18 +309,38 @@ export async function getChangedFilesSince(root, sinceCommit) {
 }
 
 export async function getFileContentAtHead(root, filePath) {
+  const contents = await getFileContentsAtHead(root, [filePath]);
+  return contents.get(filePath) ?? null;
+}
+
+export async function getFileContentsAtHead(root, filePaths) {
+  const result = new Map();
+  const uniquePaths = [...new Set((filePaths || []).filter(Boolean))];
+  if (!uniquePaths.length) {
+    return result;
+  }
+
   try {
     const context = await getGitContext(root);
-    const gitPath = toGitRelativePath(filePath, context.rootPrefix);
-    if (!gitPath) {
-      return null;
+    const requests = [];
+    for (const filePath of uniquePaths) {
+      const gitPath = toGitRelativePath(filePath, context.rootPrefix);
+      if (!gitPath) {
+        result.set(filePath, null);
+        continue;
+      }
+      requests.push({ filePath, spec: `HEAD:${gitPath}` });
     }
 
-    const { stdout } = await execFileAsync("git", ["show", `HEAD:${gitPath}`], {
-      cwd: root,
-    });
-    return stdout;
+    const contents = await runCatFileBatch(root, requests.map((request) => request.spec));
+    for (let i = 0; i < requests.length; i += 1) {
+      result.set(requests[i].filePath, contents[i] ?? null);
+    }
   } catch {
-    return null;
+    for (const filePath of uniquePaths) {
+      result.set(filePath, null);
+    }
   }
+
+  return result;
 }
