@@ -14,7 +14,7 @@ import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
-import { getArtifact, upsertArtifact } from "./db/artifact-store.js";
+import { getArtifact, removeArtifact, upsertArtifact } from "./db/artifact-store.js";
 import {
   loadCommands,
   loadFiles,
@@ -743,6 +743,8 @@ async function _runDocInner(root, config, options, progress) {
     indexData = createDbSnapshot(root, db);
   }
 
+  const moduleArtifactKeysWritten = new Set();
+
   try {
     let filesWithHeaders = 0;
     let docsWritten = 0;
@@ -808,7 +810,15 @@ async function _runDocInner(root, config, options, progress) {
       const cachedArtifact = !config.dryRun && db
         ? getArtifact(db, getModuleArtifactKey(moduleInfo.id))
         : null;
-      const reusableArtifact = cachedArtifact?.fingerprint === fingerprint ? cachedArtifact.payload : null;
+      const moduleDocExists = !config.dryRun
+        ? await exists(path.join(artifactRoot, moduleInfo.doc_path))
+        : false;
+      if (cachedArtifact?.fingerprint === fingerprint && !moduleDocExists && db) {
+        removeArtifact(db, getModuleArtifactKey(moduleInfo.id));
+      }
+      const reusableArtifact = cachedArtifact?.fingerprint === fingerprint && moduleDocExists
+        ? cachedArtifact.payload
+        : null;
       const moduleDeps = indexData.dependencyMap
         ? indexData.dependencyMap.get(moduleInfo.id)
         : loadModuleDependencies(db, moduleInfo.id);
@@ -941,6 +951,9 @@ async function _runDocInner(root, config, options, progress) {
             },
             updatedAt: now,
           });
+          if (!reused) {
+            moduleArtifactKeysWritten.add(getModuleArtifactKey(moduleInfo.id));
+          }
         }
 
         if (semanticEnabled) {
@@ -1116,6 +1129,11 @@ async function _runDocInner(root, config, options, progress) {
     }
     return result;
   } catch (error) {
+    if (!config.dryRun && db) {
+      for (const artifactKey of moduleArtifactKeysWritten) {
+        removeArtifact(db, artifactKey);
+      }
+    }
     if (!config.dryRun && indexData?.modules?.length) {
       const missingDocs = await removeRepoMapIfModuleDocsIncomplete(artifactRoot, indexData.modules);
       if (missingDocs.length > 0) {
