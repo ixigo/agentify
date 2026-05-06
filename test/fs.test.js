@@ -3,8 +3,25 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 import { resetIgnoreCache, walkFiles, relative } from "../src/core/fs.js";
+
+async function runGit(root, args) {
+  await new Promise((resolve, reject) => {
+    const child = spawn("git", ["-C", root, ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const stderr = [];
+    child.stderr.on("data", (chunk) => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(Buffer.concat(stderr).toString("utf8") || `git ${args.join(" ")} exited with ${code}`));
+    });
+  });
+}
 
 test("walkFiles respects hard excludes and does not leak ignore cache across roots", async () => {
   resetIgnoreCache();
@@ -88,6 +105,22 @@ test("walkFiles picks up a newly created .agentignore within the same root", asy
 
   const after = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   assert.deepEqual(after, [".agentignore"]);
+});
+
+test("walkFiles skips gitignored transient directories when respecting ignores", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-gitignore-"));
+  await runGit(root, ["init"]);
+  await fs.writeFile(path.join(root, ".gitignore"), "*.tmp\n", "utf8");
+  await fs.mkdir(path.join(root, ".tmp", "e2e", "repos", "fixture"), { recursive: true });
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, ".tmp", "e2e", "repos", "fixture", "index.js"), "export const fixture = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const visible = true;\n", "utf8");
+
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
+
+  assert.deepEqual(files, [".gitignore", "src/index.js"]);
 });
 
 test("walkFiles treats unreadable .agentignore as an empty ignore list", async () => {
