@@ -2,12 +2,17 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
 
 const execFileAsync = promisify(execFile);
+const SESSION_LOCK_STALE_MS = 300000;
+const SESSION_LOCK_RETRY_MS = 25;
+const SESSION_LOCK_WAIT_MS = 5000;
 
 const MEMORY_STOP_WORDS = new Set([
   "a",
@@ -778,7 +783,99 @@ export function getSessionArtifactPaths(root, sessionId) {
     rawInteractiveLogPath: path.join(sessionDir, "interactive.log"),
     fetchOutputsPath: path.join(sessionDir, "context-fetches.jsonl"),
     contextPath: path.join(sessionDir, "context.json"),
+    lockPath: path.join(sessionDir, ".session.lock"),
   };
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function canReclaimSessionLock(existing) {
+  if (!existing || typeof existing.acquired_at !== "number") {
+    return false;
+  }
+
+  if (Date.now() - existing.acquired_at <= SESSION_LOCK_STALE_MS) {
+    return false;
+  }
+
+  return !(existing.host === os.hostname() && isProcessAlive(existing.pid));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireSessionArtifactLock(paths, operation, options = {}) {
+  await ensureDir(paths.sessionDir);
+  const waitMs = Math.max(0, Number(options.waitMs) || 0);
+  const deadline = Date.now() + waitMs;
+
+  for (;;) {
+    const lockData = {
+      pid: process.pid,
+      operation,
+      acquired_at: Date.now(),
+      host: os.hostname(),
+    };
+
+    try {
+      const handle = await fs.open(paths.lockPath, "wx");
+      try {
+        await handle.writeFile(JSON.stringify(lockData));
+      } finally {
+        await handle.close();
+      }
+      return { release: () => fs.unlink(paths.lockPath).catch(() => {}) };
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+
+    let existing = null;
+    try {
+      existing = JSON.parse(await fs.readFile(paths.lockPath, "utf8"));
+    } catch {
+      throw new Error(`Session artifact lock exists but is unreadable: ${paths.lockPath}`);
+    }
+
+    if (canReclaimSessionLock(existing)) {
+      await fs.unlink(paths.lockPath).catch((error) => {
+        if (error.code !== "ENOENT") {
+          throw error;
+        }
+      });
+      continue;
+    }
+
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Session ${path.basename(paths.sessionDir)} is already being updated by PID ${existing.pid} for '${existing.operation}' since ${new Date(existing.acquired_at).toISOString()}`
+      );
+    }
+    await sleep(Math.min(SESSION_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())));
+  }
+}
+
+async function withSessionArtifactLock(root, sessionId, operation, callback) {
+  const paths = getSessionArtifactPaths(root, sessionId);
+  const lock = await acquireSessionArtifactLock(paths, operation, { waitMs: SESSION_LOCK_WAIT_MS });
+  try {
+    return await callback(paths);
+  } finally {
+    await lock.release();
+  }
 }
 
 async function safeFileBytes(filePath) {
@@ -941,8 +1038,7 @@ ${tasks}
 `;
 }
 
-export async function compactSessionContext(root, sessionId, config = {}) {
-  const paths = getSessionArtifactPaths(root, sessionId);
+async function compactSessionContextUnlocked(root, sessionId, config = {}, paths = getSessionArtifactPaths(root, sessionId)) {
   if (!(await exists(paths.contextPath))) {
     throw new Error(`Session ${sessionId} does not have context.json`);
   }
@@ -991,8 +1087,13 @@ export async function compactSessionContext(root, sessionId, config = {}) {
   };
 }
 
-export async function appendRunSummary(root, sessionId, entry, config) {
-  const paths = getSessionArtifactPaths(root, sessionId);
+export async function compactSessionContext(root, sessionId, config = {}) {
+  return withSessionArtifactLock(root, sessionId, "compact-session-context", (paths) => (
+    compactSessionContextUnlocked(root, sessionId, config, paths)
+  ));
+}
+
+async function appendRunSummaryUnlocked(root, sessionId, entry, config, paths = getSessionArtifactPaths(root, sessionId)) {
   if (!(await exists(paths.contextPath))) {
     return null;
   }
@@ -1010,6 +1111,12 @@ export async function appendRunSummary(root, sessionId, entry, config) {
   context.rolling_summary = clipToBytes(buildRollingSummary(next), Math.max(summaryBytes * 2, 512));
   await writeJson(paths.contextPath, context);
   return { run_history: next, rolling_summary: context.rolling_summary };
+}
+
+export async function appendRunSummary(root, sessionId, entry, config) {
+  return withSessionArtifactLock(root, sessionId, "append-run-summary", (paths) => (
+    appendRunSummaryUnlocked(root, sessionId, entry, config, paths)
+  ));
 }
 
 export async function loadAutomaticMemory(root, options, config) {
@@ -1043,164 +1150,174 @@ export async function loadAutomaticSessionMemory(root, manifest, config, query =
 export async function prepareSessionMemoryRun(root, sessionRecord, config) {
   const startedAt = new Date().toISOString();
   const paths = getSessionArtifactPaths(root, sessionRecord.sessionId);
+  const lock = await acquireSessionArtifactLock(paths, "session-run");
   await ensureDir(paths.sessionDir);
   const emitMarkdown = config?.session?.emitMarkdownArtifacts !== false;
 
-  await appendTurnsRecord(paths.turnsPath, {
-    schema_version: "1.0",
-    turn_type: "run_start",
-    role: "system",
-    session_id: sessionRecord.sessionId,
-    provider: sessionRecord.provider,
-    started_at: startedAt,
-    capture_mode: sessionRecord.captureMode,
-    command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
-    memory_backend: sessionRecord.memoryContext?.backend || "none",
-    memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
-  });
-  await appendTurnsRecord(paths.turnsPath, {
-    schema_version: "1.0",
-    turn_type: "task",
-    role: "user",
-    session_id: sessionRecord.sessionId,
-    timestamp: startedAt,
-    content: sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one.",
-  });
+  try {
+    await appendTurnsRecord(paths.turnsPath, {
+      schema_version: "1.0",
+      turn_type: "run_start",
+      role: "system",
+      session_id: sessionRecord.sessionId,
+      provider: sessionRecord.provider,
+      started_at: startedAt,
+      capture_mode: sessionRecord.captureMode,
+      command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
+      memory_backend: sessionRecord.memoryContext?.backend || "none",
+      memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
+    });
+    await appendTurnsRecord(paths.turnsPath, {
+      schema_version: "1.0",
+      turn_type: "task",
+      role: "user",
+      session_id: sessionRecord.sessionId,
+      timestamp: startedAt,
+      content: sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one.",
+    });
 
-  if (emitMarkdown) {
-    const memoryMarkdown = redactSensitiveText(sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown());
-    await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
+    if (emitMarkdown) {
+      const memoryMarkdown = redactSensitiveText(sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown());
+      await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
 
-    const transcriptLines = [];
-    if (await exists(paths.transcriptPath)) {
-      transcriptLines.push("", "---", "");
+      const transcriptLines = [];
+      if (await exists(paths.transcriptPath)) {
+        transcriptLines.push("", "---", "");
+      }
+      transcriptLines.push(
+        "# Agentify Session Run",
+        `Session: ${sessionRecord.sessionId}`,
+        `Provider: ${sessionRecord.provider}`,
+        `Started: ${startedAt}`,
+        `Capture mode: ${sessionRecord.captureMode}`,
+        `Command: ${normalizeCommand(sessionRecord.command) || "n/a"}`,
+        `Bootstrap: .agents/session/${sessionRecord.sessionId}/bootstrap.md`,
+        `Memory context: ${relative(root, paths.memoryContextPath)}`,
+        "",
+        "> Session bootstrap reference",
+        `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
+        "",
+        "> Automatic session memory",
+        redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
+        "",
+        "> Current task",
+        redactSensitiveText(sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one."),
+        ""
+      );
+
+      await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
     }
-    transcriptLines.push(
-      "# Agentify Session Run",
-      `Session: ${sessionRecord.sessionId}`,
-      `Provider: ${sessionRecord.provider}`,
-      `Started: ${startedAt}`,
-      `Capture mode: ${sessionRecord.captureMode}`,
-      `Command: ${normalizeCommand(sessionRecord.command) || "n/a"}`,
-      `Bootstrap: .agents/session/${sessionRecord.sessionId}/bootstrap.md`,
-      `Memory context: ${relative(root, paths.memoryContextPath)}`,
-      "",
-      "> Session bootstrap reference",
-      `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
-      "",
-      "> Automatic session memory",
-      redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
-      "",
-      "> Current task",
-      redactSensitiveText(sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one."),
-      ""
-    );
-
-    await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
+    return { startedAt, paths, emitMarkdown, sessionArtifactLock: lock };
+  } catch (error) {
+    await lock.release();
+    throw error;
   }
-  return { startedAt, paths, emitMarkdown };
 }
 
 export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, outcome, config) {
-  const captureMaxBytes = getSessionMemoryLimit(config, "captureMaxKb", 48) * 1024;
-  const summaryMaxBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
-  const emitMarkdown = prepared?.emitMarkdown !== undefined
-    ? prepared.emitMarkdown
-    : config?.session?.emitMarkdownArtifacts !== false;
-  const providerOutput = outcome?.interactiveTranscript
-    ? String(outcome.interactiveTranscript).trim()
-    : [outcome?.stdout, outcome?.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-  const assistantText = providerOutput
-    ? clipToBytes(redactSensitiveText(providerOutput), captureMaxBytes)
-    : "Agentify launched the provider in inherited interactive mode, so the full assistant transcript was not captured for this run. The prompt, bootstrap, memory context, and launch record were still persisted automatically.";
-  const validationSummary = outcome?.validation
-    ? outcome.validation.passed ? "passed" : "failed"
-    : outcome?.skippedRefresh ? "skipped" : "not-run";
-  const phase = outcome?.phase || "complete";
-  const endedAt = new Date().toISOString();
+  try {
+    const captureMaxBytes = getSessionMemoryLimit(config, "captureMaxKb", 48) * 1024;
+    const summaryMaxBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
+    const emitMarkdown = prepared?.emitMarkdown !== undefined
+      ? prepared.emitMarkdown
+      : config?.session?.emitMarkdownArtifacts !== false;
+    const providerOutput = outcome?.interactiveTranscript
+      ? String(outcome.interactiveTranscript).trim()
+      : [outcome?.stdout, outcome?.stderr]
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+    const assistantText = providerOutput
+      ? clipToBytes(redactSensitiveText(providerOutput), captureMaxBytes)
+      : "Agentify launched the provider in inherited interactive mode, so the full assistant transcript was not captured for this run. The prompt, bootstrap, memory context, and launch record were still persisted automatically.";
+    const validationSummary = outcome?.validation
+      ? outcome.validation.passed ? "passed" : "failed"
+      : outcome?.skippedRefresh ? "skipped" : "not-run";
+    const phase = outcome?.phase || "complete";
+    const endedAt = new Date().toISOString();
 
-  await appendTurnsRecord(prepared.paths.turnsPath, {
-    schema_version: "1.0",
-    turn_type: "assistant_response",
-    role: "assistant",
-    session_id: sessionRecord.sessionId,
-    timestamp: endedAt,
-    content: assistantText,
-  });
-  await appendTurnsRecord(prepared.paths.turnsPath, {
-    schema_version: "1.0",
-    turn_type: "run_end",
-    role: "system",
-    session_id: sessionRecord.sessionId,
-    ended_at: endedAt,
-    phase,
-    exit_code: outcome?.exitCode ?? 1,
-    validation: validationSummary,
-    capture_mode: sessionRecord.captureMode,
-  });
+    await appendTurnsRecord(prepared.paths.turnsPath, {
+      schema_version: "1.0",
+      turn_type: "assistant_response",
+      role: "assistant",
+      session_id: sessionRecord.sessionId,
+      timestamp: endedAt,
+      content: assistantText,
+    });
+    await appendTurnsRecord(prepared.paths.turnsPath, {
+      schema_version: "1.0",
+      turn_type: "run_end",
+      role: "system",
+      session_id: sessionRecord.sessionId,
+      ended_at: endedAt,
+      phase,
+      exit_code: outcome?.exitCode ?? 1,
+      validation: validationSummary,
+      capture_mode: sessionRecord.captureMode,
+    });
 
-  if (emitMarkdown) {
-    const transcriptTail = [
-      "> Provider response",
-      assistantText,
-      "",
-      "> Run status",
-      `Command phase: ${phase}`,
-      `Exit code: ${outcome?.exitCode ?? 1}`,
-      `Validation: ${validationSummary}`,
-      `Capture mode used: ${sessionRecord.captureMode}`,
-      outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
-      outcome?.interactiveCaptureError ? `Interactive capture warning: ${outcome.interactiveCaptureError}` : null,
-      `Ended: ${endedAt}`,
-      ""
-    ].filter(Boolean).join("\n");
-    await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+    if (emitMarkdown) {
+      const transcriptTail = [
+        "> Provider response",
+        assistantText,
+        "",
+        "> Run status",
+        `Command phase: ${phase}`,
+        `Exit code: ${outcome?.exitCode ?? 1}`,
+        `Validation: ${validationSummary}`,
+        `Capture mode used: ${sessionRecord.captureMode}`,
+        outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
+        outcome?.interactiveCaptureError ? `Interactive capture warning: ${outcome.interactiveCaptureError}` : null,
+        `Ended: ${endedAt}`,
+        ""
+      ].filter(Boolean).join("\n");
+      await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+    }
+
+    const managedContext = await buildEstimatedManagedContext(root, sessionRecord, prepared.paths, config);
+
+    const launchRecord = {
+      schema_version: "1.0",
+      session_id: sessionRecord.sessionId,
+      provider: sessionRecord.provider,
+      started_at: prepared.startedAt,
+      ended_at: endedAt,
+      capture_mode: sessionRecord.captureMode,
+      command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
+      task: redactSensitiveText(sessionRecord.task),
+      prompt: redactSensitiveText(sessionRecord.prompt),
+      transcript_path: relative(root, prepared.paths.transcriptPath),
+      memory_context_path: relative(root, prepared.paths.memoryContextPath),
+      turns_path: relative(root, prepared.paths.turnsPath),
+      memory_backend: sessionRecord.memoryContext?.backend || "none",
+      raw_interactive_log_path: outcome?.rawInteractiveLogPath
+        ? relative(root, outcome.rawInteractiveLogPath)
+        : null,
+      memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
+      memory_source_transcript: sessionRecord.memoryContext?.transcriptRelativePath || null,
+      phase,
+      exit_code: outcome?.exitCode ?? 1,
+      validation: validationSummary,
+      stdout: clipToBytes(redactSensitiveText(outcome?.stdout || ""), captureMaxBytes),
+      stderr: clipToBytes(redactSensitiveText(outcome?.stderr || ""), captureMaxBytes),
+      interactive_capture_error: outcome?.interactiveCaptureError || null,
+      managed_context: managedContext,
+    };
+    await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
+
+    await appendRunSummaryUnlocked(root, sessionRecord.sessionId, {
+      started_at: prepared.startedAt,
+      ended_at: endedAt,
+      task: sessionRecord.task || "",
+      assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
+      exit_code: outcome?.exitCode ?? null,
+      validation: validationSummary,
+      phase,
+      memory_backend: sessionRecord.memoryContext?.backend || "none",
+      managed_context: managedContext,
+    }, config, prepared.paths);
+    await compactSessionContextUnlocked(root, sessionRecord.sessionId, config, prepared.paths);
+  } finally {
+    await prepared?.sessionArtifactLock?.release?.();
   }
-
-  const managedContext = await buildEstimatedManagedContext(root, sessionRecord, prepared.paths, config);
-
-  const launchRecord = {
-    schema_version: "1.0",
-    session_id: sessionRecord.sessionId,
-    provider: sessionRecord.provider,
-    started_at: prepared.startedAt,
-    ended_at: endedAt,
-    capture_mode: sessionRecord.captureMode,
-    command: redactSensitiveValue(Array.isArray(sessionRecord.command) ? sessionRecord.command : []),
-    task: redactSensitiveText(sessionRecord.task),
-    prompt: redactSensitiveText(sessionRecord.prompt),
-    transcript_path: relative(root, prepared.paths.transcriptPath),
-    memory_context_path: relative(root, prepared.paths.memoryContextPath),
-    turns_path: relative(root, prepared.paths.turnsPath),
-    memory_backend: sessionRecord.memoryContext?.backend || "none",
-    raw_interactive_log_path: outcome?.rawInteractiveLogPath
-      ? relative(root, outcome.rawInteractiveLogPath)
-      : null,
-    memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
-    memory_source_transcript: sessionRecord.memoryContext?.transcriptRelativePath || null,
-    phase,
-    exit_code: outcome?.exitCode ?? 1,
-    validation: validationSummary,
-    stdout: clipToBytes(redactSensitiveText(outcome?.stdout || ""), captureMaxBytes),
-    stderr: clipToBytes(redactSensitiveText(outcome?.stderr || ""), captureMaxBytes),
-    interactive_capture_error: outcome?.interactiveCaptureError || null,
-    managed_context: managedContext,
-  };
-  await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
-
-  await appendRunSummary(root, sessionRecord.sessionId, {
-    started_at: prepared.startedAt,
-    ended_at: endedAt,
-    task: sessionRecord.task || "",
-    assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
-    exit_code: outcome?.exitCode ?? null,
-    validation: validationSummary,
-    phase,
-    memory_backend: sessionRecord.memoryContext?.backend || "none",
-    managed_context: managedContext,
-  }, config);
-  await compactSessionContext(root, sessionRecord.sessionId, config);
 }

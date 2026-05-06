@@ -15,8 +15,10 @@ import {
 } from "../src/core/session.js";
 import {
   appendRunSummary,
+  finalizeSessionMemoryRun,
   getSessionArtifactPaths,
   loadAutomaticSessionMemory,
+  prepareSessionMemoryRun,
 } from "../src/core/session-memory.js";
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +38,24 @@ async function fileExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+function createSessionRecord(sessionId, task) {
+  return {
+    sessionId,
+    provider: "codex",
+    captureMode: "pipe",
+    command: ["codex", "exec"],
+    task,
+    prompt: task,
+    memoryContext: {
+      backend: "none",
+      markdown: "# Prior Memory\nnone",
+      excerpt: "",
+      sourceSessionId: null,
+      transcriptRelativePath: null,
+    },
+  };
 }
 
 test("forkSession initializes structured run_history and rolling_summary in context.json", async () => {
@@ -135,6 +155,65 @@ test("appendRunSummary keeps run_history bounded and updates rolling_summary", a
     assert.ok(Buffer.byteLength(entry.assistant_summary, "utf8") <= 120);
   }
   assert.match(context.rolling_summary, /Last task: task 11/);
+});
+
+test("appendRunSummary preserves concurrent same-session updates", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-rollup-concurrent-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  config.session.runHistoryMax = 30;
+  const created = await forkSession(root, config, { name: "rollup-concurrent" });
+
+  await Promise.all(Array.from({ length: 20 }, (_, index) => appendRunSummary(root, created.sessionId, {
+    started_at: `s-${index}`,
+    ended_at: `e-${index}`,
+    task: `task ${index}`,
+    assistant_summary: `summary ${index}`,
+    exit_code: 0,
+    validation: "passed",
+    phase: "complete",
+    memory_backend: "structured-lineage",
+  }, config)));
+
+  const context = JSON.parse(await fs.readFile(path.join(created.sessionDir, "context.json"), "utf8"));
+  const started = new Set(context.run_history.map((entry) => entry.started_at));
+  assert.equal(context.run_history.length, 20);
+  for (let index = 0; index < 20; index += 1) {
+    assert.equal(started.has(`s-${index}`), true);
+  }
+});
+
+test("prepareSessionMemoryRun rejects a concurrent same-session run while the first run owns artifacts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-active-lock-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const created = await forkSession(root, config, { name: "active-lock" });
+  const paths = getSessionArtifactPaths(root, created.sessionId);
+  const prepared = await prepareSessionMemoryRun(root, createSessionRecord(created.sessionId, "first task"), config);
+
+  try {
+    await assert.rejects(
+      () => prepareSessionMemoryRun(root, createSessionRecord(created.sessionId, "second task"), config),
+      /already being updated.*session-run/
+    );
+  } finally {
+    await finalizeSessionMemoryRun(root, createSessionRecord(created.sessionId, "first task"), prepared, {
+      phase: "complete",
+      exitCode: 0,
+      stdout: "first task complete",
+      stderr: "",
+      validation: { passed: true },
+    }, config);
+  }
+
+  assert.equal(await fileExists(paths.lockPath), false);
+  const context = JSON.parse(await fs.readFile(paths.contextPath, "utf8"));
+  assert.equal(context.run_history.length, 1);
+  assert.match(context.rolling_summary, /first task/);
 });
 
 test("forkSession inherits run_history and rolling_summary from parent", async () => {
