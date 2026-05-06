@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Skill Catalog</title>
+  <meta name="description" content="A terse index of Agentify skills.">
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+    :root {
+      color-scheme: dark light;
+      --bg: #0a0a0b;
+      --surface: #101012;
+      --ink: #ededed;
+      --muted: #8a8a93;
+      --faint: #555560;
+      --rule: #1f1f24;
+      --hair: #1a1a1e;
+      --accent: #7df9a0;
+      --accent-dim: rgba(125, 249, 160, 0.15);
+      --hl: #15151a;
+      --code-bg: #050507;
+      --code-ink: #ededed;
+      --warn: #ffb86b;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      --max: 980px;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --ink: #0a0a0b;
+        --muted: #6a6a73;
+        --faint: #a0a0aa;
+        --rule: #e4e4ea;
+        --hair: #ececf0;
+        --accent: #00875f;
+        --accent-dim: rgba(0, 135, 95, 0.1);
+        --hl: #f5f5f7;
+        --code-bg: #0a0a0b;
+        --code-ink: #ededed;
+        --warn: #b95900;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% -10%, var(--accent-dim) 0%, transparent 40%),
+        var(--bg);
+      background-attachment: fixed;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(var(--hair) 1px, transparent 1px),
+        linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse at center top, black 0%, transparent 70%);
+      opacity: 0.5;
+      z-index: 0;
+    }
+
+    main, header, footer { position: relative; z-index: 1; }
+
+    a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+    a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+    main, header, footer {
+      width: min(var(--max), calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 72px 0 36px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .brand {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 40px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .brand b {
+      color: var(--ink);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand b::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    .ver {
+      padding: 4px 8px;
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      letter-spacing: 0.08em;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font: 600 clamp(2.6rem, 6vw, 4rem)/0.98 var(--sans);
+      letter-spacing: -0.035em;
+      color: var(--ink);
+    }
+
+    h1 .accent { color: var(--accent); }
+
+    .tag {
+      margin: 0 0 28px;
+      max-width: 60ch;
+      color: var(--muted);
+      font: 400 1rem/1.6 var(--sans);
+      letter-spacing: -0.005em;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 24px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .meta span { display: inline-flex; align-items: center; gap: 8px; }
+    .meta span::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      background: var(--accent);
+      transform: rotate(45deg);
+    }
+    .meta code {
+      padding: 1px 5px;
+      background: var(--hl);
+      border: 1px solid var(--hair);
+      border-radius: 2px;
+      color: var(--ink);
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 11px;
+    }
+
+    .req {
+      margin: 36px 0 0;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-left: 2px solid var(--warn);
+      border-radius: 2px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .req b {
+      color: var(--warn);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-right: 8px;
+    }
+    .req code {
+      padding: 1px 5px;
+      background: var(--code-bg);
+      color: var(--accent);
+      border-radius: 2px;
+      font-size: 11.5px;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      margin: 0;
+      padding: 14px 0;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .search {
+      flex: 1;
+      min-width: 0;
+      padding: 9px 12px 9px 30px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      font: 500 13px/1.2 var(--mono);
+      transition: border-color 100ms, box-shadow 100ms;
+    }
+
+    .search-wrap {
+      flex: 1;
+      position: relative;
+    }
+
+    .search-wrap::before {
+      content: "⌕";
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--faint);
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    .search:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    .btn {
+      padding: 9px 12px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      font: 600 11px/1 var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 100ms;
+    }
+
+    .btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    main { padding-bottom: 80px; }
+
+    .cat {
+      margin-top: 44px;
+      scroll-margin-top: 80px;
+    }
+
+    .cat-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .cat-head h2 {
+      margin: 0;
+      font: 600 1.05rem/1.2 var(--sans);
+      letter-spacing: -0.015em;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .cat-head h2::before {
+      content: attr(data-num);
+      color: var(--accent);
+      font: 600 11px/1 var(--mono);
+      letter-spacing: 0.08em;
+    }
+
+    .cat-head .count {
+      font-size: 11px;
+      color: var(--faint);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .cat-desc {
+      margin: 10px 0 14px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .skill {
+      border: 1px solid transparent;
+      border-bottom: 1px solid var(--rule);
+      transition: border-color 100ms, background 100ms;
+    }
+
+    .skill:last-child { border-bottom: 1px solid var(--rule); }
+
+    .skill:hover { background: var(--hl); }
+    .skill[open] {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      margin: 4px 0;
+    }
+
+    summary {
+      display: grid;
+      grid-template-columns: 220px 1fr auto;
+      gap: 20px;
+      align-items: center;
+      padding: 12px 14px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    .name {
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 13px;
+      transition: color 100ms;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .name::before {
+      content: "▸";
+      color: var(--accent);
+      font-size: 9px;
+      transition: transform 120ms;
+    }
+
+    .desc { color: var(--muted); font-size: 12.5px; }
+
+    .arrow {
+      color: var(--faint);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .arrow::after { content: "open"; }
+
+    details[open] .name::before { transform: rotate(90deg); }
+    details[open] .name { color: var(--accent); }
+    details[open] .arrow { color: var(--accent); }
+    details[open] .arrow::after { content: "close"; }
+
+    .body {
+      padding: 4px 14px 20px 234px;
+      display: grid;
+      gap: 12px;
+      font-size: 12.5px;
+      border-top: 1px dashed var(--rule);
+      margin-top: 0;
+      padding-top: 16px;
+    }
+
+    .body .row {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 16px;
+      color: var(--muted);
+      align-items: start;
+    }
+
+    .body .row b {
+      color: var(--faint);
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding-top: 3px;
+    }
+
+    .body .row p { margin: 0; line-height: 1.6; }
+    .body .row p.invoke {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 6px 10px;
+      background: var(--code-bg);
+      border-radius: 3px;
+      border: 1px solid var(--rule);
+      display: inline-block;
+    }
+    .body .row p code {
+      padding: 1px 5px;
+      background: var(--hl);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      font-size: 11.5px;
+      color: var(--ink);
+    }
+
+    .install {
+      padding: 10px 12px;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    .install::before {
+      content: "$";
+      color: var(--accent);
+      margin-right: 8px;
+      font-weight: 600;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .t {
+      padding: 3px 7px;
+      color: var(--muted);
+      background: var(--hl);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      font-size: 10.5px;
+      letter-spacing: 0.02em;
+    }
+
+    .empty {
+      display: none;
+      padding: 32px 0;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .more {
+      margin-top: 56px;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      background:
+        radial-gradient(circle at 100% 0%, var(--accent-dim) 0%, transparent 60%),
+        var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .more::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.6;
+    }
+
+    .more-label {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 3px 8px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font: 600 10px/1 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .more h3 {
+      margin: 0 0 8px;
+      font: 600 1.4rem/1.15 var(--sans);
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    .more p {
+      margin: 0;
+      max-width: 60ch;
+      color: var(--muted);
+      font: 400 13.5px/1.6 var(--sans);
+    }
+
+    .more p code {
+      padding: 1px 5px;
+      background: var(--code-bg);
+      color: var(--accent);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      font-size: 11.5px;
+    }
+
+    .more-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 16px;
+      color: var(--bg);
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      font: 600 12px/1 var(--mono);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: transform 100ms, box-shadow 100ms;
+    }
+
+    .more-cta:hover {
+      color: var(--bg);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px var(--accent-dim);
+      text-decoration: none;
+    }
+
+    .more-cta::after {
+      content: "→";
+      transition: transform 120ms;
+    }
+
+    .more-cta:hover::after { transform: translate(3px, 0); }
+
+    @media (max-width: 720px) {
+      .more { grid-template-columns: 1fr; padding: 20px; }
+    }
+
+    footer {
+      margin-top: 60px;
+      padding: 28px 0 80px;
+      border-top: 1px solid var(--rule);
+      color: var(--faint);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 720px) {
+      summary { grid-template-columns: 1fr auto; padding: 12px; }
+      .desc { grid-column: 1 / -1; font-size: 12px; }
+      .body { padding: 14px 12px 18px; }
+      .body .row { grid-template-columns: 1fr; gap: 4px; }
+      header { padding-top: 48px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span><b>Agentify</b></span>
+      <span class="ver">v0.beta</span>
+    </div>
+    <h1>Skills, <span class="accent">not stacks.</span></h1>
+    <p class="tag">A terse index of reusable agent skills for daily engineering work — planning, repo context, issues, PRs, validation, handoffs.</p>
+    <div class="meta">
+      <span>install <code>codex</code> · <code>claude-code</code></span>
+      <span>scope project</span>
+      <span><a href="https://github.com/ixigo/agentify">ixigo/agentify</a></span>
+    </div>
+    <p class="req"><b>Prereqs</b>GitHub CLI for issue/PR skills (<code>gh --version</code> → <code>gh auth login</code>). Atlassian CLI for <code>jira</code> (<code>acli jira workitem --help</code>).</p>
+  </header>
+
+  <main>
+    <section class="toolbar">
+      <div class="search-wrap">
+        <input id="search" class="search" type="search" placeholder="filter — name, tag, outcome" aria-label="Filter skills">
+      </div>
+      <button id="openAll" class="btn" type="button">expand</button>
+      <button id="closeAll" class="btn" type="button">collapse</button>
+    </section>
+
+    <section id="catalog" aria-live="polite"></section>
+    <p id="empty" class="empty">no match.</p>
+
+    <aside class="more" aria-label="More than skills">
+      <div>
+        <span class="more-label">beta · there's more</span>
+        <h3>This catalog is the tip of Agentify.</h3>
+        <p>Beyond skills, Agentify prepares repos, routes context, manages sessions, validates readiness, and runs end-to-end agent workflows. The platform is in <b>beta</b> — pitch it to your team, try it on a real repo, and tell us where it breaks.</p>
+      </div>
+      <a class="more-cta" href="https://github.com/ixigo/agentify">check agentify</a>
+    </aside>
+  </main>
+
+  <footer>
+    <span>Field guide. Use as invocation map; call by name in next agent task.</span>
+    <span><a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a></span>
+  </footer>
+
+  <script>
+    const categories = [
+      { id: "daily", title: "Daily execution", desc: "Intent → validated local change.",
+        skills: ["auto-pilot", "worktree-autopilot", "commit-creator", "copy-pr"] },
+      { id: "gh", title: "GitHub & PR flow", desc: "Issues, PRs, triage, review, delivery.",
+        skills: ["gh-autopilot", "github-triage", "issue-killer", "pr-creator", "qa", "to-issues", "to-prd", "triage-issue"] },
+      { id: "plan", title: "Planning & design", desc: "Pressure-test plans before code.",
+        skills: ["grill-me", "design-an-interface", "request-refactor-plan", "write-a-skill"] },
+      { id: "arch", title: "Architecture & domain", desc: "Boundaries, language, system shape.",
+        skills: ["improve-codebase-architecture", "domain-model", "ubiquitous-language", "zoom-out", "copy-mode"] },
+      { id: "qa", title: "Quality & testing", desc: "Guardrails, TDD, local safety.",
+        skills: ["tdd", "setup-pre-commit", "git-guardrails-claude-code", "migrate-to-shoehorn"] },
+      { id: "kb", title: "Knowledge & content", desc: "Notes, articles, compact prose.",
+        skills: ["obsidian-vault", "edit-article", "scaffold-exercises", "caveman", "caveman-compress"] },
+      { id: "ext", title: "External platforms", desc: "Jira, ADO, GitLab — non-GitHub source of truth.",
+        skills: ["jira", "pr-convention-learner"] }
+    ];
+
+    const needs = {
+      "auto-pilot": "git repo, project commands, edit + validation perms",
+      "caveman-compress": "text or memory artifact",
+      "caveman": "level: lite / full / ultra / wenyan",
+      "commit-creator": "git, completed changes, stage + commit perms",
+      "copy-mode": "repo read, write to docs/architecture.md, prd.md, summary.md",
+      "copy-pr": "git + host CLI auth (gh / ADO)",
+      "design-an-interface": "repo context, parallel agent capacity",
+      "domain-model": "plan/conversation context, optional CONTEXT.md / ADRs",
+      "edit-article": "draft or file path",
+      "gh-autopilot": "<code>gh</code> authenticated + repo/issue context",
+      "git-guardrails-claude-code": "Claude Code hooks, edit local hook config",
+      "github-triage": "<code>gh</code> with read + label + create",
+      "grill-me": "rough plan; <code>gh</code> if filing issues",
+      "improve-codebase-architecture": "repo read, time to inspect modules + tests",
+      "issue-killer": "<code>gh</code>, tmux, worktree support, explicit opt-in",
+      "jira": "<code>acli</code> authenticated; <code>acli jira workitem --help</code>",
+      "migrate-to-shoehorn": "TS test codebase + <code>@total-typescript/shoehorn</code>",
+      "obsidian-vault": "vault path, read/write perms",
+      "pr-convention-learner": "ADO PR access + configured CLI/auth",
+      "pr-creator": "git, pushed branch, host CLI (<code>gh</code>/<code>glab</code>/ADO)",
+      "qa": "<code>gh</code> if filing as issues",
+      "request-refactor-plan": "topic; <code>gh</code> if filing as issue",
+      "scaffold-exercises": "target dir + lint/test commands",
+      "setup-pre-commit": "package manager + perms for Husky/lint-staged",
+      "tdd": "test command + perms to add tests",
+      "to-issues": "plan/spec/PRD + <code>gh</code>",
+      "to-prd": "context; <code>gh</code> if submitting as issue",
+      "triage-issue": "repo read; <code>gh</code> if filing",
+      "ubiquitous-language": "domain context + write <code>UBIQUITOUS_LANGUAGE.md</code>",
+      "worktree-autopilot": "git worktree / Worktrunk, clean state, commit perms",
+      "write-a-skill": "workflow, target folder, write <code>SKILL.md</code>",
+      "zoom-out": "code/docs/context to explain"
+    };
+
+    const skills = [
+      { name: "auto-pilot",
+        short: "Discover, implement, validate, commit — minimal back-and-forth.",
+        when: "Goal is clear enough for the agent to inspect the repo, infer the missing details, and finish without repeated prompting.",
+        why: "Turns vague execution requests into a complete loop: discover → plan → edit → test → iterate → summarize.",
+        helps: "Reduces handholding for routine implementation; keeps changes scoped to repository evidence.",
+        invoke: "implement &lt;goal&gt; — agent reads repo, plans, edits, validates, commits.",
+        tags: ["autonomous", "validation"] },
+      { name: "caveman-compress",
+        short: "Memory compression placeholder. Experimental.",
+        when: "Only when experimenting with compacting memory or long notes into terse agent-readable form.",
+        why: "Marks a planned path for reducing input-token cost without losing important technical facts.",
+        helps: "Keeps compression ideas discoverable until the workflow is fully implemented.",
+        invoke: "compress &lt;text|file&gt; — collapses verbose memory into terser form.",
+        tags: ["memory", "experimental"] },
+      { name: "caveman",
+        short: "Ultra-compressed technical prose output.",
+        when: "Output needs to be short, dense, and still technically exact.",
+        why: "Long agent responses waste review time and tokens during routine engineering loops.",
+        helps: "Cuts response volume while preserving commands, file names, risks, decisions.",
+        invoke: "caveman &lt;lite|full|ultra|wenyan&gt; — sets density level for the next reply.",
+        tags: ["communication", "tokens"] },
+      { name: "commit-creator",
+        short: "Focused Conventional Commits with intentional staging.",
+        when: "After a scoped change is complete and you want clean staging plus a strong commit message.",
+        why: "Good commits are easier to review, revert, and understand later.",
+        helps: "Stages intentionally, avoids unrelated changes, writes a clear conventional message.",
+        invoke: "commit — agent inspects diff, picks files, drafts the message.",
+        tags: ["git", "commits"] },
+      { name: "copy-mode",
+        short: "Write architecture, PRD, summary handoff docs.",
+        when: "Another agent needs enough repo context to implement without rediscovering everything.",
+        why: "Agent handoffs fail when architecture, conventions, and goals stay implicit.",
+        helps: "Creates durable docs explaining system shape and the next implementation target.",
+        invoke: "writes <code>docs/architecture.md</code>, <code>prd.md</code>, <code>summary.md</code>.",
+        tags: ["handoff", "docs"] },
+      { name: "copy-pr",
+        short: "Reproduce a GitHub/ADO PR locally — branch, validate, commit.",
+        when: "Need to bring an external PR's diff onto your branch and validate it locally.",
+        why: "Manual PR copying is error-prone across remotes, branches, and review state.",
+        helps: "Automates branch setup, diff fetch, validation, commit, push.",
+        invoke: "copy-pr &lt;url&gt; — branches, applies, validates, commits.",
+        tags: ["github", "ado"] },
+      { name: "design-an-interface",
+        short: "Explore module/API designs in parallel.",
+        when: "API shape, module boundary, or interface contract is still unsettled.",
+        why: "First designs reflect local bias; parallel alternatives expose better tradeoffs.",
+        helps: "Compares multiple options before committing code to one abstraction.",
+        invoke: "design &lt;module&gt; — spawns parallel agents, returns a tradeoff table.",
+        tags: ["design", "api"] },
+      { name: "domain-model",
+        short: "Stress-test plan against domain language and ADRs.",
+        when: "Terminology, business concepts, or documented decisions could affect the implementation.",
+        why: "Misnamed concepts spread fast and make future changes harder.",
+        helps: "Sharpens language, flags ambiguity, updates domain docs as decisions settle.",
+        invoke: "review-domain &lt;plan&gt; — checks plan against CONTEXT.md / ADRs.",
+        tags: ["ddd", "docs"] },
+      { name: "edit-article",
+        short: "Tighten and restructure prose drafts.",
+        when: "Drafts need clearer sections, better flow, or sharper sentences.",
+        why: "A good edit improves comprehension without changing intent.",
+        helps: "Reworks structure and sentence-level clarity while preserving voice.",
+        invoke: "edit &lt;path&gt; — returns restructured draft + change notes.",
+        tags: ["writing", "editing"] },
+      { name: "gh-autopilot",
+        short: "Issue, PR, review, comment, label flows via <code>gh</code> CLI.",
+        when: "GitHub issue handling, PR creation, review comments, labels, or code changes driven by GitHub context.",
+        why: "GitHub work needs authenticated CLI context before code changes or status updates are safe.",
+        helps: "Uses <code>gh</code> to inspect live state, then routes isolated implementation when needed.",
+        invoke: "gh &lt;intent&gt; — e.g. <code>gh fix #42</code> or <code>gh review PR-7</code>.",
+        tags: ["github", "gh-cli"] },
+      { name: "git-guardrails-claude-code",
+        short: "Claude Code hooks that block dangerous git commands.",
+        when: "Repo needs local protection from accidental push, reset, clean, or destructive branch commands.",
+        why: "One unsafe git command can erase work or publish changes before review.",
+        helps: "Adds command-level guardrails before destructive operations execute.",
+        invoke: "install-guardrails — wires PreToolUse hooks into local settings.",
+        tags: ["git", "safety"] },
+      { name: "github-triage",
+        short: "Triage issues via labels and workflow states.",
+        when: "Incoming bug reports, feature requests, or issues that need labeling and prep for an agent.",
+        why: "Untriaged issues are hard to pick up and easy to misunderstand.",
+        helps: "Turns rough reports into labeled, actionable GitHub work items.",
+        invoke: "triage — agent walks open issues and applies labels + state.",
+        tags: ["github", "triage"] },
+      { name: "grill-me",
+        short: "Interrogate a plan until it becomes executable.",
+        when: "Feature, design, or refactor plan has hidden assumptions or weak requirements.",
+        why: "Hard questions before implementation are cheaper than rework after code lands.",
+        helps: "Extracts decisions, builds an execution plan, optionally opens GitHub issues.",
+        invoke: "grill &lt;topic&gt; — Q&amp;A loop, then writes plan + issues.",
+        tags: ["planning", "requirements"] },
+      { name: "improve-codebase-architecture",
+        short: "Find structural improvements for testability and change.",
+        when: "You want refactor opportunities, clearer module boundaries, or a more AI-navigable codebase.",
+        why: "Architecture debt compounds when shallow modules and coupled concepts stay hidden.",
+        helps: "Surfaces evidence-backed refactor targets and explains why they matter.",
+        invoke: "explore-architecture — agent walks modules, returns ranked targets.",
+        tags: ["architecture", "refactor"] },
+      { name: "issue-killer",
+        short: "Launch opted-in issues into supervised tmux + worktrees.",
+        when: "Several GitHub issues should be worked in parallel by Codex or Claude agents.",
+        why: "Parallel issue execution needs isolation, supervision, and clear PR outputs.",
+        helps: "Starts tmux panes with separate worktrees and PR-oriented agent prompts.",
+        invoke: "kill-issues #1 #2 #3 — opens panes per issue with draft PR target.",
+        tags: ["github", "parallel"] },
+      { name: "jira",
+        short: "Manage Jira work items via Atlassian <code>acli</code>.",
+        when: "Assigned Jira tasks, daily todo triage, ticket updates, status transitions, or new work items.",
+        why: "Jira mutations are live ops — need explicit keys, statuses, and narrow scope.",
+        helps: "Builds safe <code>acli jira workitem</code> flows for create / edit / transition / pickup.",
+        invoke: "jira &lt;intent&gt; — e.g. <code>jira pickup</code>, <code>jira transition KEY-1 In Progress</code>.",
+        tags: ["jira", "acli"] },
+      { name: "migrate-to-shoehorn",
+        short: "Replace <code>as</code> casts in tests with <code>@total-typescript/shoehorn</code>.",
+        when: "Tests rely on noisy TypeScript <code>as</code> casts for partial data.",
+        why: "Cleaner test data builders reduce unsafe assertions and improve readability.",
+        helps: "Migrates assertions toward shoehorn patterns without changing production behavior.",
+        invoke: "migrate-shoehorn &lt;path&gt; — rewrites tests in batches.",
+        tags: ["typescript", "tests"] },
+      { name: "obsidian-vault",
+        short: "Search, create, organize Obsidian notes.",
+        when: "Notes, wikilinks, index notes, or vault organization are part of the task.",
+        why: "Knowledge work gets lost when notes are disconnected from existing vault structure.",
+        helps: "Finds relevant notes and writes new ones in the vault's linking conventions.",
+        invoke: "vault &lt;query|topic&gt; — searches or creates a linked note.",
+        tags: ["notes", "obsidian"] },
+      { name: "pr-convention-learner",
+        short: "Learn ADO PR review conventions and apply them locally.",
+        when: "ADO PR comments, reviewer feedback, convention extraction, or pre-PR checks.",
+        why: "Repeated review comments should become local conventions, not tribal memory.",
+        helps: "Fetches ADO PR context, fixes feedback, updates per-repo convention files.",
+        invoke: "learn-conventions &lt;PR-url&gt; — extracts rules, writes them locally.",
+        tags: ["ado", "review"] },
+      { name: "pr-creator",
+        short: "Draft PRs for GitHub, GitLab, or ADO.",
+        when: "After validation when a branch should become a draft PR.",
+        why: "PR creation differs across hosts and should verify CLI auth first.",
+        helps: "Checks prerequisites, creates the PR, returns the link with concise summary.",
+        invoke: "open-pr — detects host, drafts title/body, creates PR.",
+        tags: ["pr", "multi-host"] },
+      { name: "qa",
+        short: "Conversational bug reports → GitHub issues.",
+        when: "QA sessions where the user reports bugs or rough observations conversationally.",
+        why: "Bug reports need codebase context and reproduction notes to become fixable.",
+        helps: "Explores the repo in the background and files issue-ready reports.",
+        invoke: "qa — listens for bugs, files them with repo context.",
+        tags: ["qa", "bugs"] },
+      { name: "request-refactor-plan",
+        short: "Tiny-commit refactor plan, optionally filed as issue.",
+        when: "A refactor needs planning before execution or RFC-style tracking.",
+        why: "Large refactors fail when not split into safe, reviewable steps.",
+        helps: "Interviews for constraints, turns the plan into incremental GitHub work.",
+        invoke: "plan-refactor &lt;topic&gt; — produces a stepwise plan, optionally as issue.",
+        tags: ["refactor", "planning"] },
+      { name: "scaffold-exercises",
+        short: "Exercise folders with problems, solutions, explainers.",
+        when: "Adding course sections or exercise stubs that must pass linting.",
+        why: "Learning material needs predictable structure for authors and students.",
+        helps: "Builds consistent directories and files without manual boilerplate.",
+        invoke: "scaffold &lt;course&gt; &lt;name&gt; — creates folder + lint-passing stubs.",
+        tags: ["education", "scaffold"] },
+      { name: "setup-pre-commit",
+        short: "Husky + lint-staged + format/type/test gates.",
+        when: "A repo needs commit-time quality gates.",
+        why: "Fast local checks prevent avoidable lint, format, type, and test failures from reaching review.",
+        helps: "Installs and configures pre-commit tooling for the current repo stack.",
+        invoke: "setup-precommit — adds Husky, lint-staged, hook config.",
+        tags: ["quality", "hooks"] },
+      { name: "tdd",
+        short: "Red → green → refactor for features and fixes.",
+        when: "User asks for test-first development, integration tests, or a TDD fix plan.",
+        why: "Tests anchor behavior before implementation choices harden.",
+        helps: "Drives a disciplined loop: failing test → minimal fix → refactor → repeat.",
+        invoke: "tdd &lt;goal&gt; — writes failing test first, then implements.",
+        tags: ["tests", "tdd"] },
+      { name: "to-issues",
+        short: "Break plans into independently grabbable GitHub issues.",
+        when: "A PRD, plan, or spec should become implementation tickets.",
+        why: "Good issue slices let agents work independently without collisions.",
+        helps: "Creates tracer-bullet vertical slices with clear deliverables and boundaries.",
+        invoke: "to-issues &lt;plan|file&gt; — emits a list of grabbable issues.",
+        tags: ["github", "planning"] },
+      { name: "to-prd",
+        short: "Conversation → PRD → GitHub issue.",
+        when: "A product idea from current discussion needs a durable PRD.",
+        why: "Conversation context disappears unless converted to a shared artifact.",
+        helps: "Writes a structured PRD and submits it where work can begin.",
+        invoke: "to-prd — captures discussion, drafts PRD, optionally files issue.",
+        tags: ["prd", "product"] },
+      { name: "triage-issue",
+        short: "Investigate a bug; produce TDD-shaped issue.",
+        when: "A reported issue needs root-cause analysis before filing or fixing.",
+        why: "Best reports include evidence, affected paths, and a test strategy.",
+        helps: "Explores the codebase and produces a TDD-based issue plan.",
+        invoke: "triage &lt;bug&gt; — root-cause + writes issue with test strategy.",
+        tags: ["triage", "bugs"] },
+      { name: "ubiquitous-language",
+        short: "Extract and maintain a DDD glossary.",
+        when: "Terms, concepts, or domain names need clarification and standardization.",
+        why: "Inconsistent language causes bugs, duplicate abstractions, and confused discussions.",
+        helps: "Creates or updates <code>UBIQUITOUS_LANGUAGE.md</code> with canonical terms.",
+        invoke: "language — extracts terms from conversation/code → glossary.",
+        tags: ["ddd", "glossary"] },
+      { name: "worktree-autopilot",
+        short: "Implement in fresh isolated worktree; return merge-back commands.",
+        when: "Autonomous implementation should happen away from the current checkout.",
+        why: "Isolated worktrees reduce risk when local changes or parallel tasks exist.",
+        helps: "Creates worktree → implements → validates → commits → reports merge.",
+        invoke: "worktree &lt;goal&gt; — runs full loop in a new worktree.",
+        tags: ["worktree", "validation"] },
+      { name: "write-a-skill",
+        short: "Author new agent skills with proper structure.",
+        when: "A repeated workflow should become a reusable skill.",
+        why: "Skills make agent behavior durable instead of relying on one-off prompts.",
+        helps: "Guides progressive disclosure, metadata, bundled resources, validation.",
+        invoke: "new-skill &lt;name&gt; — scaffolds <code>SKILL.md</code> + resources.",
+        tags: ["skills", "authoring"] },
+      { name: "zoom-out",
+        short: "Explain how an area fits the bigger system.",
+        when: "A file, module, or decision is hard to understand in isolation.",
+        why: "Local changes are safer when the surrounding system role is clear.",
+        helps: "Explains how the current area fits into the bigger picture.",
+        invoke: "zoom-out &lt;path|topic&gt; — returns system-level perspective.",
+        tags: ["context", "architecture"] }
+    ];
+
+    const catalog = document.querySelector("#catalog");
+    const empty = document.querySelector("#empty");
+    const search = document.querySelector("#search");
+    const openAll = document.querySelector("#openAll");
+    const closeAll = document.querySelector("#closeAll");
+
+    function skillRow(s) {
+      const need = needs[s.name] || "files, creds, local tools as required";
+      const cmd = `gh skill install ixigo/agentify skills/${s.name} --agent codex --scope project`;
+      const tags = s.tags.map(t => `<span class="t">${t}</span>`).join("");
+      const blob = [s.name, s.short, need, cmd, s.when, s.why, s.helps, s.invoke, s.tags.join(" ")].join(" ").toLowerCase();
+      return `
+        <details class="skill" data-search="${blob}">
+          <summary>
+            <span class="name">${s.name}</span>
+            <span class="desc">${s.short}</span>
+            <span class="arrow"></span>
+          </summary>
+          <div class="body">
+            <div class="install">${cmd}</div>
+            <div class="row"><b>when</b><p>${s.when}</p></div>
+            <div class="row"><b>why</b><p>${s.why}</p></div>
+            <div class="row"><b>does</b><p>${s.helps}</p></div>
+            <div class="row"><b>invoke</b><p class="invoke">${s.invoke}</p></div>
+            <div class="row"><b>needs</b><p>${need}</p></div>
+            <div class="row"><b>tags</b><div class="tags">${tags}</div></div>
+          </div>
+        </details>`;
+    }
+
+    function render() {
+      const byName = new Map(skills.map(s => [s.name, s]));
+      catalog.innerHTML = categories.map((c, i) => {
+        const items = c.skills.map(n => byName.get(n)).filter(Boolean);
+        const num = String(i + 1).padStart(2, "0");
+        return `
+          <section class="cat" id="${c.id}" data-cat>
+            <div class="cat-head">
+              <h2 data-num="${num}">${c.title}</h2>
+              <span class="count">${String(items.length).padStart(2, "0")} skills</span>
+            </div>
+            <p class="cat-desc">${c.desc}</p>
+            <div>${items.map(skillRow).join("")}</div>
+          </section>`;
+      }).join("");
+    }
+
+    function applyFilter() {
+      const q = search.value.trim().toLowerCase();
+      let visible = 0;
+      document.querySelectorAll(".skill").forEach(el => {
+        const ok = !q || el.dataset.search.includes(q);
+        el.hidden = !ok;
+        if (ok) visible++;
+      });
+      document.querySelectorAll("[data-cat]").forEach(el => {
+        el.hidden = !el.querySelector(".skill:not([hidden])");
+      });
+      empty.style.display = visible ? "none" : "block";
+    }
+
+    render();
+    search.addEventListener("input", applyFilter);
+    openAll.addEventListener("click", () => document.querySelectorAll(".skill:not([hidden])").forEach(s => s.open = true));
+    closeAll.addEventListener("click", () => document.querySelectorAll(".skill").forEach(s => s.open = false));
+  </script>
+</body>
+</html>
