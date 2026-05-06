@@ -265,6 +265,7 @@ Supported levels are `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-f
 | `--context-mode` | Choose `compact` or `routed` run prompt behavior |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--context-mode <direct|routed>` | Use routed context retrieval for `run`/`sess` prompts |
+| `--bypass-permissions` | Explicitly bypass provider permission prompts for `issue-killer` panes |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--caveman[=level]` | Terse output for `run`/`sess` (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |

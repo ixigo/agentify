@@ -60,6 +60,7 @@ const BOOLEAN_FLAGS = new Set([
   "explain",
   "allowPartial",
   "reuseSession",
+  "bypassPermissions",
   "hook",
   "withContext",
   "continue",
@@ -408,6 +409,7 @@ function printHelp() {
     `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
     `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
+    `    ${c("--bypass-permissions")}        Explicitly bypass provider permission prompts for issue-killer panes`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
     `    ${c("--root")} ${d("<path>")}               Target repo root (default: cwd)`,
@@ -447,6 +449,7 @@ function printHelp() {
     `    ${d("$")} agentify sess run --provider codex --interactive --name "payments-v2" "continue in Codex TUI"`,
     `    ${d("$")} agentify handoff --session sess_20260101000000_abcdef "continue payments-v2"`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
+    `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --bypass-permissions`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
   ];

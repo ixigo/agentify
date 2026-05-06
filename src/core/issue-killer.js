@@ -264,7 +264,17 @@ async function createWorktree(root, assignment, options) {
   return getWorktreePathForBranch(root, assignment.branch);
 }
 
-function buildIssuePrompt(issue, assignment) {
+function buildIssuePrompt(issue, assignment, options = {}) {
+  const permissionRules = options.bypassPermissions
+    ? [
+        "- Provider permission bypass was explicitly requested for this pane; keep command side effects limited to this assigned issue.",
+        "- Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands.",
+      ]
+    : [
+        "- Respect provider permission prompts and sandbox approvals; do not assume side-effecting commands are pre-approved.",
+        "- Keep task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands scoped to this assigned issue.",
+      ];
+
   return [
     "You are working in an Agentify issue-killer tmux pane.",
     "",
@@ -275,8 +285,8 @@ function buildIssuePrompt(issue, assignment) {
     "Rules:",
     "- Solve exactly this issue and do not pick up other issues.",
     "- Keep changes scoped, minimal, and production-ready.",
-    "- You are running in an isolated issue-killer worktree with provider permissions pre-approved for this assigned issue.",
-    "- Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands.",
+    "- You are running in an isolated issue-killer worktree.",
+    ...permissionRules,
     "- Run the relevant tests and checks for the touched area.",
     "- Commit with a clear Conventional Commit message.",
     "- Push the branch with upstream tracking.",
@@ -286,12 +296,12 @@ function buildIssuePrompt(issue, assignment) {
   ].join("\n");
 }
 
-function buildPaneCommand(assignment, agentProvider) {
-  const prompt = buildIssuePrompt(assignment.issue, assignment);
-  const argv = buildProviderTemplateCommand(agentProvider, prompt, {
+function buildPaneCommand(assignment, options) {
+  const prompt = buildIssuePrompt(assignment.issue, assignment, options);
+  const argv = buildProviderTemplateCommand(options.agentProvider, prompt, {
     root: assignment.worktreePath,
     interactive: true,
-    bypassPermissions: true,
+    bypassPermissions: options.bypassPermissions,
   });
   return argvToShell(argv);
 }
@@ -346,7 +356,7 @@ async function launchTmux(assignments, options) {
 
   for (let index = 0; index < assignments.length; index += 1) {
     const assignment = assignments[index];
-    const paneCommand = buildPaneCommand(assignment, options.agentProvider);
+    const paneCommand = buildPaneCommand(assignment, options);
     const shellArgs = [shell, "-lc", `exec ${paneCommand}`];
 
     if (index === 0 && !exists) {
@@ -398,6 +408,7 @@ function normalizeOptions(args, config) {
     base: args.base,
     sessionName: String(args.sessionName === undefined || args.sessionName === true ? DEFAULT_SESSION_NAME : args.sessionName).trim(),
     reuseSession: Boolean(args.reuseSession),
+    bypassPermissions: Boolean(args.bypassPermissions),
     dryRun: Boolean(config.dryRun),
   };
 }
@@ -414,6 +425,7 @@ function createAssignments(issues, options) {
 function renderSummary(result) {
   ui.success(`Prepared ${result.assignments.length} issue-killer pane(s).`);
   ui.log(`tmux session: ${ui.bold(result.session_name)}`);
+  ui.log(`provider permission bypass: ${ui.bold(result.provider_permission_bypass ? "enabled" : "disabled")}`);
   ui.log(`attach: ${ui.bold(`tmux attach -t ${result.session_name}`)}`);
   for (const assignment of result.assignments) {
     ui.log(`#${assignment.issue.number} ${assignment.branch}`);
@@ -432,7 +444,7 @@ export async function runIssueKiller(root, config, args = {}) {
   if (!options.dryRun) {
     for (const assignment of assignments) {
       assignment.worktreePath = await createWorktree(root, assignment, options);
-      assignment.paneCommand = buildPaneCommand(assignment, options.agentProvider);
+      assignment.paneCommand = buildPaneCommand(assignment, options);
     }
     await launchTmux(assignments, options);
   }
@@ -441,6 +453,7 @@ export async function runIssueKiller(root, config, args = {}) {
     command: "issue-killer",
     issue_provider: options.issueProvider,
     agent_provider: options.agentProvider,
+    provider_permission_bypass: options.bypassPermissions,
     session_name: options.sessionName,
     dry_run: options.dryRun,
     attach_command: `tmux attach -t ${options.sessionName}`,
