@@ -92,13 +92,14 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
   await fs.appendFile(path.join(root, "src", "index.js"), "export const preexisting = true;\n", "utf8");
   await new Promise((resolve) => setTimeout(resolve, 25));
+  const sentinelPrompt = "AGENTIFY_SENTINEL_PROMPT_SHOULD_NOT_PERSIST";
 
   const script = [
     "import fs from 'node:fs/promises';",
     "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
   ].join("");
 
-  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script, sentinelPrompt], {
     skipCodeBodyChanges: true,
   });
   const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
@@ -118,8 +119,16 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+  const telemetryJson = JSON.stringify(telemetry);
   assert.match(output, /execution: changed_files=1/);
+  assert.doesNotMatch(output, new RegExp(sentinelPrompt));
   assert.match(html, /execution telemetry/);
+  assert.doesNotMatch(html, new RegExp(sentinelPrompt));
+  assert.equal(telemetry.provider_command.executable, "node");
+  assert.equal(telemetry.provider_command.argc, 5);
+  assert.equal(telemetry.provider_command.argv_redacted, true);
+  assert.equal(telemetry.provider_command.argv, undefined);
+  assert.doesNotMatch(telemetryJson, new RegExp(sentinelPrompt));
   assert.deepEqual(telemetry.changed_paths, ["src/index.js"]);
 });
 
