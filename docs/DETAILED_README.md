@@ -367,6 +367,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--ghost` | Route outputs into `.current_session/`. Use this for ephemeral runs where you want isolated output artifacts. |
 | `--json` | Emit machine-readable JSON. Use this when scripting around Agentify or integrating it into tooling. |
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
+| `--continue` | Resume the provider's most recent session for `run`. Omit it when you want the default fresh provider task. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
 | `--context-mode <direct|routed>` | Use `routed` to launch `run` and `sess` with docs/DB-first instructions and only bounded `agentify context ...` retrieval commands. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
@@ -463,7 +464,7 @@ agentify run "add tests for retry backoff"
 agentify run --with-context "add tests for retry backoff"
 ```
 
-Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` sends a compact first prompt by default; add `--with-context` when you want Agentify to build and inject the selected context.
+Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` starts a fresh provider task and sends a compact first prompt by default; add `--continue` to resume the provider's most recent session, or add `--with-context` when you want Agentify to build and inject the selected context.
 
 If the task is large or you want to inspect the selected context first:
 

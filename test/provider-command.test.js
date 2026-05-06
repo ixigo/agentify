@@ -16,6 +16,29 @@ test("buildProviderTemplateCommand returns interactive codex argv", () => {
   assert.deepEqual(argv, ["codex", "--cd", "/tmp/repo", "implement login"]);
 });
 
+test("buildProviderTemplateCommand resumes codex only when requested", () => {
+  const freshArgv = buildProviderTemplateCommand("codex", "implement login", {
+    root: "/tmp/repo",
+    interactive: true,
+  });
+  const continuedArgv = buildProviderTemplateCommand("codex", "implement login", {
+    root: "/tmp/repo",
+    interactive: true,
+    continueSession: true,
+  });
+
+  assert.deepEqual(freshArgv, ["codex", "--cd", "/tmp/repo", "implement login"]);
+  assert.deepEqual(continuedArgv, ["codex", "resume", "--last", "--cd", "/tmp/repo", "implement login"]);
+});
+
+test("buildProviderTemplateCommand resumes non-interactive codex only when requested", () => {
+  const argv = buildProviderTemplateCommand("codex", "implement login", {
+    continueSession: true,
+  });
+
+  assert.deepEqual(argv, ["codex", "exec", "resume", "--last", "implement login"]);
+});
+
 test("buildProviderTemplateCommand can bypass permissions for interactive codex", () => {
   const argv = buildProviderTemplateCommand("codex", "implement login", {
     root: "/tmp/repo",
@@ -41,6 +64,14 @@ test("buildProviderTemplateCommand returns interactive claude argv", () => {
   assert.deepEqual(argv, ["claude", "implement login"]);
 });
 
+test("buildProviderTemplateCommand resumes claude only when requested", () => {
+  const argv = buildProviderTemplateCommand("claude", "implement login", {
+    interactive: true,
+    continueSession: true,
+  });
+  assert.deepEqual(argv, ["claude", "--continue", "implement login"]);
+});
+
 test("buildProviderTemplateCommand can bypass permissions for interactive claude", () => {
   const argv = buildProviderTemplateCommand("claude", "implement login", {
     interactive: true,
@@ -60,12 +91,29 @@ test("buildProviderTemplateCommand returns interactive gemini argv", () => {
   assert.deepEqual(argv, ["gemini", "implement login"]);
 });
 
+test("buildProviderTemplateCommand resumes gemini only when requested", () => {
+  const argv = buildProviderTemplateCommand("gemini", "implement login", {
+    interactive: true,
+    continueSession: true,
+  });
+  assert.deepEqual(argv, ["gemini", "--resume", "latest", "implement login"]);
+});
+
 test("buildProviderTemplateCommand returns interactive opencode argv with root", () => {
   const argv = buildProviderTemplateCommand("opencode", "implement login", {
     root: "/tmp/repo",
     interactive: true,
   });
   assert.deepEqual(argv, ["opencode", "--dir", "/tmp/repo", "implement login"]);
+});
+
+test("buildProviderTemplateCommand resumes opencode only when requested", () => {
+  const argv = buildProviderTemplateCommand("opencode", "implement login", {
+    root: "/tmp/repo",
+    interactive: true,
+    continueSession: true,
+  });
+  assert.deepEqual(argv, ["opencode", "--continue", "--dir", "/tmp/repo", "implement login"]);
 });
 
 test("buildProviderTemplateCommand rejects local provider", () => {

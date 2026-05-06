@@ -145,6 +145,13 @@ test("parseArgs supports interactive flags", () => {
   assert.deepEqual(promptArgs._, ["run", "implement login"]);
 });
 
+test("parseArgs supports explicit continue flag for run", () => {
+  const args = parseArgs(["run", "--continue", "implement login"]);
+
+  assert.equal(args.continue, true);
+  assert.deepEqual(args._, ["run", "implement login"]);
+});
+
 test("parseArgs supports caveman flag forms", () => {
   const bareArgs = parseArgs(["run", "--caveman", "summarize auth"]);
   assert.equal(bareArgs.caveman, true);
@@ -284,6 +291,13 @@ test("buildMinimalRunPrompt keeps interactive run prompts compact", () => {
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
 });
 
+test("buildMinimalRunPrompt defaults empty run prompts to a fresh task", () => {
+  const prompt = buildMinimalRunPrompt("");
+
+  assert.match(prompt, /Task: Start a fresh implementation task/);
+  assert.doesNotMatch(prompt, /Task: Continue implementation/);
+});
+
 test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
   const prompt = buildExecutionPrompt("Summarize the auth module.", "", { caveman: "ultra" });
 
@@ -386,10 +400,42 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
   const prompt = argv.at(-1);
   assert.deepEqual(argv.slice(0, 2), ["--cd", root]);
+  assert.notEqual(argv[0], "resume");
   assert.match(prompt, /Task: Implement login retries/);
   assert.doesNotMatch(prompt, /Planner summary/);
   assert.doesNotMatch(prompt, /Selected file slices/);
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
+test("runCli resumes the provider session only with --continue", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-continue-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--continue",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(argv.slice(0, 4), ["resume", "--last", "--cd", root]);
+  assert.match(prompt, /Task: Implement login retries/);
 });
 
 test("runCli passes planner context to interactive codex run when requested", async () => {

@@ -2,9 +2,9 @@ import path from "node:path";
 
 import { exists } from "./fs.js";
 
-function codexTemplateCommand({ prompt, root, interactive, bypassPermissions }) {
+function codexTemplateCommand({ prompt, root, interactive, bypassPermissions, continueSession }) {
   if (interactive) {
-    const args = ["codex"];
+    const args = continueSession ? ["codex", "resume", "--last"] : ["codex"];
     if (root) {
       args.push("--cd", root);
     }
@@ -15,7 +15,7 @@ function codexTemplateCommand({ prompt, root, interactive, bypassPermissions }) 
     return args;
   }
 
-  const args = ["codex", "exec"];
+  const args = continueSession ? ["codex", "exec", "resume", "--last"] : ["codex", "exec"];
   if (bypassPermissions) {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   }
@@ -23,10 +23,13 @@ function codexTemplateCommand({ prompt, root, interactive, bypassPermissions }) 
   return args;
 }
 
-function claudeTemplateCommand({ prompt, interactive, bypassPermissions }) {
+function claudeTemplateCommand({ prompt, interactive, bypassPermissions, continueSession }) {
   const args = ["claude"];
   if (bypassPermissions) {
     args.push("--dangerously-skip-permissions", "--permission-mode", "bypassPermissions");
+  }
+  if (continueSession) {
+    args.push("--continue");
   }
   if (!interactive) {
     args.push("-p");
@@ -35,16 +38,20 @@ function claudeTemplateCommand({ prompt, interactive, bypassPermissions }) {
   return args;
 }
 
-function geminiTemplateCommand({ prompt, interactive }) {
+function geminiTemplateCommand({ prompt, interactive, continueSession }) {
+  const resumeArgs = continueSession ? ["--resume", "latest"] : [];
   if (interactive) {
-    return ["gemini", prompt];
+    return ["gemini", ...resumeArgs, prompt];
   }
-  return ["gemini", "-p", prompt];
+  return ["gemini", ...resumeArgs, "-p", prompt];
 }
 
-function opencodeTemplateCommand({ prompt, root, interactive }) {
+function opencodeTemplateCommand({ prompt, root, interactive, continueSession }) {
   if (interactive) {
     const args = ["opencode"];
+    if (continueSession) {
+      args.push("--continue");
+    }
     if (root) {
       args.push("--dir", root);
     }
@@ -53,6 +60,9 @@ function opencodeTemplateCommand({ prompt, root, interactive }) {
   }
 
   const args = ["opencode", "run", prompt];
+  if (continueSession) {
+    args.push("--continue");
+  }
   if (root) {
     args.push("--dir", root);
   }
@@ -239,4 +249,3 @@ export function getProviderDefinition(provider) {
 export function getProviderBootstrap(provider) {
   return getProviderDefinition(provider)?.bootstrap || null;
 }
-

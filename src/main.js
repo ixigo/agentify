@@ -62,6 +62,7 @@ const BOOLEAN_FLAGS = new Set([
   "reuseSession",
   "hook",
   "withContext",
+  "continue",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
@@ -196,7 +197,7 @@ function buildRunPrompt(userPrompt) {
   if (userPrompt) {
     return userPrompt;
   }
-  return "Continue implementation in this repository using small, validated changes.";
+  return "Start a fresh implementation task in this repository using small, validated changes.";
 }
 
 function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
@@ -374,6 +375,7 @@ function printHelp() {
     `    ${c("--json")}                      Machine-readable JSON output only`,
     `    ${c("--explain")}                   Include planner score breakdowns for plan output`,
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
+    `    ${c("--continue")}                  Resume the provider's most recent session for run`,
     `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
     `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
@@ -603,7 +605,10 @@ export async function runCli(argv) {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
         const caveman = resolveCavemanLevel(args);
         const usingTemplateCommand = !args._exec?.length;
-        const providerOptions = getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand);
+        const providerOptions = {
+          ...getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand),
+          continueSession: args.continue === true,
+        };
         const contextMode = resolveRunContextMode(args, config);
         const usesManagedContext = usingTemplateCommand && (
           contextMode === "routed"

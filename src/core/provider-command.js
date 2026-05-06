@@ -20,6 +20,7 @@ export function buildProviderTemplateCommand(provider, prompt, {
   root,
   interactive = false,
   bypassPermissions = false,
+  continueSession = false,
 } = {}) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
@@ -34,5 +35,6 @@ export function buildProviderTemplateCommand(provider, prompt, {
     root,
     interactive,
     bypassPermissions,
+    continueSession,
   });
 }

@@ -80,7 +80,7 @@ agentify run "fix the checkout retry bug"
 agentify run --with-context "fix the checkout retry bug"
 ```
 
-The default interactive `run` prompt is intentionally small. Use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
+The default interactive `run` starts a fresh provider task with a small prompt. Add `--continue` only when you want to resume the provider's most recent session, and use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
 
 Use a session for work that will continue later:
 
