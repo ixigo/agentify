@@ -31,6 +31,7 @@ import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateComm
 import { runRepoSync } from "./core/repo-sync.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
+import { listCompletionValues, renderCompletionScript } from "./core/completion.js";
 import { VERSION, withSilent, bold, cyan, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
@@ -411,6 +412,7 @@ function printHelp() {
     `    ${c("semantic")}        ${d("Refresh semantic project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
+    `    ${c("completion")}      ${d("Generate shell completion scripts and dynamic values")}`,
     ``,
     `  ${bold("OPTIONS")}`,
     ``,
@@ -778,6 +780,21 @@ export async function runCli(argv, runtime = {}) {
       case "issue-killer":
         await runIssueKiller(root, config, args);
         return;
+
+      case "completion": {
+        if (subcommand === "values") {
+          const kind = args._[2];
+          const values = await listCompletionValues(kind, { root });
+          process.stdout.write(values.join("\n"));
+          if (values.length > 0) {
+            process.stdout.write("\n");
+          }
+          return;
+        }
+
+        process.stdout.write(renderCompletionScript(subcommand));
+        return;
+      }
 
       case "handoff": {
         let sessionId = args.session ? validateSessionId(String(args.session), "--session id") : null;

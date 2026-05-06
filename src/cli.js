@@ -5,10 +5,11 @@ import { banner, error, dim } from "./core/ui.js";
 
 const args = process.argv.slice(2);
 const isJson = args.includes("--json");
+const isCompletion = args[0] === "completion";
 const isHelp = args.includes("--help") || args.includes("-h") || args[0] === "help" || args.length === 0;
 const isVersion = args.includes("--version") || args.includes("-v") || args.includes("-V");
 
-if (!isJson && !isHelp && !isVersion) {
+if (!isJson && !isHelp && !isVersion && !isCompletion) {
   banner();
 }
 

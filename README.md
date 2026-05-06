@@ -312,7 +312,8 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
-| `index` / `scan` | Build the SQLite repository index |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |
 | `up` | scan → optional doc → check → test pipeline |
 | `sync` | Upgrade repo-owned Agentify files, then refresh |
@@ -334,6 +335,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | `semantic` | Refresh semantic TS/JS facts |
 | `clean` | Prune stale generated artifacts |
 | `cache` | Manage the content cache |
+| `completion` | Generate shell completion scripts and dynamic values |
 
 </details>
 
