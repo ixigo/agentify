@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Skills, context, and workflows for daily agent work</title>
+  <meta name="description" content="Agentify prepares repos, routes context, validates state, and runs agent workflows — built for engineers who use AI agents every day.">
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+    :root {
+      color-scheme: dark light;
+      --bg: #0a0a0b;
+      --surface: #101012;
+      --surface-2: #15151a;
+      --ink: #ededed;
+      --muted: #8a8a93;
+      --faint: #555560;
+      --rule: #1f1f24;
+      --hair: #1a1a1e;
+      --accent: #7df9a0;
+      --accent-dim: rgba(125, 249, 160, 0.15);
+      --accent-strong: rgba(125, 249, 160, 0.4);
+      --hl: #15151a;
+      --code-bg: #050507;
+      --code-ink: #ededed;
+      --warn: #ffb86b;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      --max: 1080px;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --surface-2: #f5f5f7;
+        --ink: #0a0a0b;
+        --muted: #6a6a73;
+        --faint: #a0a0aa;
+        --rule: #e4e4ea;
+        --hair: #ececf0;
+        --accent: #00875f;
+        --accent-dim: rgba(0, 135, 95, 0.1);
+        --accent-strong: rgba(0, 135, 95, 0.3);
+        --hl: #f5f5f7;
+        --code-bg: #0a0a0b;
+        --code-ink: #ededed;
+        --warn: #b95900;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% -10%, var(--accent-dim) 0%, transparent 45%),
+        var(--bg);
+      background-attachment: fixed;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(var(--hair) 1px, transparent 1px),
+        linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse at center top, black 0%, transparent 75%);
+      opacity: 0.5;
+      z-index: 0;
+    }
+
+    nav, header, main, section.shell, footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    .container {
+      width: min(var(--max), calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+    a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+    /* nav */
+    nav {
+      padding: 18px 0;
+      border-bottom: 1px solid var(--rule);
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    nav .container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font: 700 13px/1 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: none;
+    }
+
+    .brand::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .nav-links a { text-decoration: none; color: var(--muted); }
+    .nav-links a:hover { color: var(--accent); }
+    .nav-links .pill {
+      padding: 4px 8px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    /* hero */
+    header {
+      padding: 96px 0 72px;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 22px;
+      padding: 5px 11px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font: 600 11px/1 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--accent); }
+      50% { opacity: 0.5; box-shadow: 0 0 0 var(--accent); }
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      max-width: 18ch;
+      font: 600 clamp(2.6rem, 7vw, 4.6rem)/0.98 var(--sans);
+      letter-spacing: -0.04em;
+      color: var(--ink);
+    }
+
+    h1 .accent { color: var(--accent); }
+
+    .lede {
+      margin: 0 0 32px;
+      max-width: 60ch;
+      color: var(--muted);
+      font: 400 clamp(1rem, 1.5vw, 1.12rem)/1.6 var(--sans);
+      letter-spacing: -0.005em;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 18px;
+      border-radius: 4px;
+      font: 600 12px/1 var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: transform 100ms, box-shadow 100ms, border-color 100ms;
+    }
+
+    .cta-primary {
+      color: var(--bg);
+      background: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .cta-primary:hover {
+      color: var(--bg);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 28px var(--accent-strong);
+      text-decoration: none;
+    }
+
+    .cta-primary::after { content: "→"; transition: transform 120ms; }
+    .cta-primary:hover::after { transform: translate(3px, 0); }
+
+    .cta-secondary {
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+    }
+
+    .cta-secondary:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    .hero-meta {
+      margin-top: 36px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 28px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .hero-meta span { display: inline-flex; align-items: center; gap: 8px; }
+    .hero-meta span::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      background: var(--accent);
+      transform: rotate(45deg);
+    }
+    .hero-meta code {
+      padding: 1px 5px;
+      background: var(--hl);
+      border: 1px solid var(--hair);
+      border-radius: 2px;
+      color: var(--ink);
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 11px;
+    }
+
+    /* sections */
+    section.shell { padding: 72px 0; border-bottom: 1px solid var(--rule); }
+    section.shell:last-of-type { border-bottom: none; }
+
+    .section-label {
+      display: inline-block;
+      margin-bottom: 14px;
+      padding: 3px 9px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      font: 600 10px/1 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      max-width: 22ch;
+      font: 600 clamp(1.7rem, 4vw, 2.4rem)/1.05 var(--sans);
+      letter-spacing: -0.025em;
+      color: var(--ink);
+    }
+
+    h2 .accent { color: var(--accent); }
+
+    .section-lede {
+      margin: 0 0 36px;
+      max-width: 64ch;
+      color: var(--muted);
+      font: 400 1rem/1.6 var(--sans);
+    }
+
+    /* what — feature grid */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--rule);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .feat {
+      padding: 24px;
+      background: var(--surface);
+    }
+
+    .feat .num {
+      display: inline-block;
+      margin-bottom: 12px;
+      font: 600 10px/1 var(--mono);
+      color: var(--accent);
+      letter-spacing: 0.1em;
+    }
+
+    .feat h3 {
+      margin: 0 0 10px;
+      font: 600 1.05rem/1.2 var(--sans);
+      letter-spacing: -0.015em;
+      color: var(--ink);
+    }
+
+    .feat p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* why — pain/relief */
+    .pairs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .pair {
+      padding: 20px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+    }
+
+    .pair .tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      font: 600 10px/1 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .pair.before .tag { color: var(--warn); }
+    .pair.after .tag { color: var(--accent); }
+
+    .pair h3 {
+      margin: 0 0 8px;
+      font: 600 0.98rem/1.3 var(--sans);
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+
+    .pair p {
+      margin: 0;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    /* how — steps */
+    .steps {
+      display: grid;
+      gap: 0;
+      counter-reset: step;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 24px;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--rule);
+      counter-increment: step;
+    }
+
+    .step:last-child { border-bottom: none; }
+
+    .step-num {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      font: 600 11px/1 var(--mono);
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      padding-top: 6px;
+    }
+
+    .step-num::before {
+      content: "0" counter(step);
+      padding: 4px 8px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+    }
+
+    .step-body h3 {
+      margin: 0 0 8px;
+      font: 600 1.15rem/1.25 var(--sans);
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    .step-body p {
+      margin: 0 0 12px;
+      max-width: 64ch;
+      color: var(--muted);
+      font-size: 13.5px;
+      line-height: 1.65;
+    }
+
+    .step-body .cmd {
+      padding: 8px 12px;
+      display: inline-block;
+      background: var(--code-bg);
+      color: var(--accent);
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      font-size: 12px;
+    }
+
+    .step-body .cmd::before { content: "$ "; opacity: 0.6; }
+
+    /* beta CTA */
+    .beta-strip {
+      margin-top: 24px;
+      padding: 32px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      background:
+        radial-gradient(circle at 100% 0%, var(--accent-dim) 0%, transparent 60%),
+        var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .beta-strip::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.6;
+    }
+
+    .beta-strip .label {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 3px 9px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font: 600 10px/1 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .beta-strip h3 {
+      margin: 0 0 10px;
+      font: 600 1.6rem/1.15 var(--sans);
+      letter-spacing: -0.025em;
+      color: var(--ink);
+    }
+
+    .beta-strip h3 .accent { color: var(--accent); }
+
+    .beta-strip p {
+      margin: 0;
+      max-width: 60ch;
+      color: var(--muted);
+      font: 400 13.5px/1.6 var(--sans);
+    }
+
+    /* local-first strip */
+    .local {
+      margin-top: 24px;
+      padding: 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: 28px;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+    }
+
+    .local .label {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 3px 9px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      font: 600 10px/1 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .local h3 {
+      margin: 0 0 10px;
+      font: 600 1.35rem/1.2 var(--sans);
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    .local h3 .accent { color: var(--accent); }
+
+    .local p {
+      margin: 0 0 10px;
+      max-width: 56ch;
+      color: var(--muted);
+      font: 400 13.5px/1.6 var(--sans);
+    }
+
+    .local .joke {
+      margin: 0;
+      color: var(--faint);
+      font: 400 12.5px/1.55 var(--sans);
+      font-style: italic;
+    }
+
+    .local pre {
+      margin: 0;
+      padding: 16px 18px;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      font: 500 12px/1.7 var(--mono);
+      overflow-x: auto;
+    }
+
+    .local pre .c { color: var(--faint); }
+    .local pre .a { color: var(--accent); }
+
+    /* docs strip */
+    .docs {
+      margin-top: 16px;
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 14px;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+    }
+
+    .docs-text { display: grid; gap: 4px; }
+    .docs-text .label {
+      font: 600 10px/1 var(--mono);
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .docs-text p {
+      margin: 0;
+      color: var(--muted);
+      font: 400 13px/1.5 var(--sans);
+    }
+
+    .doc-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      font: 600 11px/1 var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: all 100ms;
+    }
+
+    .doc-link:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      text-decoration: none;
+    }
+
+    .doc-link::before {
+      content: "↗";
+      color: var(--accent);
+      font-size: 13px;
+    }
+
+    /* footer */
+    footer {
+      padding: 28px 0 80px;
+      border-top: 1px solid var(--rule);
+      color: var(--faint);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    footer .container {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    footer a { color: var(--faint); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 860px) {
+      .grid-3 { grid-template-columns: 1fr; }
+      .pairs { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 1fr; gap: 12px; }
+      .beta-strip { grid-template-columns: 1fr; padding: 24px; }
+      .docs { grid-template-columns: 1fr; padding: 18px; }
+      .local { grid-template-columns: 1fr; padding: 22px; }
+      header { padding: 60px 0 48px; }
+      section.shell { padding: 56px 0; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="/">Agentify</a>
+      <div class="nav-links">
+        <a href="#what">what</a>
+        <a href="#why">why</a>
+        <a href="#how">how</a>
+        <a href="skill-catalog.html">skills</a>
+        <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
+        <span class="pill">beta</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container">
+      <span class="eyebrow">testing beta · expect iteration</span>
+      <h1>Agents that <span class="accent">already know</span> your repo.</h1>
+      <p class="lede">Agentify prepares your repository, routes the right context to the agent, validates state, and runs end-to-end workflows — so you spend less time prompting and more time shipping.</p>
+      <div class="cta-row">
+        <a class="cta cta-primary" href="https://github.com/ixigo/agentify">try the beta</a>
+        <a class="cta cta-secondary" href="skill-catalog.html">browse skills</a>
+      </div>
+      <div class="hero-meta">
+        <span>install <code>codex</code> · <code>claude-code</code></span>
+        <span>scope project</span>
+        <span>repo <a href="https://github.com/ixigo/agentify">ixigo/agentify</a></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell" id="what">
+      <div class="container">
+        <span class="section-label">what</span>
+        <h2>A control plane for <span class="accent">daily agent work.</span></h2>
+        <p class="section-lede">Agentify is a layer that sits between your repo and your AI agent. It indexes the codebase, writes agent-facing context, manages sessions, runs validation, and ships a library of reusable skills for the engineering loop.</p>
+
+        <div class="grid-3">
+          <div class="feat">
+            <span class="num">/01</span>
+            <h3>Repo readiness</h3>
+            <p>Inspects the repository and prepares agent-facing docs (architecture, PRD, summary) so the agent doesn't rediscover everything.</p>
+          </div>
+          <div class="feat">
+            <span class="num">/02</span>
+            <h3>Context routing</h3>
+            <p>Resolves the right files, conventions, and prior decisions for the task at hand — keeping prompts small and answers grounded.</p>
+          </div>
+          <div class="feat">
+            <span class="num">/03</span>
+            <h3>Skill library</h3>
+            <p>A reusable set of skills for planning, PRs, triage, TDD, refactors, handoffs — invocable by name in any session.</p>
+          </div>
+          <div class="feat">
+            <span class="num">/04</span>
+            <h3>Session state</h3>
+            <p>Tracks the active task, open worktrees, and validation status so the agent can resume cleanly between turns.</p>
+          </div>
+          <div class="feat">
+            <span class="num">/05</span>
+            <h3>Validation gates</h3>
+            <p>Runs lint, types, and tests where applicable before declaring a change done — fewer "looks fine" surprises.</p>
+          </div>
+          <div class="feat">
+            <span class="num">/06</span>
+            <h3>Multi-host delivery</h3>
+            <p>Works across GitHub, GitLab, Azure DevOps, and Jira through their CLIs — issues, PRs, and tickets stay where the team works.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="why">
+      <div class="container">
+        <span class="section-label">why</span>
+        <h2>Stop re-explaining your repo <span class="accent">on every turn.</span></h2>
+        <p class="section-lede">A model is only as useful as the context it walks in with. Without scaffolding, every session starts cold — and small, repeated tasks become expensive.</p>
+
+        <div class="pairs">
+          <div class="pair before">
+            <span class="tag">before</span>
+            <h3>Cold-start every conversation</h3>
+            <p>Re-paste files, re-state conventions, re-explain the goal. Half your prompt is setup.</p>
+          </div>
+          <div class="pair after">
+            <span class="tag">with agentify</span>
+            <h3>Context is already routed</h3>
+            <p>Agent-facing docs and prior decisions are loaded automatically; you describe the task, not the repo.</p>
+          </div>
+
+          <div class="pair before">
+            <span class="tag">before</span>
+            <h3>One-off prompts, lost workflows</h3>
+            <p>Useful patterns live in chat history nobody can search; they vanish next week.</p>
+          </div>
+          <div class="pair after">
+            <span class="tag">with agentify</span>
+            <h3>Workflows as durable skills</h3>
+            <p>Repeated patterns become named skills — invokable by anyone, versioned in the repo.</p>
+          </div>
+
+          <div class="pair before">
+            <span class="tag">before</span>
+            <h3>"Looks fine" without checks</h3>
+            <p>Agent claims done, but lint, types, or tests would have flagged it. You catch it in review.</p>
+          </div>
+          <div class="pair after">
+            <span class="tag">with agentify</span>
+            <h3>Validation before handoff</h3>
+            <p>Skills that change code run the repo's checks before reporting success. Fewer round-trips.</p>
+          </div>
+
+          <div class="pair before">
+            <span class="tag">before</span>
+            <h3>Parallel work collides</h3>
+            <p>Two agents on the same checkout step on each other; merging is a chore.</p>
+          </div>
+          <div class="pair after">
+            <span class="tag">with agentify</span>
+            <h3>Worktree-aware sessions</h3>
+            <p>Each task lands in its own worktree with merge-back commands; isolation by default.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="how">
+      <div class="container">
+        <span class="section-label">how</span>
+        <h2>Four steps from intent <span class="accent">to merged change.</span></h2>
+        <p class="section-lede">Drop Agentify into a repo, point it at your agent host, and the loop runs end-to-end. Each step is opt-in; nothing is magic.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-body">
+              <h3>Index the repo</h3>
+              <p>Agentify scans the codebase, extracts architecture and conventions, and writes agent-facing docs. The agent walks in with a map, not a torch.</p>
+              <code class="cmd">agentify init</code>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-body">
+              <h3>Install the skills you need</h3>
+              <p>Pick from a library of reusable skills — implementation, planning, PRs, triage, TDD. Scoped per project so the team shares the same vocabulary.</p>
+              <code class="cmd">gh skill install ixigo/agentify skills/auto-pilot --agent codex --scope project</code>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-body">
+              <h3>Invoke a skill, not a prompt</h3>
+              <p>Call skills by name in your session. Agentify routes the right context, runs the workflow, and isolates the change in a worktree when needed.</p>
+              <code class="cmd">implement &lt;goal&gt;  ·  triage #42  ·  open-pr</code>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-body">
+              <h3>Validate, commit, hand off</h3>
+              <p>The skill runs the repo's checks before reporting done, drafts a Conventional commit, and returns merge-back or PR commands. You stay in control of the publish step.</p>
+              <code class="cmd">commit  ·  open-pr  ·  copy-pr</code>
+            </div>
+          </div>
+        </div>
+
+        <aside class="beta-strip">
+          <div>
+            <span class="label">try the beta</span>
+            <h3>Agentify is in <span class="accent">beta.</span> Use it. Break it. Tell us.</h3>
+            <p>The platform works on real repos today, but it's still iterating fast. Pitch it to your team, run it on a project that matters, and file what doesn't fit. Skills are the surface area; the rest is the engine.</p>
+          </div>
+          <a class="cta cta-primary" href="https://github.com/ixigo/agentify">try the beta</a>
+        </aside>
+
+        <aside class="local" aria-label="Local-first">
+          <div>
+            <span class="label">local-first</span>
+            <h3>Your repo. Your machine. <span class="accent">Your .gitignore.</span></h3>
+            <p>Agent-generated artifacts — architecture docs, PRDs, summaries, session state, scratch worktrees — can all live in <code>.gitignore</code>. Nothing leaves your laptop unless you commit it. Invoke through Agentify when you want the full loop.</p>
+            <p class="joke">No Agentify? Sure — fall back to vanilla codex / claude. You'll just be re-explaining your folder structure on every turn like it's 2023. Artisanal prompting. Hand-rolled. Free-range tokens.</p>
+          </div>
+<pre><span class="c"># .gitignore</span>
+<span class="c"># agent artifacts — local only</span>
+<span class="a">.agentify/</span>
+<span class="a">docs/architecture.md</span>
+<span class="a">docs/prd.md</span>
+<span class="a">docs/summary.md</span>
+<span class="a">.worktrees/</span>
+<span class="a">*.session.json</span></pre>
+        </aside>
+
+        <div class="docs">
+          <div class="docs-text">
+            <span class="label">go deeper</span>
+            <p>For more detail and end-to-end usage examples, read the <code>README.md</code> and <code>usage.md</code> in the repo.</p>
+          </div>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/README.md">readme</a>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/usage.md">usage</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>© Agentify · skill catalog at <a href="skill-catalog.html">/skill-catalog</a></span>
+      <span><a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a></span>
+    </div>
+  </footer>
+</body>
+</html>
