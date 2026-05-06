@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jira"
+  short_description: "Manage Jira work items with acli"
+  default_prompt: "Use $jira to pick up my assigned Jira work item and move it through today's workflow."
