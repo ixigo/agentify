@@ -138,6 +138,7 @@ It is written so the model treats the current working directory as the target re
 | `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
+| `agentify completion` | Prints zsh, bash, or fish completion scripts. | Use when you want shell tab completion for commands, flags, providers, skills, sessions, and path arguments. | `agentify completion zsh` |
 
 #### Project Test Environment
 

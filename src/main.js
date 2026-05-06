@@ -25,6 +25,7 @@ import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemo
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
+import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { runSemanticRefresh } from "./core/semantic.js";
 import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
@@ -411,6 +412,7 @@ function printHelp() {
     `    ${c("semantic")}        ${d("Refresh semantic project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
+    `    ${c("completion")}      ${d("Generate shell completion scripts")}`,
     ``,
     `  ${bold("OPTIONS")}`,
     ``,
@@ -473,6 +475,7 @@ function printHelp() {
     `    ${d("$")} agentify handoff --session sess_20260101000000_abcdef "continue payments-v2"`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --bypass-permissions`,
+    `    ${d("$")} agentify completion zsh`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
   ];
@@ -576,6 +579,20 @@ export async function runCli(argv, runtime = {}) {
   }
   if (command === "this") {
     await runBootstrapCommand(args);
+    return;
+  }
+
+  if (command === "completion") {
+    const root = path.resolve(String(args.root || process.cwd()));
+    if (subcommand === "values") {
+      const kind = args._[2];
+      if (!kind) {
+        throw new Error("completion values requires a kind: providers, skills, or sessions");
+      }
+      await printCompletionValues(kind, { root });
+      return;
+    }
+    process.stdout.write(generateCompletionScript(subcommand));
     return;
   }
 

@@ -286,6 +286,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Check local readiness | `agentify doctor` |
 | Set up the current repo on macOS | `agentify this --provider codex` |
 | Set up manually | `agentify init --provider codex` |
+| Build the repository index only | `agentify index` |
 | Refresh index, checks, and detected tests | `agentify up` |
 | Validate repo state | `agentify check` |
 | Validate after intentional source edits | `agentify check --hook` |
@@ -302,6 +303,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
 | Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
+| Generate shell completion | `agentify completion zsh` |
 
 > **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
 ## 📖 CLI Reference
@@ -312,7 +314,8 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
-| `index` / `scan` | Build the SQLite repository index |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |
 | `up` | scan → optional doc → check → test pipeline |
 | `sync` | Upgrade repo-owned Agentify files, then refresh |
@@ -334,6 +337,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | `semantic` | Refresh semantic TS/JS facts |
 | `clean` | Prune stale generated artifacts |
 | `cache` | Manage the content cache |
+| `completion` | Generate shell completion scripts |
 
 </details>
 
