@@ -14,9 +14,8 @@ import * as ui from "./ui.js";
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
 const REFRESH_NEUTRAL_PATH_PATTERNS = [
-  /^\.agents(\/|$)/,
+  /^\.agentify(\/|$)/,
   /^\.current_session(\/|$)/,
-  /^\.agentify\/work(\/|$)/,
   /^docs\/repo-map\.md$/,
   /^docs\/modules(\/|$)/,
   /^output\.txt$/,

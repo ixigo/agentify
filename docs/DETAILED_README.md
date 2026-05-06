@@ -128,7 +128,7 @@ It is written so the model treats the current working directory as the target re
 
 | Command | What it does | Why and when to use it | Example |
 | --- | --- | --- | --- |
-| `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/work/`, `.agents/`, and `docs/modules/` for root-module fallback docs. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
+| `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/`, and `docs/modules/` for root-module fallback docs. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
 | `agentify index` | Scans the repo and writes the SQLite index. | Use when you want the machine-readable repo graph refreshed but do not need markdown docs yet. | `agentify index` |
 | `agentify scan` | Alias for `index`. | Use it when you prefer the word "scan" in scripts or team docs. Functionally it is the same as `index`. | `agentify scan` |
 | `agentify doc` | Generates `AGENTIFY.md`, module docs, repo map updates, and refreshes eligible file headers. | Use after indexing when you want human-readable and agent-readable documentation updated. | `agentify doc` |
@@ -193,15 +193,15 @@ For wrapper scripts or private provider gateways that need extra variables, pref
 | `agentify context` | Searches indexed refs, fetches bounded source slices, compacts session facts, and reports routed context status. | Use with `--context-mode routed` prompts when agents should retrieve context through bounded Agentify commands instead of receiving full file bodies. | `agentify context fetch src/auth.ts --lines 20:80` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |
-| `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. Without a task, asks the provider to collect one. | Use for work that will span multiple agent runs and needs durable context under `.agents/session/`. | `agentify sess run --provider codex --name "payments-v2"` |
+| `agentify sess run` | Creates or resumes a session and launches the provider with session bootstrap context. Without a task, asks the provider to collect one. | Use for work that will span multiple agent runs and needs durable context under `.agentify/session/`. | `agentify sess run --provider codex --name "payments-v2"` |
 | `agentify sess resume` | Resumes a previous session by id and relaunches the provider with that bootstrap context. | Use when you want to continue a prior thread without manually rebuilding context. | `agentify sess resume --session sess_20260331_ab12cd "continue"` |
 | `agentify sess fork` | Forks an existing session into a new branch of work. | Use when you want to preserve the old session but try a different implementation or direction. | `agentify sess fork --from sess_20260331_ab12cd --name "payments-alt" "try alternate design"` |
 | `agentify sess list` | Lists known sessions for the repo. | Use when you need to find an id to resume or audit previous work threads. | `agentify sess list` |
 | `agentify issue-killer` | Launches opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude prompt running with provider permission checks bypassed. | Use when you want several labelled or explicit issues handled in parallel without giving agents arbitrary access to the whole issue backlog. | `agentify issue-killer --label agentify-ready --agent-provider codex --limit 5` |
 
-Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agents/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
+Session memory is automatic for `sess *` commands. Session runs write durable artifacts such as `transcript.md`, `memory-context.md`, and `launches.jsonl` under `.agentify/session/<id>/`, and `sess resume` / `sess fork` automatically inject recent transcript excerpts into the next prompt without requiring a separate memory command.
 
-Normal `run` is intentionally lightweight. It does not persist durable session memory artifacts under `.agents/session/`; if you need reusable memory across multiple launches, use `sess *`.
+Normal `run` is intentionally lightweight. It does not persist durable session memory artifacts under `.agentify/session/`; if you need reusable memory across multiple launches, use `sess *`.
 
 ### Routed Context And Compaction Limits
 
@@ -223,9 +223,9 @@ Use the outputs differently:
 - `agentify context fetch <path> --symbol <name>`, `agentify context fetch <path> --lines A:B`, and selected file slices embedded in a plan are exact code from the worktree for the requested bounded range.
 - `prompt_bytes`, `session_context_bytes`, and `session_bootstrap_bytes` are UTF-8 byte counts of Agentify-managed text. They are useful for relative size control, but they are estimates, not provider token counts and not a measure of everything already present in a live provider context.
 
-Sessions are the compaction boundary. `sess run`, `sess resume`, and `sess fork` write structured local state under `.agents/session/<id>/`, including run history, rolling summaries, launch records, memory context, and optional markdown artifacts. On resume, Agentify prepares a compact child prompt from those artifacts and the current repo index. That gives the next provider launch a smaller prepared context, but it does not retroactively remove material from an older provider conversation.
+Sessions are the compaction boundary. `sess run`, `sess resume`, and `sess fork` write structured local state under `.agentify/session/<id>/`, including run history, rolling summaries, launch records, memory context, and optional markdown artifacts. On resume, Agentify prepares a compact child prompt from those artifacts and the current repo index. That gives the next provider launch a smaller prepared context, but it does not retroactively remove material from an older provider conversation.
 
-Routed context artifacts are local/generated by default. Keep `.agents/`, `.agentify/work/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of commits unless your team intentionally changes the ignore policy. Agentify sanitizes repo test and provider subprocess environments by default, so arbitrary host secrets are not forwarded into detected test commands or provider CLIs. Agentify does not redact secrets that are already present in tracked files, generated summaries, selected slices, transcripts, or explicit `tests.env.*` / `providerEnv.*` values. Put sensitive paths in `.agentignore` and keep credentials out of source files.
+Routed context artifacts are local/generated by default. Keep `.agentify/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of commits unless your team intentionally changes the ignore policy. Agentify sanitizes repo test and provider subprocess environments by default, so arbitrary host secrets are not forwarded into detected test commands or provider CLIs. Agentify does not redact secrets that are already present in tracked files, generated summaries, selected slices, transcripts, or explicit `tests.env.*` / `providerEnv.*` values. Put sensitive paths in `.agentignore` and keep credentials out of source files.
 
 ### Query, Skills, Hooks, And Cache
 
@@ -279,7 +279,7 @@ agentify sess resume --session <id> ["task"]
 agentify sess fork --from <id> [--provider <name>] [--name <label>] "task"
 ```
 
-Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agents/session/`.
+Use sessions when the work is multi-step, the prompt context is too expensive to rebuild every time, or you want a durable audit trail under `.agentify/session/`.
 
 When a session is resumed or forked, Agentify first tries an automatic MemPalace-backed search across prior session transcripts for the current repo, then falls back to Agentify's built-in ranked transcript search, and finally to direct lineage replay if no broader match is found. Normal `run` prompts use the same automatic recall path, so relevant older session decisions can surface even without a session id or explicit memory command.
 
@@ -502,7 +502,7 @@ agentify sess resume --session <session-id> "finish the remaining tests"
 agentify sess fork --from <session-id> --name "payments-alt" "try a simpler design"
 ```
 
-Use this when the work spans multiple launches, you want a durable audit trail under `.agents/session/`, or you want later runs to reuse prior context automatically.
+Use this when the work spans multiple launches, you want a durable audit trail under `.agentify/session/`, or you want later runs to reuse prior context automatically.
 
 ### Deterministic maintenance before or after larger changes
 
@@ -597,12 +597,11 @@ AGENTIFY.md
 docs/repo-map.md
 <module-root>/AGENTIFY.md
 docs/modules/*.md for repository-root module fallback
-.agents/index.db
-.agents/runs/*.json
+.agentify/index.db
+.agentify/runs/*.json
 .agentignore
 .guardrails
-.agentify/work/*
-.agents/session/*
+.agentify/session/*
 .current_session/*
 ```
 
@@ -611,13 +610,13 @@ What creates them:
 - `init` creates baseline config and working directories, and installs a managed `.gitignore` block for local/generated Agentify output.
 - `index` or `scan` writes the SQLite index and refreshes repo map basics.
 - `doc` writes markdown docs, run reports, and eligible headers.
-- `sess *` writes session manifests and bootstrap context under `.agents/session/`.
+- `sess *` writes session manifests and bootstrap context under `.agentify/session/`.
 - `--ghost` writes isolated outputs under `.current_session/`.
 
 Git hygiene model:
 
 - Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block when Agentify policy should be shared across the repository.
-- Keep `.agents/`, `.agentify/work/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` local/generated; Agentify ignores them in Git by default.
+- Keep `.agentify/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` local/generated; Agentify ignores them in Git by default.
 
 ## Development
 

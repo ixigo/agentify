@@ -169,7 +169,7 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
 
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
-  const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+  const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
   assert.match(output, /execution: changed_files=1/);
   assert.match(html, /execution telemetry/);
@@ -362,7 +362,7 @@ test("runExec skips refresh when only Agentify session artifacts change", async 
 
   const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false, docs: true });
   const session = await forkSession(root, config, { name: "artifact-refresh" });
-  await execFileAsync("git", ["add", ".agents"], { cwd: root });
+  await execFileAsync("git", ["add", ".agentify"], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "track session artifact baseline"], { cwd: root });
 
   const result = await runExec(
