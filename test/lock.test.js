@@ -8,9 +8,9 @@ import { acquireLock } from "../src/core/lock.js";
 
 test("acquireLock refuses to steal a stale lock from a live owner on the same host", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-live-"));
-  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
   await fs.writeFile(
-    path.join(root, ".agents", ".lock"),
+    path.join(root, ".agentify", ".lock"),
     JSON.stringify({
       pid: process.pid,
       operation: "scan",
@@ -29,9 +29,9 @@ test("acquireLock refuses to steal a stale lock from a live owner on the same ho
 
 test("acquireLock reclaims a stale lock when the recorded owner is gone", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-dead-"));
-  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
   await fs.writeFile(
-    path.join(root, ".agents", ".lock"),
+    path.join(root, ".agentify", ".lock"),
     JSON.stringify({
       pid: 2147483647,
       operation: "scan",
@@ -44,9 +44,9 @@ test("acquireLock reclaims a stale lock when the recorded owner is gone", async 
   const result = await acquireLock(root, "doc");
 
   assert.equal(result.acquired, true);
-  const lockData = JSON.parse(await fs.readFile(path.join(root, ".agents", ".lock"), "utf8"));
+  const lockData = JSON.parse(await fs.readFile(path.join(root, ".agentify", ".lock"), "utf8"));
   assert.equal(lockData.pid, process.pid);
   assert.equal(lockData.operation, "doc");
   await result.release();
-  await assert.rejects(() => fs.access(path.join(root, ".agents", ".lock")));
+  await assert.rejects(() => fs.access(path.join(root, ".agentify", ".lock")));
 });

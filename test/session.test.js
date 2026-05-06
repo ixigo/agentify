@@ -47,7 +47,7 @@ if [ "$1" = "search" ]; then
       Source: sess_memory.md
       Match:  0.98
 
-      Source transcript: .agents/session/sess_memory/transcript.md
+      Source transcript: .agentify/session/sess_memory/transcript.md
       We chose JSONL transcripts because they are append-friendly for durable memory capture.
 
   ────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ test("resolveSessionProvider supports legacy tool manifests", () => {
 test("forkSession enforces bootstrap and context size caps", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-caps-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
-  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
   const db = openIndexDatabase(root);
   try {
     inTransaction(db, () => {
@@ -148,7 +148,7 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   assert.ok(Buffer.byteLength(JSON.stringify(resumed.context), "utf8") <= 1024);
   assert.equal(result.manifest.metadata.bootstrap_truncated, true);
   assert.equal(result.manifest.metadata.context_truncated, true);
-  assert.match(resumed.bootstrap, /host shell -> \.agents\/index\.db/);
+  assert.match(resumed.bootstrap, /host shell -> \.agentify\/index\.db/);
   assert.ok((resumed.context.index_snapshot.truncated_module_ids || 0) > 0);
   assert.ok((resumed.context.checklist_summary.remaining_items || 0) > 0);
 });
@@ -341,7 +341,7 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that reports a missing pal
   const binDir = path.join(root, "bin");
   await fs.mkdir(binDir, { recursive: true });
   await installMemPalaceShim(binDir, [
-    "  No palace found at /tmp/agentify-test/.agents/mempalace/palace",
+    "  No palace found at /tmp/agentify-test/.agentify/mempalace/palace",
     "  Run: mempalace init <dir> then mempalace mine <dir>",
     "",
   ].join("\n"));
@@ -469,7 +469,7 @@ test("resumeSession refuses path traversal ids before touching disk", async () =
   await fs.writeFile(path.join(probeDir, "context.json"), JSON.stringify({}));
   await fs.writeFile(path.join(probeDir, "bootstrap.md"), "forged");
 
-  const relativeAttack = path.relative(path.join(root, ".agents", "session"), probeDir);
+  const relativeAttack = path.relative(path.join(root, ".agentify", "session"), probeDir);
 
   for (const malicious of [relativeAttack, "../escape", "a/../b", "/abs", "with space"]) {
     await assert.rejects(

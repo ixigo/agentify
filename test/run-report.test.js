@@ -17,7 +17,7 @@ test("createRunReporter persists output and HTML report", async (t) => {
 
   const reporter = createRunReporter(root);
   reporter.setCommand("up");
-  reporter.setScan({ wrote: [".agents/index.db"] });
+  reporter.setScan({ wrote: [".agentify/index.db"] });
   reporter.setDoc({
     modules_processed: 2,
     docs_written: 1,
@@ -84,7 +84,7 @@ test("createRunReporter persists output and HTML report", async (t) => {
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetry = JSON.parse(
-    await fs.readFile(path.join(root, ".agents", "runs", "test-execution-execution-telemetry.json"), "utf8")
+    await fs.readFile(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json"), "utf8")
   );
 
   assert.match(output, /\[agentify\] tests: passed/);
