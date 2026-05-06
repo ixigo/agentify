@@ -84,6 +84,12 @@ const BUILTIN_SKILLS = [
       "Launch opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude agent prompt running with provider permission checks bypassed for draft PR creation.",
   },
   {
+    name: "jira",
+    aliases: [],
+    description:
+      "Manage Jira work items through Atlassian CLI `acli`, including picking up assigned tickets, daily to-do triage, transitioning statuses, editing summaries/descriptions/assignees/labels, updating the current ticket, and creating new Jira tasks or bugs.",
+  },
+  {
     name: "migrate-to-shoehorn",
     aliases: [],
     description:

@@ -66,6 +66,7 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-killer").name, "issue-killer");
+  assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
 });
 
 test("resolveSkillInstallTargets expands provider all for project scope", () => {
