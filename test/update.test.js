@@ -54,7 +54,7 @@ async function createInitializedRepoWithSourceEdit(prefix) {
 }
 
 async function readLatestRunReport(root, commandName) {
-  const runDir = path.join(root, ".agents", "runs");
+  const runDir = path.join(root, ".agentify", "runs");
   const runFiles = (await fs.readdir(runDir))
     .filter((file) => file.endsWith(`-${commandName}.json`))
     .sort();
@@ -74,7 +74,7 @@ test("scan and doc generate required artifacts", async () => {
   const result = await validateRepo(root, config);
 
   assert.equal(result.passed, true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "index.db")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "src", "auth", "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   const summary = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
@@ -291,12 +291,12 @@ test("runUpdate in ghost mode reuses a single artifact root", async () => {
   assert.equal(ghostRuns.length, 1);
 
   const artifactRoot = path.join(sessionRoot, ghostRuns[0]);
-  assert.equal(await fs.stat(path.join(artifactRoot, ".agents", "index.db")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(artifactRoot, ".agentify", "index.db")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "ghost-report.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "output.txt")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "agentify-report.html")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, "agentify-report.html")).then(() => true).catch(() => false), false);
 });
@@ -443,7 +443,7 @@ test("passes", () => {
   const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: false });
   await runUpdate(root, config);
 
-  assert.equal(await fs.stat(path.join(root, ".agents", "index.db")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "index.db")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true).catch(() => false), false);
   const source = await fs.readFile(path.join(root, "src", "auth", "index.ts"), "utf8");
   assert.doesNotMatch(source, /@agentify/);
@@ -489,7 +489,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
     mode: "deterministic-local"
   });
 
-  const runDir = path.join(root, ".agents", "runs");
+  const runDir = path.join(root, ".agentify", "runs");
   const runFiles = (await fs.readdir(runDir)).sort();
   const latestRun = JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
   assert.equal(latestRun.results.cached_manager_plan, true);
@@ -573,7 +573,7 @@ setInterval(() => {}, 1000);
     } finally {
       closeIndexDatabase(fallbackDb);
     }
-    assert.equal(await fs.stat(path.join(root, ".agents", ".lock")).then(() => true).catch(() => false), false);
+    assert.equal(await fs.stat(path.join(root, ".agentify", ".lock")).then(() => true).catch(() => false), false);
   } finally {
     if (previousPath === undefined) {
       delete process.env.PATH;

@@ -276,7 +276,7 @@ test("forkSession compacts child context while preserving runtime artifact refs"
   assert.equal(child.manifest.metadata.bootstrap_truncated, true);
   assert.ok(Buffer.byteLength(JSON.stringify(child.context), "utf8") <= 4096);
   assert.match(resumed.bootstrap, /Session Context/);
-  assert.match(resumed.bootstrap, /Full routing: host shell -> \.agents\/index\.db/);
+  assert.match(resumed.bootstrap, /Full routing: host shell -> \.agentify\/index\.db/);
   assert.ok(child.context.cache_refs.turns.endsWith("turns.jsonl"));
   assert.ok(child.context.cache_refs.checklist.endsWith("checklist.json"));
   assert.equal(await fileExists(path.join(child.sessionDir, "bootstrap.md")), false);
@@ -306,7 +306,7 @@ test("maybePrepareChildSession creates child above context threshold without lau
   assert.match(result.resume_command, new RegExp(result.child_session_id));
 
   const childManifest = JSON.parse(await fs.readFile(
-    path.join(root, ".agents", "session", result.child_session_id, "session-manifest.json"),
+    path.join(root, ".agentify", "session", result.child_session_id, "session-manifest.json"),
     "utf8"
   ));
   assert.equal(childManifest.parent_id, parent.sessionId);

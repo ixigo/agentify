@@ -204,7 +204,7 @@ export function buildRoutedPrompt(basePrompt, memoryMarkdown = "", options = {})
     "You are running in Agentify routed context mode.",
     "",
     "Context routing rules:",
-    "- Start from repo docs and DB refs: AGENTIFY.md, docs/repo-map.md, docs/modules/, and .agents/index.db.",
+    "- Start from repo docs and DB refs: AGENTIFY.md, docs/repo-map.md, docs/modules/, and .agentify/index.db.",
     "- No full source file bodies are injected by default.",
     "- For more repository context, use only these bounded Agentify commands:",
     "  - agentify context search <term>",

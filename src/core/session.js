@@ -32,11 +32,11 @@ export function validateSessionId(sessionId, label = "session id") {
 
 function resolveSessionDirSafely(root, sessionId, label = "session id") {
   validateSessionId(sessionId, label);
-  const sessionsRoot = path.resolve(root, ".agents", "session");
+  const sessionsRoot = path.resolve(root, ".agentify", "session");
   const sessionDir = path.resolve(sessionsRoot, sessionId);
   const expectedPrefix = sessionsRoot + path.sep;
   if (!sessionDir.startsWith(expectedPrefix) || path.dirname(sessionDir) !== sessionsRoot) {
-    throw new Error(`Invalid ${label}: resolved path escapes \`.agents/session/\``);
+    throw new Error(`Invalid ${label}: resolved path escapes \`.agentify/session/\``);
   }
   return sessionDir;
 }
@@ -89,25 +89,25 @@ function summarizeModules(moduleIds, maxItems) {
   const visible = moduleIds.slice(0, maxItems);
   const remaining = moduleIds.length - visible.length;
   if (visible.length === 0) {
-    return `${moduleIds.length} indexed modules (see .agents/index.db)`;
+    return `${moduleIds.length} indexed modules (see .agentify/index.db)`;
   }
 
   return remaining > 0
-    ? `${visible.join(", ")}, +${remaining} more (host shell index: .agents/index.db)`
+    ? `${visible.join(", ")}, +${remaining} more (host shell index: .agentify/index.db)`
     : visible.join(", ");
 }
 
 function renderChecklistMarkdown(sessionId, checklist, totalItems) {
   if (checklist.length === 0) {
     return totalItems > 0
-      ? `- ${totalItems} checklist item(s) omitted. See \`.agents/session/${sessionId}/checklist.json\`.`
+      ? `- ${totalItems} checklist item(s) omitted. See \`.agentify/session/${sessionId}/checklist.json\`.`
       : "- No checklist items.";
   }
 
   const lines = checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.text}`);
   const remaining = totalItems - checklist.length;
   if (remaining > 0) {
-    lines.push(`- ... ${remaining} more item(s) in \`.agents/session/${sessionId}/checklist.json\`.`);
+    lines.push(`- ... ${remaining} more item(s) in \`.agentify/session/${sessionId}/checklist.json\`.`);
   }
   return lines.join("\n");
 }
@@ -129,15 +129,15 @@ function fitContext(manifest, index, checklist, options, config) {
   const staleModules = [];
   const maxBytes = getSessionLimitKb(config, "contextMaxKb", 16) * 1024;
   const memoryArtifacts = getSessionArtifactPaths(options.root || "", manifest.session_id);
-  const transcriptRef = options.root ? `.agents/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
-  const memoryContextRef = options.root ? `.agents/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
-  const handoffJsonRef = options.root ? `.agents/session/${manifest.session_id}/handoff.json` : memoryArtifacts.handoffJsonPath;
-  const handoffMarkdownRef = options.root ? `.agents/session/${manifest.session_id}/handoff.md` : memoryArtifacts.handoffMarkdownPath;
-  const launchesRef = options.root ? `.agents/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
-  const turnsRef = options.root ? `.agents/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
-  const fetchOutputsRef = options.root ? `.agents/session/${manifest.session_id}/context-fetches.jsonl` : memoryArtifacts.fetchOutputsPath;
-  const contextFactsRef = options.root ? `.agents/session/${manifest.session_id}/context-facts.json` : memoryArtifacts.contextFactsPath;
-  const contextFactsMarkdownRef = options.root ? `.agents/session/${manifest.session_id}/context-facts.md` : memoryArtifacts.contextFactsMarkdownPath;
+  const transcriptRef = options.root ? `.agentify/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
+  const memoryContextRef = options.root ? `.agentify/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
+  const handoffJsonRef = options.root ? `.agentify/session/${manifest.session_id}/handoff.json` : memoryArtifacts.handoffJsonPath;
+  const handoffMarkdownRef = options.root ? `.agentify/session/${manifest.session_id}/handoff.md` : memoryArtifacts.handoffMarkdownPath;
+  const launchesRef = options.root ? `.agentify/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
+  const turnsRef = options.root ? `.agentify/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
+  const fetchOutputsRef = options.root ? `.agentify/session/${manifest.session_id}/context-fetches.jsonl` : memoryArtifacts.fetchOutputsPath;
+  const contextFactsRef = options.root ? `.agentify/session/${manifest.session_id}/context-facts.json` : memoryArtifacts.contextFactsPath;
+  const contextFactsMarkdownRef = options.root ? `.agentify/session/${manifest.session_id}/context-facts.md` : memoryArtifacts.contextFactsMarkdownPath;
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048, runHistoryLimit: 10, runSummaryBytes: 256, rollingSummaryBytes: 1024 },
     { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024, runHistoryLimit: 6, runSummaryBytes: 180, rollingSummaryBytes: 512 },
@@ -152,13 +152,13 @@ function fitContext(manifest, index, checklist, options, config) {
     const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
     const includeHandoffRefs = attempt !== attempts[attempts.length - 1];
     const cacheRefs = attempt.minimalRefs ? {
-      repo_index: ".agents/index.db",
+      repo_index: ".agentify/index.db",
       repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
-      checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+      checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
     } : {
-      repo_index: ".agents/index.db",
+      repo_index: ".agentify/index.db",
       repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
-      checklist: `.agents/session/${manifest.session_id}/checklist.json`,
+      checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
       transcript: transcriptRef,
       memory_context: memoryContextRef,
       ...(includeHandoffRefs ? {
@@ -236,7 +236,7 @@ export function synthesizeBootstrapFromContext(manifest, context) {
 - HEAD: ${manifest.head_commit_at_creation}
 - Module count: ${moduleCount}
 - Module preview: ${summarizeModules(moduleIds, Math.min(moduleIds.length, 12))}
-- Full routing: host shell -> .agents/index.db
+- Full routing: host shell -> .agentify/index.db
 
 ## Checklist Status
 ${renderChecklistMarkdown(manifest.session_id, checklist, checklistSummary.total_items ?? checklist.length)}
@@ -255,7 +255,7 @@ function fitBootstrap(manifest, index, checklist, options, config) {
   const baseStartHere = options.startHere || [
     "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
     "- Use `docs/repo-map.md` and module-root `AGENTIFY.md` files for deterministic structure before reaching for provider tools.",
-    "- Treat `.agents/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
+    "- Treat `.agentify/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
   ].join("\n");
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, startHereBytes: 1200 },
@@ -280,7 +280,7 @@ function fitBootstrap(manifest, index, checklist, options, config) {
 - HEAD: ${manifest.head_commit_at_creation}
 - Module count: ${moduleIds.length}
 - Module preview: ${summarizeModules(moduleIds, attempt.moduleLimit)}
-- Full routing: host shell -> .agents/index.db
+- Full routing: host shell -> .agentify/index.db
 
 ## Checklist Status
 ${renderChecklistMarkdown(manifest.session_id, previewChecklist, checklist.length)}
@@ -300,12 +300,12 @@ ${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect the session c
 
 export async function forkSession(root, config, options = {}) {
   const sessionId = generateSessionId();
-  const sessionDir = path.join(root, ".agents", "session", sessionId);
+  const sessionDir = path.join(root, ".agentify", "session", sessionId);
   await ensureDir(sessionDir);
 
   const headCommit = await getHeadCommit(root);
   let index = null;
-  if (await exists(path.join(root, ".agents", "index.db"))) {
+  if (await exists(path.join(root, ".agentify", "index.db"))) {
     const db = openIndexDatabase(root, { readOnly: true });
     try {
       index = {
@@ -328,21 +328,21 @@ export async function forkSession(root, config, options = {}) {
     name: options.name || null,
     status: "active",
     head_commit_at_creation: headCommit,
-    index_snapshot: ".agents/index.db",
+    index_snapshot: ".agentify/index.db",
     cache_refs: [
-      `.agents/session/${sessionId}/context.json`,
-      `.agents/session/${sessionId}/checklist.json`,
-      `.agents/session/${sessionId}/launches.jsonl`,
-      `.agents/session/${sessionId}/turns.jsonl`,
-      `.agents/session/${sessionId}/context-events.jsonl`,
-      `.agents/session/${sessionId}/handoff.json`,
-      `.agents/session/${sessionId}/handoff.md`,
-      `.agents/session/${sessionId}/bootstrap.md`,
-      `.agents/session/${sessionId}/transcript.md`,
-      `.agents/session/${sessionId}/memory-context.md`,
-      `.agents/session/${sessionId}/context-facts.json`,
-      `.agents/session/${sessionId}/context-facts.md`,
-      `.agents/session/${sessionId}/context-fetches.jsonl`,
+      `.agentify/session/${sessionId}/context.json`,
+      `.agentify/session/${sessionId}/checklist.json`,
+      `.agentify/session/${sessionId}/launches.jsonl`,
+      `.agentify/session/${sessionId}/turns.jsonl`,
+      `.agentify/session/${sessionId}/context-events.jsonl`,
+      `.agentify/session/${sessionId}/handoff.json`,
+      `.agentify/session/${sessionId}/handoff.md`,
+      `.agentify/session/${sessionId}/bootstrap.md`,
+      `.agentify/session/${sessionId}/transcript.md`,
+      `.agentify/session/${sessionId}/memory-context.md`,
+      `.agentify/session/${sessionId}/context-facts.json`,
+      `.agentify/session/${sessionId}/context-facts.md`,
+      `.agentify/session/${sessionId}/context-fetches.jsonl`,
     ],
     metadata: {
       modules_indexed: index?.modules?.length || 0,
@@ -425,7 +425,7 @@ export async function forkSession(root, config, options = {}) {
 }
 
 export async function listSessions(root) {
-  const sessionsDir = path.join(root, ".agents", "session");
+  const sessionsDir = path.join(root, ".agentify", "session");
   if (!(await exists(sessionsDir))) return [];
 
   const entries = await fs.readdir(sessionsDir, { withFileTypes: true });

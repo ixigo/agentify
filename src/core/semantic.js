@@ -772,7 +772,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
 
   const artifactRoot = options.artifactRoot || root;
   if (!config.dryRun) {
-    await ensureDir(path.join(artifactRoot, ".agents"));
+    await ensureDir(path.join(artifactRoot, ".agentify"));
   }
   const db = openIndexDatabase(artifactRoot);
   const { projects: discoveredProjects, repoIndex } = await discoverAllSemanticProjects(root, config);

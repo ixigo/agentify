@@ -29,7 +29,7 @@ agentify up
 
 What this gives you:
 
-- baseline Agentify repo artifacts (`.agentify.yaml`, `.agentify/work`, `.agentignore`, `.guardrails`)
+- baseline Agentify repo artifacts (`.agentify.yaml`, `.agentify/`, `.agentignore`, `.guardrails`)
 - all built-in Codex skill packs in `.codex/skills/`
 - fresh index/docs/check artifacts for deterministic task execution
 

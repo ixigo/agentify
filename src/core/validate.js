@@ -18,9 +18,8 @@ const ALLOWED_DOC_PATHS = [
   /^\.agentignore$/,
   /^\.guardrails$/,
   /^\.gitignore$/,
-  /^\.agentify\/work\//,
   /^docs\//,
-  /^\.agents\//,
+  /^\.agentify\//,
   /^\.codex(\/|$)/,
   /^\.claude(\/|$)/,
   /^\.gemini(\/|$)/,
@@ -38,7 +37,7 @@ export const FAILURE_CATEGORIES = {
 
 const REMEDIATION_HINTS = {
   [FAILURE_CATEGORIES.UNSAFE_PATH]:
-    "Only recognized Agentify paths (.agents/, docs/, generated AGENTIFY.md files, .agentify/work/, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
+    "Only recognized Agentify paths (.agentify/, docs/, generated AGENTIFY.md files, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
   [FAILURE_CATEGORIES.FRESHNESS_STALE]:
@@ -81,13 +80,13 @@ export function validateHeaderOnlyChange(before, after, filePath, headerWindow =
 
 async function validateFreshness(root, failures, options = {}) {
   const targetRoot = options.artifactRoot || root;
-  const indexPath = path.join(targetRoot, ".agents", "index.db");
+  const indexPath = path.join(targetRoot, ".agentify", "index.db");
   if (!(await exists(indexPath))) {
     failures.push(
       createFailure(
         FAILURE_CATEGORIES.FRESHNESS_STALE,
-        ".agents/index.db",
-        "missing .agents/index.db"
+        ".agentify/index.db",
+        "missing .agentify/index.db"
       )
     );
     return;
@@ -100,7 +99,7 @@ async function validateFreshness(root, failures, options = {}) {
       failures.push(
         createFailure(
           FAILURE_CATEGORIES.FRESHNESS_STALE,
-          ".agents/index.db",
+          ".agentify/index.db",
           `stale index head_commit: expected ${headCommit}, found ${meta.head_commit || "unknown"}`
         )
       );
@@ -131,7 +130,7 @@ async function validateFreshness(root, failures, options = {}) {
           failures.push(
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
-              ".agents/index.db",
+              ".agentify/index.db",
               `semantic project ${projectInfo.project_id} is ${projectInfo.status}`
             )
           );
@@ -140,7 +139,7 @@ async function validateFreshness(root, failures, options = {}) {
           failures.push(
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
-              ".agents/index.db",
+              ".agentify/index.db",
               `semantic project ${projectInfo.project_id} has partial coverage`
             )
           );
@@ -210,7 +209,7 @@ export async function validateRepo(root, config, options = {}) {
   const targetRoot = options.artifactRoot || root;
   const allFiles = (await walkFiles(targetRoot, { respectIgnore: true })).map((file) => relative(targetRoot, file));
   const unsafeGeneratedFiles = allFiles
-    .filter((file) => file.startsWith(".agents/") || file.startsWith("docs/"))
+    .filter((file) => file.startsWith(".agentify/") || file.startsWith("docs/"))
     .filter((file) => !isAllowedPath(file));
   for (const file of unsafeGeneratedFiles) {
     failures.push(
