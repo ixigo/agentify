@@ -220,12 +220,31 @@ test("loadAutomaticSessionMemory searches older sessions when the direct parent 
   ].join("\n"), "utf8");
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "new-task" });
-  const memory = await loadAutomaticSessionMemory(root, child.manifest, config, "why did we choose JSONL transcripts");
+  const emptyBinDir = path.join(root, "empty-bin");
+  await fs.mkdir(emptyBinDir, { recursive: true });
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = emptyBinDir;
+  process.env.AGENTIFY_MEMPALACE_CMD = path.join(root, "missing-mempalace");
+  try {
+    const memory = await loadAutomaticSessionMemory(root, child.manifest, config, "why did we choose JSONL transcripts");
 
-  assert.equal(memory.backend, "local-session-search");
-  assert.equal(memory.sourceSessionId, earlier.sessionId);
-  assert.match(memory.markdown, /Source transcript:/);
-  assert.match(memory.markdown, /JSONL transcripts because they append cleanly/);
+    assert.equal(memory.backend, "local-session-search");
+    assert.equal(memory.sourceSessionId, earlier.sessionId);
+    assert.match(memory.markdown, /Source transcript:/);
+    assert.match(memory.markdown, /JSONL transcripts because they append cleanly/);
+  } finally {
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
 });
 
 test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is available", async () => {
