@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { sanitizeManagerPlan, sanitizeModuleResponse } from "./agent-contract.js";
 import { buildManagerPrompt, buildManagerSchema, buildModulePrompt, buildModuleSchema } from "./prompts.js";
+import { buildProviderEnv } from "./provider-env.js";
 import { getProviderDefinition } from "./provider-registry.js";
 
 const DEFAULT_PROVIDER_TIMEOUT_MS = 120000;
@@ -339,7 +340,13 @@ export function parseOpenCodeJsonl(text) {
   return { output, usage };
 }
 
-export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS } = {}) {
+export async function runChild(command, args, {
+  cwd,
+  env = {},
+  providerEnv = {},
+  sourceEnv = process.env,
+  timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS,
+} = {}) {
   const stdoutChunks = [];
   const stderrChunks = [];
 
@@ -367,7 +374,7 @@ export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAU
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...buildProviderEnv(providerEnv, sourceEnv),
         ...env
       }
     });
@@ -409,7 +416,7 @@ export async function runChild(command, args, { cwd, env = {}, timeoutMs = DEFAU
   };
 }
 
-async function runCodexExec({ root, prompt, schema, model, timeoutMs }) {
+async function runCodexExec({ root, prompt, schema, model, providerEnv, timeoutMs }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   const schemaPath = path.join(tempDir, "schema.json");
   const outputPath = path.join(tempDir, "result.json");
@@ -435,14 +442,14 @@ async function runCodexExec({ root, prompt, schema, model, timeoutMs }) {
 
   args.push(prompt);
 
-  const { stdout } = await runChild("codex", args, { cwd: root, timeoutMs });
+  const { stdout } = await runChild("codex", args, { cwd: root, providerEnv, timeoutMs });
 
   const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
   const usage = parseCodexJsonl(stdout);
   return { output, usage };
 }
 
-async function runClaudeExec({ root, prompt, schema, model, timeoutMs }) {
+async function runClaudeExec({ root, prompt, schema, model, providerEnv, timeoutMs }) {
   const args = [
     "-p",
     "--output-format",
@@ -459,22 +466,21 @@ async function runClaudeExec({ root, prompt, schema, model, timeoutMs }) {
 
   args.push(prompt);
 
-  const { stdout } = await runChild("claude", args, { cwd: root, timeoutMs });
+  const { stdout } = await runChild("claude", args, { cwd: root, providerEnv, timeoutMs });
   return parseClaudeJson(stdout);
 }
 
 function buildGeminiExecEnv(env = process.env, homeDir = os.homedir()) {
   const credentialHome = env.GEMINI_CLI_HOME || homeDir;
   if (!credentialHome) {
-    return { ...env };
+    return {};
   }
   return {
-    ...env,
     HOME: credentialHome
   };
 }
 
-async function runGeminiExec({ root, prompt, model, timeoutMs, env = process.env, homeDir = os.homedir() }) {
+async function runGeminiExec({ root, prompt, model, providerEnv, timeoutMs, env = process.env, homeDir = os.homedir() }) {
   const args = [
     "-p",
     prompt,
@@ -489,12 +495,14 @@ async function runGeminiExec({ root, prompt, model, timeoutMs, env = process.env
   const { stdout } = await runChild("gemini", args, {
     cwd: root,
     env: buildGeminiExecEnv(env, homeDir),
+    providerEnv,
+    sourceEnv: env,
     timeoutMs
   });
   return parseGeminiJson(stdout);
 }
 
-async function runOpenCodeExec({ root, prompt, model, timeoutMs }) {
+async function runOpenCodeExec({ root, prompt, model, providerEnv, timeoutMs }) {
   const args = [
     "run",
     prompt,
@@ -508,7 +516,7 @@ async function runOpenCodeExec({ root, prompt, model, timeoutMs }) {
     args.push("--model", model);
   }
 
-  const { stdout } = await runChild("opencode", args, { cwd: root, timeoutMs });
+  const { stdout } = await runChild("opencode", args, { cwd: root, providerEnv, timeoutMs });
   return parseOpenCodeJsonl(stdout);
 }
 
@@ -593,6 +601,7 @@ function createExternalProvider(config, options) {
           prompt: buildManagerPrompt(repoContext),
           schema: buildManagerSchema(),
           model: config.model,
+          providerEnv: config.providerEnv,
           timeoutMs
         });
 
@@ -612,6 +621,7 @@ function createExternalProvider(config, options) {
           prompt,
           schema: buildModuleSchema(),
           model: config.model,
+          providerEnv: config.providerEnv,
           timeoutMs
         });
         const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));

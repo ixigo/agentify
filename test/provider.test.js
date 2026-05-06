@@ -44,6 +44,52 @@ test("runChild closes provider stdin when prompt is passed through argv", async 
   assert.equal(result.stdout, "stdin closed");
 });
 
+test("runChild sanitizes provider subprocess env by default", async () => {
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+
+  try {
+    const result = await runChild(process.execPath, [
+      "-e",
+      [
+        "process.stdout.write(JSON.stringify({",
+        "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
+        "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
+        "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
+        "}));",
+      ].join(""),
+    ], {
+      providerEnv: {
+        passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
+        extra: {
+          AGENTIFY_PROVIDER_EXTRA: "extra-value",
+        },
+      },
+      timeoutMs: 1000,
+    });
+
+    assert.deepEqual(JSON.parse(result.stdout), {
+      secret: null,
+      allowed: "allowed-value",
+      extra: "extra-value",
+    });
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+});
+
 test("external provider manager planning surfaces unavailable provider failures", async () => {
   const provider = createProvider("codex");
   const previousPath = process.env.PATH;

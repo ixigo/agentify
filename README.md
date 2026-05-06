@@ -240,7 +240,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Install built-in skills | `agentify skill install all --provider codex --scope project` |
 | Sync repo files after upgrade | `agentify sync` |
 
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Configure `tests.env.passthrough` / `tests.env.extra` (or `tests.env.inherit: true`) in `.agentify.yaml` if your tests need specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Provider-backed `run`, `sess`, and doc-generation subprocesses are sanitized too. Configure `tests.env.*` or `providerEnv.*` in `.agentify.yaml` when a command needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).
 
 ---
 
@@ -260,7 +260,7 @@ agentify sess resume --session <id> "write tests from the prepared compacted con
 
 Reported `prompt_bytes` and `session_context_bytes` are UTF-8 byte estimates for Agentify-managed material — **not** a provider token count or a guarantee about live provider context size.
 
-Routed artifacts are local/generated under `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test subprocess envs, but provider runs inherit the provider environment. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.passthrough` / `tests.env.extra` when needed.
+Routed artifacts are local/generated under `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test and provider subprocess envs by default. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.*` / `providerEnv.*` when needed.
 
 ---
 
@@ -303,7 +303,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded to the test subprocess; configure `tests.env.passthrough` / `tests.env.extra` (or set `tests.env.inherit: true`) in `.agentify.yaml` if a test suite needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded wholesale to test or provider subprocesses; configure `tests.env.*` / `providerEnv.*` in `.agentify.yaml` if a subprocess needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
 ## 📖 CLI Reference
 
 <details>
@@ -312,7 +312,8 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
-| `index` / `scan` | Build the SQLite repository index |
+| `index` | Build the SQLite repository index |
+| `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |
 | `up` | scan → optional doc → check → test pipeline |
 | `sync` | Upgrade repo-owned Agentify files, then refresh |
