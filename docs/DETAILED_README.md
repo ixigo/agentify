@@ -464,7 +464,7 @@ agentify run "add tests for retry backoff"
 agentify run --with-context "add tests for retry backoff"
 ```
 
-Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` starts a fresh provider task and sends a compact first prompt by default; add `--continue` to resume the provider's most recent session, or add `--with-context` when you want Agentify to build and inject the selected context.
+Use this for focused tasks where you want Agentify to refresh the repo afterward, but you do not need a named durable workstream. Interactive `run` starts a fresh provider task and sends a compact first prompt; run `agentify run` without a task to be prompted, or pass the task directly as `agentify run "task"`. Add `--continue` to resume the provider's most recent session, or add `--with-context` when you want Agentify to build and inject the selected context.
 
 If the task is large or you want to inspect the selected context first:
 

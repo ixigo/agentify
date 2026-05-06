@@ -291,11 +291,11 @@ test("buildMinimalRunPrompt keeps interactive run prompts compact", () => {
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
 });
 
-test("buildMinimalRunPrompt defaults empty run prompts to a fresh task", () => {
-  const prompt = buildMinimalRunPrompt("");
-
-  assert.match(prompt, /Task: Start a fresh implementation task/);
-  assert.doesNotMatch(prompt, /Task: Continue implementation/);
+test("buildMinimalRunPrompt rejects empty run tasks", () => {
+  assert.throws(
+    () => buildMinimalRunPrompt(""),
+    /requires a non-empty task/,
+  );
 });
 
 test("buildExecutionPrompt prepends caveman preamble for run prompts", () => {
@@ -405,6 +405,62 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   assert.doesNotMatch(prompt, /Planner summary/);
   assert.doesNotMatch(prompt, /Selected file slices/);
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
+test("runCli prompts for a task when run is invoked without one", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-prompt-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const questions = [];
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+    ], {
+      prompt: async (question) => {
+        questions.push(question);
+        return "Implement prompted task";
+      },
+    });
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.deepEqual(questions, ["Task: "]);
+  assert.match(prompt, /Task: Implement prompted task/);
+  assert.doesNotMatch(prompt, /Start a fresh implementation task/);
+});
+
+test("runCli rejects non-interactive bare run instead of inventing a task", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-empty-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  await assert.rejects(
+    () => runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+    ], {
+      prompt: async () => "",
+    }),
+    /requires a non-empty task/,
+  );
 });
 
 test("runCli resumes the provider session only with --continue", async () => {
@@ -808,6 +864,31 @@ test("runCli init preserves existing gitignore entries while adding Agentify ign
   assert.match(gitignore, /# >>> agentify generated artifacts/);
   assert.match(gitignore, /^AGENTIFY\.md$/m);
   assert.match(gitignore, /^output\.txt$/m);
+});
+
+test("runCli init updates gitignore Agentify block without dropping user additions", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-gitignore-merge-"));
+  await fs.writeFile(path.join(root, ".gitignore"), [
+    "node_modules/",
+    "",
+    "# >>> agentify generated artifacts",
+    ".agents/",
+    "local.env",
+    "# <<< agentify generated artifacts",
+    "",
+    "coverage-local/",
+    "",
+  ].join("\n"), "utf8");
+
+  await runCli(["init", "--root", root]);
+
+  const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
+  assert.match(gitignore, /^node_modules\/$/m);
+  assert.match(gitignore, /^coverage-local\/$/m);
+  assert.match(gitignore, /^local\.env$/m);
+  assert.match(gitignore, /^\.current_session\/$/m);
+  assert.match(gitignore, /^agentify-report\.html$/m);
+  assert.equal((gitignore.match(/^local\.env$/gm) || []).length, 1);
 });
 
 test("runCli generated artifacts stay out of git status after repo config is committed", async () => {

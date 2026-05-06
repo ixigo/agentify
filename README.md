@@ -126,7 +126,7 @@ agentify run "implement the retry backoff"
 agentify check
 ```
 
-Interactive `run` starts a fresh provider task with a compact prompt by default. Add `--continue` only when you want to resume the provider's most recent session. Use `--context-mode routed` when you want bounded retrieval guidance without full source excerpts. Add `--with-context` when you explicitly want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
+Interactive `run` starts a fresh provider task with a compact prompt. Run `agentify run` without a task to be prompted, or pass the task directly as `agentify run "task"`. Add `--continue` only when you want to resume the provider's most recent session. Use `--context-mode routed` when you want bounded retrieval guidance without full source excerpts. Add `--with-context` when you explicitly want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider message.
 
 ```bash
 agentify run --continue "finish the retry backoff"

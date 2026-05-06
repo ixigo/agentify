@@ -17,11 +17,21 @@ export const AGENTIFY_GITIGNORE_PATTERNS = [
   "agentify-report.html",
 ];
 
-export function renderAgentifyGitignoreBlock() {
+const AGENTIFY_GITIGNORE_HEADER =
+  "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.";
+
+function getManagedGitignoreLines() {
+  return [
+    AGENTIFY_GITIGNORE_HEADER,
+    ...AGENTIFY_GITIGNORE_PATTERNS,
+  ];
+}
+
+export function renderAgentifyGitignoreBlock(preservedLines = []) {
   return [
     AGENTIFY_GITIGNORE_START,
-    "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.",
-    ...AGENTIFY_GITIGNORE_PATTERNS,
+    ...getManagedGitignoreLines(),
+    ...preservedLines,
     AGENTIFY_GITIGNORE_END,
     "",
   ].join("\n");
@@ -31,18 +41,37 @@ function normalizeText(text) {
   return text.replace(/\r\n/g, "\n");
 }
 
+function collectPreservedBlockLines(blockText) {
+  const managedLines = new Set(getManagedGitignoreLines().map((line) => line.trim()));
+  const seen = new Set();
+  const preserved = [];
+
+  for (const line of String(blockText || "").split(/\n/)) {
+    const normalized = line.trim();
+    if (!normalized || managedLines.has(normalized) || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    preserved.push(line);
+  }
+
+  return preserved;
+}
+
 function applyAgentifyGitignoreBlock(existingText) {
   const normalized = normalizeText(existingText || "");
-  const block = renderAgentifyGitignoreBlock();
   const startIndex = normalized.indexOf(AGENTIFY_GITIGNORE_START);
   const endIndex = normalized.indexOf(AGENTIFY_GITIGNORE_END);
 
   if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
     const afterEnd = endIndex + AGENTIFY_GITIGNORE_END.length;
+    const blockText = normalized.slice(startIndex + AGENTIFY_GITIGNORE_START.length, endIndex);
+    const block = renderAgentifyGitignoreBlock(collectPreservedBlockLines(blockText));
     const nextText = `${normalized.slice(0, startIndex)}${block}${normalized.slice(afterEnd).replace(/^\n+/, "")}`;
     return nextText.endsWith("\n") ? nextText : `${nextText}\n`;
   }
 
+  const block = renderAgentifyGitignoreBlock();
   const prefix = normalized.trimEnd();
   if (!prefix) {
     return block;

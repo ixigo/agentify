@@ -1,5 +1,6 @@
 import path from "node:path";
 import process from "node:process";
+import { createInterface } from "node:readline/promises";
 
 import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
@@ -194,10 +195,41 @@ function getPromptFromArgs(args, startIndex) {
 }
 
 function buildRunPrompt(userPrompt) {
-  if (userPrompt) {
-    return userPrompt;
+  return String(userPrompt || "").trim();
+}
+
+async function promptForRunTask(runtime = {}) {
+  const ask = runtime.prompt || runtime.ask;
+  if (ask) {
+    return String(await ask("Task: ")).trim();
   }
-  return "Start a fresh implementation task in this repository using small, validated changes.";
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('agentify run requires a task. Pass one as `agentify run "task"`.');
+  }
+
+  const prompts = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    return String(await prompts.question("Task: ")).trim();
+  } finally {
+    prompts.close();
+  }
+}
+
+async function resolveRunTask(args, startIndex, runtime = {}) {
+  const task = buildRunPrompt(getPromptFromArgs(args, startIndex));
+  if (task) {
+    return task;
+  }
+
+  const promptedTask = await promptForRunTask(runtime);
+  if (!promptedTask) {
+    throw new Error('agentify run requires a non-empty task. Pass one as `agentify run "task"`.');
+  }
+  return promptedTask;
 }
 
 function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
@@ -233,6 +265,9 @@ export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = 
 
 export function buildMinimalRunPrompt(userPrompt, options = {}) {
   const task = buildRunPrompt(userPrompt);
+  if (!task) {
+    throw new Error("buildMinimalRunPrompt requires a non-empty task");
+  }
   const prompt = [
     "You are running inside an Agentify-prepared repository.",
     "Follow the user's task. Load repo docs or installed skills only when they are needed or explicitly invoked.",
@@ -486,7 +521,7 @@ export function parseArgs(argv) {
   return args;
 }
 
-export async function runCli(argv) {
+export async function runCli(argv, runtime = {}) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
 
@@ -602,7 +637,7 @@ export async function runCli(argv) {
       }
 
       case "run": {
-        const task = buildRunPrompt(getPromptFromArgs(args, 1));
+        const task = await resolveRunTask(args, 1, runtime);
         const caveman = resolveCavemanLevel(args);
         const usingTemplateCommand = !args._exec?.length;
         const providerOptions = {
