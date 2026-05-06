@@ -316,6 +316,38 @@ exit 1
   return scriptPath;
 }
 
+async function installFailingMineMemPalaceShim(binDir) {
+  const scriptPath = path.join(binDir, "mempalace");
+  await fs.writeFile(scriptPath, `#!/bin/sh
+set -eu
+if [ "$1" = "mine" ]; then
+  echo "mine failed" >&2
+  exit 42
+fi
+if [ "$1" = "search" ]; then
+  if [ ! -f "\${MEMPALACE_PALACE_PATH}/last-good-index.txt" ]; then
+    echo "No palace found at \${MEMPALACE_PALACE_PATH}"
+    exit 0
+  fi
+  cat <<'EOF'
+============================================================
+  Results for: "jsonl transcript decision"
+============================================================
+
+  [1] agentify / previous-good-index
+      Source: sess_previous.md
+      Match:  0.97
+
+      The previous good index still recalls JSONL transcript decisions.
+EOF
+  exit 0
+fi
+exit 1
+`, "utf8");
+  await fs.chmod(scriptPath, 0o755);
+  return scriptPath;
+}
+
 async function setupMemPalaceTestRepo() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mp-guard-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
@@ -388,6 +420,58 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result 
     const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
     assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when no result rows are present");
   } finally {
+    process.env.PATH = originalPath;
+    if (originalCmd === undefined) {
+      delete process.env.AGENTIFY_MEMPALACE_CMD;
+    } else {
+      process.env.AGENTIFY_MEMPALACE_CMD = originalCmd;
+    }
+  }
+});
+
+test("loadAutomaticRunMemory preserves the previous MemPalace index when refresh mining fails", async () => {
+  const { root, config } = await setupMemPalaceTestRepo();
+  const mempalaceDir = path.join(root, ".agents", "mempalace");
+  const palacePath = path.join(mempalaceDir, "palace");
+  const exportDir = path.join(mempalaceDir, "session-exports");
+  await fs.mkdir(palacePath, { recursive: true });
+  await fs.mkdir(exportDir, { recursive: true });
+  await fs.writeFile(path.join(palacePath, "last-good-index.txt"), "previous palace\n", "utf8");
+  await fs.writeFile(path.join(exportDir, "last-good-export.md"), "previous export\n", "utf8");
+  await fs.writeFile(path.join(mempalaceDir, "session-sync.json"), `${JSON.stringify({
+    schema_version: "1.0",
+    fingerprint: "stale-fingerprint",
+    transcript_count: 1,
+    updated_at: "2026-01-01T00:00:00.000Z",
+  }, null, 2)}\n`, "utf8");
+
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installFailingMineMemPalaceShim(binDir);
+
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  process.on("warning", onWarning);
+
+  const originalPath = process.env.PATH;
+  const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
+  process.env.PATH = `${binDir}:${originalPath}`;
+  delete process.env.AGENTIFY_MEMPALACE_CMD;
+  try {
+    const memory = await loadAutomaticRunMemory(root, "jsonl transcript decision", config);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(memory.backend, "mempalace");
+    assert.match(memory.markdown, /previous MemPalace index/);
+    assert.match(memory.markdown, /previous good index still recalls JSONL transcript decisions/);
+    assert.equal(await fs.readFile(path.join(palacePath, "last-good-index.txt"), "utf8"), "previous palace\n");
+    assert.equal(await fs.readFile(path.join(exportDir, "last-good-export.md"), "utf8"), "previous export\n");
+    assert.ok(warnings.some((warning) => (
+      warning.code === "AGENTIFY_MEMPALACE_DEGRADED"
+      && /refresh failed; keeping the previous index/.test(warning.message)
+    )));
+  } finally {
+    process.off("warning", onWarning);
     process.env.PATH = originalPath;
     if (originalCmd === undefined) {
       delete process.env.AGENTIFY_MEMPALACE_CMD;

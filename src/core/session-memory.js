@@ -409,9 +409,8 @@ function getMemPalacePaths(root) {
   };
 }
 
-async function syncMemPalaceSessionExports(root, transcripts) {
-  const { palacePath, exportDir, syncStatePath } = getMemPalacePaths(root);
-  const fingerprint = createHash("sha1")
+function createMemPalaceTranscriptFingerprint(transcripts) {
+  return createHash("sha1")
     .update(JSON.stringify(transcripts.map((item) => ({
       sessionId: item.sessionId,
       path: item.transcriptRelativePath,
@@ -419,22 +418,9 @@ async function syncMemPalaceSessionExports(root, transcripts) {
       size: item.size,
     }))))
     .digest("hex");
+}
 
-  let cachedState = null;
-  if (await exists(syncStatePath)) {
-    try {
-      cachedState = JSON.parse(await fs.readFile(syncStatePath, "utf8"));
-    } catch {
-      cachedState = null;
-    }
-  }
-
-  if (cachedState?.fingerprint === fingerprint && await exists(palacePath)) {
-    return { synced: true, fingerprint, palacePath, exportDir, cached: true };
-  }
-
-  await fs.rm(palacePath, { recursive: true, force: true });
-  await fs.rm(exportDir, { recursive: true, force: true });
+async function writeMemPalaceSessionExports(exportDir, transcripts) {
   await ensureDir(exportDir);
 
   for (const item of transcripts) {
@@ -449,8 +435,106 @@ async function syncMemPalaceSessionExports(root, transcripts) {
       "",
     ].join("\n"));
   }
+}
 
-  return { synced: false, fingerprint, palacePath, exportDir, syncStatePath, cached: false, transcriptCount: transcripts.length };
+async function syncMemPalaceSessionExports(root, transcripts) {
+  const { baseDir, palacePath, exportDir, syncStatePath } = getMemPalacePaths(root);
+  const fingerprint = createMemPalaceTranscriptFingerprint(transcripts);
+
+  let cachedState = null;
+  if (await exists(syncStatePath)) {
+    try {
+      cachedState = JSON.parse(await fs.readFile(syncStatePath, "utf8"));
+    } catch {
+      cachedState = null;
+    }
+  }
+
+  if (cachedState?.fingerprint === fingerprint && await exists(palacePath)) {
+    return { synced: true, fingerprint, palacePath, exportDir, cached: true };
+  }
+
+  await ensureDir(baseDir);
+  const refreshDir = await fs.mkdtemp(path.join(baseDir, "refresh-"));
+  const stagedPalacePath = path.join(refreshDir, "palace");
+  const stagedExportDir = path.join(refreshDir, "session-exports");
+  await writeMemPalaceSessionExports(stagedExportDir, transcripts);
+
+  return {
+    synced: false,
+    fingerprint,
+    palacePath: stagedPalacePath,
+    exportDir: stagedExportDir,
+    livePalacePath: palacePath,
+    liveExportDir: exportDir,
+    refreshDir,
+    syncStatePath,
+    cached: false,
+    transcriptCount: transcripts.length,
+  };
+}
+
+async function movePathIfExists(from, to) {
+  if (!(await exists(from))) {
+    return false;
+  }
+  await ensureDir(path.dirname(to));
+  await fs.rename(from, to);
+  return true;
+}
+
+async function replacePathIfExists(from, to, backupDir, backupName) {
+  const backupPath = path.join(backupDir, backupName);
+  const hadOriginal = await movePathIfExists(to, backupPath);
+  try {
+    const movedReplacement = await movePathIfExists(from, to);
+    if (!movedReplacement) {
+      if (hadOriginal) {
+        await movePathIfExists(backupPath, to);
+      }
+      throw new Error(`MemPalace refresh did not create replacement path: ${from}`);
+    }
+    return { hadOriginal, backupPath, targetPath: to, movedReplacement };
+  } catch (error) {
+    if (hadOriginal) {
+      await movePathIfExists(backupPath, to);
+    }
+    throw error;
+  }
+}
+
+async function promoteMemPalaceRefresh(sync) {
+  const backupDir = await fs.mkdtemp(path.join(path.dirname(sync.livePalacePath), "previous-"));
+  const promoted = [];
+
+  try {
+    promoted.push(await replacePathIfExists(sync.palacePath, sync.livePalacePath, backupDir, "palace"));
+    promoted.push(await replacePathIfExists(sync.exportDir, sync.liveExportDir, backupDir, "session-exports"));
+    await writeText(sync.syncStatePath, `${JSON.stringify({
+      schema_version: "1.0",
+      fingerprint: sync.fingerprint,
+      transcript_count: sync.transcriptCount,
+      updated_at: new Date().toISOString(),
+    }, null, 2)}\n`);
+  } catch (error) {
+    for (const entry of promoted.reverse()) {
+      if (!entry) {
+        continue;
+      }
+      if (entry.movedReplacement) {
+        await fs.rm(entry.targetPath, { recursive: true, force: true });
+      }
+      if (entry.hadOriginal) {
+        await movePathIfExists(entry.backupPath, entry.targetPath);
+      }
+    }
+    throw error;
+  } finally {
+    await fs.rm(backupDir, { recursive: true, force: true });
+    if (sync.refreshDir) {
+      await fs.rm(sync.refreshDir, { recursive: true, force: true });
+    }
+  }
 }
 
 async function runMemPalace(root, args, palacePath, command = process.env.AGENTIFY_MEMPALACE_CMD || "mempalace") {
@@ -506,6 +590,31 @@ async function resolveMemPalaceBinary() {
   return configured || await resolveCommandBinary("mempalace");
 }
 
+function inspectMemPalaceSearchOutput(stdout, config) {
+  const excerpt = clipToBytes(String(stdout || "").trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+  const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
+  const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
+  return {
+    excerpt,
+    hasResultRow,
+    hasErrorStdout,
+    usable: Boolean(excerpt && hasResultRow && !hasErrorStdout),
+  };
+}
+
+function emitMemPalaceDegradedWarning(reason, error = null) {
+  const detail = error?.message ? `: ${error.message}` : "";
+  process.emitWarning(`MemPalace session memory degraded: ${reason}${detail}`, {
+    code: "AGENTIFY_MEMPALACE_DEGRADED",
+  });
+}
+
+async function searchMemPalaceIndex(root, query, config, wing, palacePath, command) {
+  const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
+  const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath, command);
+  return inspectMemPalaceSearchOutput(stdout, config);
+}
+
 async function createMemPalaceBackend(root, query, config, sharedInventory = {}) {
   const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
   const command = sharedInventory.mempalaceBinary || await resolveMemPalaceBinary();
@@ -520,41 +629,75 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
 
       const wing = getRepoWing(root);
       const { palacePath, exportDir } = getMemPalacePaths(root);
-      try {
-        const sync = await syncMemPalaceSessionExports(root, transcripts);
-        if (!sync.cached) {
-          await runMemPalace(root, ["mine", exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], palacePath, command);
-          await writeText(sync.syncStatePath, `${JSON.stringify({
-            schema_version: "1.0",
-            fingerprint: sync.fingerprint,
-            transcript_count: sync.transcriptCount,
-            updated_at: new Date().toISOString(),
-          }, null, 2)}\n`);
-        }
-        const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
-        const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath, command);
-        const excerpt = clipToBytes(stdout.trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
-        const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
-        const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
-        if (!excerpt || hasErrorStdout || !hasResultRow) {
+      const recallFromIndex = async (targetPalacePath, targetExportDir, extraBullets = []) => {
+        const search = await searchMemPalaceIndex(root, query, config, wing, targetPalacePath, command);
+        if (search.hasErrorStdout) {
+          emitMemPalaceDegradedWarning("search reported a missing palace");
           return null;
         }
-
+        if (!search.usable) {
+          return null;
+        }
         return buildMemoryResult("mempalace", [{
           sessionId: null,
-          transcriptPath: exportDir,
-          transcriptRelativePath: relative(root, exportDir),
+          transcriptPath: targetExportDir,
+          transcriptRelativePath: relative(root, targetExportDir),
           score: Number.NaN,
-          excerpt,
+          excerpt: search.excerpt,
         }], [
           `- Query: ${query}`,
           `- Wing: ${wing}`,
           "- Source: repo-local MemPalace session export index.",
+          ...extraBullets,
         ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+      };
+
+      try {
+        const sync = await syncMemPalaceSessionExports(root, transcripts);
+        if (sync.cached) {
+          return await recallFromIndex(sync.palacePath, sync.exportDir);
+        }
+
+        let refreshReady = false;
+        try {
+          await runMemPalace(root, ["mine", sync.exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], sync.palacePath, command);
+          const stagedSearch = await searchMemPalaceIndex(root, query, config, wing, sync.palacePath, command);
+          if (stagedSearch.hasErrorStdout) {
+            emitMemPalaceDegradedWarning("refreshed index search reported a missing palace");
+          } else if (stagedSearch.usable) {
+            await promoteMemPalaceRefresh(sync);
+            refreshReady = true;
+            return buildMemoryResult("mempalace", [{
+              sessionId: null,
+              transcriptPath: sync.liveExportDir,
+              transcriptRelativePath: relative(root, sync.liveExportDir),
+              score: Number.NaN,
+              excerpt: stagedSearch.excerpt,
+            }], [
+              `- Query: ${query}`,
+              `- Wing: ${wing}`,
+              "- Source: repo-local MemPalace session export index.",
+            ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+          }
+        } catch (error) {
+          emitMemPalaceDegradedWarning("refresh failed; keeping the previous index", error);
+        } finally {
+          if (!refreshReady) {
+            await fs.rm(sync.refreshDir, { recursive: true, force: true });
+          }
+        }
+
+        if (await exists(palacePath)) {
+          return await recallFromIndex(palacePath, exportDir, [
+            "- Note: using the previous MemPalace index because refresh did not produce a usable replacement.",
+          ]);
+        }
+        return null;
       } catch (error) {
         if (error?.code === "ENOENT") {
           return null;
         }
+        emitMemPalaceDegradedWarning("runtime failure", error);
         return null;
       }
     },
