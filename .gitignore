@@ -1,9 +1,6 @@
 node_modules/
 .current_session/
-.agents/session/
-.agents/cache/
-.agents/.lock
-.agents/*
+.agentify/
 .claude/*
 *.tmp
 .codex/*
