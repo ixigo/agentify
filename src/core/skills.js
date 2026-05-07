@@ -81,7 +81,7 @@ const BUILTIN_SKILLS = [
     name: "issue-killer",
     aliases: ["gh-issue-killer"],
     description:
-      "Launch opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude agent prompt. Provider permission bypass is available only through an explicit issue-killer opt-in.",
+      "Launch opted-in GitHub issues into supervised tmux panes, each with its own Worktrunk worktree and Codex or Claude agent prompt. Provider permission bypass runs by default and is called out in each pane prompt.",
   },
   {
     name: "jira",

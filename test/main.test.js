@@ -170,6 +170,18 @@ test("parseArgs treats issue-killer bypass permissions as a boolean flag", () =>
   assert.equal(args.label, "agentify-ready");
 });
 
+test("parseArgs allows issue-killer bypass permissions to be disabled explicitly", () => {
+  const args = parseArgs([
+    "issue-killer",
+    "--bypass-permissions=false",
+    "--label",
+    "agentify-ready",
+  ]);
+
+  assert.equal(args.bypassPermissions, false);
+  assert.equal(args.label, "agentify-ready");
+});
+
 test("parseArgs and config resolve context mode explicitly", () => {
   const args = parseArgs(["run", "--context-mode", "routed", "implement login"]);
 
