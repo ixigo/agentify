@@ -438,6 +438,10 @@ section.shell:last-of-type { border-bottom: none; }
   gap: 12px;
 }
 
+.stacked-grid {
+  margin-top: 16px;
+}
+
 .move, .inventory-item, .command-card {
   padding: 20px;
   background: var(--surface);
