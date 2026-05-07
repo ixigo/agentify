@@ -175,27 +175,18 @@ function getCaptureBufferMaxBytes(config) {
   return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
-function normalizeCommandForDisplay(argv) {
-  if (!Array.isArray(argv) || argv.length === 0) {
-    return "";
-  }
-
-  return argv.map((part) => {
-    const text = String(part);
-    if (!/[\s"'\\]/.test(text)) {
-      return text;
-    }
-    return `"${text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
-  }).join(" ");
-}
-
 function summarizeProviderCommand(argv) {
   const parts = Array.isArray(argv) ? argv.map(String) : [];
+  const executable = parts[0] || null;
+  const argc = parts.length;
+
   return {
-    executable: parts[0] || null,
-    argv: parts,
-    argc: parts.length,
-    display: normalizeCommandForDisplay(parts),
+    executable,
+    argc,
+    argv_redacted: true,
+    display: executable
+      ? `${executable} [argv redacted; argc=${argc}]`
+      : `[argv redacted; argc=${argc}]`,
   };
 }
 
