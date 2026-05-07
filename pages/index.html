@@ -13,6 +13,7 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
+        <a href="run.html">run</a>
         <a href="session.html">session</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
@@ -35,14 +36,16 @@
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
-          <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>routes unlocked</span>
+          <span>run + sessions</span>
         </div>
-<pre><span class="c"># durable campaign state</span>
-<span class="a">agentify sess run --name "checkout-retries"</span>
+<pre><span class="c"># provider launch loadout</span>
+<span class="a">agentify run "add checkout retry tests"</span>
+
+<span class="c"># durable campaign state</span>
+agentify sess run --name "checkout-retries"
 agentify sess resume --session &lt;id&gt;
-agentify sess fork --from &lt;id&gt;
-agentify sess list</pre>
+agentify sess fork --from &lt;id&gt;</pre>
       </aside>
     </div>
   </header>
@@ -51,10 +54,16 @@ agentify sess list</pre>
     <section class="shell">
       <div class="container">
         <span class="section-label">available routes</span>
-        <h2>The first command page sets the <span class="accent">pattern.</span></h2>
-        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
+        <h2>Each command page follows the <span class="accent">route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what context it sends, and what state it creates.</p>
 
         <div class="command-grid">
+          <a class="command-card" href="run.html">
+            <span class="tag">provider launch</span>
+            <h3>Run command</h3>
+            <p>Use <code>agentify run</code> as a provider loadout selector: fresh task, interactive launch, provider resume, routed context, selected context, explain-plan, and caveman output.</p>
+            <span class="cmd">agentify run --with-context "write retry tests"</span>
+          </a>
           <a class="command-card" href="session.html">
             <span class="tag">durable work</span>
             <h3>Session command</h3>
