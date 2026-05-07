@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Session command</title>
+  <meta name="description" content="Learn the agentify sess workflow: run, resume, fork, list, and the durable session artifacts created under .agentify/session.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="./">commands</a>
+        <a href="#moves">moves</a>
+        <a href="#artifacts">artifacts</a>
+        <span class="pill">sess</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">agentify sess</span>
+        <h1>Your workstream has a <span class="accent">save file.</span></h1>
+        <p class="lede">Sessions turn a provider-backed task into durable campaign state. Start a run, resume later with the same context, fork from an earlier path, or hand the next agent a compact bundle.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#moves">learn moves</a>
+          <a class="cta cta-secondary" href="./">command index</a>
+        </div>
+        <div class="hero-meta">
+          <span>state root <code>.agentify/session/&lt;id&gt;/</code></span>
+          <span>alias <code>agentify session</code></span>
+          <span>subcommands run · resume · fork · list</span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="Session command quick start">
+        <div class="terminal-top">
+          <span>campaign start</span>
+          <span>provider backed</span>
+        </div>
+<pre><span class="c"># Start a named workstream</span>
+<span class="a">agentify sess run --provider codex --name "checkout-retries"</span>
+
+<span class="c"># Continue from saved Agentify session context</span>
+agentify sess resume --session &lt;session-id&gt; "finish the implementation"
+
+<span class="c"># Write a cross-agent handoff bundle</span>
+agentify handoff --session &lt;session-id&gt; "handoff for the next agent"</pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">mental model</span>
+        <h2>A session is a campaign <span class="accent">checkpoint.</span></h2>
+        <p class="section-lede">The command wraps provider launches with local state. Agentify records enough structure for the next launch to know where the work started, what context was selected, and what artifacts were generated.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">save file</div>
+            <p><code>agentify sess run</code> creates <code>.agentify/session/&lt;id&gt;/</code>, a manifest, bounded context, a checklist, and optional markdown bootstrap files before launching the provider.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">load game</div>
+            <p><code>agentify sess resume</code> rehydrates an existing session by ID, rebuilds the provider prompt from saved bootstrap/context, and appends the new task to the same workstream.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">new route</div>
+            <p><code>agentify sess fork</code> starts a child route from a parent session, carrying forward selected checklist and run history while keeping the new session path separate.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">inventory</div>
+            <p><code>agentify sess list</code> shows known sessions with ID, provider, and creation time, so completions and handoffs can target the right run.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="moves">
+      <div class="container">
+        <span class="section-label">moves</span>
+        <h2>The four session moves cover the <span class="accent">loop.</span></h2>
+        <p class="section-lede">Use these commands when one provider turn is not enough and you want Agentify-managed continuity instead of relying only on provider history.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">start</span>
+            <h3>Run a new session</h3>
+            <p>Creates a fresh session unless <code>--session</code> points at an existing one. Use <code>--name</code> for a readable label and <code>--provider</code> to pin the agent host.</p>
+            <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
+          </div>
+          <div class="move">
+            <span class="tag">continue</span>
+            <h3>Resume by ID</h3>
+            <p>Loads <code>session-manifest.json</code>, <code>context.json</code>, and <code>bootstrap.md</code>. If no task is provided, the provider is instructed to continue from the latest repository state.</p>
+            <span class="cmd">agentify sess resume --session &lt;session-id&gt; "finish the tests"</span>
+          </div>
+          <div class="move">
+            <span class="tag">branch</span>
+            <h3>Fork from a parent</h3>
+            <p>Creates a separate child session from <code>--from</code>. This is useful when a workstream splits into an experiment, review path, or handoff branch.</p>
+            <span class="cmd">agentify sess fork --from &lt;session-id&gt; --name "payments-v2-review"</span>
+          </div>
+          <div class="move">
+            <span class="tag">inspect</span>
+            <h3>List saved sessions</h3>
+            <p>Prints recent session IDs, provider names, and creation timestamps. With JSON output enabled, the command returns the full manifest list.</p>
+            <span class="cmd">agentify sess list</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">route map</span>
+        <h2>How a session moves through <span class="accent">state.</span></h2>
+        <p class="section-lede">The session flow is deliberately file-backed and local. Nothing becomes durable unless Agentify writes it into the session directory.</p>
+
+        <div class="map panel" aria-label="Session workflow map">
+          <div class="node active">
+            <strong>create</strong>
+            <span>manifest + context</span>
+          </div>
+          <div class="node">
+            <strong>launch</strong>
+            <span>provider prompt</span>
+          </div>
+          <div class="node">
+            <strong>record</strong>
+            <span>turns + transcript</span>
+          </div>
+          <div class="node">
+            <strong>compact</strong>
+            <span>context facts</span>
+          </div>
+          <div class="node">
+            <strong>resume</strong>
+            <span>same session id</span>
+          </div>
+          <div class="node">
+            <strong>fork</strong>
+            <span>child session id</span>
+          </div>
+          <div class="node">
+            <strong>handoff</strong>
+            <span>json + markdown</span>
+          </div>
+          <div class="node">
+            <strong>prepare child</strong>
+            <span>threshold based</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="artifacts">
+      <div class="container">
+        <span class="section-label">inventory</span>
+        <h2>Artifacts under <span class="accent">.agentify/session/&lt;id&gt;/</span></h2>
+        <p class="section-lede">The manifest names the session and provider. The context files keep the launch bounded. Runtime records capture what happened after the provider starts.</p>
+
+        <div class="artifact-list">
+          <div class="artifact">
+            <strong>session-manifest.json</strong>
+            <span>Session ID, parent/fork IDs, provider, name, creation time, index snapshot, and cache refs.</span>
+          </div>
+          <div class="artifact">
+            <strong>context.json</strong>
+            <span>Fitted snapshot with module IDs, checklist summary, run history, rolling summary, and artifact refs.</span>
+          </div>
+          <div class="artifact">
+            <strong>checklist.json</strong>
+            <span>Structured task checklist carried from a parent session when the new run is forked.</span>
+          </div>
+          <div class="artifact">
+            <strong>bootstrap.md</strong>
+            <span>Markdown launch brief generated from the bounded context when markdown artifacts are enabled.</span>
+          </div>
+          <div class="artifact">
+            <strong>transcript.md</strong>
+            <span>Readable run transcript used by automatic session memory and future recall.</span>
+          </div>
+          <div class="artifact">
+            <strong>memory-context.md</strong>
+            <span>Automatic memory excerpt attached to the launch when prior session memory is available.</span>
+          </div>
+          <div class="artifact">
+            <strong>launches.jsonl</strong>
+            <span>Provider launch records, including the redacted command, provider, capture mode, and prompt metadata.</span>
+          </div>
+          <div class="artifact">
+            <strong>turns.jsonl</strong>
+            <span>Structured turn records used for replay, recall, and managed-context estimates.</span>
+          </div>
+          <div class="artifact">
+            <strong>context-events.jsonl</strong>
+            <span>Context fetch and routing events emitted during the session workflow.</span>
+          </div>
+          <div class="artifact">
+            <strong>context-facts.json</strong>
+            <span>Compacted structured facts extracted from session state when context compaction runs.</span>
+          </div>
+          <div class="artifact">
+            <strong>context-facts.md</strong>
+            <span>Markdown version of compacted context facts for humans and provider prompts.</span>
+          </div>
+          <div class="artifact">
+            <strong>handoff.json / handoff.md</strong>
+            <span>Cross-agent bundle written by <code>agentify handoff --session &lt;id&gt;</code>.</span>
+          </div>
+        </div>
+
+        <div class="docs-strip">
+          <p>Session IDs are validated before path resolution, and session directories are kept under <code>.agentify/session/</code>.</p>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/session.js">session source</a>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/README.md">readme</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify session command</span>
+      <span><a href="./">commands</a> · <a href="../index.html">home</a></span>
+    </div>
+  </footer>
+</body>
+</html>
