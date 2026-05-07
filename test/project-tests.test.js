@@ -307,6 +307,36 @@ test("runProjectTests bounds captured stdout and stderr and reports truncation",
   assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
 });
 
+test("runProjectTests redacts secrets from captured stdout and stderr before reporting", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-output-redaction-"));
+  const scriptPath = path.join(root, "emit-secret-output.js");
+  const stdoutSecret = "sk-live-secret12345";
+  const stderrSecret = "eyJhbGciOiJIUzI1NiJ9.secret";
+
+  await fs.writeFile(scriptPath, `
+    process.stdout.write("stdout context OPENAI_API_KEY=${stdoutSecret}\\n");
+    process.stderr.write("stderr context Authorization: Bearer ${stderrSecret}\\n");
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-output-redaction",
+    scripts: { test: "node emit-secret-output.js" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+  const sections = reporter.sections.map((section) => section.body).join("\n");
+
+  assert.equal(result.status, "passed");
+  assert.doesNotMatch(result.stdout, new RegExp(stdoutSecret));
+  assert.doesNotMatch(result.stderr, new RegExp(stderrSecret));
+  assert.doesNotMatch(sections, new RegExp(stdoutSecret));
+  assert.doesNotMatch(sections, new RegExp(stderrSecret));
+  assert.match(result.stdout, /stdout context OPENAI_API_KEY=\[REDACTED\]/);
+  assert.match(result.stderr, /stderr context Authorization: Bearer \[REDACTED\]/);
+  assert.match(sections, /\[REDACTED\]/);
+  assert.deepEqual(reporter.tests, result);
+});
+
 test("runProjectTests times out a hanging test command", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-timeout-"));
   const scriptPath = path.join(root, "hang.js");
