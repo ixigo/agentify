@@ -239,8 +239,6 @@ h3 {
 }
 
 .hero-grid {
-  width: 100%;
-  max-width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.75fr);
   gap: 42px;
@@ -443,12 +441,11 @@ section.shell:last-of-type { border-bottom: none; }
   gap: 12px;
 }
 
-.move, .inventory-item, .command-card, .tool-card, .safety-card {
 .stacked-grid {
   margin-top: 16px;
 }
 
-.move, .inventory-item, .command-card {
+.move, .inventory-item, .command-card, .tool-card, .safety-card {
   padding: 20px;
   background: var(--surface);
   border: 1px solid var(--rule);
@@ -765,6 +762,67 @@ section.shell:last-of-type { border-bottom: none; }
   color: var(--accent);
 }
 
+.page-nav {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.page-nav .nav-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 120ms, background 120ms, transform 120ms;
+}
+
+.page-nav .nav-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.page-nav .nav-btn .nav-dir {
+  color: var(--faint);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page-nav .nav-btn .nav-title {
+  color: var(--ink);
+  font: 600 14px/1.3 var(--sans);
+}
+
+.page-nav .nav-btn:hover .nav-title { color: var(--accent); }
+
+.page-nav .nav-btn.next { text-align: right; align-items: flex-end; }
+.page-nav .nav-btn.prev::before { content: "\2190 prev"; }
+.page-nav .nav-btn.next::before { content: "next \2192"; }
+.page-nav .nav-btn::before {
+  color: var(--accent);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.page-nav .nav-btn.placeholder {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (max-width: 620px) {
+  .page-nav { grid-template-columns: 1fr; }
+  .page-nav .nav-btn.next { text-align: left; align-items: flex-start; }
+}
+
 footer {
   padding: 28px 0 80px;
   border-top: 1px solid var(--rule);
@@ -816,30 +874,16 @@ footer a:hover { color: var(--accent); }
   }
 
   .container {
-    margin-left: 0;
-    margin-right: 0;
     width: min(100%, 390px);
     max-width: 100vw;
-  }
-
-  .container {
-    width: 100%;
-    max-width: 100%;
-    overflow: hidden;
-  .container {
-    width: calc(100vw - 32px);
-    max-width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding: 0;
-    width: min(390px, 100%);
-    margin-left: 0;
-    margin-right: 0;
+    padding: 0 16px;
   }
 
   header .container > *,
   section.shell .container > * {
-    max-width: min(358px, 100%);
+    max-width: 100%;
   }
 
   nav .container {
@@ -882,32 +926,11 @@ footer a:hover { color: var(--accent); }
     grid-template-columns: 1fr;
   }
 
-  .hero-meta span {
-    display: block;
-    position: relative;
-    padding-left: 14px;
-  }
-
-  .hero-meta span::before {
-    position: absolute;
-    left: 0;
-    top: 0.75em;
-    width: 100%;
-  }
-
   .hero-grid,
   .hero-grid > *,
   .terminal {
     width: 100%;
-    max-width: calc(100vw - 32px);
-  }
-
-  .hero-grid > div {
     max-width: 100%;
-  }
-
-  .container.hero-grid {
-    width: min(100%, 390px);
   }
 
   .lede,
@@ -916,15 +939,9 @@ footer a:hover { color: var(--accent); }
     overflow-wrap: anywhere;
   }
 
-  h2 {
-    max-width: 100%;
-    overflow-wrap: anywhere;
-    max-width: 31ch;
-    overflow-wrap: anywhere;
-  }
-
   .terminal-top {
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .campaign-row,
@@ -943,37 +960,12 @@ footer a:hover { color: var(--accent); }
   .inventory-item,
   .command-card,
   .tool-card,
-  .safety-card {
+  .safety-card,
   .level-card,
   .warning-panel {
     padding: 16px;
   }
 
-  pre {
-    font-size: 11px;
-  .terminal,
-  .campaign,
-  .move-grid,
-  .inventory-grid,
-  .docs-strip {
-    width: 100%;
-    max-width: 100%;
-  .terminal-top {
-    flex-wrap: wrap;
-  }
-
-  pre {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-
-  .tool-head {
-    align-items: flex-start;
-    flex-direction: column;
-  .cmd {
-    white-space: normal;
-  pre,
-  .cmd {
   .meter-track {
     grid-template-columns: 1fr;
   }
@@ -989,7 +981,13 @@ footer a:hover { color: var(--accent); }
   }
 
   pre {
+    font-size: 11px;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .cmd {
+    white-space: normal;
     overflow-wrap: anywhere;
   }
 }

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Maintenance commands</title>
-  <meta name="description" content="Learn Agentify maintenance commands for hooks, semantic facts, cleanup, cache, and reserved memory helpers.">
+  <meta name="description" content="agentify hooks, semantic, clean, cache, memory — the toolshed for managed state. Verified flags from src/main.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,9 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="#toolshed">toolshed</a>
-        <a href="#safety">safety</a>
+        <a href="index.html">commands</a>
+        <a href="planning.html">planning</a>
+        <a href="afk.html">afk</a>
         <span class="pill">maintenance</span>
       </div>
     </div>
@@ -25,200 +25,133 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify maintenance</span>
-        <h1>Keep the workshop <span class="accent">playable.</span></h1>
-        <p class="lede">Maintenance commands are the toolshed for repo health: install guards, refresh semantic map data, preview cleanup, inspect cache growth, and understand the reserved memory helper before using it in scripts.</p>
+        <h1>The toolshed for <span class="accent">managed state.</span></h1>
+        <p class="lede">Five command groups keep the repo's Agentify state healthy: <code>hooks</code>, <code>semantic</code>, <code>clean</code>, <code>cache</code>, and the placeholder <code>memory</code>. All dispatched in <code>src/main.js</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#toolshed">open toolshed</a>
-          <a class="cta cta-secondary" href="./">command index</a>
+          <a class="cta cta-primary" href="#commands">commands</a>
+          <a class="cta cta-secondary" href="afk.html">next: afk</a>
         </div>
         <div class="hero-meta">
-          <span>commands <code>hooks</code> · <code>semantic</code> · <code>clean</code></span>
-          <span>cache inventory first</span>
-          <span>memory compress reserved</span>
+          <span>hooks <code>src/core/hooks.js</code></span>
+          <span>semantic <code>src/core/semantic.js</code></span>
+          <span>cleanup <code>src/core/cleanup.js</code></span>
+          <span>cache <code>src/core/cache.js</code></span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Maintenance command quick start">
+      <aside class="terminal" aria-label="Maintenance quick start">
         <div class="terminal-top">
-          <span>safe route</span>
-          <span>inspect before prune</span>
+          <span>maintenance quick start</span>
+          <span>5 groups</span>
         </div>
-<pre><span class="c"># Check guards and generated state first</span>
+<pre><span class="c"># inspect installed git hooks</span>
 <span class="a">agentify hooks status</span>
-agentify cache status
-agentify clean --dry-run
 
-<span class="c"># Then perform intentional maintenance</span>
-agentify hooks install
+<span class="c"># refresh semantic TS/JS facts</span>
 agentify semantic refresh
-agentify cache gc --max-age 14</pre>
+
+<span class="c"># prune planned + sessions, dry-run first</span>
+agentify clean --planned --sessions --dry-run
+
+<span class="c"># cache size and gc</span>
+agentify cache status
+agentify cache gc --max-age 7</pre>
       </aside>
     </div>
   </header>
 
   <main>
+    <section class="shell" id="commands">
+      <div class="container">
+        <span class="section-label">commands</span>
+        <h2>Each group has its own <span class="accent">subcommand surface.</span></h2>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">git hooks</span>
+            <h3>hooks &lt;install|remove|status&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:968</code>; <code>installHooks</code>, <code>removeHooks</code>, <code>statusHooks</code> in <code>src/core/hooks.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Writes:</strong> <code>.git/hooks/post-commit</code>, <code>.git/hooks/post-merge</code>. Status returns a hook → boolean map.</p>
+            <span class="cmd">agentify hooks install</span>
+          </div>
+          <div class="move">
+            <span class="tag">facts</span>
+            <h3>semantic refresh</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:1007</code> · <code>runSemanticRefresh(root, config)</code>.</p>
+            <p><strong>Flags:</strong> <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Writes:</strong> semantic tables in <code>.agentify/index.db</code> (TS/JS symbols, exports, imports).</p>
+            <span class="cmd">agentify semantic refresh --json</span>
+          </div>
+          <div class="move">
+            <span class="tag">prune</span>
+            <h3>clean</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:1014</code> · <code>runClean(root, config, { planned, sessions, all })</code> in <code>src/core/cleanup.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--planned</code>, <code>--sessions</code>, <code>--all</code>, <code>--dry-run</code>, <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Deletes:</strong> entries under <code>.agentify/planned/</code>, <code>.agentify/session/</code>, <code>.agentify/runs/</code> based on flags. <code>--all</code> includes optional groups.</p>
+            <span class="cmd">agentify clean --all --dry-run</span>
+          </div>
+          <div class="move">
+            <span class="tag">content cache</span>
+            <h3>cache &lt;gc|status&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:1045</code>; <code>garbageCollect(cacheRoot, maxAge)</code> and <code>cacheStatus(cacheRoot)</code> in <code>src/core/cache.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--max-age &lt;days&gt;</code> (default 7), <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Reads/writes:</strong> <code>.agentify/cache/</code>. Status returns blob count and total size.</p>
+            <span class="cmd">agentify cache gc --max-age 14</span>
+          </div>
+          <div class="move">
+            <span class="tag">placeholder</span>
+            <h3>memory compress &lt;file&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:859</code>.</p>
+            <p><strong>Flags:</strong> <code>--root</code>, <code>--json</code>.</p>
+            <p>Currently a placeholder; requires the <code>caveman-compress</code> skill. The path resolves but the operation is reserved for future use.</p>
+            <span class="cmd">agentify memory compress notes.md</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="shell">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>Five tools, one <span class="accent">maintenance loop.</span></h2>
-        <p class="section-lede">Treat these commands like workshop mechanics. Check the room, preview the sweep, then run only the cleanup or refresh that matches the state you saw.</p>
+        <span class="section-label">notes</span>
+        <h2>Operational <span class="accent">notes.</span></h2>
 
         <div class="campaign">
           <div class="campaign-row">
-            <div class="key">guards</div>
-            <p><code>agentify hooks</code> manages repo-local Git hooks. The managed pre-commit hook runs <code>agentify check --hook</code>, and the post-merge hook refreshes scan/doc state with the local provider.</p>
+            <div class="key">hooks</div>
+            <p>Hooks are managed; running <code>install</code> repeatedly is idempotent. <code>remove</code> reverses the install. <code>status</code> never writes.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">map data</div>
-            <p><code>agentify semantic refresh</code> rebuilds TypeScript/JavaScript semantic facts for configured projects so query, planner, and docs output have fresher symbol surfaces.</p>
+            <div class="key">semantic</div>
+            <p>Run <code>semantic refresh</code> after large refactors. <code>up</code> already refreshes facts; <code>semantic refresh</code> targets the semantic tables only.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">inventory</div>
-            <p><code>agentify clean</code> prunes stale generated artifacts, old run outputs, invalid session folders, optional AFK artifacts, empty Agentify folders, and expired cache blobs.</p>
+            <div class="key">clean</div>
+            <p>Always pair with <code>--dry-run</code> first. Without any group flag the command reports the available groups and exits.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">cache bin</div>
-            <p><code>agentify cache</code> inspects or garbage-collects the content cache under <code>.agentify/cache/</code> without deleting the full index or documentation set.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">reserved</div>
-            <p><code>agentify memory compress</code> is intentionally a placeholder. It returns <code>not_implemented</code> and points to the future <code>caveman-compress</code> skill instead of compressing files today.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="toolshed">
-      <div class="container">
-        <span class="section-label">toolshed</span>
-        <h2>Use the right tool for the <span class="accent">right room.</span></h2>
-        <p class="section-lede">Each command family has a small supported surface. Unsupported subcommands fail fast, so scripts should call the exact routes shown here.</p>
-
-        <div class="tool-grid">
-          <article class="tool-card" id="hooks">
-            <div class="tool-head">
-              <span class="tag">guards</span>
-              <h3>hooks</h3>
-            </div>
-            <p>Install, inspect, or remove Agentify-managed Git hooks. Use this when contributors should get automatic local guardrails around commits and merges.</p>
-            <ul class="plain-list">
-              <li><code>install</code> writes enabled managed hooks into <code>.git/hooks/</code>.</li>
-              <li><code>status</code> reports managed <code>preCommit</code> and <code>postMerge</code> state.</li>
-              <li><code>remove</code> strips only Agentify-managed hook blocks.</li>
-            </ul>
-            <span class="cmd">agentify hooks status</span>
-            <span class="cmd">agentify hooks install</span>
-            <span class="cmd">agentify hooks remove</span>
-          </article>
-
-          <article class="tool-card" id="semantic">
-            <div class="tool-head">
-              <span class="tag">map upgrade</span>
-              <h3>semantic</h3>
-            </div>
-            <p>Refresh semantic TS/JS project facts after source or configuration changes. The command supports only the refresh route.</p>
-            <ul class="plain-list">
-              <li><code>refresh</code> rebuilds semantic snapshots and updates indexed facts.</li>
-              <li><code>doctor --semantic</code> is the inspection companion for stale or failing semantic projects.</li>
-              <li>Any other semantic subcommand is rejected by the dispatcher.</li>
-            </ul>
-            <span class="cmd">agentify semantic refresh</span>
-            <span class="cmd">agentify doctor --semantic</span>
-            <span class="cmd">agentify doctor --semantic --json --fail-on-stale</span>
-          </article>
-
-          <article class="tool-card" id="clean">
-            <div class="tool-head">
-              <span class="tag">sweep preview</span>
-              <h3>clean</h3>
-            </div>
-            <p>Prune generated artifacts that Agentify can classify as stale or invalid. Preview first, then widen the cleanup with optional groups only when the report matches your intent.</p>
-            <ul class="plain-list">
-              <li><code>--dry-run</code> reports paths and cache blob counts without deleting them.</li>
-              <li><code>--planned</code> includes AFK plan markdown under <code>.agentify/planned/</code>.</li>
-              <li><code>--sessions</code> includes AFK session folders; <code>--all</code> includes both optional groups.</li>
-            </ul>
-            <span class="cmd">agentify clean --dry-run</span>
-            <span class="cmd">agentify clean --planned --sessions --dry-run</span>
-            <span class="cmd">agentify clean --planned --sessions</span>
-          </article>
-
-          <article class="tool-card" id="cache">
-            <div class="tool-head">
-              <span class="tag">inventory bin</span>
-              <h3>cache</h3>
-            </div>
-            <p>Inspect cache size before garbage collection. Use cache GC when you want to trim blobs without running the broader cleanup path.</p>
-            <ul class="plain-list">
-              <li><code>status</code> prints blob count and total size, or JSON with <code>--json</code>.</li>
-              <li><code>gc</code> removes unreferenced blobs after the configured max age.</li>
-              <li><code>--max-age</code> overrides the default cache age window for one GC run.</li>
-            </ul>
-            <span class="cmd">agentify cache status</span>
-            <span class="cmd">agentify cache status --json</span>
-            <span class="cmd">agentify cache gc --max-age 14</span>
-          </article>
-
-          <article class="tool-card is-reserved" id="memory">
-            <div class="tool-head">
-              <span class="tag">reserved slot</span>
-              <h3>memory</h3>
-            </div>
-            <p>The memory helper is present so future compression can claim a stable command shape. Today it is not a working compression flow.</p>
-            <ul class="plain-list">
-              <li><code>compress</code> requires a file path argument.</li>
-              <li>Text output says compression is reserved for the <code>caveman-compress</code> follow-up.</li>
-              <li>JSON output reports <code>status: "not_implemented"</code>.</li>
-            </ul>
-            <span class="cmd">agentify memory compress AGENTIFY.md</span>
-            <span class="cmd">agentify memory compress AGENTIFY.md --json</span>
-            <span class="cmd">agentify skill install caveman-compress</span>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="safety">
-      <div class="container">
-        <span class="section-label">safety notes</span>
-        <h2>Scout, then <span class="accent">sweep.</span></h2>
-        <p class="section-lede">The maintenance surface is intentionally small, but several commands touch local generated files. These checkpoints keep cleanup predictable.</p>
-
-        <div class="safety-grid">
-          <div class="safety-card">
-            <span class="tag">first move</span>
-            <h3>Preview cleanup</h3>
-            <p>Run <code>agentify clean --dry-run</code> before destructive cleanup. The report includes removed paths, cache blob counts, and skipped categories such as missing indexes.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">cache move</span>
-            <h3>Inspect before GC</h3>
-            <p>Use <code>agentify cache status</code> before <code>cache gc</code>. GC is narrower than clean, but it still removes old unreferenced blobs and updates the cache manifest.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">hook move</span>
-            <h3>Managed blocks only</h3>
-            <p><code>hooks remove</code> targets Agentify-marked hook blocks. Existing unmanaged hook content is preserved when Agentify can split the managed section cleanly.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">reserved move</span>
-            <h3>Do not script compression yet</h3>
-            <p><code>memory compress</code> is useful as a compatibility signal, not as a data transformer. Treat <code>not_implemented</code> as the expected current result.</p>
+            <div class="key">cache</div>
+            <p><code>gc</code> uses the <code>maxAge</code> parameter to drop blobs older than the cutoff. <code>status</code> is read-only.</p>
           </div>
         </div>
 
-        <div class="docs-strip">
-          <p>Need the full CLI guide? The detailed README keeps the same maintenance command surface in plain markdown.</p>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/docs/DETAILED_README.md">full guide</a>
-          <a class="doc-link" href="session.html">session page</a>
-        </div>
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="planning.html">
+            <span class="nav-dir">planning</span>
+            <span class="nav-title">plan · handoff · exec</span>
+          </a>
+          <a class="nav-btn next" href="afk.html">
+            <span class="nav-dir">afk</span>
+            <span class="nav-title">Autonomous plans</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="container">
-      <span>Agentify maintenance commands</span>
-      <span><a href="./">commands</a> · <a href="../index.html">home</a></span>
+      <span>Agentify maintenance</span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

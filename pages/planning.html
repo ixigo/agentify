@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · Planning and handoff commands</title>
-  <meta name="description" content="Learn how agentify plan, handoff, and exec fit together as scouting, quest-log handoff, and raw command tunnel workflows.">
+  <title>Agentify · Planning and handoff</title>
+  <meta name="description" content="agentify plan, handoff, exec — preview planner output, bundle session handoffs, and run raw provider commands. Verified from src/main.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,10 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="#plan">plan</a>
-        <a href="#handoff">handoff</a>
-        <a href="#exec">exec</a>
+        <a href="index.html">commands</a>
+        <a href="issue-killer.html">issue-killer</a>
+        <a href="maintenance.html">maintenance</a>
         <span class="pill">planning</span>
       </div>
     </div>
@@ -26,159 +25,65 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify plan · handoff · exec</span>
-        <h1>Scout the map before the <span class="accent">quest.</span></h1>
-        <p class="lede">Planning commands help you preview the right context, turn an active session into a quest log for another agent, or drop to a raw command tunnel when the normal provider route is not enough.</p>
+        <h1>Preview, bundle, and <span class="accent">run raw.</span></h1>
+        <p class="lede">Three commands cover preview-before-launch, cross-agent handoff, and raw provider invocation. Dispatched in <code>src/main.js</code> at <code>:552</code> (plan), <code>:699</code> (handoff), and <code>:679</code> (exec).</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#workflow">learn loop</a>
-          <a class="cta cta-secondary" href="session.html">session docs</a>
+          <a class="cta cta-primary" href="#commands">commands</a>
+          <a class="cta cta-secondary" href="maintenance.html">next: maintenance</a>
         </div>
         <div class="hero-meta">
-          <span>scout <code>agentify plan</code></span>
-          <span>quest log <code>agentify handoff</code></span>
-          <span>raw tunnel <code>agentify exec --</code></span>
+          <span>plan <code>src/core/planner.js</code></span>
+          <span>handoff <code>src/core/handoff.js</code></span>
+          <span>exec wraps refresh + provider</span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Planning command quick start">
+      <aside class="terminal" aria-label="Planning quick start">
         <div class="terminal-top">
-          <span>route preview</span>
-          <span>planning slice</span>
+          <span>planning quick start</span>
+          <span>3 commands</span>
         </div>
-<pre><span class="c"># Scout ranked context before launching an agent</span>
-<span class="a">agentify plan "fix checkout retry handling"</span>
+<pre><span class="c"># preview the planner's selection and score breakdown</span>
+<span class="a">agentify plan --explain "fix checkout retry handling"</span>
 
-<span class="c"># Pass a session quest log to the next agent</span>
-agentify handoff --session &lt;session-id&gt; "finish tests"
+<span class="c"># bundle a session for cross-agent handoff</span>
+agentify handoff --session &lt;id&gt; "finish the tests"
 
-<span class="c"># Use the raw tunnel for a custom provider command</span>
-agentify exec -- codex exec "fix auth bug"</pre>
+<span class="c"># raw exec wrapper with refresh + provider</span>
+agentify exec --provider codex -- claude code "task..."</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell" id="workflow">
+    <section class="shell" id="commands">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>Three moves cover the <span class="accent">handoff loop.</span></h2>
-        <p class="section-lede">Use <code>plan</code> before execution, <code>handoff</code> after a session has useful state, and <code>exec</code> only when you intentionally need a lower-level wrapper around a command you provide.</p>
-
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">scout</div>
-            <p><code>agentify plan</code> asks the index to rank modules, files, symbols, related tests, verification commands, changed files, and constraints for a task before you spend provider context.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">quest log</div>
-            <p><code>agentify handoff</code> writes <code>handoff.md</code> and <code>handoff.json</code> inside a session directory so another agent can continue from a structured local bundle.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">raw tunnel</div>
-            <p><code>agentify exec</code> runs the command after <code>--</code> through Agentify's execution wrapper. It is the advanced escape hatch, not the normal entry point for provider work.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="plan">
-      <div class="container">
-        <span class="section-label">plan</span>
-        <h2>Scout with <span class="accent">ranked context.</span></h2>
-        <p class="section-lede"><code>agentify plan</code> is a read-only preview of the context Agentify would select for a task. It is useful before <code>agentify run</code>, before splitting work across agents, or when you want to inspect why certain files are likely relevant.</p>
+        <span class="section-label">commands</span>
+        <h2>Three thin <span class="accent">wrappers.</span></h2>
 
         <div class="move-grid">
           <div class="move">
-            <span class="tag">purpose</span>
-            <h3>Preview the route</h3>
-            <p>The planner uses the repo index and task text to choose modules, file excerpts, symbols, tests, verification commands, changed files, and constraints.</p>
-            <span class="cmd">agentify plan "add retry tests"</span>
+            <span class="tag">scout</span>
+            <h3>plan &lt;task&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:552</code> · <code>buildExecutionPlan(root, config, task, options)</code> in <code>src/core/planner.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--explain</code> (include score breakdowns), <code>--context-mode &lt;compact|routed&gt;</code>, <code>--with-context</code>, <code>--root</code>, <code>--json</code>.</p>
+            <p>Reads <code>.agentify/index.db</code>, semantic facts, and test metadata. Outputs the planner prompt, selected files, and tests. With <code>--explain</code> includes per-file score breakdowns.</p>
+            <span class="cmd">agentify plan --explain --json "task..."</span>
           </div>
           <div class="move">
-            <span class="tag">explain</span>
-            <h3>Show score reasons</h3>
-            <p>Use <code>--explain</code> when you want the score breakdown in a readable format. Without it, the command prints JSON by default.</p>
-            <span class="cmd">agentify plan --explain "fix login timeout"</span>
+            <span class="tag">bundle</span>
+            <h3>handoff --session &lt;id&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:699</code> · <code>writeHandoffBundle(root, config, sessionId, task)</code> in <code>src/core/handoff.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--session &lt;id&gt;</code> (or positional arg 1), <code>--root</code>, <code>--json</code>; positional task tokens after flags become the handoff brief.</p>
+            <p><strong>Writes:</strong> <code>.agentify/handoff/&lt;id&gt;.md</code> and <code>.agentify/handoff/&lt;id&gt;.json</code>.</p>
+            <span class="cmd">agentify handoff --session &lt;id&gt; "next agent: finish tests"</span>
           </div>
           <div class="move">
-            <span class="tag">handoff input</span>
-            <h3>Feed the run route</h3>
-            <p>Use the selected files and verification commands as the scouting report for <code>agentify run</code> or <code>agentify run --with-context</code>.</p>
-            <span class="cmd">agentify run --with-context "fix login timeout"</span>
-          </div>
-          <div class="move">
-            <span class="tag">caveat</span>
-            <h3>Index required</h3>
-            <p>If the index is missing or unreadable, rebuild it with <code>agentify scan</code> or <code>agentify up</code> before using planning, query, or context commands.</p>
-            <span class="cmd">agentify scan</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="handoff">
-      <div class="container">
-        <span class="section-label">handoff</span>
-        <h2>Pass the next agent a <span class="accent">quest log.</span></h2>
-        <p class="section-lede"><code>agentify handoff</code> operates on session artifacts. Point it at a session ID when you know the workstream, or let it use the latest saved session when one already exists.</p>
-
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">purpose</span>
-            <h3>Write a bundle</h3>
-            <p>The command writes markdown and JSON bundle paths under <code>.agentify/session/&lt;id&gt;/</code>, including task, context summary, touched files, risks, and recommended tests.</p>
-            <span class="cmd">agentify handoff --session &lt;id&gt; "next task"</span>
-          </div>
-          <div class="move">
-            <span class="tag">session id</span>
-            <h3>Resolve the workstream</h3>
-            <p>You can pass <code>--session &lt;id&gt;</code> or place the ID after <code>handoff</code>. If neither is present, Agentify uses the latest session and errors when no sessions exist.</p>
-            <span class="cmd">agentify handoff &lt;id&gt; "continue review"</span>
-          </div>
-          <div class="move">
-            <span class="tag">json</span>
-            <h3>Machine-readable output</h3>
-            <p>Use <code>--json</code> to print the bundle payload and the generated markdown and JSON paths instead of the shorter success message.</p>
-            <span class="cmd">agentify handoff --session &lt;id&gt; --json</span>
-          </div>
-          <div class="move">
-            <span class="tag">caveat</span>
-            <h3>Needs session state</h3>
-            <p>Handoff is for saved sessions. Start or resume a durable workstream with <code>agentify sess</code> before relying on it for cross-agent continuity.</p>
-            <span class="cmd">agentify sess run --name "checkout-retries"</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="exec">
-      <div class="container">
-        <span class="section-label">exec</span>
-        <h2>Drop to the raw command <span class="accent">tunnel.</span></h2>
-        <p class="section-lede"><code>agentify exec</code> is the lower-level wrapper for commands you provide yourself. It keeps Agentify's execution handling around a custom argv, but it does not choose a provider template for you.</p>
-
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">purpose</span>
-            <h3>Wrap a custom command</h3>
-            <p>Use it when you need to run a specific provider or local command through Agentify's execution path instead of the normal <code>agentify run</code> template.</p>
-            <span class="cmd">agentify exec -- codex exec "fix auth bug"</span>
-          </div>
-          <div class="move">
-            <span class="tag">required</span>
-            <h3>Arguments after --</h3>
-            <p>The command requires argv after <code>--</code>. Without that separator and command, Agentify fails with an explicit usage error.</p>
-            <span class="cmd">agentify exec -- &lt;command...&gt;</span>
-          </div>
-          <div class="move">
-            <span class="tag">normal route</span>
-            <h3>Prefer run for provider work</h3>
-            <p>If you want Agentify to build a prompt and provider command from config, use <code>agentify run</code>. Keep <code>exec</code> for custom tunnels.</p>
-            <span class="cmd">agentify run "fix auth bug"</span>
-          </div>
-          <div class="move">
-            <span class="tag">caveat</span>
-            <h3>You own the argv</h3>
-            <p>Because the command is supplied directly, flags and quoting belong to the wrapped command. Agentify only receives the parsed argv after <code>--</code>.</p>
-            <span class="cmd">agentify exec -- node scripts/task.js</span>
+            <span class="tag">raw</span>
+            <h3>exec [flags] -- &lt;cmd...&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:679</code>.</p>
+            <p><strong>Flags:</strong> <code>--root</code>, <code>--fail-on-stale</code>, <code>--timeout &lt;seconds&gt;</code>, <code>--skip-refresh</code>, <code>--provider</code>, <code>--json</code>.</p>
+            <p>Refreshes the index (unless skipped) and runs a custom provider command. Everything after <code>--</code> is forwarded verbatim.</p>
+            <span class="cmd">agentify exec --skip-refresh -- claude code "task"</span>
           </div>
         </div>
       </div>
@@ -186,58 +91,42 @@ agentify exec -- codex exec "fix auth bug"</pre>
 
     <section class="shell">
       <div class="container">
-        <span class="section-label">route map</span>
-        <h2>Where each command sits in the <span class="accent">flow.</span></h2>
-        <p class="section-lede">Planning starts before a provider launch. Handoff depends on saved session state. Exec bypasses the provider template and runs exactly the command after <code>--</code>.</p>
+        <span class="section-label">when to use</span>
+        <h2>Pick the right <span class="accent">wrapper.</span></h2>
 
-        <div class="map panel" aria-label="Planning and handoff workflow map">
-          <div class="node active">
-            <strong>index</strong>
-            <span>repo facts</span>
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">plan</div>
+            <p>Use when you want to see the planner's choices before paying for a provider call. <code>--explain</code> surfaces score breakdowns; <code>--json</code> feeds another tool.</p>
           </div>
-          <div class="node active">
-            <strong>plan</strong>
-            <span>rank context</span>
+          <div class="campaign-row">
+            <div class="key">handoff</div>
+            <p>Use to pass a session to another agent or human. The bundle is markdown + JSON for easy paste-in or programmatic consumption.</p>
           </div>
-          <div class="node">
-            <strong>run</strong>
-            <span>provider route</span>
-          </div>
-          <div class="node">
-            <strong>sess</strong>
-            <span>saved state</span>
-          </div>
-          <div class="node">
-            <strong>handoff</strong>
-            <span>bundle files</span>
-          </div>
-          <div class="node">
-            <strong>next agent</strong>
-            <span>quest log</span>
-          </div>
-          <div class="node">
-            <strong>exec</strong>
-            <span>raw tunnel</span>
-          </div>
-          <div class="node">
-            <strong>telemetry</strong>
-            <span>execution record</span>
+          <div class="campaign-row">
+            <div class="key">exec</div>
+            <p>Use when you need a raw provider command but still want Agentify's refresh and stale-index guard around it.</p>
           </div>
         </div>
 
-        <div class="docs-strip">
-          <p>For provider-backed execution after scouting, continue to <a href="../README.md">run command examples</a>. For saved session artifacts, read the <a href="session.html">session command page</a>.</p>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/planner.js">planner source</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/handoff.js">handoff source</a>
-        </div>
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="issue-killer.html">
+            <span class="nav-dir">issue-killer</span>
+            <span class="nav-title">Supervised issue runner</span>
+          </a>
+          <a class="nav-btn next" href="maintenance.html">
+            <span class="nav-dir">maintenance</span>
+            <span class="nav-title">hooks · semantic · clean · cache</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="container">
-      <span>Agentify planning and handoff commands</span>
-      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+      <span>Agentify planning commands</span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

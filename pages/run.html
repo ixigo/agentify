@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Run command</title>
-  <meta name="description" content="Learn the agentify run workflow: fresh provider launches, resumed provider history, bounded tasks, routed context, selected source context, explain-plan, and caveman output.">
+  <meta name="description" content="agentify run — launch a provider task with auto-refresh, planner-selected context, and resume support. Verified flags from src/main.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,10 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
+        <a href="index.html">commands</a>
+        <a href="setup.html">setup</a>
         <a href="session.html">session</a>
-        <a href="#loadouts">loadouts</a>
-        <a href="#context">context</a>
         <span class="pill">run</span>
       </div>
     </div>
@@ -26,195 +25,144 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify run</span>
-        <h1>Pick a provider <span class="accent">loadout.</span></h1>
-        <p class="lede"><code>agentify run</code> launches Codex, Claude, Gemini, OpenCode, or a custom command from an Agentify-prepared repository. Choose a fresh task, an interactive shell, a resumed provider thread, or a managed-context route before the provider starts.</p>
+        <h1>Launch a provider task with <span class="accent">selected context.</span></h1>
+        <p class="lede">One command, one task string, one provider. The dispatcher refreshes the index when stale, builds a planner prompt, and hands control to the provider. Flags are listed exactly as parsed in <code>src/main.js</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#loadouts">choose mode</a>
-          <a class="cta cta-secondary" href="./">command index</a>
+          <a class="cta cta-primary" href="#flags">flag table</a>
+          <a class="cta cta-secondary" href="session.html">next: sess</a>
         </div>
         <div class="hero-meta">
-          <span>default fresh task</span>
-          <span>resume only with <code>--continue</code> or <code>--resume</code></span>
-          <span>context modes compact · routed</span>
+          <span>dispatch <code>src/main.js:574</code></span>
+          <span>positional task <code>argv[1..]</code></span>
+          <span>writes <code>.agentify/runs/</code></span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Run command quick start">
+      <aside class="terminal" aria-label="Run quick start">
         <div class="terminal-top">
-          <span>quick launch</span>
-          <span>provider ready</span>
+          <span>run quick start</span>
+          <span>positional task</span>
         </div>
-<pre><span class="c"># Fresh provider task with compact prompt</span>
-<span class="a">agentify run --provider codex "add checkout retry tests"</span>
+<pre><span class="c"># straight launch with default context mode</span>
+<span class="a">agentify run "add checkout retry tests"</span>
 
-<span class="c"># Open the provider UI from this repo</span>
-agentify run --provider codex
+<span class="c"># skip auto-refresh; explain planner choices</span>
+agentify run --skip-refresh --explain-plan "fix race in cart"
 
-<span class="c"># Resume the provider's own latest conversation</span>
-agentify run --provider codex --resume</pre>
+<span class="c"># continue last session, force routed context</span>
+agentify run --continue --context-mode routed "finish tests"
+
+<span class="c"># interactive provider shell</span>
+agentify run --interactive --provider codex</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell">
+    <section class="shell" id="flags">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>Run is a launch screen, not a <span class="accent">save file.</span></h2>
-        <p class="section-lede">Use <code>run</code> when one provider launch should handle the work. It can carry Agentify-selected context into the prompt, but durable Agentify session state belongs to <a href="session.html"><code>agentify sess</code></a>.</p>
+        <span class="section-label">flags</span>
+        <h2>Every flag is parsed at the <span class="accent">main dispatcher.</span></h2>
+        <p class="section-lede">Booleans default to false unless noted. <code>--interactive</code> is true by default for provider templates. The positional task text is required when not interactive.</p>
 
         <div class="campaign">
           <div class="campaign-row">
-            <div class="key">new game</div>
-            <p><code>agentify run "task"</code> starts fresh provider work by default. Agentify sends a compact repository-aware task prompt and does not ask the provider to continue prior history.</p>
+            <div class="key">--provider</div>
+            <p>Provider name (<code>codex</code>, <code>claude</code>, <code>gemini</code>, <code>opencode</code>, <code>local</code>). Falls back to <code>.agentify.yaml</code> default.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">open world</div>
-            <p><code>agentify run</code> opens a template provider interactively when no task is supplied. Non-interactive/custom launches require a task so the provider has a bounded objective.</p>
+            <div class="key">--root</div>
+            <p>Override repo root. Defaults to current working directory.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">load last</div>
-            <p><code>--continue</code> resumes the provider's most recent conversation. <code>--resume</code> is the same alias for <code>run</code>; with <code>sess</code>, resume means Agentify session context instead.</p>
+            <div class="key">--interactive</div>
+            <p>Run an interactive provider shell. True by default for template-based providers; pass <code>--interactive=false</code> to force a one-shot run.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">route scout</div>
-            <p><code>--with-context</code>, non-interactive runs, routed mode, and <code>--explain-plan</code> ask Agentify to build a managed execution plan before the provider command is constructed.</p>
+            <div class="key">--continue / --resume</div>
+            <p>Resume the most recent session for the active provider. Reads the latest entry under <code>.agentify/session/</code>.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--context-mode</div>
+            <p>Either <code>compact</code> or <code>routed</code>. Default is <code>CONTEXT_MODE_DEFAULT</code> from config; routed picks files via planner.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--with-context</div>
+            <p>Force-include the planner-selected file slices in the provider prompt.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--caveman[=level]</div>
+            <p>Compress prompt with caveman skill. Accepted levels: <code>lite</code>, <code>full</code>, <code>ultra</code>, <code>wenyan</code>, <code>wenyan-lite</code>, <code>wenyan-full</code>, <code>wenyan-ultra</code>.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--explain-plan</div>
+            <p>Print planner score breakdown before launch. Useful with <code>--dry-run</code>.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--skip-refresh</div>
+            <p>Skip the implicit <code>up</code> step. Pair with <code>--fail-on-stale</code> in CI.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--fail-on-stale</div>
+            <p>Exit non-zero if <code>.agentify/index.db</code> is older than the source tree.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--timeout</div>
+            <p>Per-launch timeout (seconds). Forwarded to the provider invocation.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--hook</div>
+            <p>Hook-friendly mode: forwards <code>skipCodeBodyChanges</code> through the validation step.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">--dry-run / --json</div>
+            <p>Standard global flags. <code>--dry-run</code> reports the planned launch without invoking the provider; <code>--json</code> emits machine-readable output.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="shell" id="loadouts">
+    <section class="shell">
       <div class="container">
-        <span class="section-label">loadouts</span>
-        <h2>Choose the mode that matches the <span class="accent">fight.</span></h2>
-        <p class="section-lede">The flags change provider launch behavior before a model sees the task. Pick the smallest loadout that gives the provider the right starting state.</p>
-
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">fresh task</span>
-            <h3>Normal bounded work</h3>
-            <p>Default choice for a new implementation, fix, review, or explanation. Agentify keeps the prompt compact unless a context flag asks for selected source.</p>
-            <span class="cmd">agentify run --provider codex "add validation for empty search"</span>
-          </div>
-          <div class="move">
-            <span class="tag">interactive</span>
-            <h3>Provider UI launch</h3>
-            <p>Template providers are interactive by default for <code>run</code>. Use <code>--interactive</code> when a supplied task should still land in the provider's UI.</p>
-            <span class="cmd">agentify run --provider codex --interactive "fix auth bug"</span>
-          </div>
-          <div class="move">
-            <span class="tag">resume</span>
-            <h3>Continue provider history</h3>
-            <p>Use only when the provider's own latest thread is intentionally part of the work. Without this flag, <code>run</code> treats the request as a fresh task.</p>
-            <span class="cmd">agentify run --provider codex --continue</span>
-          </div>
-          <div class="move">
-            <span class="tag">routed</span>
-            <h3>Bounded retrieval route</h3>
-            <p>Routed mode gives the provider a retrieval-oriented prompt with ranked summaries and fetch guidance instead of injecting source slices by default.</p>
-            <span class="cmd">agentify run --context-mode routed "map checkout retry flow"</span>
-          </div>
-          <div class="move">
-            <span class="tag">selected context</span>
-            <h3>Inject the useful files</h3>
-            <p><code>--with-context</code> runs the planner and includes selected files, related tests, and memory in the launch prompt. It also injects source slices even when routed mode is selected.</p>
-            <span class="cmd">agentify run --with-context "write tests for payment retries"</span>
-          </div>
-          <div class="move">
-            <span class="tag">explain plan</span>
-            <h3>Show the route first</h3>
-            <p><code>--explain-plan</code> prints the execution plan JSON before the provider starts, so the chosen context can be inspected without changing the task.</p>
-            <span class="cmd">agentify run --explain-plan "harden order lookup errors"</span>
-          </div>
-          <div class="move">
-            <span class="tag">caveman</span>
-            <h3>Spend fewer output tokens</h3>
-            <p><code>--caveman</code> adds a terse-output preamble for <code>run</code> and <code>sess</code>. Technical accuracy and risky confirmations stay normal prose.</p>
-            <span class="cmd">agentify run --caveman=ultra "summarize auth risks"</span>
-          </div>
-          <div class="move">
-            <span class="tag">provider pin</span>
-            <h3>Choose the agent host</h3>
-            <p><code>--provider</code> selects the template provider command. Codex, Claude, Gemini, and OpenCode each receive the prompt with their own interactive and resume argument shape.</p>
-            <span class="cmd">agentify run --provider gemini "trace login failures"</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="context">
-      <div class="container">
-        <span class="section-label">context rules</span>
-        <h2>Know when source enters the <span class="accent">arena.</span></h2>
-        <p class="section-lede">Agentify separates provider history from repository context. Resume flags control provider history. Context flags control what Agentify adds to the prompt before launch.</p>
-
-        <div class="map panel" aria-label="Run context workflow map">
-          <div class="node active">
-            <strong>task</strong>
-            <span>fresh unless resume flag</span>
-          </div>
-          <div class="node">
-            <strong>mode</strong>
-            <span>compact or routed</span>
-          </div>
-          <div class="node">
-            <strong>memory</strong>
-            <span>automatic run recall</span>
-          </div>
-          <div class="node">
-            <strong>plan</strong>
-            <span>managed context only</span>
-          </div>
-          <div class="node">
-            <strong>source</strong>
-            <span>with-context or compact plan</span>
-          </div>
-          <div class="node">
-            <strong>provider</strong>
-            <span>template command</span>
-          </div>
-          <div class="node">
-            <strong>resume</strong>
-            <span>provider history flag</span>
-          </div>
-          <div class="node">
-            <strong>session</strong>
-            <span>use sess for durable state</span>
-          </div>
-        </div>
+        <span class="section-label">i/o paths</span>
+        <h2>What the dispatcher reads and <span class="accent">writes.</span></h2>
 
         <div class="artifact-list">
           <div class="artifact">
-            <strong>Compact default</strong>
-            <span>A task run without context flags uses a minimal repository-aware prompt. The provider can read files as needed.</span>
+            <strong>.agentify/index.db</strong>
+            <span>Read for planner ranking and routed context selection.</span>
           </div>
           <div class="artifact">
-            <strong>Selected source</strong>
-            <span><code>--with-context</code> asks the planner to include ranked files, related tests, and memory in the provider prompt.</span>
+            <strong>.agentify.yaml</strong>
+            <span>Read for default provider, context mode, and validation defaults.</span>
           </div>
           <div class="artifact">
-            <strong>Routed retrieval</strong>
-            <span><code>--context-mode routed</code> sends bounded summaries and fetch instructions. Source slices are omitted unless <code>--with-context</code> is also present.</span>
+            <strong>.agentify/session/&lt;id&gt;/</strong>
+            <span>Read on <code>--continue</code>; written when a session run is created.</span>
           </div>
           <div class="artifact">
-            <strong>Explain plan</strong>
-            <span><code>--explain-plan</code> prints the plan JSON before launch, useful when checking what Agentify selected.</span>
-          </div>
-          <div class="artifact">
-            <strong>Provider resume</strong>
-            <span><code>--continue</code> and <code>--resume</code> map to provider-specific resume arguments such as Codex <code>resume --last</code>.</span>
-          </div>
-          <div class="artifact">
-            <strong>Durable sessions</strong>
-            <span>Use <a href="session.html"><code>agentify sess</code></a> when you need Agentify-owned session IDs, manifests, transcripts, forks, or handoffs.</span>
+            <strong>.agentify/runs/</strong>
+            <span>Run reports written for each provider invocation.</span>
           </div>
         </div>
+      </div>
+    </section>
 
-        <div class="docs-strip">
-          <p>Flags and examples are backed by the CLI help, README command table, and <code>run</code> dispatcher behavior.</p>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/main.js">run source</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/README.md">readme</a>
-        </div>
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">errors</span>
+        <h2>Exit conditions visible in <span class="accent">source.</span></h2>
+        <p class="section-lede">No task and not interactive exits with a usage error. A missing or stale <code>.agentify/index.db</code> guides to <code>agentify up</code> when <code>--skip-refresh</code> is not set. A missing provider CLI exits with a provider-check failure and suggests <code>agentify doctor</code>.</p>
+
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="setup.html">
+            <span class="nav-dir">setup</span>
+            <span class="nav-title">Setup checkpoints</span>
+          </a>
+          <a class="nav-btn next" href="session.html">
+            <span class="nav-dir">sess</span>
+            <span class="nav-title">Session save file</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
@@ -222,7 +170,7 @@ agentify run --provider codex --resume</pre>
   <footer>
     <div class="container">
       <span>Agentify run command</span>
-      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

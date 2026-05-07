@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Skill command</title>
-  <meta name="description" content="Learn the agentify skill workflow: list built-in skills, install one or all skills, pick providers, choose scope, and understand aliases.">
+  <meta name="description" content="agentify skill — list and install built-in skills. Verified against src/main.js dispatch and src/core/skills.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,9 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="#moves">moves</a>
-        <a href="../skill-catalog.html">catalog</a>
+        <a href="index.html">commands</a>
+        <a href="risk.html">risk</a>
+        <a href="issue-killer.html">issue-killer</a>
         <span class="pill">skill</span>
       </div>
     </div>
@@ -25,163 +25,99 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify skill</span>
-        <h1>Pack the right <span class="accent">loadout</span> before the run.</h1>
-        <p class="lede">Skills are opt-in playbooks copied into the provider skill roots you choose. Browse the catalog to pick a play style, then use the CLI to install that skill into project or user scope.</p>
+        <h1>List and install <span class="accent">built-in skills.</span></h1>
+        <p class="lede">Two subcommands: <code>list</code> and <code>install</code>. Dispatched at <code>src/main.js:787</code> and <code>:803</code>; implemented in <code>src/core/skills.js</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#moves">install flow</a>
-          <a class="cta cta-secondary" href="../skill-catalog.html">browse catalog</a>
+          <a class="cta cta-primary" href="#subcommands">subcommands</a>
+          <a class="cta cta-secondary" href="issue-killer.html">next: issue-killer</a>
         </div>
         <div class="hero-meta">
-          <span>alias <code>agentify skills</code></span>
-          <span>providers <code>codex</code> · <code>claude</code> · <code>gemini</code> · <code>opencode</code></span>
+          <span>module <code>src/core/skills.js</code></span>
           <span>scopes <code>project</code> · <code>user</code></span>
+          <span>install target <code>all</code> or named skill</span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Skill command quick start">
+      <aside class="terminal" aria-label="Skill quick start">
         <div class="terminal-top">
-          <span>loadout ready</span>
-          <span>opt in</span>
+          <span>skill quick start</span>
+          <span>2 subcommands</span>
         </div>
-<pre><span class="c"># See every built-in skill and alias</span>
-<span class="a">agentify skill list</span>
+<pre><span class="c"># list built-in skills, providers, aliases</span>
+<span class="a">agentify skill list --json</span>
 
-<span class="c"># Install every built-in skill into this repo for Codex</span>
-agentify skill install all --provider codex --scope project
+<span class="c"># install a single skill at project scope</span>
+agentify skill install caveman --provider codex --scope project
 
-<span class="c"># Install one skill for another provider</span>
-agentify skill install grill-me --provider claude --scope project</pre>
+<span class="c"># install everything for a provider</span>
+agentify skill install all --provider claude --scope user
+
+<span class="c"># preview without writing</span>
+agentify skill install all --provider codex --dry-run</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell">
+    <section class="shell" id="subcommands">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>The catalog is the armory; the command equips the <span class="accent">gear.</span></h2>
-        <p class="section-lede">The standalone catalog explains when and why each skill helps. The CLI makes the selected skill usable by copying its bundled files from Agentify into the right provider directory.</p>
-
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">browse</div>
-            <p>Use <a href="../skill-catalog.html">skill-catalog.html</a> when choosing what a skill does, what workflow it supports, and which local prerequisites it expects.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">inspect</div>
-            <p><code>agentify skill list</code> prints the built-in inventory from Agentify metadata, including supported providers and aliases such as <code>god-mode</code> for <code>worktree-autopilot</code>.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">equip</div>
-            <p><code>agentify skill install &lt;name|all&gt;</code> copies skill directories into provider-owned skill roots. Existing targets are skipped unless <code>--force</code> is set.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">refresh</div>
-            <p><code>agentify sync</code> refreshes project-scope built-in skills only for provider skill roots that already exist in the repo, so upgrades keep opted-in loadouts current.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="moves">
-      <div class="container">
-        <span class="section-label">moves</span>
-        <h2>Two subcommands cover the <span class="accent">install loop.</span></h2>
-        <p class="section-lede">Start with the inventory, then install either one named skill or the full built-in set. The plural command name works too: <code>agentify skills list</code>.</p>
+        <span class="section-label">subcommands</span>
+        <h2>Two moves: <span class="accent">list and install.</span></h2>
 
         <div class="move-grid">
           <div class="move">
-            <span class="tag">inventory</span>
-            <h3>List built-ins</h3>
-            <p>Shows the canonical skill names, installable providers, aliases, and short descriptions. Add <code>--json</code> when another tool needs the list.</p>
+            <span class="tag">inspect</span>
+            <h3>skill list</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:787</code> · <code>listBuiltinSkills()</code>.</p>
+            <p><strong>Flags:</strong> <code>--root</code>, <code>--json</code>.</p>
+            <p>Returns built-in skill names, provider compatibility, and aliases. With <code>--json</code> emits the full record.</p>
             <span class="cmd">agentify skill list</span>
           </div>
           <div class="move">
-            <span class="tag">single item</span>
-            <h3>Install one skill</h3>
-            <p>Installs one skill by canonical name or alias. If an alias is used, the CLI resolves it and installs the canonical skill directory.</p>
-            <span class="cmd">agentify skill install grill-me --provider claude --scope project</span>
-          </div>
-          <div class="move">
-            <span class="tag">full set</span>
-            <h3>Install all skills</h3>
-            <p>Copies every built-in skill into the selected provider roots. This is the fastest way to make a repo ready for broad agent workflows.</p>
+            <span class="tag">install</span>
+            <h3>skill install &lt;name|all&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:803</code> · <code>installBuiltinSkill(root, { name, provider, scope, force, dryRun, defaultProvider })</code>.</p>
+            <p><strong>Flags:</strong> <code>--provider &lt;value&gt;</code>, <code>--scope &lt;project|user&gt;</code> (default project), <code>--force</code>, <code>--dry-run</code>, <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Writes:</strong> skill files into <code>.agentify/skills/&lt;scope&gt;/&lt;provider&gt;/</code> for project scope, or the user-level skills directory.</p>
             <span class="cmd">agentify skill install all --provider codex --scope project</span>
           </div>
-          <div class="move">
-            <span class="tag">alias route</span>
-            <h3>Use aliases safely</h3>
-            <p>Aliases are normalized like skill names. For example, <code>god-mode</code> resolves to <code>worktree-autopilot</code>; <code>gh-issue-autopilot</code> resolves to <code>gh-autopilot</code>.</p>
-            <span class="cmd">agentify skill install god-mode --provider all --scope project</span>
-          </div>
         </div>
       </div>
     </section>
 
     <section class="shell">
       <div class="container">
-        <span class="section-label">choices</span>
-        <h2>Provider and scope decide where the <span class="accent">loadout lands.</span></h2>
-        <p class="section-lede">The skill command intentionally separates the agent host from the install scope. Pick the provider that will read the skill, then decide whether the files belong to this repo or your user profile.</p>
+        <span class="section-label">decision points</span>
+        <h2>Pick the scope and <span class="accent">provider.</span></h2>
 
-        <div class="inventory-grid">
-          <div class="inventory-item">
-            <span class="tag">provider</span>
-            <h3>One provider</h3>
-            <p>Use <code>--provider codex</code>, <code>claude</code>, <code>gemini</code>, or <code>opencode</code>. If omitted, Agentify uses the current default provider when it supports skill installs.</p>
-            <span class="cmd">agentify skill install caveman --provider codex</span>
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">scope</div>
+            <p><code>project</code> writes into the repo so teammates pick up the same skills. <code>user</code> installs to the per-user skill directory and stays out of source control.</p>
           </div>
-          <div class="inventory-item">
-            <span class="tag">provider list</span>
-            <h3>Multiple providers</h3>
-            <p><code>skill install</code> accepts comma-separated providers and <code>all</code>. The local provider is not installable because it has no skill root.</p>
-            <span class="cmd">agentify skill install qa --provider codex,claude</span>
+          <div class="campaign-row">
+            <div class="key">provider</div>
+            <p>Skills are templated per-provider. Pass <code>--provider</code> to target one provider or rely on <code>defaultProvider</code> from <code>.agentify.yaml</code>.</p>
           </div>
-          <div class="inventory-item">
-            <span class="tag">project scope</span>
-            <h3>Share with the repo</h3>
-            <p><code>--scope project</code> writes provider skill folders under the repository, such as <code>.codex/skills/</code> or <code>.claude/skills/</code>.</p>
-            <span class="cmd">agentify skill install tdd --scope project</span>
+          <div class="campaign-row">
+            <div class="key">force</div>
+            <p><code>--force</code> overwrites an existing installed file. Without it, an existing file is preserved and a skip is reported.</p>
           </div>
-          <div class="inventory-item">
-            <span class="tag">user scope</span>
-            <h3>Keep it personal</h3>
-            <p><code>--scope user</code> writes to your provider profile, such as <code>~/.codex/skills/</code>, <code>~/.claude/skills/</code>, <code>~/.gemini/skills/</code>, or OpenCode config skills.</p>
-            <span class="cmd">agentify skill install commit-creator --scope user</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">controls</span>
-        <h2>Preview, replace, or export the <span class="accent">result.</span></h2>
-        <p class="section-lede">The shared CLI flags still matter here: use dry runs before changing files, force when refreshing an existing target, and JSON when feeding automation.</p>
-
-        <div class="map panel" aria-label="Skill install controls">
-          <div class="node active">
-            <strong>dry run</strong>
-            <span>show would_install / would_replace</span>
-          </div>
-          <div class="node">
-            <strong>skip</strong>
-            <span>existing skill without force</span>
-          </div>
-          <div class="node">
-            <strong>force</strong>
-            <span>replace existing target</span>
-          </div>
-          <div class="node">
-            <strong>json</strong>
-            <span>machine-readable result</span>
+          <div class="campaign-row">
+            <div class="key">dry-run</div>
+            <p>Resolves the planned writes (paths, providers, scope) without touching disk; ideal for CI pre-flight.</p>
           </div>
         </div>
 
-        <div class="docs-strip">
-          <p>Skill installs are ordinary file copies from Agentify's bundled <code>skills/</code> directory. Use the catalog for selection, then use this command page for exact install syntax.</p>
-          <a class="doc-link" href="../skill-catalog.html">catalog</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/skills.js">source</a>
-        </div>
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="risk.html">
+            <span class="nav-dir">risk</span>
+            <span class="nav-title">Blast-radius score</span>
+          </a>
+          <a class="nav-btn next" href="issue-killer.html">
+            <span class="nav-dir">issue-killer</span>
+            <span class="nav-title">Supervised issue runner</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
@@ -189,7 +125,7 @@ agentify skill install grill-me --provider claude --scope project</pre>
   <footer>
     <div class="container">
       <span>Agentify skill command</span>
-      <span><a href="./">commands</a> · <a href="../skill-catalog.html">catalog</a> · <a href="../index.html">home</a></span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

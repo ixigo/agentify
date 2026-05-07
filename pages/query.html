@@ -4,19 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Query command</title>
-  <meta name="description" content="Learn the agentify query workflow: inspect repository index ownership, dependencies, changed modules, search hits, symbols, references, callers, and impact radius.">
+  <meta name="description" content="agentify query — eight subcommands over the indexed repo graph. Verified flags from src/main.js dispatch.">
   <link rel="stylesheet" href="command-style.css">
 </head>
-<body class="query-page">
+<body>
   <nav>
     <div class="container">
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="session.html">session</a>
-        <a href="#scanner-deck">scanners</a>
-        <a href="#query-vs-context">query vs context</a>
+        <a href="index.html">commands</a>
+        <a href="context.html">context</a>
+        <a href="risk.html">risk</a>
         <span class="pill">query</span>
       </div>
     </div>
@@ -26,192 +25,121 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify query</span>
-        <h1>Your repo index is a <span class="accent">scanner deck.</span></h1>
-        <p class="lede">Query commands inspect Agentify's host-side repository index. Use them to locate owners, dependency paths, changed modules, indexed text, semantic symbols, callers, and blast radius before handing work to a provider.</p>
+        <h1>Eight subcommands over the <span class="accent">indexed graph.</span></h1>
+        <p class="lede">Owners, dependencies, recent changes, full-text search, definitions, references, callers, impacts. All dispatched at <code>src/main.js:732</code>; all read <code>.agentify/index.db</code>; all support <code>--json</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#scanner-deck">open scanners</a>
-          <a class="cta cta-secondary" href="#query-vs-context">compare context</a>
+          <a class="cta cta-primary" href="#subcommands">subcommand table</a>
+          <a class="cta cta-secondary" href="risk.html">next: risk</a>
         </div>
         <div class="hero-meta">
-          <span>source <code>.agentify/index.sqlite</code></span>
-          <span>output <code>json</code></span>
-          <span>subcommands owner · deps · changed · search · def · refs · callers · impacts</span>
+          <span>dispatch <code>src/main.js:732</code></span>
+          <span>read <code>.agentify/index.db</code></span>
+          <span>output JSON-ready</span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Query command quick start">
+      <aside class="terminal" aria-label="Query quick start">
         <div class="terminal-top">
-          <span>scanner boot</span>
-          <span>repo index</span>
+          <span>query quick start</span>
+          <span>scanner deck</span>
         </div>
-<pre><span class="c"># Find the module that owns a file</span>
-<span class="a">agentify query owner --file src/core/query.js</span>
+<pre><span class="c"># find owning module</span>
+<span class="a">agentify query owner --file src/auth/useAuth.ts</span>
 
-<span class="c"># Search indexed repo metadata and semantic context</span>
-agentify query search --term auth
+<span class="c"># list module dependencies</span>
+agentify query deps --module auth
 
-<span class="c"># Trace semantic callers and impact radius</span>
-agentify query callers --symbol querySearch
-agentify query impacts --file src/core/query.js --depth 2</pre>
+<span class="c"># files changed since base branch</span>
+agentify query changed --since origin/main
+
+<span class="c"># full-text search</span>
+agentify query search --term clampScore
+
+<span class="c"># symbol definitions, references, callers, blast radius</span>
+agentify query def     --symbol clampScore
+agentify query refs    --symbol clampScore
+agentify query callers --symbol clampScore
+agentify query impacts --file src/core/risk.js --depth 2</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell">
+    <section class="shell" id="subcommands">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>Query is the host-side <span class="accent">inspection kit.</span></h2>
-        <p class="section-lede">Run <code>agentify query</code> when you want deterministic answers from the local index without launching a provider. The command reads indexed structural tables, semantic metadata, and git change data, then prints JSON that scripts and agents can consume.</p>
+        <span class="section-label">subcommands</span>
+        <h2>Each subcommand has a <span class="accent">narrow input shape.</span></h2>
 
         <div class="campaign">
           <div class="campaign-row">
-            <div class="key">map</div>
-            <p><code>owner</code>, <code>deps</code>, and <code>changed</code> answer module-level questions from the structural index plus git state.</p>
+            <div class="key">owner</div>
+            <p><strong>Required:</strong> <code>--file &lt;path&gt;</code>. Returns the owning module and its context for the file.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">scan</div>
-            <p><code>search</code> combines structural index search with semantic index search for a term you provide.</p>
+            <div class="key">deps</div>
+            <p><strong>Required:</strong> <code>--module &lt;id&gt;</code>. Returns the dependency list for the module.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">trace</div>
-            <p><code>def</code>, <code>refs</code>, and <code>callers</code> use semantic symbol facts to navigate definitions and incoming references.</p>
+            <div class="key">changed</div>
+            <p><strong>Required:</strong> <code>--since &lt;commit&gt;</code>. Returns changed files and diff stats since the ref.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">radius</div>
-            <p><code>impacts</code> walks internal semantic edges from a changed file and respects <code>--depth</code> when you need a bounded blast-radius check.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="scanner-deck">
-      <div class="container">
-        <span class="section-label">scanner deck</span>
-        <h2>Eight scanners, one <span class="accent">index.</span></h2>
-        <p class="section-lede">These are the complete supported <code>query</code> subcommands in the CLI. Each scanner shows the purpose, required input, and a realistic command shape.</p>
-
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">owner locator</span>
-            <h3>Find the owning module</h3>
-            <p>Answers which indexed module owns a file and includes semantic file context when available.</p>
-            <p><strong>Input:</strong> <code>--file &lt;path&gt;</code></p>
-            <span class="cmd">agentify query owner --file src/core/provider.js</span>
-          </div>
-          <div class="move">
-            <span class="tag">dependency radar</span>
-            <h3>Inspect module dependencies</h3>
-            <p>Returns structural and semantic dependencies for one indexed module, including inbound usage.</p>
-            <p><strong>Input:</strong> <code>--module &lt;id&gt;</code></p>
-            <span class="cmd">agentify query deps --module core/provider</span>
-          </div>
-          <div class="move">
-            <span class="tag">changed-map</span>
-            <h3>Map changed files to modules</h3>
-            <p>Compares git changes since a commit and groups changed files by indexed owning module.</p>
-            <p><strong>Input:</strong> <code>--since &lt;commit&gt;</code></p>
-            <span class="cmd">agentify query changed --since origin/main</span>
-          </div>
-          <div class="move">
-            <span class="tag">search scanner</span>
-            <h3>Search indexed metadata</h3>
-            <p>Searches structural index records and semantic context for a term. Use this for repo-index inspection.</p>
-            <p><strong>Input:</strong> <code>--term &lt;value&gt;</code> or a positional term</p>
-            <span class="cmd">agentify query search --term auth</span>
-          </div>
-          <div class="move">
-            <span class="tag">definition marker</span>
-            <h3>Resolve symbol definitions</h3>
-            <p>Finds semantic definitions for a symbol and marks ambiguous matches when multiple candidates exist.</p>
-            <p><strong>Input:</strong> <code>--symbol &lt;name&gt;</code></p>
-            <span class="cmd">agentify query def --symbol querySearch</span>
-          </div>
-          <div class="move">
-            <span class="tag">reference tracker</span>
-            <h3>List symbol references</h3>
-            <p>Returns ranked semantic references that point to the resolved symbol definitions.</p>
-            <p><strong>Input:</strong> <code>--symbol &lt;name&gt;</code></p>
-            <span class="cmd">agentify query refs --symbol querySearch</span>
-          </div>
-          <div class="move">
-            <span class="tag">caller trace</span>
-            <h3>Find callers and renderers</h3>
-            <p>Filters semantic references down to incoming call and render edges so you can see who invokes a symbol.</p>
-            <p><strong>Input:</strong> <code>--symbol &lt;name&gt;</code></p>
-            <span class="cmd">agentify query callers --symbol runAgentify</span>
-          </div>
-          <div class="move">
-            <span class="tag">impact radius</span>
-            <h3>Trace impacted files</h3>
-            <p>Walks internal semantic edges from a file to rank files that may be affected by a change.</p>
-            <p><strong>Input:</strong> <code>--file &lt;path&gt;</code>, optional <code>--depth &lt;n&gt;</code></p>
-            <span class="cmd">agentify query impacts --file src/core/query.js --depth 2</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="query-vs-context">
-      <div class="container">
-        <span class="section-label">query vs context</span>
-        <h2>Two search moves answer <span class="accent">different questions.</span></h2>
-        <p class="section-lede"><code>query search</code> is for inspecting what the repo index knows. <code>context search</code> is for bounded retrieval in routed provider workflows.</p>
-
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">query search</div>
-            <p>Use <code>agentify query search --term auth</code> when you are in the host shell and want JSON from indexed structural and semantic search stores.</p>
+            <div class="key">search</div>
+            <p><strong>Required:</strong> <code>--term &lt;value&gt;</code> (or positional arg 2). Returns matching symbols and files from the indexed text.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">context search</div>
-            <p>Use <code>agentify context search auth</code> when a routed provider prompt needs a bounded set of retrievable context hits instead of a broad index-inspection report.</p>
+            <div class="key">def</div>
+            <p><strong>Required:</strong> <code>--symbol &lt;name&gt;</code>. Returns the definition location, kind, and export status.</p>
           </div>
           <div class="campaign-row">
-            <div class="key">rule</div>
-            <p>If your next step is scripting, auditing, or deciding which graph command to run, use <code>query</code>. If your next step is feeding source slices to an agent, use <code>context</code>.</p>
+            <div class="key">refs</div>
+            <p><strong>Required:</strong> <code>--symbol &lt;name&gt;</code>. Returns all reference locations recorded in the index.</p>
           </div>
-        </div>
-
-        <div class="docs-strip">
-          <p>The context command page is tracked separately. Until it exists, compare behavior with the README and the <code>context</code> command source.</p>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/README.md">readme</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/context.js">context source</a>
+          <div class="campaign-row">
+            <div class="key">callers</div>
+            <p><strong>Required:</strong> <code>--symbol &lt;name&gt;</code>. Returns the functions that call the symbol.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">impacts</div>
+            <p><strong>Required:</strong> <code>--file &lt;path&gt;</code>; optional <code>--depth &lt;N&gt;</code> (default 2). Returns impacted modules within the depth.</p>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="shell">
       <div class="container">
-        <span class="section-label">source map</span>
-        <h2>What each scanner <span class="accent">reads.</span></h2>
-        <p class="section-lede">The command is index-backed, so stale results usually mean the repository needs an index refresh before querying again.</p>
+        <span class="section-label">global flags</span>
+        <h2>All subcommands accept the <span class="accent">same global flags.</span></h2>
 
         <div class="artifact-list">
           <div class="artifact">
-            <strong>Structural index</strong>
-            <span><code>owner</code>, <code>deps</code>, and <code>search</code> read module, dependency, and indexed metadata tables.</span>
+            <strong>--root &lt;path&gt;</strong>
+            <span>Override repo root (defaults to cwd).</span>
           </div>
           <div class="artifact">
-            <strong>Semantic index</strong>
-            <span><code>search</code>, <code>def</code>, <code>refs</code>, <code>callers</code>, and <code>impacts</code> use semantic file, symbol, reference, and edge facts.</span>
+            <strong>--json</strong>
+            <span>Emit machine-readable output mirroring the underlying function return.</span>
           </div>
           <div class="artifact">
-            <strong>Git state</strong>
-            <span><code>changed</code> reads files changed since <code>--since</code>, then maps them to indexed modules.</span>
+            <strong>--fail-on-stale</strong>
+            <span>Exit non-zero if <code>.agentify/index.db</code> is older than the source tree.</span>
           </div>
           <div class="artifact">
-            <strong>Index guidance</strong>
-            <span>If the index is missing, query errors include guidance to run Agentify indexing before retrying.</span>
-          </div>
-          <div class="artifact">
-            <strong>JSON output</strong>
-            <span>Every scanner prints structured JSON, making the command useful for scripts and provider-readable diagnostics.</span>
-          </div>
-          <div class="artifact">
-            <strong>Supported only</strong>
-            <span>This page intentionally documents only the CLI-supported subcommands listed above.</span>
+            <strong>--dry-run</strong>
+            <span>Resolves and validates the input but skips index reads where applicable.</span>
           </div>
         </div>
+
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="context.html">
+            <span class="nav-dir">context</span>
+            <span class="nav-title">Bounded retrieval</span>
+          </a>
+          <a class="nav-btn next" href="risk.html">
+            <span class="nav-dir">risk</span>
+            <span class="nav-title">Blast-radius score</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
@@ -219,7 +147,7 @@ agentify query impacts --file src/core/query.js --depth 2</pre>
   <footer>
     <div class="container">
       <span>Agentify query command</span>
-      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

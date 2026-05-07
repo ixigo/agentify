@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Context command</title>
-  <meta name="description" content="Learn the agentify context workflow: search ranked refs, fetch bounded file slices, compact routed session context, and inspect session context status.">
+  <meta name="description" content="agentify context — search, fetch, compact, and inspect status. Subcommands and flags verified from src/main.js and src/core/context.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,9 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="#moves">moves</a>
-        <a href="#safety">safety</a>
+        <a href="index.html">commands</a>
+        <a href="session.html">session</a>
+        <a href="query.html">query</a>
         <span class="pill">context</span>
       </div>
     </div>
@@ -25,95 +25,79 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify context</span>
-        <h1>Scout the repo without <span class="accent">flooding the map.</span></h1>
-        <p class="lede">Routed context gives provider sessions a bounded way to discover code. Search finds ranked doors, fetch opens one small room, and compact/status keep the campaign log manageable.</p>
+        <h1>Bounded retrieval against the <span class="accent">repo index.</span></h1>
+        <p class="lede">Four subcommands: <code>search</code>, <code>fetch</code>, <code>compact</code>, <code>status</code>. Dispatched at <code>src/main.js:637</code>; implemented in <code>src/core/context.js</code> and <code>src/core/session-memory.js</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#moves">learn moves</a>
-          <a class="cta cta-secondary" href="session.html">session route</a>
+          <a class="cta cta-primary" href="#subcommands">subcommands</a>
+          <a class="cta cta-secondary" href="query.html">next: query</a>
         </div>
         <div class="hero-meta">
-          <span>subcommands search · fetch · compact · status</span>
-          <span>bounded fetch cap <code>240 lines</code></span>
-          <span>paths stay repository-relative</span>
+          <span>read <code>.agentify/index.db</code></span>
+          <span>compact requires <code>--session</code></span>
+          <span>all support <code>--json</code></span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Context command quick start">
+      <aside class="terminal" aria-label="Context quick start">
         <div class="terminal-top">
-          <span>scouting route</span>
-          <span>bounded retrieval</span>
+          <span>context quick start</span>
+          <span>4 subcommands</span>
         </div>
-<pre><span class="c"># Find ranked refs before opening files</span>
-<span class="a">agentify context search analytics</span>
+<pre><span class="c"># search across indexed semantic + structural facts</span>
+<span class="a">agentify context search auth</span>
 
-<span class="c"># Open a bounded room by symbol or line range</span>
-agentify context fetch src/analytics/report.ts --symbol buildReport
-agentify context fetch src/analytics/report.ts --lines 20:60
+<span class="c"># fetch a slice of a file by line range</span>
+agentify context fetch src/app.ts --lines 20:80
 
-<span class="c"># Manage routed session context</span>
-agentify context compact --session &lt;session-id&gt;
-agentify context status --session &lt;session-id&gt;</pre>
+<span class="c"># fetch by symbol name (definition + neighbors)</span>
+agentify context fetch src/core/risk.js --symbol clampScore
+
+<span class="c"># compact the current session context</span>
+agentify context compact --session &lt;id&gt;
+
+<span class="c"># inspect session context metadata</span>
+agentify context status --session &lt;id&gt; --json</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell">
+    <section class="shell" id="subcommands">
       <div class="container">
-        <span class="section-label">mental model</span>
-        <h2>Context is a scouting <span class="accent">loop.</span></h2>
-        <p class="section-lede">Use <code>agentify context</code> inside routed work when the provider needs exact code but should not receive whole source files by default.</p>
-
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">scan</div>
-            <p><code>agentify context search &lt;term&gt;</code> reads the local index and returns ranked references across symbols, files, modules, and semantic surfaces.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">open</div>
-            <p><code>agentify context fetch &lt;path&gt;</code> returns exact source only when paired with <code>--lines A:B</code> or <code>--symbol &lt;name&gt;</code>.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">summarize</div>
-            <p><code>agentify context compact --session &lt;id&gt;</code> writes compacted session facts for the routed workflow instead of expanding the live prompt with raw files.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">inspect</div>
-            <p><code>agentify context status --session &lt;id&gt;</code> reports managed context size, run history count, context facts, and any prepared child session.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="moves">
-      <div class="container">
-        <span class="section-label">moves</span>
-        <h2>Four moves cover the routed <span class="accent">turn.</span></h2>
-        <p class="section-lede">The command returns JSON so agents can quote exact paths, line numbers, and session metadata back into their next step.</p>
+        <span class="section-label">subcommands</span>
+        <h2>Each subcommand reads or shapes the <span class="accent">indexed graph.</span></h2>
 
         <div class="move-grid">
           <div class="move">
             <span class="tag">search</span>
-            <h3>Find the doors</h3>
-            <p>Start with a term. Results are ranked refs, not source dumps, so the next fetch can target the smallest useful path or symbol.</p>
-            <span class="cmd">agentify context search checkout</span>
+            <h3>context search &lt;term&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:637</code> · <code>searchContext(root, term)</code>.</p>
+            <p><strong>Flags:</strong> <code>--term &lt;value&gt;</code> (or positional arg 2), <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Reads:</strong> <code>.agentify/index.db</code> semantic and structural indexes.</p>
+            <span class="cmd">agentify context search analytics --json</span>
           </div>
           <div class="move">
-            <span class="tag">fetch lines</span>
-            <h3>Open a bounded room</h3>
-            <p>Line ranges use ascending <code>A:B</code> syntax. Large ranges are truncated at the command's 240-line cap.</p>
-            <span class="cmd">agentify context fetch src/core/context.js --lines 120:180</span>
+            <span class="tag">fetch</span>
+            <h3>context fetch &lt;path&gt;</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:640</code> · <code>fetchContext(root, target, { lines, symbol })</code>.</p>
+            <p><strong>Flags:</strong> <code>--file &lt;path&gt;</code> / <code>--path &lt;path&gt;</code> (or positional arg 2), <code>--lines &lt;start:end&gt;</code>, <code>--symbol &lt;name&gt;</code>, <code>--root</code>, <code>--json</code>.</p>
+            <p>Returns a slice of the file (line range) or the symbol definition with neighbors from the index.</p>
+            <span class="cmd">agentify context fetch src/app.ts --symbol fetchContext</span>
           </div>
           <div class="move">
-            <span class="tag">fetch symbol</span>
-            <h3>Jump to a named target</h3>
-            <p>Symbol fetch uses the index to find a matching function, class, export, or display name in the requested file, then returns its bounded range.</p>
-            <span class="cmd">agentify context fetch src/core/context.js --symbol fetchContext</span>
+            <span class="tag">compact</span>
+            <h3>context compact</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:649</code> · <code>compactSessionContext(root, sessionId, config)</code> in <code>src/core/session-memory.js</code>.</p>
+            <p><strong>Flags:</strong> <code>--session &lt;id&gt;</code> (required), <code>--root</code>, <code>--json</code>.</p>
+            <p><strong>Writes:</strong> <code>context-facts.json</code> and <code>context-facts.md</code> inside the session directory.</p>
+            <span class="cmd">agentify context compact --session &lt;id&gt;</span>
           </div>
           <div class="move">
-            <span class="tag">session</span>
-            <h3>Manage the campaign log</h3>
-            <p>Compact and status require a validated session ID. They pair with <a href="session.html">agentify sess</a> when work needs durable routed state.</p>
-            <span class="cmd">agentify context status --session &lt;session-id&gt;</span>
+            <span class="tag">status</span>
+            <h3>context status</h3>
+            <p><strong>Dispatch:</strong> <code>src/main.js:654</code>.</p>
+            <p><strong>Flags:</strong> <code>--session &lt;id&gt;</code> (required), <code>--root</code>, <code>--json</code>.</p>
+            <p>Returns <code>context_bytes</code>, <code>run_history_count</code>, <code>has_context_facts</code>, <code>prepared_child_session</code>.</p>
+            <span class="cmd">agentify context status --session &lt;id&gt;</span>
           </div>
         </div>
       </div>
@@ -121,85 +105,38 @@ agentify context status --session &lt;session-id&gt;</pre>
 
     <section class="shell">
       <div class="container">
-        <span class="section-label">route map</span>
-        <h2>How a routed agent moves through <span class="accent">context.</span></h2>
-        <p class="section-lede">Routed mode starts with summaries and metadata. Exact source enters the conversation only through bounded retrieval.</p>
+        <span class="section-label">notes</span>
+        <h2>Operational <span class="accent">notes.</span></h2>
 
-        <div class="map panel" aria-label="Context workflow map">
-          <div class="node active">
-            <strong>start routed</strong>
-            <span>no full source bodies</span>
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">prereq</div>
+            <p>All subcommands require <code>.agentify/index.db</code>. Run <code>agentify up</code> first if missing or stale.</p>
           </div>
-          <div class="node">
-            <strong>search</strong>
-            <span>ranked refs</span>
+          <div class="campaign-row">
+            <div class="key">compact</div>
+            <p>Compact uses the session-memory backend. Without a configured memory provider it no-ops or errors per <code>compactSessionContext</code> guards.</p>
           </div>
-          <div class="node">
-            <strong>choose path</strong>
-            <span>repo-relative</span>
+          <div class="campaign-row">
+            <div class="key">fetch precedence</div>
+            <p>If both <code>--lines</code> and <code>--symbol</code> are passed, the symbol resolution wins and the line range is ignored.</p>
           </div>
-          <div class="node">
-            <strong>fetch</strong>
-            <span>lines or symbol</span>
-          </div>
-          <div class="node">
-            <strong>apply work</strong>
-            <span>exact snippet</span>
-          </div>
-          <div class="node">
-            <strong>compact</strong>
-            <span>session facts</span>
-          </div>
-          <div class="node">
-            <strong>status</strong>
-            <span>managed bytes</span>
-          </div>
-          <div class="node">
-            <strong>continue</strong>
-            <span>sess resume</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="shell" id="safety">
-      <div class="container">
-        <span class="section-label">safety rails</span>
-        <h2>The dungeon walls are <span class="accent">intentional.</span></h2>
-        <p class="section-lede">These limits are part of the feature, not missing power. They keep provider-routed context small, reviewable, and tied to the repository.</p>
-
-        <div class="artifact-list">
-          <div class="artifact">
-            <strong>Repository-relative paths</strong>
-            <span><code>context fetch</code> rejects absolute paths and <code>../</code> escapes before reading a file.</span>
-          </div>
-          <div class="artifact">
-            <strong>Required range selector</strong>
-            <span>Fetch must include either <code>--lines A:B</code> or <code>--symbol &lt;name&gt;</code>; a bare file path is not enough.</span>
-          </div>
-          <div class="artifact">
-            <strong>Ascending line syntax</strong>
-            <span><code>--lines</code> accepts only numeric ranges where the end is greater than or equal to the start.</span>
-          </div>
-          <div class="artifact">
-            <strong>240-line maximum</strong>
-            <span>Line and symbol fetches are bounded to 240 lines and mark the JSON result as truncated when the requested range is larger.</span>
-          </div>
-          <div class="artifact">
-            <strong>Index-backed symbols</strong>
-            <span><code>--symbol</code> needs the local index to locate the symbol range inside the target file.</span>
-          </div>
-          <div class="artifact">
-            <strong>No direct database route</strong>
-            <span>Routed provider prompts should use <code>agentify context</code>, not nested scan/doc/up/query commands or raw SQLite reads.</span>
+          <div class="campaign-row">
+            <div class="key">json output</div>
+            <p>Every subcommand supports <code>--json</code> for machine-readable output. The shape mirrors the function's return value.</p>
           </div>
         </div>
 
-        <div class="docs-strip">
-          <p><code>agentify query</code> is for host-side index inspection. <code>agentify context</code> is the bounded retrieval route providers are told to use during routed work.</p>
-          <a class="doc-link" href="session.html">session page</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/context.js">context source</a>
-        </div>
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="session.html">
+            <span class="nav-dir">sess</span>
+            <span class="nav-title">Session save file</span>
+          </a>
+          <a class="nav-btn next" href="query.html">
+            <span class="nav-dir">query</span>
+            <span class="nav-title">Repo index queries</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
@@ -207,7 +144,7 @@ agentify context status --session &lt;session-id&gt;</pre>
   <footer>
     <div class="container">
       <span>Agentify context command</span>
-      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>

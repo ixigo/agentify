@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Risk command</title>
-  <meta name="description" content="Learn the agentify risk workflow: score PR blast radius, inspect impacted code, and pick regression tests from the Agentify index.">
+  <meta name="description" content="agentify risk — score blast radius, list impacted code, recommend tests. Verified against src/core/risk.js.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
@@ -13,10 +13,9 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
-        <a href="./">commands</a>
-        <a href="#score">score</a>
-        <a href="#report">report</a>
-        <a href="#tests">tests</a>
+        <a href="index.html">commands</a>
+        <a href="query.html">query</a>
+        <a href="skill.html">skill</a>
         <span class="pill">risk</span>
       </div>
     </div>
@@ -26,76 +25,63 @@
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">agentify risk</span>
-        <h1>Run the <span class="accent">danger board</span> before the PR.</h1>
-        <p class="lede">Risk turns the current diff into a blast-radius score, a list of likely impacted code, and a short regression-test queue. Treat it like a mission meter: it points at danger, but it does not guarantee safety.</p>
+        <h1>Score the diff's <span class="accent">blast radius.</span></h1>
+        <p class="lede">Risk turns the current diff (or anything since a ref) into a 0–100 score, an impacted-code list, and a prioritized regression-test queue. Implementation lives in <code>src/core/risk.js</code> · <code>buildRiskReport(root, options)</code>.</p>
         <div class="cta-row">
-          <a class="cta cta-primary" href="#moves">choose input</a>
-          <a class="cta cta-secondary" href="#report">read output</a>
+          <a class="cta cta-primary" href="#flags">flags</a>
+          <a class="cta cta-secondary" href="skill.html">next: skill</a>
         </div>
         <div class="hero-meta">
-          <span>score range <code>0..100</code></span>
-          <span>source <code>.agentify/index.db</code></span>
-          <span>modes worktree diff or <code>--since</code></span>
+          <span>module <code>src/core/risk.js</code></span>
+          <span>neighbor depth <code>MAX_NEIGHBOR_DISTANCE = 2</code></span>
+          <span>score helpers <code>clampScore</code> · <code>riskLevel</code></span>
         </div>
       </div>
-      <aside class="terminal" aria-label="Risk command quick start">
+      <aside class="terminal" aria-label="Risk quick start">
         <div class="terminal-top">
-          <span>mission check</span>
-          <span>blast radius</span>
+          <span>risk quick start</span>
+          <span>diff or since</span>
         </div>
-<pre><span class="c"># Score the current worktree diff</span>
+<pre><span class="c"># worktree diff vs HEAD</span>
 <span class="a">agentify risk</span>
 
-<span class="c"># Score everything changed since the PR base</span>
+<span class="c"># everything changed since the PR base</span>
 agentify risk --since origin/main
 
-<span class="c"># Send the full report to automation</span>
+<span class="c"># machine-readable report</span>
 agentify risk --since origin/main --json</pre>
       </aside>
     </div>
   </header>
 
   <main>
-    <section class="shell" id="moves">
+    <section class="shell" id="flags">
       <div class="container">
-        <span class="section-label">mission input</span>
-        <h2>Pick the board that matches the <span class="accent">review moment.</span></h2>
-        <p class="section-lede">The command always needs an Agentify index. Run it after <code>agentify scan</code> or <code>agentify up</code> so files, modules, symbols, imports, and test commands are available.</p>
+        <span class="section-label">flags</span>
+        <h2>Flags parsed at the <span class="accent">dispatcher.</span></h2>
 
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">local edit check</span>
-            <h3>Current worktree diff</h3>
-            <p>Use the default mode while you are still editing. Agentify reads the changed files in the current checkout and scores the blast radius against the indexed graph.</p>
-            <span class="cmd">agentify risk</span>
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">--root</div>
+            <p>Override repo root (defaults to cwd).</p>
           </div>
-          <div class="move">
-            <span class="tag">pr base check</span>
-            <h3>Since a commit or ref</h3>
-            <p>Use <code>--since &lt;commit&gt;</code> for a branch review. It scores files changed since the chosen ref, such as the PR base branch or a known release point.</p>
-            <span class="cmd">agentify risk --since origin/main</span>
+          <div class="campaign-row">
+            <div class="key">--since</div>
+            <p>Score the diff since a git ref (e.g., <code>origin/main</code>). Without it, risk scores the working-tree diff against HEAD.</p>
           </div>
-          <div class="move">
-            <span class="tag">automation</span>
-            <h3>Machine-readable output</h3>
-            <p>Add <code>--json</code> when a script, CI job, or follow-up agent needs every field instead of the compact terminal report.</p>
-            <span class="cmd">agentify risk --since origin/main --json</span>
-          </div>
-          <div class="move">
-            <span class="tag">follow the trail</span>
-            <h3>Inspect with query</h3>
-            <p>When the report names an unexpected module, file, or symbol, use the query command page to inspect owners, dependencies, definitions, references, callers, and impact paths.</p>
-            <span class="cmd">agentify query impacts --file src/auth/useAuth.ts</span>
+          <div class="campaign-row">
+            <div class="key">--json</div>
+            <p>Return the full JSON report instead of the compact terminal summary.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="shell" id="score">
+    <section class="shell">
       <div class="container">
-        <span class="section-label">score model</span>
-        <h2>The meter is bounded, indexed, and <span class="accent">explainable.</span></h2>
-        <p class="section-lede">Risk combines changed-file contribution, dependency fan-out, semantic relationships, impacted files, and impacted modules into a score capped at 100.</p>
+        <span class="section-label">scoring</span>
+        <h2>What goes into the <span class="accent">0–100 score.</span></h2>
+        <p class="section-lede">Source: <code>src/core/risk.js</code>. The score combines changed-file weight, dependency fan-out, semantic centrality, impacted modules, and impacted-symbol surface — all clamped via <code>clampScore</code>.</p>
 
         <div class="risk-meter panel" aria-label="Risk score levels">
           <div class="meter-scale">
@@ -116,95 +102,78 @@ agentify risk --since origin/main --json</pre>
           <div class="level-card">
             <span class="tag">0</span>
             <h3>None</h3>
-            <p>No changed-file contribution is present in the report. This is not a proof that nothing matters outside the index.</p>
+            <p>No changed-file contribution detected. Not a guarantee that nothing matters outside the index.</p>
           </div>
           <div class="level-card">
-            <span class="tag">1-34</span>
+            <span class="tag">1–34</span>
             <h3>Low</h3>
-            <p>The changed files look relatively isolated or test-focused according to the indexed graph and semantic facts.</p>
+            <p>Changes look isolated or test-focused per the indexed graph and semantic facts.</p>
           </div>
           <div class="level-card">
-            <span class="tag">35-69</span>
+            <span class="tag">35–69</span>
             <h3>Medium</h3>
-            <p>The diff reaches enough dependency, semantic, or module surface area that focused regression tests should be planned.</p>
+            <p>Dependency, semantic, or module surface area suggests focused regression tests are warranted.</p>
           </div>
           <div class="level-card danger">
-            <span class="tag">70-100</span>
+            <span class="tag">70–100</span>
             <h3>High</h3>
-            <p>The diff likely touches shared code, fan-out, or multiple modules. Run the recommended tests and inspect the impact path before review.</p>
+            <p>Diff likely touches shared code or fan-out across modules. Run prioritized tests and inspect impacts before review.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="shell" id="report">
+    <section class="shell">
       <div class="container">
-        <span class="section-label">report sections</span>
-        <h2>Read the board from top to <span class="accent">fallback.</span></h2>
-        <p class="section-lede">The human report is intentionally short. The JSON report keeps the same sections with the full file, module, symbol, and test payloads.</p>
+        <span class="section-label">json shape</span>
+        <h2>Fields returned by <span class="accent">--json.</span></h2>
+        <p class="section-lede">From <code>src/core/risk.js:539</code>. Tag <code>schema_version</code> identifies the report format.</p>
 
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">score</div>
-            <p><code>Risk: &lt;score&gt;/100 (&lt;level&gt;)</code> is the headline. Reasons call out signals such as the highest changed-file contribution, dependency fan-out, semantic centrality, module count, or semantic surfaces.</p>
+        <div class="artifact-list">
+          <div class="artifact">
+            <strong>schema_version</strong>
+            <span>Report version constant <code>RISK_SCHEMA_VERSION</code>.</span>
           </div>
-          <div class="campaign-row">
-            <div class="key">changed</div>
-            <p>Changed files include the path, git status, owning module when known, and per-file scoring details in JSON. The terminal view lists each file and its rounded contribution.</p>
+          <div class="artifact">
+            <strong>changed_files[]</strong>
+            <span>Path, git status, owning module, per-file score contribution.</span>
           </div>
-          <div class="campaign-row">
-            <div class="key">impact</div>
-            <p>Impacted modules, files, and symbols come from the indexed import graph plus semantic TypeScript/JavaScript facts. The graph only covers what Agentify indexed.</p>
+          <div class="artifact">
+            <strong>risk</strong>
+            <span>Object with <code>score</code> and <code>level</code> from <code>riskLevel(score)</code>.</span>
           </div>
-          <div class="campaign-row">
-            <div class="key">tests</div>
-            <p>Prioritized test commands are ranked from indexed package scripts and test-file relationships. A high priority means "run this first", not "run only this".</p>
+          <div class="artifact">
+            <strong>impacted</strong>
+            <span>Modules, files, and symbols reached via import edges and semantic facts.</span>
           </div>
-          <div class="campaign-row">
-            <div class="key">json</div>
-            <p><code>--json</code> returns <code>schema_version</code>, <code>changed_files</code>, <code>risk</code>, <code>impacted</code>, <code>prioritized_test_commands</code>, and <code>notes</code> for scripts or agents.</p>
+          <div class="artifact">
+            <strong>prioritized_test_commands[]</strong>
+            <span>Indexed test commands ranked by impacted-module proximity.</span>
+          </div>
+          <div class="artifact">
+            <strong>notes[]</strong>
+            <span>Includes a "no indexed test command covers the impacted modules" note when ranking is empty.</span>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="shell" id="tests">
+    <section class="shell">
       <div class="container">
-        <span class="section-label">coverage warning</span>
-        <h2>No indexed test does not mean <span class="accent">safe.</span></h2>
-        <p class="section-lede">If Agentify cannot match an indexed test command to the impacted modules, the report emits a note instead of pretending the mission is clear.</p>
+        <span class="section-label">prereqs</span>
+        <h2>Index must be <span class="accent">fresh.</span></h2>
+        <p class="section-lede">Risk reads <code>.agentify/index.db</code>. Run <code>agentify scan</code> or <code>agentify up</code> first; if no test command matches an impacted module, the report emits a note rather than claiming safety.</p>
 
-        <div class="warning-panel panel">
-          <div>
-            <span class="tag">possible note</span>
-            <h3>No indexed test command covers the impacted modules.</h3>
-            <p>That note means the index did not find a test command for the impacted area. Rebuild the index after adding package test scripts, then rerun risk and choose any missing manual checks yourself.</p>
-          </div>
-          <aside class="terminal" aria-label="Risk no coverage example">
-            <div class="terminal-top">
-              <span>fallback</span>
-              <span>not safe</span>
-            </div>
-<pre>Risk: 44/100 (medium)
-
-Changed files:
-- src/payments/settle.ts [M] score 28
-
-Impacted modules:
-- payments (3 file(s), score 16)
-
-Prioritized tests:
-- none
-
-Note: No indexed test command covers the impacted modules. Run agentify scan after adding package test scripts.</pre>
-          </aside>
-        </div>
-
-        <div class="docs-strip">
-          <p>Need to explain an impact path? Open the query route for owner, deps, refs, callers, and file impact inspection.</p>
-          <a class="doc-link" href="query.html">query page</a>
-          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/risk.js">risk source</a>
-        </div>
+        <nav class="page-nav" aria-label="Command pagination">
+          <a class="nav-btn prev" href="query.html">
+            <span class="nav-dir">query</span>
+            <span class="nav-title">Repo index queries</span>
+          </a>
+          <a class="nav-btn next" href="skill.html">
+            <span class="nav-dir">skill</span>
+            <span class="nav-title">Built-in skills</span>
+          </a>
+        </nav>
       </div>
     </section>
   </main>
@@ -212,7 +181,7 @@ Note: No indexed test command covers the impacted modules. Run agentify scan aft
   <footer>
     <div class="container">
       <span>Agentify risk command</span>
-      <span><a href="./">commands</a> · <a href="../index.html">home</a></span>
+      <span><a href="index.html">commands</a> · <a href="../index.html">home</a></span>
     </div>
   </footer>
 </body>
