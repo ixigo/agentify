@@ -238,7 +238,7 @@ test("runBootstrapCommand bootstraps a repo and persists provider", async () => 
     "brew:tree-sitter-cli",
     "npm:@openai/codex",
   ]);
-  await assert.doesNotReject(() => fs.access(path.join(root, ".agents")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentify")));
   await assert.doesNotReject(() => fs.access(path.join(root, "docs", "modules")));
   await assert.rejects(() => fs.access(path.join(root, ".codex", "skills")), { code: "ENOENT" });
 });
