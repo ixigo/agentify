@@ -16,6 +16,8 @@ Use this skill when the user wants parallel supervised issue-solving agents acro
 agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 5
 ```
 
+Issue-killer launches provider panes in YOLO mode by default, bypassing provider permission prompts. Use `--bypass-permissions=false` only when a supervised run should keep provider approvals enabled.
+
 3. For explicit issues, pass comma-separated URLs:
 
 ```bash
@@ -34,5 +36,6 @@ tmux attach -t gh-issue-killer
 - Issues must be selected by `--label` or `--issue-url`.
 - The command creates Worktrunk worktrees before launching panes.
 - Panes run interactive Codex or Claude agents.
+- Panes default to provider permission bypass and include a YOLO-mode warning in the provider prompt.
 - Agents should create draft PRs by default.
 - Do not force-push, merge, or mark PRs ready for review unless the user explicitly asks.
