@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   COMPLETION_SPEC,
@@ -14,6 +16,8 @@ import {
 import { SUPPORTED_PROVIDERS } from "../src/core/provider-command.js";
 import { listBuiltinSkills } from "../src/core/skills.js";
 import { runCli } from "../src/main.js";
+
+const execFileAsync = promisify(execFile);
 
 async function captureStdout(fn) {
   const chunks = [];
@@ -38,7 +42,7 @@ async function captureStdout(fn) {
 }
 
 async function makeSession(root, sessionId, createdAt) {
-  const sessionDir = path.join(root, ".agents", "session", sessionId);
+  const sessionDir = path.join(root, ".agentify", "session", sessionId);
   await fs.mkdir(sessionDir, { recursive: true });
   await fs.writeFile(
     path.join(sessionDir, "session-manifest.json"),
@@ -108,7 +112,7 @@ test("session completion values return ids and degrade silently for missing stat
   ]);
 
   await fs.writeFile(
-    path.join(root, ".agents", "session", "sess_20260507093000_newest", "session-manifest.json"),
+    path.join(root, ".agentify", "session", "sess_20260507093000_newest", "session-manifest.json"),
     "{not-json",
     "utf8",
   );
@@ -140,4 +144,26 @@ test("runCli prints completion scripts and dynamic values", async () => {
 
   const sessions = await captureStdout(() => runCli(["completion", "values", "sessions", "--root", root]));
   assert.equal(sessions, "sess_20260507100000_cli\n");
+});
+
+test("zsh completion reaches dynamic branches before generic subcommand cases", () => {
+  const zshScript = renderCompletionScript("zsh");
+  const dynamicBranchIndex = zshScript.indexOf("skill|skills|sess|session");
+  const genericSkillCaseIndex = zshScript.indexOf("      skill) _values 'subcommands'");
+
+  assert.notEqual(dynamicBranchIndex, -1);
+  assert.notEqual(genericSkillCaseIndex, -1);
+  assert.ok(dynamicBranchIndex < genericSkillCaseIndex);
+  assert.match(zshScript, /\$\(agentify completion values skills 2>\/dev\/null\)/);
+  assert.match(zshScript, /\$\(agentify completion values sessions 2>\/dev\/null\)/);
+});
+
+test("cli completion command suppresses banner after global flags", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-root-"));
+  const result = await execFileAsync(process.execPath, ["src/cli.js", "--root", root, "completion", "zsh"], {
+    cwd: path.resolve(new URL("..", import.meta.url).pathname),
+  });
+
+  assert.match(result.stdout, /^#compdef agentify/);
+  assert.equal(result.stderr, "");
 });

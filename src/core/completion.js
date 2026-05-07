@@ -118,18 +118,24 @@ _agentify() {
           _values 'subcommands' 'zsh' 'bash' 'fish' 'values'
         fi
         ;;
-${commandCases}
-      run|exec|this|skill|skills|sess|session|up|sync|doc|scan|index|init)
+	      run|exec|this|skill|skills|sess|session|up|sync|doc|scan|index|init)
         if [[ "$words[CURRENT-1]" == "--provider" ]]; then
           _values 'providers' $(${COMPLETION_SPEC.command} completion values providers 2>/dev/null)
         elif [[ "$words[CURRENT-1]" == "--root" ]]; then
           _files -/
+        elif [[ "$words[2]" == (skill|skills) && $CURRENT -eq 3 ]]; then
+          _values 'subcommands' ${COMPLETION_SPEC.subcommands.skill.map(zshQuote).join(" ")}
         elif [[ "$words[2]" == (skill|skills) && "$words[3]" == "install" ]]; then
           _values 'skills' $(${COMPLETION_SPEC.command} completion values skills 2>/dev/null)
+        elif [[ "$words[2]" == (sess|session) && $CURRENT -eq 3 ]]; then
+          _values 'subcommands' ${COMPLETION_SPEC.subcommands.sess.map(zshQuote).join(" ")}
+        elif [[ "$words[2]" == (sess|session) && "$words[CURRENT-1]" == "--session" ]]; then
+          _values 'sessions' $(${COMPLETION_SPEC.command} completion values sessions 2>/dev/null)
         else
           _values 'options' $flags
         fi
         ;;
+${commandCases}
       handoff)
         if [[ "$words[CURRENT-1]" == "--session" ]]; then
           _values 'sessions' $(${COMPLETION_SPEC.command} completion values sessions 2>/dev/null)
