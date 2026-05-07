@@ -4,5 +4,5 @@ node_modules/
 .claude/*
 *.tmp
 .codex/*
-!.codex/skills/
+.codex/skills/
 !.codex/skills/**
