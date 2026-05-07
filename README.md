@@ -305,7 +305,25 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
 | Generate shell completion | `agentify completion zsh` |
 
+### Shell Completion
+
+`agentify completion <zsh|bash|fish>` prints a completion script for commands, flags, providers, skills, sessions, and paths. It is print-only: Agentify does not edit `~/.zshrc`, `~/.bashrc`, fish config, or completion directories automatically.
+
+```bash
+# zsh or bash, current shell only
+source <(agentify completion zsh)
+source <(agentify completion bash)
+
+# fish, current shell only
+agentify completion fish | source
+```
+
+For persistent setup, save the generated script into your shell's completion location. For example, zsh can load an `_agentify` file from a directory on `fpath`, and fish can load `~/.config/fish/completions/agentify.fish`.
+
+Dynamic completions use the current repo. Providers and installed skills appear when configured, sessions appear after Agentify has session state, and paths come from the shell's working directory.
+
 > **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded wholesale to test or provider subprocesses; configure `tests.env.*` / `providerEnv.*` in `.agentify.yaml` if a subprocess needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+
 ## 📖 CLI Reference
 
 <details>

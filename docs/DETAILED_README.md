@@ -140,6 +140,47 @@ It is written so the model treats the current working directory as the target re
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
 | `agentify completion` | Prints zsh, bash, or fish completion scripts. | Use when you want shell tab completion for commands, flags, providers, skills, sessions, and path arguments. | `agentify completion zsh` |
 
+#### Shell Completion Setup
+
+`agentify completion <shell>` prints a shell completion script. It never edits shell startup files or creates completion files automatically, so users stay in control of `~/.zshrc`, `~/.bashrc`, fish config, and completion directories.
+
+For current-shell setup:
+
+```bash
+# zsh
+source <(agentify completion zsh)
+
+# bash
+source <(agentify completion bash)
+
+# fish
+agentify completion fish | source
+```
+
+For persistent zsh setup, write the script to an `_agentify` file and make sure its directory is on `fpath` before `compinit` runs:
+
+```bash
+mkdir -p ~/.zsh/completions
+agentify completion zsh > ~/.zsh/completions/_agentify
+```
+
+```bash
+# ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+For persistent fish setup:
+
+```bash
+mkdir -p ~/.config/fish/completions
+agentify completion fish > ~/.config/fish/completions/agentify.fish
+```
+
+Bash can use the current-shell `source <(agentify completion bash)` form directly. Teams that already manage bash completions centrally can save that printed script into their normal bash-completion location instead.
+
+Completion includes static Agentify commands and flags plus dynamic suggestions. Provider and skill suggestions come from Agentify's current configuration and built-in skill registry, session suggestions come from local `.agentify/session/` state, and file path suggestions are delegated to the shell. If a fresh repo has no sessions yet, session completion can be empty until a session is created.
+
 #### Project Test Environment
 
 `agentify up` (and any flow that runs the detected project test command) executes the repo-owned test command in a **sanitized environment by default** and enforces a wall-clock timeout. Agentify detects common JavaScript/TypeScript package scripts plus Python, Go, Rust, .NET, Java/Kotlin, and Swift project test commands. If a non-JS stack is detected but no runnable command is known, the test phase reports `unsupported` and exits non-zero instead of silently downgrading the run to a skipped test phase.
