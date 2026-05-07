@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · AFK agent workflow</title>
+  <meta name="description" content="Prepare GitHub issues for AFK Agentify execution, label them safely, launch supervised issue-killer panes, and verify draft PR output.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="./">commands</a>
+        <a href="#ready">ready</a>
+        <a href="#launch">launch</a>
+        <a href="#verify">verify</a>
+        <span class="pill">afk</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">afk issue execution</span>
+        <h1>Turn issues into <span class="accent">agent-ready work.</span></h1>
+        <p class="lede">AFK issue work is not a bigger prompt. It is a narrow GitHub issue, a durable agent brief, an opt-in label or explicit URL, supervised tmux panes, and a draft PR with checks the maintainer can inspect.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#ready">prepare issue</a>
+          <a class="cta cta-secondary" href="#launch">launch panes</a>
+        </div>
+        <div class="hero-meta">
+          <span>default label <code>agentify-ready</code></span>
+          <span>session <code>gh-issue-killer</code></span>
+          <span>providers <code>codex</code> or <code>claude</code></span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="AFK issue-killer quick start">
+        <div class="terminal-top">
+          <span>supervised queue</span>
+          <span>github only v1</span>
+        </div>
+<pre><span class="c"># Preview labelled AFK issues first</span>
+<span class="a">agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 2 --dry-run</span>
+
+<span class="c"># Launch selected panes when the queue is ready</span>
+agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 2
+
+<span class="c"># Supervise the agents</span>
+tmux attach -t gh-issue-killer</pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell" id="ready">
+      <div class="container">
+        <span class="section-label">classification</span>
+        <h2>AFK work is narrow, testable, and <span class="accent">unblocked.</span></h2>
+        <p class="section-lede">Before applying the label, decide whether the issue can be implemented from written context alone. Anything that needs a product call, design review, ambiguous tradeoff, or human approval before code should stay HITL.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">afk</span>
+            <h3>Ready for autonomous implementation</h3>
+            <p>The desired behavior is explicit, acceptance criteria are verifiable, scope boundaries are written down, and the agent can run tests or checks without waiting for a human answer.</p>
+            <span class="cmd">labels: agentify-ready</span>
+          </div>
+          <div class="move">
+            <span class="tag">hitl</span>
+            <h3>Needs human judgment first</h3>
+            <p>The issue asks for a direction decision, has unclear UX or API behavior, depends on secrets or live access, or cannot define done without a reviewer clarifying intent.</p>
+            <span class="cmd">keep unlabelled until resolved</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">issue contract</span>
+        <h2>Write the issue so an agent can <span class="accent">start cold.</span></h2>
+        <p class="section-lede">The issue body and agent brief are the operating contract. Prefer behavior, interfaces, evidence, acceptance checks, and out-of-scope boundaries over step-by-step file edits that can drift.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">problem</div>
+            <p>State the current behavior, the desired behavior, and the user or maintainer impact. Include concrete evidence such as command output, failing tests, screenshots, or source references that explain why the issue exists.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">brief</div>
+            <p>Add an agent brief or equivalent acceptance contract. Name key interfaces and expected behavior, then list independently testable acceptance criteria. Avoid brittle line-number instructions.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">scope</div>
+            <p>Call out what must not change. This prevents agents from picking adjacent cleanup, broad refactors, unrelated issues, or speculative feature work while they are AFK.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">verify</div>
+            <p>List the smallest useful checks: focused unit tests, browser inspection for HTML pages, CLI help comparison, <code>git diff --check</code>, or the repo test command when shared behavior is touched.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="launch">
+      <div class="container">
+        <span class="section-label">launch path</span>
+        <h2>Use opt-in labels or explicit issue <span class="accent">URLs.</span></h2>
+        <p class="section-lede">The v1 launcher is intentionally selective. It does not scan arbitrary backlog items. It launches GitHub issues chosen by the configured label or by exact issue URLs.</p>
+
+        <div class="map panel" aria-label="AFK launch workflow map">
+          <div class="node active">
+            <strong>triage</strong>
+            <span>AFK vs HITL</span>
+          </div>
+          <div class="node">
+            <strong>brief</strong>
+            <span>contract + checks</span>
+          </div>
+          <div class="node">
+            <strong>label</strong>
+            <span>agentify-ready</span>
+          </div>
+          <div class="node">
+            <strong>dry-run</strong>
+            <span>preview selection</span>
+          </div>
+          <div class="node">
+            <strong>worktree</strong>
+            <span>Worktrunk branch</span>
+          </div>
+          <div class="node">
+            <strong>tmux</strong>
+            <span>supervised pane</span>
+          </div>
+          <div class="node">
+            <strong>agent</strong>
+            <span>Codex or Claude</span>
+          </div>
+          <div class="node">
+            <strong>draft PR</strong>
+            <span>tests + summary</span>
+          </div>
+        </div>
+
+        <div class="move-grid stacked-grid">
+          <div class="move">
+            <span class="tag">label queue</span>
+            <h3>Launch from the opt-in queue</h3>
+            <p>Use this when several issues are already reviewed and labelled. The default label is <code>agentify-ready</code>, the default limit is <code>5</code>, and supervised v1 runs cap <code>--limit</code> at <code>10</code>.</p>
+            <span class="cmd">agentify issue-killer --issue-provider github --label agentify-ready --agent-provider codex --limit 5</span>
+          </div>
+          <div class="move">
+            <span class="tag">exact urls</span>
+            <h3>Launch only named issues</h3>
+            <p>Use explicit URLs when you want a hand-picked set. With URLs, the launcher defaults the limit to the number of URLs, so unrelated labelled issues stay untouched.</p>
+            <span class="cmd">agentify issue-killer --issue-url https://github.com/ORG/REPO/issues/123,https://github.com/ORG/REPO/issues/124 --agent-provider claude</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">prerequisites</span>
+        <h2>Check readiness before showing <span class="accent">launch commands.</span></h2>
+        <p class="section-lede">Dry runs require repository and GitHub access. Real pane launches also require worktree orchestration, tmux, and the selected agent provider on PATH.</p>
+
+        <div class="artifact-list">
+          <div class="artifact">
+            <strong>git</strong>
+            <span>The launcher verifies the current checkout is a Git repository before selecting issues or creating worktrees.</span>
+          </div>
+          <div class="artifact">
+            <strong>gh auth status</strong>
+            <span>GitHub auth is required for issue listing, issue views, branch context, and draft PR creation by agents.</span>
+          </div>
+          <div class="artifact">
+            <strong>wt</strong>
+            <span>Real launches use Worktrunk to create one isolated worktree per selected issue branch.</span>
+          </div>
+          <div class="artifact">
+            <strong>tmux</strong>
+            <span>Each selected issue runs in an interactive supervised pane, with the default session named <code>gh-issue-killer</code>.</span>
+          </div>
+          <div class="artifact">
+            <strong>codex / claude</strong>
+            <span>V1 agent providers are <code>codex</code> and <code>claude</code>. Choose one with <code>--agent-provider</code>.</span>
+          </div>
+          <div class="artifact">
+            <strong>permission prompts</strong>
+            <span>Provider sandbox and permission prompts remain active unless <code>--bypass-permissions</code> is explicitly passed.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">guardrails</span>
+        <h2>Supervised does not mean <span class="accent">unguarded.</span></h2>
+        <p class="section-lede">AFK launches should reduce prompting, not remove review. Keep the selection explicit, keep pane prompts scoped to their assigned issue, and use permission bypass only when the operator intentionally accepts that mode.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">selection</div>
+            <p>Use <code>--label</code> or <code>--issue-url</code>. Do not turn the whole backlog into a launch queue, and do not add the opt-in label until the issue is truly AFK-ready.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">limits</div>
+            <p>Start small. The default limit is <code>5</code>; v1 rejects values above <code>10</code> so the tmux session stays observable.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">bypass</div>
+            <p><code>--bypass-permissions</code> is an explicit opt-in for provider permission bypass. It should not be the default example or the first command a new operator runs.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">supervision</div>
+            <p>Attach to tmux, watch for blocked panes, stop misleading work, and expect each agent to keep shell, git, package-manager, test, commit, push, and draft PR actions scoped to its assigned issue.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="verify">
+      <div class="container">
+        <span class="section-label">completion checks</span>
+        <h2>AFK is done when the draft PR is <span class="accent">reviewable.</span></h2>
+        <p class="section-lede">The agent should leave a Conventional Commit, push its issue branch with upstream tracking, and create a draft PR that links the source issue. The maintainer still checks the evidence before merging.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">inspect output</span>
+            <h3>Review the PR, not just the pane</h3>
+            <p>Confirm the draft PR links the issue, names the touched behavior, separates unrelated failures, and reports the exact tests or browser checks run.</p>
+            <span class="cmd">gh pr view &lt;number&gt; --json title,isDraft,body,headRefName</span>
+          </div>
+          <div class="move">
+            <span class="tag">local proof</span>
+            <h3>Re-run focused checks when needed</h3>
+            <p>Use the issue's verification checklist as the first source of truth. For static HTML guides, open desktop and mobile widths and run whitespace checks.</p>
+            <span class="cmd">git diff --check</span>
+          </div>
+          <div class="move">
+            <span class="tag">scope control</span>
+            <h3>Reject unrelated cleanup</h3>
+            <p>The branch should solve the assigned issue only. Ask for follow-up issues instead of merging opportunistic refactors or adjacent docs churn.</p>
+            <span class="cmd">git diff --stat origin/main...</span>
+          </div>
+          <div class="move">
+            <span class="tag">blocked panes</span>
+            <h3>Prefer honest blockers</h3>
+            <p>If prerequisites, auth, tests, or product ambiguity block completion, the pane should leave a concise blocker note and skip misleading PR creation.</p>
+            <span class="cmd">tmux attach -t gh-issue-killer</span>
+          </div>
+        </div>
+
+        <div class="docs-strip">
+          <p>The dedicated <code>issue-killer</code> command page is tracked separately; until it exists, treat GitHub issue #209 as the follow-up command-page dependency.</p>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/issues/209">issue #209</a>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/skills/issue-killer/SKILL.md">skill source</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify AFK workflow</span>
+      <span><a href="./">commands</a> · <a href="../index.html">home</a></span>
+    </div>
+  </footer>
+</body>
+</html>

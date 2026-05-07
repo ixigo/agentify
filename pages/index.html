@@ -30,19 +30,22 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
-          <span>first page: <code>sess</code></span>
+          <span>routes: <code>sess</code> + <code>afk</code></span>
         </div>
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
-          <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>routes unlocked</span>
+          <span>sessions + afk</span>
         </div>
 <pre><span class="c"># durable campaign state</span>
 <span class="a">agentify sess run --name "checkout-retries"</span>
 agentify sess resume --session &lt;id&gt;
 agentify sess fork --from &lt;id&gt;
-agentify sess list</pre>
+agentify sess list
+
+<span class="c"># supervised issue execution</span>
+agentify issue-killer --label agentify-ready --agent-provider codex --limit 2 --dry-run</pre>
       </aside>
     </div>
   </header>
@@ -61,10 +64,16 @@ agentify sess list</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="afk.html">
+            <span class="tag">supervised agents</span>
+            <h3>AFK workflow guide</h3>
+            <p>Prepare AFK-ready GitHub issues, label them safely, launch supervised <code>issue-killer</code> panes, and verify draft PR output.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5</span>
+          </a>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
-            <p>Run, context, query, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer command details, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
           </div>
         </div>
@@ -75,7 +84,7 @@ agentify sess list</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
-      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="afk.html">afk</a></span>
     </div>
   </footer>
 </body>
