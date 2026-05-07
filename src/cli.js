@@ -7,7 +7,7 @@ const args = process.argv.slice(2);
 const isJson = args.includes("--json");
 const isHelp = args.includes("--help") || args.includes("-h") || args[0] === "help" || args.length === 0;
 const isVersion = args.includes("--version") || args.includes("-v") || args.includes("-V");
-const isCompletion = args[0] === "completion";
+const isCompletion = args.includes("completion");
 
 if (!isJson && !isHelp && !isVersion && !isCompletion) {
   banner();

@@ -56,6 +56,8 @@ test("generateCompletionScript prints zsh, bash, and fish scripts from one metad
   assert.match(fish, /function __agentify_complete_providers/);
   assert.match(fish, /agentify completion values skills --root \(pwd\)/);
   assert.match(fish, /complete -c agentify .* -a 'completion'/);
+  assert.match(fish, /__fish_seen_subcommand_from skill skills; and not __fish_seen_subcommand_from list install/);
+  assert.match(fish, /__fish_seen_subcommand_from sess session; and not __fish_seen_subcommand_from list run fork resume/);
   assert.match(fish, /__fish_complete_path/);
 });
 
@@ -102,6 +104,16 @@ test("completion values sessions list known session ids", async () => {
 
 test("cli completion command writes only the script to stdout", async () => {
   const result = await execFileAsync(process.execPath, ["src/cli.js", "completion", "bash"], {
+    cwd: path.resolve(new URL("..", import.meta.url).pathname),
+  });
+
+  assert.match(result.stdout, /^# bash completion for agentify/);
+  assert.equal(result.stderr, "");
+});
+
+test("cli completion command suppresses banner after global flags", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-root-"));
+  const result = await execFileAsync(process.execPath, ["src/cli.js", "--root", root, "completion", "bash"], {
     cwd: path.resolve(new URL("..", import.meta.url).pathname),
   });
 

@@ -574,8 +574,9 @@ _agentify "$@"
 `;
 }
 
-function fishConditionForCommand(commandName) {
-  return `__fish_seen_subcommand_from ${commandName}`;
+function fishConditionForCommand(commandInfo) {
+  const names = [commandInfo.name, ...(commandInfo.aliases || [])];
+  return `__fish_seen_subcommand_from ${names.join(" ")}`;
 }
 
 function renderFishCompletion() {
@@ -605,7 +606,7 @@ function renderFishCompletion() {
 
   for (const commandInfo of COMMANDS) {
     for (const sub of visibleSubcommands(commandInfo)) {
-      lines.push(`complete -c agentify -f -n '${fishConditionForCommand(commandInfo.name)}; and not __fish_seen_subcommand_from ${visibleSubcommands(commandInfo).map((item) => item.name).join(" ")}' -a ${shellQuote(sub.name)} -d ${shellQuote(sub.description)}`);
+      lines.push(`complete -c agentify -f -n '${fishConditionForCommand(commandInfo)}; and not __fish_seen_subcommand_from ${visibleSubcommands(commandInfo).map((item) => item.name).join(" ")}' -a ${shellQuote(sub.name)} -d ${shellQuote(sub.description)}`);
     }
   }
 
@@ -615,11 +616,11 @@ function renderFishCompletion() {
 
   for (const commandInfo of COMMANDS) {
     for (const flagInfo of commandInfo.flags || []) {
-      pushFishFlag(lines, flagInfo, fishConditionForCommand(commandInfo.name));
+      pushFishFlag(lines, flagInfo, fishConditionForCommand(commandInfo));
     }
     for (const sub of visibleSubcommands(commandInfo)) {
       for (const flagInfo of sub.flags || []) {
-        pushFishFlag(lines, flagInfo, `${fishConditionForCommand(commandInfo.name)}; and __fish_seen_subcommand_from ${sub.name}`);
+        pushFishFlag(lines, flagInfo, `${fishConditionForCommand(commandInfo)}; and __fish_seen_subcommand_from ${sub.name}`);
       }
     }
   }
