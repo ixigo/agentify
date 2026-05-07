@@ -106,10 +106,30 @@ async function validateFreshness(root, failures, options = {}) {
     }
 
     const modules = loadModules(db);
+    const moduleDocStates = [];
     for (const moduleInfo of modules) {
+      moduleDocStates.push({
+        moduleInfo,
+        exists: await exists(path.join(targetRoot, moduleInfo.doc_path)),
+      });
+    }
+    const requireModuleDocs = options.config?.docs !== false && (
+      await exists(path.join(targetRoot, "AGENTIFY.md"))
+      || moduleDocStates.some((state) => state.exists)
+    );
+    for (const { moduleInfo, exists: docExists } of moduleDocStates) {
       const docPath = moduleInfo.doc_path;
-      const docExists = await exists(path.join(targetRoot, docPath));
       if (!docExists) {
+        if (!requireModuleDocs) {
+          continue;
+        }
+        failures.push(
+          createFailure(
+            FAILURE_CATEGORIES.FRESHNESS_STALE,
+            docPath,
+            `indexed module ${moduleInfo.id} is missing generated doc ${docPath}`
+          )
+        );
         continue;
       }
       if (!moduleInfo.fingerprint) {

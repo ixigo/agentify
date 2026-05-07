@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { writeJson, writeText } from "./fs.js";
+import { redactSensitiveText } from "./session-memory.js";
 import * as ui from "./ui.js";
 
 function escapeHtml(value) {
@@ -13,6 +14,21 @@ function escapeHtml(value) {
 
 function sanitizeForJsString(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
+}
+
+function redactTestsSummary(result) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+
+  const safeResult = { ...result };
+  if (Object.hasOwn(safeResult, "stdout")) {
+    safeResult.stdout = redactSensitiveText(safeResult.stdout);
+  }
+  if (Object.hasOwn(safeResult, "stderr")) {
+    safeResult.stderr = redactSensitiveText(safeResult.stderr);
+  }
+  return safeResult;
 }
 
 function normalizeExecutionTelemetry(value) {
@@ -1186,7 +1202,8 @@ export function createRunReporter(root) {
       if (!text) {
         return;
       }
-      const block = `${title}\n${text.endsWith("\n") ? text : `${text}\n`}`;
+      const safeText = redactSensitiveText(text);
+      const block = `${title}\n${safeText.endsWith("\n") ? safeText : `${safeText}\n`}`;
       record(block);
     },
     setCommand(command) {
@@ -1204,7 +1221,7 @@ export function createRunReporter(root) {
       summary.validation = result;
     },
     setTests(result) {
-      summary.tests = result;
+      summary.tests = redactTestsSummary(result);
     },
     setExecution(result) {
       loader.clear();

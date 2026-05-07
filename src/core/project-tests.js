@@ -4,6 +4,7 @@ import path from "node:path";
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import { detectStacks } from "./detect.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
+import { redactSensitiveText } from "./session-memory.js";
 
 const DEFAULT_TEST_TIMEOUT_MS = 10 * 60 * 1000;
 const FORCE_KILL_TIMEOUT_MS = 1000;
@@ -423,11 +424,13 @@ export async function runProjectTests(root, reporter, options = {}) {
   if (outcome.stderrTruncated) {
     reporter.log(`tests: stderr truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stderrBytes} bytes; configure tests.outputMaxKb to adjust`);
   }
-  if (outcome.stdout) {
-    reporter.appendSection("[tests stdout]", outcome.stdout);
+  const stdout = redactSensitiveText(outcome.stdout);
+  const stderr = redactSensitiveText(outcome.stderr);
+  if (stdout) {
+    reporter.appendSection("[tests stdout]", stdout);
   }
-  if (outcome.stderr) {
-    reporter.appendSection("[tests stderr]", outcome.stderr);
+  if (stderr) {
+    reporter.appendSection("[tests stderr]", stderr);
   }
   if (outcome.timedOut) {
     reporter.log(`tests: timed out after ${outcome.timeoutMs}ms; terminated subprocess`);
@@ -437,8 +440,8 @@ export async function runProjectTests(root, reporter, options = {}) {
     status: outcome.code === 0 && !outcome.timedOut ? "passed" : "failed",
     passed: outcome.code === 0 && !outcome.timedOut,
     command: `${testCommand.command} ${testCommand.args.join(" ")}`,
-    stdout: outcome.stdout,
-    stderr: outcome.stderr,
+    stdout,
+    stderr,
     stdout_truncated: outcome.stdoutTruncated,
     stderr_truncated: outcome.stderrTruncated,
     stdout_bytes: outcome.stdoutBytes,
