@@ -832,6 +832,12 @@ footer a:hover { color: var(--accent); }
     padding: 16px;
   }
 
+  .terminal-top {
+    flex-wrap: wrap;
+  }
+
+  pre,
+  .cmd {
   .meter-track {
     grid-template-columns: 1fr;
   }
