@@ -7,14 +7,18 @@ export const AGENTIFY_GITIGNORE_START = "# >>> agentify generated artifacts";
 export const AGENTIFY_GITIGNORE_END = "# <<< agentify generated artifacts";
 
 export const AGENTIFY_GITIGNORE_PATTERNS = [
-  ".agents/",
-  ".agentify/work/",
+  ".agentify/",
   ".current_session/",
   "AGENTIFY.md",
   "docs/repo-map.md",
   "docs/modules/",
   "output.txt",
   "agentify-report.html",
+];
+
+const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [
+  ".agents/",
+  ".agentify/work/",
 ];
 
 const AGENTIFY_GITIGNORE_HEADER =
@@ -42,7 +46,10 @@ function normalizeText(text) {
 }
 
 function collectPreservedBlockLines(blockText) {
-  const managedLines = new Set(getManagedGitignoreLines().map((line) => line.trim()));
+  const managedLines = new Set([
+    ...getManagedGitignoreLines(),
+    ...LEGACY_AGENTIFY_GITIGNORE_PATTERNS,
+  ].map((line) => line.trim()));
   const seen = new Set();
   const preserved = [];
 
