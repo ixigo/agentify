@@ -100,7 +100,7 @@ agentify check
 
 Why this is better than a minimal setup:
 
-- `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
+- `doctor` tells you whether `pnpm`, external provider binaries, required tier tools, and optional features like MemPalace are available. Provider binary presence is reported separately from auth readiness.
 - project-scoped skills make provider behavior more repeatable across contributors and sessions.
 - hooks keep the repo healthier between manual runs.
 - `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts; use `--docs=false` only when you want a scan/check/test pass without markdown refresh.

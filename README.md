@@ -84,7 +84,7 @@ agentify --version
 ```bash
 cd /path/to/your/repo
 git rev-parse --is-inside-work-tree   # confirm you're inside a Git repo
-agentify doctor                        # check toolchain readiness
+agentify doctor                        # check pnpm, provider CLI, and toolchain readiness
 ```
 
 **macOS — fastest path:**
@@ -218,11 +218,14 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 
 ## 📚 Useful Commands
 
+`agentify doctor` is read-only and reports `pnpm`, external provider binaries/auth, analysis tool capability tier, optional memory tooling, and semantic health when requested.
+
 | Goal | Command |
 | --- | --- |
 | Check readiness | `agentify doctor` |
 | Bootstrap (macOS) | `agentify this --provider codex` |
 | Bootstrap (manual) | `agentify init --provider codex` |
+| Build repository index | `agentify index` |
 | Refresh index + checks + tests | `agentify up` |
 | Validate repo state | `agentify check` |
 | Hook-friendly validate | `agentify check --hook` |
@@ -351,7 +354,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `memory` | Manage agent memory helpers |
 | `issue-killer` | Launch labelled GitHub issues into supervised tmux worktrees |
 | `hooks` | Install/remove git hooks |
-| `doctor` | Toolchain health + capability tier |
+| `doctor` | Setup readiness + provider CLI health + capability tier |
 | `semantic` | Refresh semantic TS/JS facts |
 | `clean` | Prune stale generated artifacts |
 | `cache` | Manage the content cache |
