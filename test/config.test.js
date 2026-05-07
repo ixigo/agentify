@@ -70,6 +70,18 @@ test("loadConfig provides project test timeout defaults", async () => {
   assert.equal(config.tests.timeoutMs, 600000);
 });
 
+test("loadConfig provides provider env policy defaults", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-provider-env-"));
+
+  const config = await loadConfig(root);
+
+  assert.deepEqual(config.providerEnv, {
+    inherit: false,
+    passthrough: [],
+    extra: {},
+  });
+});
+
 test("loadConfig provides context orchestration defaults", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-context-defaults-"));
 

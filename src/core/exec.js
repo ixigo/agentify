@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
+import { buildProviderEnv } from "./provider-env.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
@@ -184,27 +185,18 @@ function getCaptureBufferMaxBytes(config) {
   return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
-function normalizeCommandForDisplay(argv) {
-  if (!Array.isArray(argv) || argv.length === 0) {
-    return "";
-  }
-
-  return argv.map((part) => {
-    const text = String(part);
-    if (!/[\s"'\\]/.test(text)) {
-      return text;
-    }
-    return `"${text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
-  }).join(" ");
-}
-
 function summarizeProviderCommand(argv) {
   const parts = Array.isArray(argv) ? argv.map(String) : [];
+  const executable = parts[0] || null;
+  const argc = parts.length;
+
   return {
-    executable: parts[0] || null,
-    argv: parts,
-    argc: parts.length,
-    display: normalizeCommandForDisplay(parts),
+    executable,
+    argc,
+    argv_redacted: true,
+    display: executable
+      ? `${executable} [argv redacted; argc=${argc}]`
+      : `[argv redacted; argc=${argc}]`,
   };
 }
 
@@ -333,7 +325,7 @@ function runWrappedCommand(argv, options) {
     const child = spawn(command.cmd, command.args, {
       cwd: options.cwd,
       stdio,
-      env: process.env,
+      env: buildProviderEnv(options.providerEnv),
     });
 
     if (captureMode === "pipe") {
@@ -428,6 +420,7 @@ export async function runExec(root, config, agentCommand, flags) {
       captureOutputMode,
       captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
+      providerEnv: config.providerEnv,
     });
   } catch (error) {
     if (captureOutputMode === "pty" && error?.code === "ENOENT") {
@@ -439,6 +432,7 @@ export async function runExec(root, config, agentCommand, flags) {
         timeout: flags.timeout ? flags.timeout * 1000 : undefined,
         captureOutputMode: "inherit",
         captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
+        providerEnv: config.providerEnv,
       });
     } else {
       if (preparedSessionMemory) {

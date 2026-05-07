@@ -16,6 +16,25 @@ function sanitizeForJsString(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
 }
 
+function normalizeProviderCommand(value) {
+  if (!value) {
+    return null;
+  }
+
+  const rawArgv = Array.isArray(value.argv) ? value.argv : [];
+  const executable = value.executable || rawArgv[0] || null;
+  const argc = Number.isFinite(Number(value.argc)) ? Number(value.argc) : rawArgv.length;
+
+  return {
+    executable,
+    argc,
+    argv_redacted: true,
+    display: executable
+      ? `${executable} [argv redacted; argc=${argc}]`
+      : `[argv redacted; argc=${argc}]`,
+  };
+}
+
 function redactTestsSummary(result) {
   if (!result || typeof result !== "object") {
     return result;
@@ -55,7 +74,7 @@ function normalizeExecutionTelemetry(value) {
     skipped_refresh: Boolean(value.skipped_refresh),
     provider: value.provider || null,
     provider_model: value.provider_model || null,
-    provider_command: value.provider_command || null,
+    provider_command: normalizeProviderCommand(value.provider_command),
     capture: value.capture || {
       mode: "inherit",
       transcript_available: false,
