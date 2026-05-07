@@ -13,7 +13,13 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
+        <a href="run.html">run</a>
+        <a href="setup.html">setup</a>
         <a href="session.html">session</a>
+        <a href="query.html">query</a>
+        <a href="maintenance.html">maintenance</a>
+        <a href="planning.html">planning</a>
+        <a href="skill.html">skill</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
         <span class="pill">commands</span>
@@ -30,19 +36,64 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
-          <span>first page: <code>sess</code></span>
+          <span>routes: <code>sess</code> · <code>query</code></span>
+          <span>routes: <code>sess</code> · <code>maintenance</code></span>
+          <span>routes: <code>sess</code> + <code>afk</code></span>
+          <span>routes: <code>sess</code> · <code>planning</code></span>
+          <span>routes: <code>sess</code> · <code>context</code></span>
+          <span>routes: <code>sess</code> · <code>skill</code></span>
+          <span>routes: <code>setup</code> · <code>sess</code></span>
         </div>
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
+          <span>routes unlocked</span>
+          <span>02 / query</span>
           <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>02 / maintenance</span>
         </div>
-<pre><span class="c"># durable campaign state</span>
+<pre><span class="c"># workshop maintenance</span>
+<span class="a">agentify hooks status</span>
+agentify semantic refresh
+agentify clean --dry-run
+agentify cache status</pre>
+          <span>routes unlocked</span>
+          <span>sessions + afk</span>
+          <span>run + sessions</span>
+        </div>
+<pre><span class="c"># provider launch loadout</span>
+<span class="a">agentify run "add checkout retry tests"</span>
+
+<span class="c"># durable campaign state</span>
+agentify sess run --name "checkout-retries"
+agentify sess resume --session &lt;id&gt;
+agentify sess fork --from &lt;id&gt;</pre>
+          <span>02 / planning</span>
+          <span>02 / context</span>
+          <span>setup / sessions</span>
+        </div>
+<pre><span class="c"># setup checkpoints</span>
+<span class="a">agentify doctor</span>
+agentify this --provider codex
+agentify up --provider local
+
+<span class="c"># durable campaign state</span>
 <span class="a">agentify sess run --name "checkout-retries"</span>
 agentify sess resume --session &lt;id&gt;
 agentify sess fork --from &lt;id&gt;
-agentify sess list</pre>
+agentify sess list
+
+<span class="c"># repo index scanner deck</span>
+agentify query owner --file src/core/query.js
+agentify query search --term auth
+agentify query impacts --file src/core/query.js --depth 2</pre>
+<span class="c"># supervised issue execution</span>
+agentify issue-killer --label agentify-ready --agent-provider codex --limit 2 --dry-run</pre>
+<span class="c"># scouting and handoff flow</span>
+agentify plan "fix checkout retry handling"
+agentify handoff --session &lt;id&gt; "finish tests"</pre>
+agentify context search analytics
+agentify context fetch src/app.ts --lines 20:80</pre>
       </aside>
     </div>
   </header>
@@ -51,10 +102,23 @@ agentify sess list</pre>
     <section class="shell">
       <div class="container">
         <span class="section-label">available routes</span>
-        <h2>The first command page sets the <span class="accent">pattern.</span></h2>
-        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
+        <h2>Each command page follows a <span class="accent">playable route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what data it reads, and what artifacts appear on disk.</p>
+        <h2>Each command page follows the <span class="accent">route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what context it sends, and what state it creates.</p>
 
         <div class="command-grid">
+          <a class="command-card" href="run.html">
+            <span class="tag">provider launch</span>
+            <h3>Run command</h3>
+            <p>Use <code>agentify run</code> as a provider loadout selector: fresh task, interactive launch, provider resume, routed context, selected context, explain-plan, and caveman output.</p>
+            <span class="cmd">agentify run --with-context "write retry tests"</span>
+          <a class="command-card" href="setup.html">
+            <span class="tag">onboarding</span>
+            <h3>Setup checkpoints</h3>
+            <p>Use <code>this</code>, <code>init</code>, <code>up</code>, <code>check</code>, <code>sync</code>, and <code>doctor</code> as a guided path from first repo setup to healthy maintenance.</p>
+            <span class="cmd">agentify doctor</span>
+          </a>
           <a class="command-card" href="session.html">
             <span class="tag">durable work</span>
             <h3>Session command</h3>
@@ -66,11 +130,50 @@ agentify sess list</pre>
             <h3>Issue-killer command</h3>
             <p>Use <code>agentify issue-killer</code> as a mission board: labelled GitHub issues become supervised tmux panes with isolated worktrees.</p>
             <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5</span>
+          <a class="command-card" href="query.html">
+            <span class="tag">repo index</span>
+            <h3>Query command</h3>
+            <p>Use <code>agentify query</code> as a scanner deck for owners, deps, changed modules, search, definitions, references, callers, and impacts.</p>
+            <span class="cmd">agentify query search --term auth</span>
+          <a class="command-card" href="maintenance.html">
+            <span class="tag">repo health</span>
+            <h3>Maintenance commands</h3>
+            <p>Use hooks, semantic refresh, clean, cache, and reserved memory helpers as the toolshed for generated state.</p>
+            <span class="cmd">agentify clean --dry-run</span>
+          <a class="command-card" href="afk.html">
+            <span class="tag">supervised agents</span>
+            <h3>AFK workflow guide</h3>
+            <p>Prepare AFK-ready GitHub issues, label them safely, launch supervised <code>issue-killer</code> panes, and verify draft PR output.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5</span>
+          <a class="command-card" href="planning.html">
+            <span class="tag">scouting</span>
+            <h3>Planning and handoff</h3>
+            <p>Use <code>agentify plan</code> to scout context, <code>handoff</code> to pass a quest log, and <code>exec</code> as the raw command tunnel.</p>
+            <span class="cmd">agentify plan "fix checkout retry handling"</span>
+          <a class="command-card" href="context.html">
+            <span class="tag">bounded retrieval</span>
+            <h3>Context command</h3>
+            <p>Use <code>agentify context</code> as the scouting route for ranked refs, bounded fetches, and routed session compaction.</p>
+            <span class="cmd">agentify context fetch src/core/context.js --symbol fetchContext</span>
+          <a class="command-card" href="skill.html">
+            <span class="tag">agent loadouts</span>
+            <h3>Skill command</h3>
+            <p>Use <code>agentify skill</code> to list built-in skills, install one or all of them, choose providers, and decide project or user scope.</p>
+            <span class="cmd">agentify skill install all --provider codex --scope project</span>
+          <a class="command-card" href="risk.html">
+            <span class="tag">blast radius</span>
+            <h3>Risk command</h3>
+            <p>Use <code>agentify risk</code> as a mission danger board: score changed files, inspect impacted code, and pick regression tests.</p>
+            <span class="cmd">agentify risk --since origin/main</span>
           </a>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
             <p>Run, context, query, risk, skill, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer, setup, and planning pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer command details, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer, setup, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
           </div>
         </div>
@@ -81,7 +184,13 @@ agentify sess list</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
-      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="query.html">query</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="maintenance.html">maintenance</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="afk.html">afk</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="planning.html">planning</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="context.html">context</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="skill.html">skill</a></span>
+      <span><a href="../index.html">home</a> · <a href="setup.html">setup</a> · <a href="session.html">session</a></span>
     </div>
   </footer>
 </body>

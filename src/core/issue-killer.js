@@ -267,7 +267,8 @@ async function createWorktree(root, assignment, options) {
 function buildIssuePrompt(issue, assignment, options = {}) {
   const permissionRules = options.bypassPermissions
     ? [
-        "- Provider permission bypass was explicitly requested for this pane; keep command side effects limited to this assigned issue.",
+        "- WARNING: YOLO mode is enabled. Agentify launched this provider with permission prompts bypassed for this issue-killer pane.",
+        "- Keep command side effects limited to this assigned issue and this isolated worktree.",
         "- Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands.",
       ]
     : [
@@ -408,7 +409,7 @@ function normalizeOptions(args, config) {
     base: args.base,
     sessionName: String(args.sessionName === undefined || args.sessionName === true ? DEFAULT_SESSION_NAME : args.sessionName).trim(),
     reuseSession: Boolean(args.reuseSession),
-    bypassPermissions: Boolean(args.bypassPermissions),
+    bypassPermissions: args.bypassPermissions !== false,
     dryRun: Boolean(config.dryRun),
   };
 }
