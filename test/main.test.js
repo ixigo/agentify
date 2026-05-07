@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { CONTEXT_MODE_DESCRIPTION, CONTEXT_MODE_HELP_LABEL } from "../src/core/context-mode.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
 import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
@@ -108,11 +109,28 @@ test("parseArgs and config resolve context mode explicitly", () => {
 
   assert.equal(args.contextMode, "routed");
   assert.equal(resolveRunContextMode(args, { context: { mode: "compact" } }), "routed");
+  assert.equal(resolveRunContextMode(parseArgs(["run", "--context-mode", "direct", "implement login"]), {}), "compact");
   assert.equal(resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }), "compact");
   assert.throws(
     () => resolveRunContextMode(parseArgs(["run", "--context-mode", "wide", "implement login"]), {}),
-    /--context-mode must be "compact", "direct", or "routed"/,
+    /--context-mode must be "compact" or "routed" \("direct" is accepted as an alias for "compact"\)/,
   );
+});
+
+test("help and docs share a single context-mode contract", async () => {
+  const help = await captureHelpText();
+  const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
+  const detailedReadme = await fs.readFile(new URL("../docs/DETAILED_README.md", import.meta.url), "utf8");
+  const commandSection = extractHelpSection(help, "COMMANDS", "OPTIONS");
+  const optionSection = extractHelpSection(help, "OPTIONS", "EXEC FLAGS");
+
+  assert.equal([...commandSection.matchAll(/^\s{4}context\s{2,}/gm)].length, 1);
+  assert.equal([...optionSection.matchAll(/--context-mode/g)].length, 1);
+  assert.match(optionSection, new RegExp(`--context-mode\\s+${CONTEXT_MODE_HELP_LABEL.replace("|", "\\|")}`));
+  assert.match(optionSection, new RegExp(CONTEXT_MODE_DESCRIPTION));
+  assert.match(readme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
+  assert.match(detailedReadme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
+  assert.doesNotMatch(`${optionSection}\n${readme}\n${detailedReadme}`, /<direct\|routed>/);
 });
 
 test("README CLI reference includes every command and option from help", async () => {
@@ -270,11 +288,44 @@ test("prepareSessionLaunch records interactive template sessions through PTY cap
     assert.equal(launch.sessionRecord.captureMode, "interactive-pty");
     assert.equal(launch.sessionRecord.provider, provider);
     assert.equal(launch.sessionRecord.task, task);
+    assert.equal(launch.sessionRecord.contextMode, "compact");
     assert.equal(launch.runExecFlags.sessionRecord, launch.sessionRecord);
     assert.equal(launch.agentCommand[0], provider);
     assert.doesNotMatch(launch.agentCommand.join(" "), /\bexec\b|-p\b/);
     assert.match(launch.agentCommand.at(-1), /Current task: Capture the provider transcript\./);
   }
+});
+
+test("prepareSessionLaunch treats direct as the compact context-mode alias", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-context-mode-"));
+  const sessionResult = {
+    manifest: {
+      session_id: "sess_context_mode",
+      provider: "codex",
+      name: "Context mode session",
+    },
+    bootstrap: "# Session Context\n- Provider: codex",
+  };
+  const config = {
+    provider: "codex",
+    session: {
+      memoryPromptMaxKb: 4,
+      memoryResults: 3,
+      memoryTurns: 6,
+    },
+  };
+
+  const launch = await prepareSessionLaunch(
+    root,
+    config,
+    parseArgs(["sess", "run", "--context-mode", "direct", "Continue work"]),
+    sessionResult,
+    "Continue work",
+  );
+
+  assert.equal(launch.sessionRecord.contextMode, "compact");
+  assert.match(launch.prompt, /Current task: Continue work/);
+  assert.doesNotMatch(launch.prompt, /Agentify routed context mode/);
 });
 
 test("buildSessionPrompt injects automatic memory excerpts before the current task", () => {
