@@ -148,6 +148,178 @@ test("runChild preserves standard proxy env by default", async () => {
   }
 });
 
+async function assertPathMissing(targetPath) {
+  await assert.rejects(
+    () => fs.access(targetPath),
+    (error) => error?.code === "ENOENT",
+  );
+}
+
+function restoreEnvValue(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+test("codex provider removes its temp directory after successful execution", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-root-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-bin-"));
+  const codexPath = path.join(binDir, "codex");
+  const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
+
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+
+const outputPath = process.argv[process.argv.indexOf("--output-last-message") + 1];
+fs.writeFileSync(path.join(process.cwd(), "codex-temp-dir.txt"), path.dirname(outputPath));
+fs.writeFileSync(outputPath, JSON.stringify({
+  repo_summary: "Codex fixture",
+  shared_conventions: [],
+  module_focus: [{ module_id: "auth", focus: "Keep auth simple." }]
+}));
+process.stdout.write(JSON.stringify({
+  type: "turn.completed",
+  usage: { input_tokens: 4, output_tokens: 2 }
+}) + "\\n");
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+
+  try {
+    const provider = createProvider("codex");
+    const result = await provider.buildManagerPlan({
+      repoName: "agentify-fixture",
+      root,
+      defaultStack: "ts",
+      stacks: [{ name: "ts", confidence: 1 }],
+      entrypoints: [],
+      modules: [{ id: "auth", rootPath: "src/auth" }],
+      sampleFiles: [],
+    });
+
+    assert.equal(result.plan.repo_summary, "Codex fixture");
+    assert.deepEqual(result.tokenUsage, {
+      input_tokens: 4,
+      output_tokens: 2,
+      total_tokens: 6
+    });
+    const tempDir = await fs.readFile(tempDirRecordPath, "utf8");
+    assert.match(tempDir, /agentify-codex-/);
+    await assertPathMissing(tempDir);
+  } finally {
+    restoreEnvValue("PATH", previousPath);
+  }
+});
+
+test("codex provider still succeeds when temp cleanup fails after successful execution", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-cleanup-root-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-cleanup-bin-"));
+  const codexPath = path.join(binDir, "codex");
+  const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
+  let tempDir = null;
+
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+
+const outputPath = process.argv[process.argv.indexOf("--output-last-message") + 1];
+fs.writeFileSync(path.join(process.cwd(), "codex-temp-dir.txt"), path.dirname(outputPath));
+fs.writeFileSync(outputPath, JSON.stringify({
+  repo_summary: "Codex fixture",
+  shared_conventions: [],
+  module_focus: [{ module_id: "auth", focus: "Keep auth simple." }]
+}));
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+
+  const previousPath = process.env.PATH;
+  const originalRm = fs.rm;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  t.mock.method(fs, "rm", async (targetPath, options) => {
+    if (String(targetPath).includes("agentify-codex-")) {
+      tempDir = String(targetPath);
+      throw Object.assign(new Error("cleanup busy"), { code: "EBUSY" });
+    }
+    return originalRm(targetPath, options);
+  });
+  t.after(async () => {
+    restoreEnvValue("PATH", previousPath);
+    if (tempDir) {
+      await originalRm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  const provider = createProvider("codex");
+  const result = await provider.buildManagerPlan({
+    repoName: "agentify-fixture",
+    root,
+    defaultStack: "ts",
+    stacks: [{ name: "ts", confidence: 1 }],
+    entrypoints: [],
+    modules: [{ id: "auth", rootPath: "src/auth" }],
+    sampleFiles: [],
+  });
+
+  assert.equal(result.plan.repo_summary, "Codex fixture");
+  tempDir = await fs.readFile(tempDirRecordPath, "utf8");
+  assert.match(tempDir, /agentify-codex-/);
+});
+
+test("codex provider removes its temp directory after failed execution", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-root-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-bin-"));
+  const codexPath = path.join(binDir, "codex");
+  const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
+
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+
+const outputPath = process.argv[process.argv.indexOf("--output-last-message") + 1];
+fs.writeFileSync(path.join(process.cwd(), "codex-temp-dir.txt"), path.dirname(outputPath));
+process.stderr.write("codex fixture failed");
+process.exit(7);
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+
+  try {
+    const provider = createProvider("codex");
+    await assert.rejects(
+      () => provider.buildManagerPlan({
+        repoName: "agentify-fixture",
+        root,
+        defaultStack: "ts",
+        stacks: [{ name: "ts", confidence: 1 }],
+        entrypoints: [],
+        modules: [{ id: "auth", rootPath: "src/auth" }],
+        sampleFiles: [],
+      }),
+      (error) => {
+        assert.equal(error instanceof ProviderExecutionError, true);
+        assert.equal(error.provider, "codex");
+        assert.equal(error.phase, "manager planning");
+        assert.match(error.message, /failed with code 7/);
+        assert.match(error.message, /codex fixture failed/);
+        return true;
+      },
+    );
+
+    const tempDir = await fs.readFile(tempDirRecordPath, "utf8");
+    assert.match(tempDir, /agentify-codex-/);
+    await assertPathMissing(tempDir);
+  } finally {
+    restoreEnvValue("PATH", previousPath);
+  }
+});
+
 test("external provider manager planning surfaces unavailable provider failures", async () => {
   const provider = createProvider("codex");
   const previousPath = process.env.PATH;

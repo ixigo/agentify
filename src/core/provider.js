@@ -420,33 +420,38 @@ async function runCodexExec({ root, prompt, schema, model, providerEnv, timeoutM
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   const schemaPath = path.join(tempDir, "schema.json");
   const outputPath = path.join(tempDir, "result.json");
-  await fs.writeFile(schemaPath, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
 
-  const args = [
-    "exec",
-    "--skip-git-repo-check",
-    "--json",
-    "--sandbox",
-    "workspace-write",
-    "--cd",
-    root,
-    "--output-schema",
-    schemaPath,
-    "--output-last-message",
-    outputPath
-  ];
+  try {
+    await fs.writeFile(schemaPath, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
 
-  if (model) {
-    args.push("--model", model);
+    const args = [
+      "exec",
+      "--skip-git-repo-check",
+      "--json",
+      "--sandbox",
+      "workspace-write",
+      "--cd",
+      root,
+      "--output-schema",
+      schemaPath,
+      "--output-last-message",
+      outputPath
+    ];
+
+    if (model) {
+      args.push("--model", model);
+    }
+
+    args.push(prompt);
+
+    const { stdout } = await runChild("codex", args, { cwd: root, providerEnv, timeoutMs });
+
+    const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
+    const usage = parseCodexJsonl(stdout);
+    return { output, usage };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
-
-  args.push(prompt);
-
-  const { stdout } = await runChild("codex", args, { cwd: root, providerEnv, timeoutMs });
-
-  const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
-  const usage = parseCodexJsonl(stdout);
-  return { output, usage };
 }
 
 async function runClaudeExec({ root, prompt, schema, model, providerEnv, timeoutMs }) {
