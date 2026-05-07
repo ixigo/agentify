@@ -16,6 +16,7 @@
         <a href="run.html">run</a>
         <a href="setup.html">setup</a>
         <a href="session.html">session</a>
+        <a href="maintenance.html">maintenance</a>
         <a href="planning.html">planning</a>
         <a href="skill.html">skill</a>
         <a href="../skill-catalog.html">skills</a>
@@ -34,6 +35,7 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
+          <span>routes: <code>sess</code> · <code>maintenance</code></span>
           <span>routes: <code>sess</code> + <code>afk</code></span>
           <span>routes: <code>sess</code> · <code>planning</code></span>
           <span>routes: <code>sess</code> · <code>context</code></span>
@@ -43,6 +45,14 @@
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
+          <span>route unlocked</span>
+          <span>02 / maintenance</span>
+        </div>
+<pre><span class="c"># workshop maintenance</span>
+<span class="a">agentify hooks status</span>
+agentify semantic refresh
+agentify clean --dry-run
+agentify cache status</pre>
           <span>routes unlocked</span>
           <span>sessions + afk</span>
           <span>run + sessions</span>
@@ -105,6 +115,11 @@ agentify context fetch src/app.ts --lines 20:80</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="maintenance.html">
+            <span class="tag">repo health</span>
+            <h3>Maintenance commands</h3>
+            <p>Use hooks, semantic refresh, clean, cache, and reserved memory helpers as the toolshed for generated state.</p>
+            <span class="cmd">agentify clean --dry-run</span>
           <a class="command-card" href="afk.html">
             <span class="tag">supervised agents</span>
             <h3>AFK workflow guide</h3>
@@ -134,6 +149,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
+            <p>Run, context, query, risk, skill, issue-killer, setup, and planning pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <p>Run, context, query, risk, skill, issue-killer command details, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <p>Run, context, query, risk, skill, issue-killer, setup, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
@@ -146,6 +162,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="maintenance.html">maintenance</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="afk.html">afk</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="planning.html">planning</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="context.html">context</a></span>
