@@ -77,6 +77,34 @@ function clipToBytes(value, maxBytes) {
   return "";
 }
 
+function normalizeTimeoutMs(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getOutcomeTimeout(outcome) {
+  const timedOut = Boolean(outcome?.timedOut ?? outcome?.timed_out);
+  return {
+    timedOut,
+    timeoutMs: normalizeTimeoutMs(outcome?.timeoutMs ?? outcome?.timeout_ms),
+    signal: outcome?.signal || null,
+    reason: timedOut ? outcome?.reason || "timeout" : outcome?.reason || null,
+  };
+}
+
+function buildTimeoutRecordFields(outcome) {
+  const timeout = getOutcomeTimeout(outcome);
+  return {
+    timed_out: timeout.timedOut,
+    timeout_ms: timeout.timeoutMs,
+    signal: timeout.signal,
+    ...(timeout.timedOut ? { reason: timeout.reason } : {}),
+  };
+}
+
 function stripAnsiSequences(text) {
   return String(text || "")
     .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, "")
@@ -814,7 +842,10 @@ async function createStructuredLineageBackend(root, manifest, config) {
           lines.push("", "Recent runs:");
           for (const run of runs.slice(-5)) {
             const when = run?.ended_at || run?.started_at || "";
-            lines.push(`- ${when} task="${(run?.task || "").trim()}" exit=${run?.exit_code ?? "?"} validation=${run?.validation || "not-run"}`);
+            const timeout = run?.timed_out
+              ? ` timeout=${run.timeout_ms ?? "unknown"}ms`
+              : "";
+            lines.push(`- ${when} task="${(run?.task || "").trim()}" exit=${run?.exit_code ?? "?"} validation=${run?.validation || "not-run"}${timeout}`);
             if (run?.assistant_summary) {
               lines.push(`  summary: ${run.assistant_summary}`);
             }
@@ -1129,6 +1160,7 @@ function clampRunHistoryEntry(entry, summaryMaxBytes) {
     task: clipToBytes(redactSensitiveText(entry.task || ""), Math.max(80, Math.floor(summaryMaxBytes / 2))),
     assistant_summary: clipToBytes(redactSensitiveText(entry.assistant_summary || ""), summaryMaxBytes),
     exit_code: Number.isFinite(entry.exit_code) ? entry.exit_code : null,
+    ...buildTimeoutRecordFields(entry),
     validation: entry.validation || "not-run",
     phase: entry.phase || "complete",
     memory_backend: entry.memory_backend || "none",
@@ -1146,8 +1178,11 @@ function buildRollingSummary(history) {
   const latest = history[history.length - 1] || {};
   const task = latest.task ? `Last task: ${latest.task}` : null;
   const summary = latest.assistant_summary ? `Last outcome: ${latest.assistant_summary}` : null;
+  const timeout = latest.timed_out
+    ? `, timeout after ${latest.timeout_ms ?? "unknown"}ms`
+    : "";
   const status = latest.exit_code !== null && latest.exit_code !== undefined
-    ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}`
+    ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}${timeout}`
     : null;
   return [task, status, summary].filter(Boolean).join("\n");
 }
@@ -1216,6 +1251,9 @@ async function compactSessionContextUnlocked(root, sessionId, config = {}, paths
     latest_task: recentTasks.at(-1) || "",
     latest_phase: latestLaunch?.phase || null,
     latest_exit_code: latestLaunch?.exit_code ?? null,
+    latest_timed_out: Boolean(latestLaunch?.timed_out),
+    latest_timeout_ms: latestLaunch?.timeout_ms ?? null,
+    latest_signal: latestLaunch?.signal || null,
     latest_validation: latestLaunch?.validation || null,
     recent_tasks: recentTasks,
     source_paths: {
@@ -1387,6 +1425,11 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       : outcome?.skippedRefresh ? "skipped" : "not-run";
     const phase = outcome?.phase || "complete";
     const endedAt = new Date().toISOString();
+    const timeout = getOutcomeTimeout(outcome);
+    const timeoutFields = buildTimeoutRecordFields(outcome);
+    const timeoutStatus = timeout.timedOut
+      ? `yes after ${timeout.timeoutMs ?? "unknown"}ms${timeout.signal ? ` (signal: ${timeout.signal})` : ""}`
+      : "no";
 
     await appendTurnsRecord(prepared.paths.turnsPath, {
       schema_version: "1.0",
@@ -1404,6 +1447,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       ended_at: endedAt,
       phase,
       exit_code: outcome?.exitCode ?? 1,
+      ...timeoutFields,
       validation: validationSummary,
       capture_mode: sessionRecord.captureMode,
     });
@@ -1416,6 +1460,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
         "> Run status",
         `Command phase: ${phase}`,
         `Exit code: ${outcome?.exitCode ?? 1}`,
+        `Timeout: ${timeoutStatus}`,
         `Validation: ${validationSummary}`,
         `Capture mode used: ${sessionRecord.captureMode}`,
         outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
@@ -1449,6 +1494,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       memory_source_transcript: sessionRecord.memoryContext?.transcriptRelativePath || null,
       phase,
       exit_code: outcome?.exitCode ?? 1,
+      ...timeoutFields,
       validation: validationSummary,
       stdout: clipToBytes(redactSensitiveText(outcome?.stdout || ""), captureMaxBytes),
       stderr: clipToBytes(redactSensitiveText(outcome?.stderr || ""), captureMaxBytes),
@@ -1463,6 +1509,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       task: sessionRecord.task || "",
       assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
       exit_code: outcome?.exitCode ?? null,
+      ...timeoutFields,
       validation: validationSummary,
       phase,
       memory_backend: sessionRecord.memoryContext?.backend || "none",
