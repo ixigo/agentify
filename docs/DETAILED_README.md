@@ -100,7 +100,7 @@ agentify check
 
 Why this is better than a minimal setup:
 
-- `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
+- `doctor` tells you whether `pnpm`, external provider binaries, required tier tools, and optional features like MemPalace are available. Provider binary presence is reported separately from auth readiness.
 - project-scoped skills make provider behavior more repeatable across contributors and sessions.
 - hooks keep the repo healthier between manual runs.
 - `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts; use `--docs=false` only when you want a scan/check/test pass without markdown refresh.
@@ -139,6 +139,47 @@ It is written so the model treats the current working directory as the target re
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
 | `agentify completion` | Prints zsh, bash, or fish completion scripts. | Use when you want shell tab completion for commands, flags, providers, skills, sessions, and path arguments. | `agentify completion zsh` |
+
+#### Shell Completion Setup
+
+`agentify completion <shell>` prints a shell completion script. It never edits shell startup files or creates completion files automatically, so users stay in control of `~/.zshrc`, `~/.bashrc`, fish config, and completion directories.
+
+For current-shell setup:
+
+```bash
+# zsh
+source <(agentify completion zsh)
+
+# bash
+source <(agentify completion bash)
+
+# fish
+agentify completion fish | source
+```
+
+For persistent zsh setup, write the script to an `_agentify` file and make sure its directory is on `fpath` before `compinit` runs:
+
+```bash
+mkdir -p ~/.zsh/completions
+agentify completion zsh > ~/.zsh/completions/_agentify
+```
+
+```bash
+# ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+For persistent fish setup:
+
+```bash
+mkdir -p ~/.config/fish/completions
+agentify completion fish > ~/.config/fish/completions/agentify.fish
+```
+
+Bash can use the current-shell `source <(agentify completion bash)` form directly. Teams that already manage bash completions centrally can save that printed script into their normal bash-completion location instead.
+
+Completion includes static Agentify commands and flags plus dynamic suggestions. Provider and skill suggestions come from Agentify's current configuration and built-in skill registry, session suggestions come from local `.agentify/session/` state, and file path suggestions are delegated to the shell. If a fresh repo has no sessions yet, session completion can be empty until a session is created.
 
 #### Project Test Environment
 

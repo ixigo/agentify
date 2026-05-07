@@ -61,6 +61,8 @@ Optional:
 
 - `mempalace` for stronger session-memory recall
 
+`doctor` also reports whether `pnpm` is available and whether external provider binaries (`codex`, `claude`, `gemini`, `opencode`) are installed. Provider binary presence is reported separately from provider auth readiness.
+
 </details>
 
 ## Daily Commands
@@ -121,6 +123,42 @@ Then reload your shell:
 source ~/.zshrc
 ```
 
+Optional shell completion for command, flag, provider, skill, session, and path suggestions:
+
+```bash
+# zsh, current shell only
+source <(agentify completion zsh)
+
+# bash, current shell only
+source <(agentify completion bash)
+
+# fish, current shell only
+agentify completion fish | source
+```
+
+For persistent zsh completion, save the printed script as `_agentify` in a directory on `fpath`:
+
+```bash
+mkdir -p ~/.zsh/completions
+agentify completion zsh > ~/.zsh/completions/_agentify
+```
+
+Then add this before `compinit` in `~/.zshrc` if that directory is not already on `fpath`:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+For persistent fish completion:
+
+```bash
+mkdir -p ~/.config/fish/completions
+agentify completion fish > ~/.config/fish/completions/agentify.fish
+```
+
+`agentify completion <zsh|bash|fish>` only prints a completion script. It does not edit `~/.zshrc`, `~/.bashrc`, fish config, or completion directories for you. Dynamic values are read from the current repo, so providers and installed skills appear when configured, sessions appear after Agentify session state exists, and path suggestions follow the shell's current working directory.
+
 ## What To Use When
 
 | Need | Command |
@@ -153,9 +191,10 @@ source ~/.zshrc
 It reports:
 
 - local capability tier
+- `pnpm` package-manager readiness
 - required tools such as `rg` and `fd`
 - richer analysis tools such as `ast-grep` and `tree-sitter`
-- provider binaries such as `codex`
+- provider binaries such as `codex`, with auth status reported separately
 - optional memory tooling such as `mempalace`
 - semantic indexing status when enabled
 

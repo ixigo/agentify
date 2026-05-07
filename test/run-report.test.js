@@ -144,6 +144,47 @@ test("createRunReporter shows test output truncation metadata in HTML", async (t
   assert.match(html, /tests\.outputMaxKb/);
 });
 
+test("createRunReporter surfaces execution timeout state", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-timeout-"));
+  const previousSilent = false;
+  setSilent(true);
+  t.after(() => {
+    setSilent(previousSilent);
+  });
+
+  const reporter = createRunReporter(root);
+  reporter.setCommand("exec");
+  reporter.setExecution({
+    run_id: "timeout-execution",
+    duration_ms: 75,
+    phase: "command",
+    exit_code: 1,
+    timed_out: true,
+    timeout_ms: 50,
+    signal: "SIGTERM",
+    reason: "timeout",
+    provider: "codex",
+    provider_command: { executable: "codex", display: "codex exec" },
+    changed_paths: [],
+    changed_files: [],
+    changed_files_count: 0,
+  });
+
+  await reporter.finalize();
+
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+  const telemetry = JSON.parse(
+    await fs.readFile(path.join(root, ".agentify", "runs", "timeout-execution-execution-telemetry.json"), "utf8")
+  );
+
+  assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIGTERM reason=timeout/);
+  assert.match(html, /yes, after 50ms \(SIGTERM\)/);
+  assert.equal(telemetry.timed_out, true);
+  assert.equal(telemetry.timeout_ms, 50);
+  assert.equal(telemetry.reason, "timeout");
+});
+
 test("createRunReporter redacts test stdout and stderr in persisted artifacts", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-redaction-"));
   const previousSilent = false;

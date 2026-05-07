@@ -65,7 +65,7 @@ export async function printHelp() {
     `    ${c("memory")}          ${d("Manage agent memory helpers")}`,
     `    ${c("issue-killer")}    ${d("Launch labelled GitHub issues into supervised tmux worktrees")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
-    `    ${c("doctor")}          ${d("Check toolchain health and capability tier")}`,
+    `    ${c("doctor")}          ${d("Check setup readiness, provider CLIs, and capability tier")}`,
     `    ${c("semantic")}        ${d("Refresh semantic project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
