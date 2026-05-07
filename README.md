@@ -358,7 +358,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `semantic` | Refresh semantic TS/JS facts |
 | `clean` | Prune stale generated artifacts |
 | `cache` | Manage the content cache |
-| `completion` | Generate shell completion scripts |
+| `completion` | Generate shell completion scripts and dynamic values |
 
 </details>
 
