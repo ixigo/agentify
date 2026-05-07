@@ -31,7 +31,7 @@ function canReclaimLock(existing) {
 }
 
 export async function acquireLock(root, operation) {
-  const lockPath = path.join(root, ".agents", ".lock");
+  const lockPath = path.join(root, ".agentify", ".lock");
 
   try {
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
