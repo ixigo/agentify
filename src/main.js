@@ -603,7 +603,7 @@ export async function runCli(argv, runtime = {}) {
             command: "init",
             root,
             dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify/work", ".agents", "docs/modules"],
+            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify", ".agentify/runs", ".agentify/work", "docs/modules"],
             skill_install_hint: skillInstallHint,
           }, null, 2));
         } else {
@@ -1122,7 +1122,7 @@ export async function runCli(argv, runtime = {}) {
       }
 
       case "cache": {
-        const cacheRoot = path.join(root, ".agents", "cache");
+        const cacheRoot = path.join(root, ".agentify", "cache");
         if (subcommand === "gc") {
           const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
           const result = await garbageCollect(cacheRoot, maxAge);

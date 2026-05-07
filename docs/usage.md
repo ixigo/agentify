@@ -174,9 +174,8 @@ Use this after switching machines, changing Node/provider installs, pulling a la
 - `.agentify.yaml`
 - `.agentignore`
 - `.guardrails`
-- `.agentify/work/`
-- `.agents/`
-- `.agents/runs/`
+- `.agentify/`
+- `.agentify/runs/`
 - managed Agentify block in `.gitignore`
 
 `agentify this --provider codex` does the same setup and, on macOS, also checks Homebrew and installs missing bootstrap tools when you confirm.
@@ -197,11 +196,11 @@ Neither command installs skills. They only print the opt-in skill install comman
 
 Generated outputs include:
 
-- `.agents/index.db`
+- `.agentify/index.db`
 - `docs/repo-map.md`
 - root `AGENTIFY.md`
 - module-root `AGENTIFY.md` files
-- `.agents/runs/*.json`
+- `.agentify/runs/*.json`
 - `agentify-report.html`
 
 Use `agentify up --provider local` when you want a cheap deterministic refresh without spending provider tokens or changing the sticky provider.
@@ -221,7 +220,7 @@ agentify sess fork --from <session-id> --name "payments-alt" "try another approa
 agentify handoff --session <session-id> "handoff to the next developer"
 ```
 
-Session artifacts live under `.agents/session/<id>/`:
+Session artifacts live under `.agentify/session/<id>/`:
 
 - `bootstrap.md`
 - `context.json`

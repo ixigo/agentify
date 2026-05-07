@@ -16,7 +16,7 @@ You can use providers directly for fast one-off tasks.
 
 Agentify adds value when you need:
 
-- repeatable repository artifacts (`.agents/index.db`, docs, run manifests),
+- repeatable repository artifacts (`.agentify/index.db`, docs, run manifests),
 - deterministic context selection (`agentify plan`),
 - safety checks/freshness validation (`agentify check`),
 - provider portability and sticky defaults,
@@ -49,7 +49,7 @@ This also makes context inspectable by humans in PR review.
 
 ---
 
-## 5) Why use `.agents/index.db` at all?
+## 5) Why use `.agentify/index.db` at all?
 
 SQLite gives a compact and queryable canonical model for:
 
@@ -90,7 +90,7 @@ There are two levels:
 
 1. **Structural indexer level**
    - Uses TypeScript parser APIs to extract symbols/import relations for TS/JS source.
-   - Provides deterministic symbol spans and module linkage in `.agents/index.db`.
+   - Provides deterministic symbol spans and module linkage in `.agentify/index.db`.
 
 2. **Semantic TS/JS level**
    - `semantic refresh` discovers TS/JS projects (`tsconfig`/`jsconfig`), runs semantic worker analysis, and stores symbols/surfaces/edges.
@@ -197,7 +197,7 @@ This supports resuming/forking work with bounded context and traceability across
 
 ---
 
-## 17) What is stored in `.agents/cache`?
+## 17) What is stored in `.agentify/cache`?
 
 Content-addressed blobs and manifests used by cache maintenance commands (`cache gc`, `cache status`) and cleanup workflows.
 
@@ -414,7 +414,7 @@ The roadmap items in section 22 have largely shipped. Recent implementations now
    - Planner output retains typed verification commands (test/lint/build) so agents can stage checks deterministically.
 
 6. **Session runs no longer leak provider conversations** (PR #117)
-   - `.agents/sess` artifacts stop persisting raw provider chat state, keeping session manifests reproducible without provider-specific noise.
+   - `.agentify/sess` artifacts stop persisting raw provider chat state, keeping session manifests reproducible without provider-specific noise.
 
 7. **`agentify up` runs tests on non-node repos** (PR #128)
    - Test phase no longer silently skips when `package.json` is absent; falls back to repo-declared verification commands.

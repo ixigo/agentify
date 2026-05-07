@@ -193,7 +193,7 @@ Reply with: provider used, files created/modified (from `git status`), and
 the result of `agentify check` (pass/fail + first failing line if any).
 ````
 
-That's it. The agent will leave the repo with `.agentify.yaml`, `.agentignore`, `.guardrails`, an updated `.gitignore`, an `AGENTIFY.md`, and a populated `.agents/` index.
+That's it. The agent will leave the repo with `.agentify.yaml`, `.agentignore`, `.guardrails`, an updated `.gitignore`, an `AGENTIFY.md`, and a populated `.agentify/` index.
 
 ---
 
@@ -207,12 +207,12 @@ That's it. The agent will leave the repo with `.agentify.yaml`, `.agentignore`, 
 AGENTIFY.md                 # agent-facing repo overview (generated, gitignored)
 docs/repo-map.md            # routing map (generated, gitignored)
 <module>/AGENTIFY.md        # per-module context (generated, gitignored)
-.agents/index.db            # SQLite repo index (gitignored)
-.agents/runs/, .agents/session/   # run + session state (gitignored)
-.agentify/work/             # scratch / staging (gitignored)
+.agentify/index.db            # SQLite repo index (gitignored)
+.agentify/runs/, .agentify/session/   # run + session state (gitignored)
+.agentify/work/             # scratch / staging inside runtime root (gitignored)
 ```
 
-Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block. Everything under `.agents/` and `.agentify/work/` is local runtime.
+Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block. Everything under `.agentify/` is local runtime.
 
 ---
 
@@ -263,7 +263,7 @@ agentify sess resume --session <id> "write tests from the prepared compacted con
 
 Reported `prompt_bytes` and `session_context_bytes` are UTF-8 byte estimates for Agentify-managed material — **not** a provider token count or a guarantee about live provider context size.
 
-Routed artifacts are local/generated under `.agents/`, `.agentify/work/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test subprocess envs, but provider runs inherit the provider environment. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.passthrough` / `tests.env.extra` when needed.
+Routed artifacts are local/generated under `.agentify/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test subprocess envs, but provider runs inherit the provider environment. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.passthrough` / `tests.env.extra` when needed.
 
 ---
 
@@ -316,7 +316,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
 | `index` | Build the SQLite repository index |
-| `scan` | Alias for index |
+| `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |
 | `up` | scan → optional doc → check → test pipeline |
 | `sync` | Upgrade repo-owned Agentify files, then refresh |

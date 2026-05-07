@@ -137,7 +137,7 @@ async function detectBinary(command, options = {}) {
   });
 
   return {
-    available: true,
+    available: result.code === 0,
     version: result.code === 0 ? parseVersion(result.stdout, result.stderr) : "unknown",
     path: resolvedCommand,
     ...(result.code === 0 ? {} : { check_status: "failed" }),
@@ -277,7 +277,7 @@ async function buildSemanticDoctorReport(root, config) {
   const parseFailures = await discoverSemanticProjectParseFailures(root);
   const discoveredById = new Map(discoveredProjects.map((project) => [project.id, project]));
   const discoveredIds = new Set(discoveredById.keys());
-  const dbPath = `${root}/.agents/index.db`;
+  const dbPath = `${root}/.agentify/index.db`;
   const indexPresent = await exists(dbPath);
   const failures = [];
   const staleFingerprints = [];
@@ -294,7 +294,7 @@ async function buildSemanticDoctorReport(root, config) {
     failures.push({
       category: "missing-index",
       project_id: null,
-      message: "missing .agents/index.db; run `agentify scan` and `agentify semantic refresh`",
+      message: "missing .agentify/index.db; run `agentify scan` and `agentify semantic refresh`",
     });
   }
   for (const failure of parseFailures) {
@@ -536,7 +536,7 @@ export async function runDoctor(root, config, options = {}) {
   if (semanticReport) {
     renderSemanticDoctorReport(semanticReport);
   } else if (config.semantic?.tsjs?.enabled && root) {
-    const dbPath = `${root}/.agents/index.db`;
+    const dbPath = `${root}/.agentify/index.db`;
     if (await exists(dbPath)) {
       const db = openIndexDatabase(root, { readOnly: true });
       try {
