@@ -15,6 +15,7 @@
         <a href="../index.html">home</a>
         <a href="setup.html">setup</a>
         <a href="session.html">session</a>
+        <a href="planning.html">planning</a>
         <a href="skill.html">skill</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
@@ -32,6 +33,7 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
+          <span>routes: <code>sess</code> · <code>planning</code></span>
           <span>routes: <code>sess</code> · <code>context</code></span>
           <span>routes: <code>sess</code> · <code>skill</code></span>
           <span>routes: <code>setup</code> · <code>sess</code></span>
@@ -40,6 +42,7 @@
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
           <span>routes unlocked</span>
+          <span>02 / planning</span>
           <span>02 / context</span>
           <span>setup / sessions</span>
         </div>
@@ -51,6 +54,12 @@ agentify up --provider local
 <span class="c"># durable campaign state</span>
 <span class="a">agentify sess run --name "checkout-retries"</span>
 agentify sess resume --session &lt;id&gt;
+agentify sess fork --from &lt;id&gt;
+agentify sess list
+
+<span class="c"># scouting and handoff flow</span>
+agentify plan "fix checkout retry handling"
+agentify handoff --session &lt;id&gt; "finish tests"</pre>
 agentify context search analytics
 agentify context fetch src/app.ts --lines 20:80</pre>
       </aside>
@@ -77,6 +86,11 @@ agentify context fetch src/app.ts --lines 20:80</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="planning.html">
+            <span class="tag">scouting</span>
+            <h3>Planning and handoff</h3>
+            <p>Use <code>agentify plan</code> to scout context, <code>handoff</code> to pass a quest log, and <code>exec</code> as the raw command tunnel.</p>
+            <span class="cmd">agentify plan "fix checkout retry handling"</span>
           <a class="command-card" href="context.html">
             <span class="tag">bounded retrieval</span>
             <h3>Context command</h3>
@@ -96,9 +110,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
-            <p>Run, query, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
-            <p>Run, context, query, risk, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
-            <p>Run, context, query, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer, setup, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
           </div>
         </div>
@@ -109,6 +121,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="planning.html">planning</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="context.html">context</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="skill.html">skill</a></span>
       <span><a href="../index.html">home</a> · <a href="setup.html">setup</a> · <a href="session.html">session</a></span>
