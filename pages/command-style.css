@@ -316,6 +316,11 @@ pre .c { color: var(--faint); }
 pre .a { color: var(--accent); }
 pre .w { color: var(--warn); }
 
+.query-page pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .cta-row {
   display: flex;
   flex-wrap: wrap;

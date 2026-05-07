@@ -16,6 +16,7 @@
         <a href="run.html">run</a>
         <a href="setup.html">setup</a>
         <a href="session.html">session</a>
+        <a href="query.html">query</a>
         <a href="maintenance.html">maintenance</a>
         <a href="planning.html">planning</a>
         <a href="skill.html">skill</a>
@@ -35,6 +36,7 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
+          <span>routes: <code>sess</code> · <code>query</code></span>
           <span>routes: <code>sess</code> · <code>maintenance</code></span>
           <span>routes: <code>sess</code> + <code>afk</code></span>
           <span>routes: <code>sess</code> · <code>planning</code></span>
@@ -45,6 +47,8 @@
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
+          <span>routes unlocked</span>
+          <span>02 / query</span>
           <span>route unlocked</span>
           <span>02 / maintenance</span>
         </div>
@@ -79,6 +83,10 @@ agentify sess resume --session &lt;id&gt;
 agentify sess fork --from &lt;id&gt;
 agentify sess list
 
+<span class="c"># repo index scanner deck</span>
+agentify query owner --file src/core/query.js
+agentify query search --term auth
+agentify query impacts --file src/core/query.js --depth 2</pre>
 <span class="c"># supervised issue execution</span>
 agentify issue-killer --label agentify-ready --agent-provider codex --limit 2 --dry-run</pre>
 <span class="c"># scouting and handoff flow</span>
@@ -94,6 +102,8 @@ agentify context fetch src/app.ts --lines 20:80</pre>
     <section class="shell">
       <div class="container">
         <span class="section-label">available routes</span>
+        <h2>Each command page follows a <span class="accent">playable route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what data it reads, and what artifacts appear on disk.</p>
         <h2>Each command page follows the <span class="accent">route.</span></h2>
         <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what context it sends, and what state it creates.</p>
 
@@ -115,6 +125,11 @@ agentify context fetch src/app.ts --lines 20:80</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="query.html">
+            <span class="tag">repo index</span>
+            <h3>Query command</h3>
+            <p>Use <code>agentify query</code> as a scanner deck for owners, deps, changed modules, search, definitions, references, callers, and impacts.</p>
+            <span class="cmd">agentify query search --term auth</span>
           <a class="command-card" href="maintenance.html">
             <span class="tag">repo health</span>
             <h3>Maintenance commands</h3>
@@ -149,6 +164,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
+            <p>Run, context, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <p>Run, context, query, risk, skill, issue-killer, setup, and planning pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <p>Run, context, query, risk, skill, issue-killer command details, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <p>Run, context, query, risk, skill, issue-killer, setup, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
@@ -162,6 +178,7 @@ agentify context fetch src/app.ts --lines 20:80</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="query.html">query</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="maintenance.html">maintenance</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="afk.html">afk</a></span>
       <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="planning.html">planning</a></span>
