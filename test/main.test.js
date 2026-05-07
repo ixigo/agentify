@@ -4,14 +4,17 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { isHelpRequest, isVersionRequest } from "../src/core/cli-fast-paths.js";
 import { CONTEXT_MODE_DESCRIPTION, CONTEXT_MODE_HELP_LABEL } from "../src/core/context-mode.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
 import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
+const repoRoot = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
 async function initGitRepo(root) {
   await execFileAsync("git", ["init"], { cwd: root });
@@ -82,6 +85,47 @@ async function captureConsoleLog(fn) {
   }
 
   return output;
+}
+
+async function runCliWithImportTrace(args) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cli-import-trace-"));
+  const loaderPath = path.join(tempDir, "trace-loader.mjs");
+  const tracePath = path.join(tempDir, "imports.log");
+  await fs.writeFile(tracePath, "", "utf8");
+  await fs.writeFile(loaderPath, `
+import fs from "node:fs";
+
+const tracePath = process.env.AGENTIFY_IMPORT_TRACE_PATH;
+const blocked = [
+  "/src/main.js",
+  "/src/core/indexer.js",
+  "/node_modules/typescript/",
+];
+
+export async function resolve(specifier, context, nextResolve) {
+  const result = await nextResolve(specifier, context);
+  if (tracePath && blocked.some((entry) => result.url.includes(entry))) {
+    fs.appendFileSync(tracePath, result.url + "\\n");
+  }
+  return result;
+}
+`, "utf8");
+
+  const result = await execFileAsync(process.execPath, [
+    "--loader",
+    loaderPath,
+    "src/cli.js",
+    ...args,
+  ], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      AGENTIFY_IMPORT_TRACE_PATH: tracePath,
+      NO_COLOR: "1",
+    },
+  });
+  const imports = (await fs.readFile(tracePath, "utf8")).trim().split("\n").filter(Boolean);
+  return { ...result, imports };
 }
 
 function extractHelpSection(help, heading, nextHeading) {
@@ -176,6 +220,28 @@ test("parseArgs supports short help and version flags", () => {
   const args = parseArgs(["-h", "-V"]);
   assert.equal(args.help, true);
   assert.equal(args.version, true);
+});
+
+test("CLI help and version fast paths avoid heavy dispatcher imports", async () => {
+  const pkg = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
+  const versionResult = await runCliWithImportTrace(["--version"]);
+  assert.equal(versionResult.stdout, `agentify v${pkg.version}\n`);
+  assert.deepEqual(versionResult.imports, []);
+
+  const helpResult = await runCliWithImportTrace(["--help"]);
+  assert.match(helpResult.stderr, /COMMANDS/);
+  assert.match(helpResult.stderr, /agentify run --provider codex/);
+  assert.deepEqual(helpResult.imports, []);
+});
+
+test("CLI fast paths ignore passthrough flags after --", () => {
+  assert.equal(isHelpRequest(["exec", "--", "node", "--help"]), false);
+  assert.equal(isHelpRequest(["exec", "--", "node", "-h"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "--version"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "-v"]), false);
+
+  assert.equal(isHelpRequest(["exec", "--help", "--", "node"]), true);
+  assert.equal(isVersionRequest(["exec", "--version", "--", "node"]), true);
 });
 
 test("parseArgs supports interactive flags", () => {

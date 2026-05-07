@@ -1,23 +1,35 @@
 #!/usr/bin/env node
 
-import { runCli } from "./main.js";
-import { banner, error, dim } from "./core/ui.js";
+import { handleFastPath, isHelpRequest, isVersionRequest } from "./core/cli-fast-paths.js";
 
 const args = process.argv.slice(2);
 const isJson = args.includes("--json");
-const isHelp = args.includes("--help") || args.includes("-h") || args[0] === "help" || args.length === 0;
-const isVersion = args.includes("--version") || args.includes("-v") || args.includes("-V");
+const isHelp = isHelpRequest(args);
+const isVersion = isVersionRequest(args);
 const isCompletion = args.includes("completion");
 
-if (!isJson && !isHelp && !isVersion && !isCompletion) {
-  banner();
+async function main() {
+  if (await handleFastPath(args)) {
+    return;
+  }
+
+  const { banner, error, dim } = await import("./core/ui.js");
+
+  if (!isJson && !isHelp && !isVersion && !isCompletion) {
+    banner();
+  }
+
+  try {
+    const { runCli } = await import("./main.js");
+    await runCli(args);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    error(message);
+    if (err instanceof Error && err.stack && !isJson) {
+      process.stderr.write(`\n${dim(err.stack.split("\n").slice(1).join("\n"))}\n`);
+    }
+    process.exitCode = 1;
+  }
 }
 
-runCli(args).catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  error(message);
-  if (err instanceof Error && err.stack && !isJson) {
-    process.stderr.write(`\n${dim(err.stack.split("\n").slice(1).join("\n"))}\n`);
-  }
-  process.exitCode = 1;
-});
+main();
