@@ -49,6 +49,13 @@ fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   return codexPath;
 }
 
+async function installFakeExecutable(binDir, name, script) {
+  const executablePath = path.join(binDir, name);
+  await fs.writeFile(executablePath, script, "utf8");
+  await fs.chmod(executablePath, 0o755);
+  return executablePath;
+}
+
 async function captureHelpText() {
   const chunks = [];
   const originalWrite = process.stderr.write;

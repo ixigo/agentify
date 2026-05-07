@@ -240,6 +240,38 @@ async function pruneInvalidSessionDirs(root, dryRun, enabled) {
   return toArray(removed);
 }
 
+async function prunePlannedArtifacts(root, dryRun, enabled) {
+  if (!enabled) {
+    return [];
+  }
+  const plannedRoot = path.join(root, ".agentify", "planned");
+  const removed = [];
+  for (const fileName of await listFiles(plannedRoot)) {
+    if (!fileName.endsWith(".md")) {
+      continue;
+    }
+    await removePath(path.join(plannedRoot, fileName), dryRun);
+    removed.push(`.agentify/planned/${fileName}`);
+  }
+  return toArray(removed);
+}
+
+async function pruneAfkSessionDirs(root, dryRun, enabled) {
+  if (!enabled) {
+    return [];
+  }
+  const sessionsRoot = path.join(root, ".agentify", "session");
+  const removed = [];
+  for (const dirName of await listDirs(sessionsRoot)) {
+    if (!dirName.startsWith("afk_")) {
+      continue;
+    }
+    await removePath(path.join(sessionsRoot, dirName), dryRun);
+    removed.push(`.agentify/session/${dirName}`);
+  }
+  return toArray(removed);
+}
+
 async function pruneEmptyDirs(basePath, dryRun) {
   const removed = [];
 
@@ -277,9 +309,11 @@ async function pruneEmptyDirs(basePath, dryRun) {
   return toArray(removed);
 }
 
-export async function runClean(root, config) {
+export async function runClean(root, config, options = {}) {
   const dryRun = Boolean(config.dryRun);
   const cleanupConfig = config.cleanup || {};
+  const cleanPlanned = options.planned === true || options.all === true;
+  const cleanSessions = options.sessions === true || options.all === true;
 
   const orphaned = await pruneOrphanedModuleArtifacts(root, dryRun);
   const runReports = await pruneRetainedFiles(path.join(root, ".agentify", "runs"), {
@@ -297,6 +331,8 @@ export async function runClean(root, config) {
     dryRun,
   });
   const invalidSessions = await pruneInvalidSessionDirs(root, dryRun, cleanupConfig.pruneInvalidSessions !== false);
+  const plannedArtifacts = await prunePlannedArtifacts(root, dryRun, cleanPlanned);
+  const afkSessions = await pruneAfkSessionDirs(root, dryRun, cleanSessions);
   const cacheRemoved = cleanupConfig.pruneCache === false
     ? 0
     : (await garbageCollect(path.join(root, ".agentify", "cache"), config.cache?.maxAgeDays || 7, { dryRun })).removed;
@@ -305,6 +341,7 @@ export async function runClean(root, config) {
     ...(await pruneEmptyDirs(path.join(root, "docs", "modules"), dryRun)).map((item) => `docs/modules/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".agentify", "modules"), dryRun)).map((item) => `.agentify/modules/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".agentify", "runs"), dryRun)).map((item) => `.agentify/runs/${item}`),
+    ...(await pruneEmptyDirs(path.join(root, ".agentify", "planned"), dryRun)).map((item) => `.agentify/planned/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".agentify", "session"), dryRun)).map((item) => `.agentify/session/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".current_session"), dryRun)).map((item) => `.current_session/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".agentify", "cache"), dryRun)).map((item) => `.agentify/cache/${item}`),
@@ -315,6 +352,8 @@ export async function runClean(root, config) {
     ...runReports,
     ...ghostRuns,
     ...invalidSessions,
+    ...plannedArtifacts,
+    ...afkSessions,
     ...emptyDirs,
   ]);
 
@@ -328,6 +367,8 @@ export async function runClean(root, config) {
     stale_run_reports: runReports,
     stale_ghost_runs: ghostRuns,
     invalid_sessions: invalidSessions,
+    planned_artifacts: plannedArtifacts,
+    afk_sessions: afkSessions,
     empty_dirs: toArray(emptyDirs),
     skipped: orphaned.skipped ? ["module-artifacts:no-index"] : [],
   };

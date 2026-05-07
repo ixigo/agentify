@@ -94,6 +94,16 @@ agentify sess resume --session <session-id> "continue from review feedback"
 agentify handoff --session <session-id> "summarize current state"
 ```
 
+Use AFK when planning should happen in one interactive provider session and implementation should start later in a fresh worktree:
+
+```bash
+agentify afk create --provider codex "add checkout retries"
+agentify afk run .agentify/planned/checkout-retries.md
+agentify clean --planned --sessions
+```
+
+`afk create` writes a validated plan under `.agentify/planned/`. `afk run` starts fresh by default, creates an isolated branch/worktree, runs detected tests, and commits only after verification passes. Use `--current-worktree` only when you intentionally want to run in the current checkout, `--no-commit` when you want to review unstaged changes yourself, and `--cleanup delete` when the plan should be removed after a successful run.
+
 Before a PR or handoff:
 
 ```bash
@@ -174,6 +184,7 @@ agentify completion fish > ~/.config/fish/completions/agentify.fish
 | Continue previous provider conversation | `agentify run --resume` |
 | One-off provider task | `agentify run "task"` |
 | One-off task with injected context | `agentify run --with-context "task"` |
+| Plan now and execute later in a fresh worktree | `agentify afk create "task"` then `agentify afk run .agentify/planned/<slug>.md` |
 | Durable multi-step work | `agentify sess run ...` |
 | Continue durable work | `agentify sess resume --session <id> ...` |
 | Handoff work | `agentify handoff --session <id> ...` |

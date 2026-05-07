@@ -25,6 +25,7 @@ import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemo
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
+import { runAfk } from "./core/afk.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { runSemanticRefresh } from "./core/semantic.js";
 import { runIssueKiller } from "./core/issue-killer.js";
@@ -72,6 +73,12 @@ const BOOLEAN_FLAGS = new Set([
   "withContext",
   "continue",
   "resume",
+  "currentWorktree",
+  "allowDirty",
+  "noCommit",
+  "planned",
+  "sessions",
+  "all",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
@@ -685,6 +692,10 @@ export async function runCli(argv, runtime = {}) {
         await runIssueKiller(root, config, args);
         return;
 
+      case "afk":
+        await runAfk(root, config, args, { runClean });
+        return;
+
       case "handoff": {
         let sessionId = args.session ? validateSessionId(String(args.session), "--session id") : null;
         let promptStartIndex = 1;
@@ -1001,7 +1012,11 @@ export async function runCli(argv, runtime = {}) {
         return;
 
       case "clean": {
-        const result = await runClean(root, config);
+        const result = await runClean(root, config, {
+          planned: args.planned === true,
+          sessions: args.sessions === true,
+          all: args.all === true,
+        });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
