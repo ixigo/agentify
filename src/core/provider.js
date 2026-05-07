@@ -413,7 +413,6 @@ async function runCodexExec({ root, prompt, schema, model, timeoutMs }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   const schemaPath = path.join(tempDir, "schema.json");
   const outputPath = path.join(tempDir, "result.json");
-  let providerError = null;
 
   try {
     await fs.writeFile(schemaPath, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
@@ -443,17 +442,8 @@ async function runCodexExec({ root, prompt, schema, model, timeoutMs }) {
     const output = JSON.parse(await fs.readFile(outputPath, "utf8"));
     const usage = parseCodexJsonl(stdout);
     return { output, usage };
-  } catch (error) {
-    providerError = error;
-    throw error;
   } finally {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (cleanupError) {
-      if (!providerError) {
-        throw cleanupError;
-      }
-    }
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 

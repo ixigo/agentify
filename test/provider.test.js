@@ -112,6 +112,60 @@ process.stdout.write(JSON.stringify({
   }
 });
 
+test("codex provider still succeeds when temp cleanup fails after successful execution", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-cleanup-root-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-cleanup-bin-"));
+  const codexPath = path.join(binDir, "codex");
+  const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
+  let tempDir = null;
+
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+
+const outputPath = process.argv[process.argv.indexOf("--output-last-message") + 1];
+fs.writeFileSync(path.join(process.cwd(), "codex-temp-dir.txt"), path.dirname(outputPath));
+fs.writeFileSync(outputPath, JSON.stringify({
+  repo_summary: "Codex fixture",
+  shared_conventions: [],
+  module_focus: [{ module_id: "auth", focus: "Keep auth simple." }]
+}));
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+
+  const previousPath = process.env.PATH;
+  const originalRm = fs.rm;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  t.mock.method(fs, "rm", async (targetPath, options) => {
+    if (String(targetPath).includes("agentify-codex-")) {
+      tempDir = String(targetPath);
+      throw Object.assign(new Error("cleanup busy"), { code: "EBUSY" });
+    }
+    return originalRm(targetPath, options);
+  });
+  t.after(async () => {
+    restoreEnvValue("PATH", previousPath);
+    if (tempDir) {
+      await originalRm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  const provider = createProvider("codex");
+  const result = await provider.buildManagerPlan({
+    repoName: "agentify-fixture",
+    root,
+    defaultStack: "ts",
+    stacks: [{ name: "ts", confidence: 1 }],
+    entrypoints: [],
+    modules: [{ id: "auth", rootPath: "src/auth" }],
+    sampleFiles: [],
+  });
+
+  assert.equal(result.plan.repo_summary, "Codex fixture");
+  tempDir = await fs.readFile(tempDirRecordPath, "utf8");
+  assert.match(tempDir, /agentify-codex-/);
+});
+
 test("codex provider removes its temp directory after failed execution", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-root-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-provider-codex-bin-"));
