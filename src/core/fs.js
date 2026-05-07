@@ -23,7 +23,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 const HARD_EXCLUDES = [
-  /^\.agents\//,
+  /^\.agentify\//,
   /^\.current_session\//,
   /^docs\//,
   /^agentify-report\.html$/,
