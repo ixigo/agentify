@@ -15,19 +15,19 @@ async function setOldMtime(targetPath, daysAgo) {
 test("runClean prunes orphaned Agentify artifacts and stale folders", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-clean-"));
   await fs.mkdir(path.join(root, "docs", "modules"), { recursive: true });
-  await fs.mkdir(path.join(root, ".agents", "modules"), { recursive: true });
-  await fs.mkdir(path.join(root, ".agents", "runs"), { recursive: true });
-  await fs.mkdir(path.join(root, ".agents", "session", "broken"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "modules"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "runs"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "session", "broken"), { recursive: true });
   await fs.mkdir(path.join(root, ".current_session", "ghost_old"), { recursive: true });
   await fs.mkdir(path.join(root, ".current_session", "ghost_keep"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "payments"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "dead"), { recursive: true });
 
-  await fs.writeFile(path.join(root, ".agents", "index.json"), JSON.stringify({
+  await fs.writeFile(path.join(root, ".agentify", "index.json"), JSON.stringify({
     modules: [
       {
         doc_path: "docs/modules/auth.md",
-        metadata_path: ".agents/modules/auth.json"
+        metadata_path: ".agentify/modules/auth.json"
       },
       {
         doc_path: "src/payments/AGENTIFY.md"
@@ -39,14 +39,14 @@ test("runClean prunes orphaned Agentify artifacts and stale folders", async () =
   await fs.writeFile(path.join(root, "AGENTIFY.md"), "# repo\n");
   await fs.writeFile(path.join(root, "src", "payments", "AGENTIFY.md"), "# payments\n");
   await fs.writeFile(path.join(root, "src", "dead", "AGENTIFY.md"), "# dead module\n");
-  await fs.writeFile(path.join(root, ".agents", "modules", "auth.json"), "{}\n");
-  await fs.writeFile(path.join(root, ".agents", "modules", "dead.json"), "{}\n");
-  await fs.writeFile(path.join(root, ".agents", "runs", "keep.json"), "{}\n");
-  await fs.writeFile(path.join(root, ".agents", "runs", "old.json"), "{}\n");
+  await fs.writeFile(path.join(root, ".agentify", "modules", "auth.json"), "{}\n");
+  await fs.writeFile(path.join(root, ".agentify", "modules", "dead.json"), "{}\n");
+  await fs.writeFile(path.join(root, ".agentify", "runs", "keep.json"), "{}\n");
+  await fs.writeFile(path.join(root, ".agentify", "runs", "old.json"), "{}\n");
   await fs.writeFile(path.join(root, ".current_session", "ghost_old", "ghost-report.json"), "{}\n");
   await fs.writeFile(path.join(root, ".current_session", "ghost_keep", "ghost-report.json"), "{}\n");
 
-  await setOldMtime(path.join(root, ".agents", "runs", "old.json"), 10);
+  await setOldMtime(path.join(root, ".agentify", "runs", "old.json"), 10);
   await setOldMtime(path.join(root, ".current_session", "ghost_old"), 10);
 
   const config = await loadConfig(root, { provider: "local" });
@@ -59,43 +59,43 @@ test("runClean prunes orphaned Agentify artifacts and stale folders", async () =
 
   assert.ok(result.removed_paths.includes("docs/modules/dead.md"));
   assert.ok(result.removed_paths.includes("src/dead/AGENTIFY.md"));
-  assert.ok(result.removed_paths.includes(".agents/modules/dead.json"));
-  assert.ok(result.removed_paths.includes(".agents/runs/old.json"));
+  assert.ok(result.removed_paths.includes(".agentify/modules/dead.json"));
+  assert.ok(result.removed_paths.includes(".agentify/runs/old.json"));
   assert.ok(result.removed_paths.includes(".current_session/ghost_old"));
-  assert.ok(result.removed_paths.includes(".agents/session/broken"));
+  assert.ok(result.removed_paths.includes(".agentify/session/broken"));
 
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "dead.md")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, "src", "dead", "AGENTIFY.md")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agents", "modules", "dead.json")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agents", "runs", "old.json")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "modules", "dead.json")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "runs", "old.json")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(root, ".current_session", "ghost_old")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agents", "session", "broken")).then(() => true).catch(() => false), false);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "session", "broken")).then(() => true).catch(() => false), false);
 
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "src", "payments", "AGENTIFY.md")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "modules", "auth.json")).then(() => true), true);
-  assert.ok(!result.removed_paths.includes(".agents/modules/auth.json"));
-  assert.equal(await fs.stat(path.join(root, ".agents", "runs", "keep.json")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "modules", "auth.json")).then(() => true), true);
+  assert.ok(!result.removed_paths.includes(".agentify/modules/auth.json"));
+  assert.equal(await fs.stat(path.join(root, ".agentify", "runs", "keep.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, ".current_session", "ghost_keep")).then(() => true), true);
 });
 
 test("runClean dry-run reports removals without deleting files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-clean-dry-"));
   await fs.mkdir(path.join(root, "docs", "modules"), { recursive: true });
-  await fs.mkdir(path.join(root, ".agents", "modules"), { recursive: true });
-  await fs.mkdir(path.join(root, ".agents", "cache", "blobs", "aa"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "modules"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "cache", "blobs", "aa"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "dead"), { recursive: true });
 
-  await fs.writeFile(path.join(root, ".agents", "index.json"), JSON.stringify({
+  await fs.writeFile(path.join(root, ".agentify", "index.json"), JSON.stringify({
     modules: []
   }, null, 2));
   await fs.writeFile(path.join(root, "docs", "modules", "dead.md"), "# dead\n");
   await fs.writeFile(path.join(root, "AGENTIFY.md"), "# repo\n");
   await fs.writeFile(path.join(root, "src", "dead", "AGENTIFY.md"), "# dead module\n");
-  await fs.writeFile(path.join(root, ".agents", "modules", "dead.json"), "{}\n");
-  await fs.writeFile(path.join(root, ".agents", "cache", "blobs", "aa", "aa.blob"), "blob\n");
-  await fs.writeFile(path.join(root, ".agents", "cache", "manifest.json"), JSON.stringify({
+  await fs.writeFile(path.join(root, ".agentify", "modules", "dead.json"), "{}\n");
+  await fs.writeFile(path.join(root, ".agentify", "cache", "blobs", "aa", "aa.blob"), "blob\n");
+  await fs.writeFile(path.join(root, ".agentify", "cache", "manifest.json"), JSON.stringify({
     modules: {
       stale: {
         blobs: ["aa"],
@@ -109,11 +109,11 @@ test("runClean dry-run reports removals without deleting files", async () => {
 
   assert.ok(result.removed_paths.includes("docs/modules/dead.md"));
   assert.ok(result.removed_paths.includes("src/dead/AGENTIFY.md"));
-  assert.ok(result.removed_paths.includes(".agents/modules/dead.json"));
+  assert.ok(result.removed_paths.includes(".agentify/modules/dead.json"));
   assert.equal(result.removed_cache_blobs, 1);
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "dead.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "src", "dead", "AGENTIFY.md")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "modules", "dead.json")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agents", "cache", "blobs", "aa", "aa.blob")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "modules", "dead.json")).then(() => true), true);
+  assert.equal(await fs.stat(path.join(root, ".agentify", "cache", "blobs", "aa", "aa.blob")).then(() => true), true);
 });

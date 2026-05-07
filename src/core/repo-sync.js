@@ -9,8 +9,8 @@ import { syncProjectBuiltinSkills } from "./skills.js";
 import * as ui from "./ui.js";
 
 const BASELINE_ARTIFACTS = [
-  ".agents",
-  ".agents/runs",
+  ".agentify",
+  ".agentify/runs",
   ".agentify/work",
   "docs/modules",
   ".agentignore",

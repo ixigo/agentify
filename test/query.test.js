@@ -29,8 +29,8 @@ test("querySearch reads an existing index when the database is read-only", async
   const config = await loadConfig(root, { provider: "local", dryRun: false });
   await runScan(root, config);
 
-  const dbPath = path.join(root, ".agents", "index.db");
-  const dbDir = path.join(root, ".agents");
+  const dbPath = path.join(root, ".agentify", "index.db");
+  const dbDir = path.join(root, ".agentify");
   await fs.chmod(dbPath, 0o444);
   await fs.chmod(dbDir, 0o555);
 

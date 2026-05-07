@@ -70,7 +70,7 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
     closeIndexDatabase(writeDb);
   }
 
-  const dbPath = path.join(root, ".agents", "index.db");
+  const dbPath = path.join(root, ".agentify", "index.db");
   const sqlite = require("node:sqlite");
   const OriginalDatabaseSync = sqlite.DatabaseSync;
   const betterSqlitePath = require.resolve("better-sqlite3");
@@ -126,7 +126,7 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
 
 test("openIndexDatabase read-only rejects blank index database instead of initializing a snapshot", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
-  const dbDir = path.join(root, ".agents");
+  const dbDir = path.join(root, ".agentify");
   const dbPath = path.join(dbDir, "index.db");
   await fs.mkdir(dbDir, { recursive: true });
   await fs.writeFile(dbPath, "");
@@ -141,7 +141,7 @@ test("openIndexDatabase read-only rejects blank index database instead of initia
 
 test("openIndexDatabase read-only rejects corrupt index database instead of initializing a snapshot", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
-  const dbDir = path.join(root, ".agents");
+  const dbDir = path.join(root, ".agentify");
   await fs.mkdir(dbDir, { recursive: true });
   await fs.writeFile(path.join(dbDir, "index.db"), "not sqlite", "utf8");
 

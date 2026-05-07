@@ -41,7 +41,7 @@ test("sess resume rejects path-like ids without touching the filesystem", async 
   await fs.writeFile(path.join(probeDir, "context.json"), JSON.stringify({}));
   await fs.writeFile(path.join(probeDir, "bootstrap.md"), "forged");
 
-  const escapeId = path.relative(path.join(root, ".agents", "session"), probeDir);
+  const escapeId = path.relative(path.join(root, ".agentify", "session"), probeDir);
 
   for (const malicious of [escapeId, "../escape", "a/../b", "/abs/path", "with space"]) {
     const result = await runCli(["sess", "resume", "--session", malicious, "--json"], root);

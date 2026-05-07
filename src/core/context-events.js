@@ -31,7 +31,7 @@ function normalizeConfidence(value) {
 export function getContextEventLogPath(root, options = {}) {
   if (options.sessionId) {
     const sessionId = assertRuntimeId(options.sessionId, "session id");
-    return path.join(root, ".agents", "session", sessionId, "context-events.jsonl");
+    return path.join(root, ".agentify", "session", sessionId, "context-events.jsonl");
   }
 
   const runId = assertRuntimeId(options.runId, "run id");
