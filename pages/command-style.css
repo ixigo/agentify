@@ -753,6 +753,14 @@ footer a:hover { color: var(--accent); }
 }
 
 @media (max-width: 620px) {
+  body {
+    max-width: 100vw;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
   .container {
     width: calc(100vw - 32px);
     max-width: 100%;
@@ -802,6 +810,15 @@ footer a:hover { color: var(--accent); }
   }
 
   .hero-meta span {
+    display: block;
+    position: relative;
+    padding-left: 14px;
+  }
+
+  .hero-meta span::before {
+    position: absolute;
+    left: 0;
+    top: 0.75em;
     width: 100%;
   }
 
@@ -809,7 +826,7 @@ footer a:hover { color: var(--accent); }
   .hero-grid > *,
   .terminal {
     width: 100%;
-    max-width: 100%;
+    max-width: calc(100vw - 32px);
   }
 
   .hero-grid > div {
