@@ -14,6 +14,7 @@
       <div class="nav-links">
         <a href="../index.html">home</a>
         <a href="session.html">session</a>
+        <a href="query.html">query</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
         <span class="pill">commands</span>
@@ -30,19 +31,24 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
-          <span>first page: <code>sess</code></span>
+          <span>routes: <code>sess</code> · <code>query</code></span>
         </div>
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
-          <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>routes unlocked</span>
+          <span>02 / query</span>
         </div>
 <pre><span class="c"># durable campaign state</span>
 <span class="a">agentify sess run --name "checkout-retries"</span>
 agentify sess resume --session &lt;id&gt;
 agentify sess fork --from &lt;id&gt;
-agentify sess list</pre>
+agentify sess list
+
+<span class="c"># repo index scanner deck</span>
+agentify query owner --file src/core/query.js
+agentify query search --term auth
+agentify query impacts --file src/core/query.js --depth 2</pre>
       </aside>
     </div>
   </header>
@@ -51,8 +57,8 @@ agentify sess list</pre>
     <section class="shell">
       <div class="container">
         <span class="section-label">available routes</span>
-        <h2>The first command page sets the <span class="accent">pattern.</span></h2>
-        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
+        <h2>Each command page follows a <span class="accent">playable route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what data it reads, and what artifacts appear on disk.</p>
 
         <div class="command-grid">
           <a class="command-card" href="session.html">
@@ -61,10 +67,16 @@ agentify sess list</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="query.html">
+            <span class="tag">repo index</span>
+            <h3>Query command</h3>
+            <p>Use <code>agentify query</code> as a scanner deck for owners, deps, changed modules, search, definitions, references, callers, and impacts.</p>
+            <span class="cmd">agentify query search --term auth</span>
+          </a>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
-            <p>Run, context, query, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
           </div>
         </div>
@@ -75,7 +87,7 @@ agentify sess list</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
-      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="query.html">query</a></span>
     </div>
   </footer>
 </body>
