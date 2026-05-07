@@ -191,7 +191,7 @@ const COMMANDS = [
       flag("--label", { valueKind: "text", description: "GitHub issue label" }),
       flag("--agent-provider", { valueKind: "providers", description: "Provider for issue panes" }),
       flag("--limit", { valueKind: "number", description: "Maximum issues to launch" }),
-      flag("--bypass-permissions", { description: "Bypass provider permission prompts" }),
+      flag("--bypass-permissions", { description: "Control issue-killer YOLO mode" }),
     ],
   }),
   command("hooks", "Install/remove git hooks", {
