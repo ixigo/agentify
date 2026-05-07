@@ -13,6 +13,7 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
+        <a href="setup.html">setup</a>
         <a href="session.html">session</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
@@ -30,15 +31,20 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
-          <span>first page: <code>sess</code></span>
+          <span>routes: <code>setup</code> · <code>sess</code></span>
         </div>
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
-          <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>routes unlocked</span>
+          <span>setup / sessions</span>
         </div>
-<pre><span class="c"># durable campaign state</span>
+<pre><span class="c"># setup checkpoints</span>
+<span class="a">agentify doctor</span>
+agentify this --provider codex
+agentify up --provider local
+
+<span class="c"># durable campaign state</span>
 <span class="a">agentify sess run --name "checkout-retries"</span>
 agentify sess resume --session &lt;id&gt;
 agentify sess fork --from &lt;id&gt;
@@ -55,6 +61,12 @@ agentify sess list</pre>
         <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
 
         <div class="command-grid">
+          <a class="command-card" href="setup.html">
+            <span class="tag">onboarding</span>
+            <h3>Setup checkpoints</h3>
+            <p>Use <code>this</code>, <code>init</code>, <code>up</code>, <code>check</code>, <code>sync</code>, and <code>doctor</code> as a guided path from first repo setup to healthy maintenance.</p>
+            <span class="cmd">agentify doctor</span>
+          </a>
           <a class="command-card" href="session.html">
             <span class="tag">durable work</span>
             <h3>Session command</h3>
@@ -75,7 +87,7 @@ agentify sess list</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
-      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+      <span><a href="../index.html">home</a> · <a href="setup.html">setup</a> · <a href="session.html">session</a></span>
     </div>
   </footer>
 </body>

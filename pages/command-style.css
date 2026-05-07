@@ -681,4 +681,14 @@ footer a:hover { color: var(--accent); }
   .command-card {
     padding: 16px;
   }
+
+  .terminal-top {
+    flex-wrap: wrap;
+  }
+
+  pre,
+  .cmd {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Setup checkpoints</title>
+  <meta name="description" content="Learn the Agentify setup and validation checkpoint flow: this, init, up, check, sync, and doctor.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="./">commands</a>
+        <a href="#checkpoints">checkpoints</a>
+        <a href="session.html">session</a>
+        <span class="pill">setup</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">setup route</span>
+        <h1>Turn a repo into a <span class="accent">ready checkpoint.</span></h1>
+        <p class="lede">Use the setup commands like an onboarding game: check your gear, create the base camp, refresh the map, validate the save state, sync upgrades, and diagnose anything that blocks the next run.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#checkpoints">start route</a>
+          <a class="cta cta-secondary" href="session.html">next: sessions</a>
+        </div>
+        <div class="hero-meta">
+          <span>macOS boost <code>agentify this</code></span>
+          <span>manual setup <code>agentify init</code></span>
+          <span>health loop <code>up -> check</code></span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="Setup command quick start">
+        <div class="terminal-top">
+          <span>new repo route</span>
+          <span>checkpoint 01</span>
+        </div>
+<pre><span class="c"># Inspect local readiness first</span>
+<span class="a">agentify doctor</span>
+
+<span class="c"># Fast macOS bootstrap for a provider workflow</span>
+agentify this --provider codex
+
+<span class="c"># Refresh and verify repo state</span>
+agentify up --provider local
+agentify check</pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">route map</span>
+        <h2>Setup is a sequence of <span class="accent">checkpoints.</span></h2>
+        <p class="section-lede">Each command has a narrow job. Run the macOS bootstrap when you want help preparing the machine, run manual initialization when the tools are already managed elsewhere, then keep the repo fresh with refresh and validation checkpoints.</p>
+
+        <div class="map panel" aria-label="Setup workflow map">
+          <div class="node active">
+            <strong>doctor</strong>
+            <span>inspect readiness</span>
+          </div>
+          <div class="node">
+            <strong>this</strong>
+            <span>macOS bootstrap</span>
+          </div>
+          <div class="node">
+            <strong>init</strong>
+            <span>manual base camp</span>
+          </div>
+          <div class="node">
+            <strong>up</strong>
+            <span>refresh map</span>
+          </div>
+          <div class="node">
+            <strong>check</strong>
+            <span>validate state</span>
+          </div>
+          <div class="node">
+            <strong>sync</strong>
+            <span>adopt upgrades</span>
+          </div>
+          <div class="node">
+            <strong>run</strong>
+            <span>start provider work</span>
+          </div>
+          <div class="node">
+            <strong>sess</strong>
+            <span>save workstream</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">decision points</span>
+        <h2>Know which doorway you are <span class="accent">opening.</span></h2>
+        <p class="section-lede">The close pairs are intentionally different. Pick the command whose behavior matches the current checkpoint instead of treating them as aliases.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">this vs init</div>
+            <p><code>agentify this</code> is the guided macOS path. It requires a non-local provider, checks Homebrew and provider readiness, can install missing bootstrap tools after confirmation, and then initializes the repo. <code>agentify init</code> only writes the Agentify baseline for the target repo.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">up vs check</div>
+            <p><code>agentify up</code> changes generated state by running scan, optional docs, validation, and detected tests. <code>agentify check</code> is the validation checkpoint: it reports whether freshness, schemas, and safety rules still match the repo.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">sync timing</div>
+            <p><code>agentify sync</code> is for an already-Agentified repo after the CLI itself changes. It refreshes repo-owned config, baseline artifacts, managed hooks, and repo-scoped built-in skills, then runs maintenance with the local provider.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="checkpoints">
+      <div class="container">
+        <span class="section-label">checkpoints</span>
+        <h2>Six commands cover the setup <span class="accent">slice.</span></h2>
+        <p class="section-lede">Each card lists the purpose, when to use it, key flags from the current CLI surface, and a realistic command you can run without a build step.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">inspect</span>
+            <h3>doctor</h3>
+            <p><strong>Purpose:</strong> Checks setup readiness, provider CLIs, auth where supported, package-manager readiness, optional memory tooling, and capability tier.</p>
+            <p><strong>Use when:</strong> You switch machines, debug tooling, or want a read-only report before setup.</p>
+            <p><strong>Key flags:</strong> <code>--semantic</code>, <code>--json</code>, <code>--fail-on-stale</code>.</p>
+            <span class="cmd">agentify doctor --semantic</span>
+          </div>
+          <div class="move">
+            <span class="tag">guided setup</span>
+            <h3>this</h3>
+            <p><strong>Purpose:</strong> Bootstraps the current macOS repo for a provider-backed Agentify workflow.</p>
+            <p><strong>Use when:</strong> You want Agentify to verify/install local bootstrap tools after confirmation and prepare the repo in one guided path.</p>
+            <p><strong>Key flags:</strong> <code>--provider</code>, <code>--root</code>, <code>--dry-run</code>, <code>--json</code>.</p>
+            <span class="cmd">agentify this --provider codex --root /path/to/repo</span>
+          </div>
+          <div class="move">
+            <span class="tag">manual setup</span>
+            <h3>init</h3>
+            <p><strong>Purpose:</strong> Creates baseline Agentify artifacts such as config, ignore files, guardrails, runtime folders, and module-doc fallback folders.</p>
+            <p><strong>Use when:</strong> You manage system dependencies yourself, work outside macOS bootstrap, or want a minimal repo initialization.</p>
+            <p><strong>Key flags:</strong> <code>--provider</code>, <code>--root</code>, <code>--dry-run</code>, <code>--json</code>.</p>
+            <span class="cmd">agentify init --provider codex</span>
+          </div>
+          <div class="move">
+            <span class="tag">refresh</span>
+            <h3>up</h3>
+            <p><strong>Purpose:</strong> Runs scan, optional docs, validation, and detected project tests as the normal maintenance pipeline.</p>
+            <p><strong>Use when:</strong> The repo changed and you want the index, docs, validation, and test signal refreshed together.</p>
+            <p><strong>Key flags:</strong> <code>--provider</code>, <code>--docs</code>, <code>--hook</code>, <code>--strict</code>, <code>--provider-timeout-ms</code>.</p>
+            <span class="cmd">agentify up --provider local --docs=false</span>
+          </div>
+          <div class="move">
+            <span class="tag">validate</span>
+            <h3>check</h3>
+            <p><strong>Purpose:</strong> Validates freshness, schemas, generated state, and safety rules without running the full refresh pipeline.</p>
+            <p><strong>Use when:</strong> You are about to commit, validating hook behavior, or confirming generated artifacts after a refresh.</p>
+            <p><strong>Key flags:</strong> <code>--hook</code>, <code>--strict</code>, <code>--json</code>, <code>--root</code>.</p>
+            <span class="cmd">agentify check --hook</span>
+          </div>
+          <div class="move">
+            <span class="tag">upgrade</span>
+            <h3>sync</h3>
+            <p><strong>Purpose:</strong> Upgrades repo-owned Agentify files and then runs the maintenance pipeline with the deterministic local provider.</p>
+            <p><strong>Use when:</strong> The Agentify CLI gained new repo-level files, defaults, managed hooks, or built-in project skills.</p>
+            <p><strong>Key flags:</strong> <code>--provider</code>, <code>--docs</code>, <code>--dry-run</code>, <code>--json</code>.</p>
+            <span class="cmd">agentify sync --provider codex --dry-run</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">blocked states</span>
+        <h2>Failure states are <span class="accent">signals.</span></h2>
+        <p class="section-lede">These commands report blocked or failing checkpoints instead of promising automatic repair. Use the message to choose the next command or install step.</p>
+
+        <div class="artifact-list">
+          <div class="artifact">
+            <strong>missing provider</strong>
+            <span><code>this</code> rejects <code>local</code> and needs a provider such as <code>codex</code>, <code>claude</code>, <code>gemini</code>, or <code>opencode</code>. In non-interactive mode, pass <code>--provider</code>.</span>
+          </div>
+          <div class="artifact">
+            <strong>unsupported platform</strong>
+            <span><code>this</code> currently supports macOS. On Linux, CI, or pre-provisioned machines, use <code>init</code>, install missing tools yourself, then rerun <code>doctor</code>.</span>
+          </div>
+          <div class="artifact">
+            <strong>stale artifacts</strong>
+            <span><code>check</code> can report stale generated state. Run <code>up</code> when you want Agentify to refresh scan/docs/check/test outputs.</span>
+          </div>
+          <div class="artifact">
+            <strong>intentional edits</strong>
+            <span>Use <code>check --hook</code> or <code>up --hook</code> when hook-friendly validation should skip source body diffing after intentional code changes.</span>
+          </div>
+          <div class="artifact">
+            <strong>doc provider timeout</strong>
+            <span>Use <code>--provider-timeout-ms</code> for provider-backed docs, or choose <code>--provider local</code> when you want deterministic maintenance.</span>
+          </div>
+          <div class="artifact">
+            <strong>upgrade drift</strong>
+            <span>Run <code>sync</code> after upgrading Agentify so existing repos adopt new baseline files, managed hooks, and repo-scoped skills.</span>
+          </div>
+        </div>
+
+        <div class="docs-strip">
+          <p>After the setup route passes, start provider work with <code>agentify run</code> or save a durable workflow with <code>agentify sess</code>.</p>
+          <a class="doc-link" href="./">command index</a>
+          <a class="doc-link" href="session.html">session route</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify setup checkpoints</span>
+      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+    </div>
+  </footer>
+</body>
+</html>
