@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 import {
   extractAfkPlanMarkdown,
   renderAfkPlannerPrompt,
+  runAfkCreate,
+  slugifyAfkTask,
   validateAfkPlanMarkdown,
 } from "../src/core/afk.js";
 import { runCli } from "../src/main.js";
@@ -91,6 +93,14 @@ test("AFK planner prompt includes the strict plan contract", () => {
   assert.match(prompt, /User task:\nAdd checkout retries/);
 });
 
+test("AFK task slugs keep plan filenames compact", () => {
+  assert.equal(slugifyAfkTask("add checkout retries"), "checkout-retries");
+  assert.equal(
+    slugifyAfkTask("need to add search bar at above the title and veg toggle in rx listing"),
+    "search-bar-title-veg-toggle-rx-listing",
+  );
+});
+
 test("AFK plan extraction validates the last provider markdown plan", () => {
   const output = `draft text
 \`\`\`md
@@ -105,6 +115,28 @@ ${validPlan("final-plan")}
   const plan = validateAfkPlanMarkdown(extracted);
 
   assert.equal(plan.frontmatter.slug, "final-plan");
+});
+
+test("AFK plan validation accepts legacy long slugs", () => {
+  const legacySlug = "need-to-add-search-bar-at-above-the-title-and-veg-toggle-in-rx-listing";
+  const plan = validateAfkPlanMarkdown(validPlan(legacySlug));
+
+  assert.equal(plan.frontmatter.slug, legacySlug);
+});
+
+test("AFK plan extraction recovers a plan from an interactive transcript without frontmatter fences", () => {
+  const fencedPlan = validPlan("transcript-plan")
+    .trim()
+    .replace(/^---\n/, "")
+    .replace(/\n---\n/, "\n");
+  const output = `› ${fencedPlan.split("\n").join("\n  ")}
+Token usage: total=123`;
+
+  const extracted = extractAfkPlanMarkdown(output);
+  const plan = validateAfkPlanMarkdown(extracted);
+
+  assert.equal(plan.frontmatter.slug, "transcript-plan");
+  assert.match(plan.body, /- Add retries\./);
 });
 
 test("agentify afk create captures provider output and writes a validated plan", async () => {
@@ -185,8 +217,31 @@ process.exit(1);
     process.exitCode = previousExitCode;
   }
 
-  const raw = await fs.readFile(path.join(root, ".agentify", "planned", "add-checkout-retries.raw.md"), "utf8");
+  const raw = await fs.readFile(path.join(root, ".agentify", "planned", "checkout-retries.raw.md"), "utf8");
   assert.match(raw, /stdout is not a terminal/);
+});
+
+test("agentify afk create returns execution command and clean-session hint", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-result-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-result-bin-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, `console.log(${JSON.stringify(validPlan("checkout-retries"))});`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  let result;
+  try {
+    result = await runAfkCreate(root, { provider: "codex" }, {
+      _: ["afk", "create", "add checkout retries"],
+    });
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  assert.equal(result.plan_path, ".agentify/planned/checkout-retries.md");
+  assert.equal(result.run_command, "agentify afk run .agentify/planned/checkout-retries.md");
+  assert.match(result.next_step_hint, /\/compact or \/clear/);
 });
 
 test("agentify afk run creates an isolated worktree and commits verified provider changes", async () => {

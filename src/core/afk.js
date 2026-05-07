@@ -26,23 +26,72 @@ export const AFK_REQUIRED_SECTIONS = [
   "Done Criteria",
   "Cleanup",
 ];
+const AFK_SLUG_MAX_LENGTH = 48;
+const AFK_TASK_SLUG_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "above",
+  "add",
+  "below",
+  "for",
+  "from",
+  "in",
+  "into",
+  "need",
+  "needs",
+  "of",
+  "on",
+  "over",
+  "should",
+  "the",
+  "to",
+  "with",
+]);
 
 function nowIso() {
   return new Date().toISOString();
 }
 
 export function slugifyAfkTask(value) {
-  const slug = String(value || "")
+  const tokens = String(value || "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 72)
-    .replace(/-+$/g, "");
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean);
+  const meaningfulTokens = tokens.filter((token) => !AFK_TASK_SLUG_STOP_WORDS.has(token));
+  const slug = buildCompactSlug(meaningfulTokens.length > 0 ? meaningfulTokens : tokens);
   return slug || "afk-plan";
 }
 
+function slugifyAfkSlug(value) {
+  return buildCompactSlug(String(value || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean));
+}
+
+function buildCompactSlug(tokens) {
+  const chosen = [];
+  let length = 0;
+  for (const token of tokens) {
+    const nextLength = length + token.length + (chosen.length > 0 ? 1 : 0);
+    if (nextLength > AFK_SLUG_MAX_LENGTH) {
+      break;
+    }
+    chosen.push(token);
+    length = nextLength;
+  }
+  return chosen.join("-") || tokens.join("-").slice(0, AFK_SLUG_MAX_LENGTH).replace(/-+$/g, "");
+}
+
+function isAfkPlanSlug(value) {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(value || ""));
+}
+
 function normalizeSlug(value, fallback) {
-  return slugifyAfkTask(value || fallback);
+  return value ? slugifyAfkSlug(value) : slugifyAfkTask(fallback);
 }
 
 function frontmatterError(message) {
@@ -80,7 +129,7 @@ export function validateAfkPlanMarkdown(markdown) {
   if (String(frontmatter.type || "") !== AFK_PLAN_TYPE) {
     throw frontmatterError(`type must be "${AFK_PLAN_TYPE}"`);
   }
-  if (!frontmatter.slug || normalizeSlug(frontmatter.slug) !== String(frontmatter.slug)) {
+  if (!isAfkPlanSlug(frontmatter.slug)) {
     throw frontmatterError("slug must be a non-empty lowercase URL slug");
   }
   if (!frontmatter.task || String(frontmatter.task).trim().length === 0) {
@@ -113,6 +162,55 @@ function stripMarkdownFence(value) {
   return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
+function stripTranscriptPromptPrefix(line) {
+  return String(line || "")
+    .replace(/^[\s>•›]+/, "")
+    .trimEnd();
+}
+
+function extractLooseAfkPlanMarkdown(output) {
+  const lines = String(output || "").replace(/\r\n/g, "\n").split("\n");
+  let best = "";
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const first = stripTranscriptPromptPrefix(lines[index]);
+    if (!/^schema_version:\s*["']?1\.0["']?\s*$/.test(first)) {
+      continue;
+    }
+
+    const candidateLines = [];
+    for (let cursor = index; cursor < lines.length; cursor += 1) {
+      const cleaned = stripTranscriptPromptPrefix(lines[cursor]);
+      if (cleaned.startsWith("Token usage:") || cleaned.startsWith("To continue this session,")) {
+        break;
+      }
+      candidateLines.push(cleaned);
+    }
+
+    const candidate = candidateLines.join("\n").trim();
+    if (new RegExp(`^type:\\s*["']?${AFK_PLAN_TYPE}["']?\\s*$`, "m").test(candidate) && candidate.includes("# AFK Plan:")) {
+      best = candidate;
+    }
+  }
+
+  if (!best) {
+    return "";
+  }
+
+  const bodyStart = best.indexOf("# AFK Plan:");
+  if (bodyStart === -1) {
+    return "";
+  }
+
+  return [
+    "---",
+    best.slice(0, bodyStart).trim(),
+    "---",
+    "",
+    best.slice(bodyStart).trim(),
+  ].join("\n");
+}
+
 export function extractAfkPlanMarkdown(output) {
   const normalized = String(output || "").replace(/\r\n/g, "\n");
   const fenced = [...normalized.matchAll(/```(?:md|markdown)?\s*\n([\s\S]*?type:\s*["']?agentify-afk-plan["']?[\s\S]*?)\n```/gi)]
@@ -129,7 +227,7 @@ export function extractAfkPlanMarkdown(output) {
   const fallbackStart = normalized.startsWith("---\n") ? 0 : -1;
   const planStart = start === -1 ? fallbackStart : start + 1;
   if (planStart === -1) {
-    return "";
+    return extractLooseAfkPlanMarkdown(normalized);
   }
 
   return normalized.slice(planStart).trim();
@@ -327,6 +425,7 @@ export async function runAfkCreate(root, config, args) {
     plan_path: relative(root, planPath),
     session_id: sessionId,
     run_command: `agentify afk run ${relative(root, planPath)}`,
+    next_step_hint: "Before running the command, use /compact or /clear in the current provider session so execution starts with a clean prompt.",
   };
 }
 
@@ -455,8 +554,8 @@ function printAfkCreateResult(result, config) {
   }
   success("AFK plan written");
   log(`Plan: ${dim(result.plan_path)}`);
-  log(`Run: ${dim(result.run_command)}`);
-  log("Start a fresh AFK run command instead of trying to clear provider context in-place.");
+  log(`${bold("Next command")}: ${dim(result.run_command)}`);
+  log("Tip: run /compact or /clear in this provider session first, then paste the command into a fresh prompt.");
 }
 
 function printAfkRunResult(result, config) {
