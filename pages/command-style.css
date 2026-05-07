@@ -48,6 +48,7 @@ html { scroll-behavior: smooth; }
 body {
   margin: 0;
   min-height: 100vh;
+  width: 100%;
   overflow-x: hidden;
   color: var(--ink);
   background:
@@ -391,6 +392,7 @@ section.shell:last-of-type { border-bottom: none; }
 
 .terminal-top {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
   color: var(--faint);
@@ -627,6 +629,16 @@ footer a:hover { color: var(--accent); }
 }
 
 @media (max-width: 620px) {
+  body {
+    overflow-wrap: anywhere;
+  }
+
+  .container {
+    margin-left: 0;
+    margin-right: 0;
+    width: min(100%, 390px);
+  }
+
   nav .container {
     align-items: flex-start;
     flex-direction: column;
@@ -634,8 +646,16 @@ footer a:hover { color: var(--accent); }
 
   .nav-links {
     width: 100%;
+    gap: 12px;
+    font-size: 10px;
     overflow-x: auto;
     padding-bottom: 2px;
+  }
+
+  .nav-links a,
+  .nav-links .pill {
+    overflow-wrap: normal;
+    white-space: nowrap;
   }
 
   h1 {
@@ -659,6 +679,10 @@ footer a:hover { color: var(--accent); }
     max-width: 100%;
   }
 
+  .container.hero-grid {
+    width: min(100%, 390px);
+  }
+
   .lede,
   .section-lede {
     max-width: calc(100vw - 64px);
@@ -680,5 +704,9 @@ footer a:hover { color: var(--accent); }
   .inventory-item,
   .command-card {
     padding: 16px;
+  }
+
+  pre {
+    font-size: 11px;
   }
 }
