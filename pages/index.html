@@ -14,6 +14,7 @@
       <div class="nav-links">
         <a href="../index.html">home</a>
         <a href="session.html">session</a>
+        <a href="maintenance.html">maintenance</a>
         <a href="../skill-catalog.html">skills</a>
         <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
         <span class="pill">commands</span>
@@ -30,19 +31,19 @@
         <div class="hero-meta">
           <span>buildless html</span>
           <span>same site theme</span>
-          <span>first page: <code>sess</code></span>
+          <span>routes: <code>sess</code> · <code>maintenance</code></span>
         </div>
       </div>
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
           <span>route unlocked</span>
-          <span>01 / sessions</span>
+          <span>02 / maintenance</span>
         </div>
-<pre><span class="c"># durable campaign state</span>
-<span class="a">agentify sess run --name "checkout-retries"</span>
-agentify sess resume --session &lt;id&gt;
-agentify sess fork --from &lt;id&gt;
-agentify sess list</pre>
+<pre><span class="c"># workshop maintenance</span>
+<span class="a">agentify hooks status</span>
+agentify semantic refresh
+agentify clean --dry-run
+agentify cache status</pre>
       </aside>
     </div>
   </header>
@@ -61,10 +62,16 @@ agentify sess list</pre>
             <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
             <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
           </a>
+          <a class="command-card" href="maintenance.html">
+            <span class="tag">repo health</span>
+            <h3>Maintenance commands</h3>
+            <p>Use hooks, semantic refresh, clean, cache, and reserved memory helpers as the toolshed for generated state.</p>
+            <span class="cmd">agentify clean --dry-run</span>
+          </a>
           <div class="command-card">
             <span class="tag">next routes</span>
             <h3>More command families</h3>
-            <p>Run, context, query, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <p>Run, context, query, risk, skill, issue-killer, setup, and planning pages are tracked by the follow-up issues under the parent command-page tracker.</p>
             <span class="cmd">Parent: #202</span>
           </div>
         </div>
@@ -75,7 +82,7 @@ agentify sess list</pre>
   <footer>
     <div class="container">
       <span>Agentify command pages</span>
-      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a> · <a href="maintenance.html">maintenance</a></span>
     </div>
   </footer>
 </body>
