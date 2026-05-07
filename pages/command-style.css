@@ -627,6 +627,16 @@ footer a:hover { color: var(--accent); }
 }
 
 @media (max-width: 620px) {
+  body {
+    max-width: 100vw;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
   nav .container {
     align-items: flex-start;
     flex-direction: column;
@@ -652,16 +662,29 @@ footer a:hover { color: var(--accent); }
     grid-template-columns: 1fr;
   }
 
+  .hero-meta span {
+    display: block;
+    position: relative;
+    padding-left: 14px;
+  }
+
+  .hero-meta span::before {
+    position: absolute;
+    left: 0;
+    top: 0.75em;
+  }
+
   .hero-grid,
   .hero-grid > *,
   .terminal {
     width: 100%;
-    max-width: 100%;
+    max-width: calc(100vw - 32px);
   }
 
   .lede,
   .section-lede {
-    max-width: calc(100vw - 64px);
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .campaign-row,
@@ -680,5 +703,15 @@ footer a:hover { color: var(--accent); }
   .inventory-item,
   .command-card {
     padding: 16px;
+  }
+
+  .terminal-top {
+    flex-wrap: wrap;
+  }
+
+  pre,
+  .cmd {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 }
