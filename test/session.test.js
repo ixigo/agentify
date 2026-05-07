@@ -11,6 +11,7 @@ import { closeIndexDatabase, inTransaction, openIndexDatabase } from "../src/cor
 import { writeRepositoryIndex } from "../src/core/db/structural-store.js";
 import { forkSession, resolveSessionProvider, resumeSession, validateSessionId } from "../src/core/session.js";
 import {
+  appendRunSummary,
   getSessionArtifactPaths,
   loadAutomaticRunMemory,
   loadAutomaticSessionMemory,
@@ -185,6 +186,39 @@ test("loadAutomaticSessionMemory reuses the parent transcript automatically", as
   assert.match(memory.markdown, /Automatic Session Memory/);
   assert.match(memory.markdown, /Refresh after the wrapped command commit lands/);
   assert.match(memory.markdown, new RegExp(parent.sessionId));
+});
+
+test("appendRunSummary retries when the session lock is temporarily unreadable", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-lock-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const session = await forkSession(root, config, { name: "lock-race" });
+  const paths = getSessionArtifactPaths(root, session.sessionId);
+  await fs.writeFile(paths.lockPath, "{", "utf8");
+
+  const unlock = setTimeout(() => {
+    fs.unlink(paths.lockPath).catch(() => {});
+  }, 50);
+  try {
+    const result = await appendRunSummary(root, session.sessionId, {
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      task: "retry lock",
+      assistant_summary: "lock recovered",
+      exit_code: 0,
+      validation: "passed",
+      phase: "complete",
+      memory_backend: "none",
+    }, config);
+
+    assert.ok(result);
+    assert.equal(result.run_history.at(-1).assistant_summary, "lock recovered");
+  } finally {
+    clearTimeout(unlock);
+    await fs.unlink(paths.lockPath).catch(() => {});
+  }
 });
 
 test("loadAutomaticSessionMemory searches older sessions when the direct parent is not relevant", async () => {

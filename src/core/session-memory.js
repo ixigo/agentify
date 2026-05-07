@@ -846,8 +846,15 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
     let existing = null;
     try {
       existing = JSON.parse(await fs.readFile(paths.lockPath, "utf8"));
-    } catch {
-      throw new Error(`Session artifact lock exists but is unreadable: ${paths.lockPath}`);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Session artifact lock exists but is unreadable: ${paths.lockPath}`);
+      }
+      await sleep(Math.min(SESSION_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())));
+      continue;
     }
 
     if (canReclaimSessionLock(existing)) {
