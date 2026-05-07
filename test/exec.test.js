@@ -36,6 +36,59 @@ async function addLocalSubmodule(root, submodulePath) {
   await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
 }
 
+test("runExec launches provider commands with a sanitized env", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-provider-env-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.providerEnv = {
+    inherit: false,
+    passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
+    extra: {
+      AGENTIFY_PROVIDER_EXTRA: "extra-value",
+    },
+  };
+
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+
+  const script = [
+    "process.stdout.write(JSON.stringify({",
+    "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
+    "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
+    "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
+    "}));",
+  ].join("");
+
+  try {
+    const result = await runExec(root, config, [process.execPath, "-e", script], {
+      captureOutput: true,
+      skipRefresh: true,
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      secret: null,
+      allowed: "allowed-value",
+      extra: "extra-value",
+    });
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+});
+
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-commit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
@@ -92,13 +145,14 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
   await fs.appendFile(path.join(root, "src", "index.js"), "export const preexisting = true;\n", "utf8");
   await new Promise((resolve) => setTimeout(resolve, 25));
+  const sentinelPrompt = "AGENTIFY_SENTINEL_PROMPT_SHOULD_NOT_PERSIST";
 
   const script = [
     "import fs from 'node:fs/promises';",
     "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
   ].join("");
 
-  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script, sentinelPrompt], {
     skipCodeBodyChanges: true,
   });
   const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
@@ -118,8 +172,16 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+  const telemetryJson = JSON.stringify(telemetry);
   assert.match(output, /execution: changed_files=1/);
+  assert.doesNotMatch(output, new RegExp(sentinelPrompt));
   assert.match(html, /execution telemetry/);
+  assert.doesNotMatch(html, new RegExp(sentinelPrompt));
+  assert.equal(telemetry.provider_command.executable, "node");
+  assert.equal(telemetry.provider_command.argc, 5);
+  assert.equal(telemetry.provider_command.argv_redacted, true);
+  assert.equal(telemetry.provider_command.argv, undefined);
+  assert.doesNotMatch(telemetryJson, new RegExp(sentinelPrompt));
   assert.deepEqual(telemetry.changed_paths, ["src/index.js"]);
 });
 
@@ -283,15 +345,24 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   const memoryContext = await fs.readFile(path.join(session.sessionDir, "memory-context.md"), "utf8");
   const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
   const launchRecord = JSON.parse(launches.trim().split(/\r?\n/).at(-1));
+  const context = JSON.parse(await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8"));
+  const runHistoryEntry = context.run_history.at(-1);
 
   assert.equal(result.phase, "complete");
   assert.equal(result.exitCode, 0);
+  assert.equal(result.timedOut, false);
+  assert.equal(result.timeoutMs, null);
   assert.match(transcript, /> Current task/);
   assert.match(transcript, /assistant says hello/);
   assert.match(transcript, /> Run status/);
+  assert.match(transcript, /Timeout: no/);
   assert.match(memoryContext, /Automatic Session Memory/);
   assert.match(launches, /captured-pipe/);
   assert.match(launches, /Continue this session using the remembered context/);
+  assert.equal(launchRecord.timed_out, false);
+  assert.equal(launchRecord.timeout_ms, null);
+  assert.equal(runHistoryEntry.timed_out, false);
+  assert.equal(runHistoryEntry.timeout_ms, null);
   assert.equal(launchRecord.managed_context.estimate, true);
   assert.equal(launchRecord.managed_context.basis, "managed_context_bytes");
   assert.equal(launchRecord.managed_context.rollover_threshold_bytes, 96 * 1024);
@@ -300,6 +371,84 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   assert.equal(typeof launchRecord.managed_context.bytes.fetch_outputs, "number");
   assert.equal(typeof launchRecord.managed_context.bytes.memory_artifacts, "number");
   assert.match(launchRecord.managed_context.note, /provider live context usage is not directly observable/);
+});
+
+test("runExec preserves timeout state in telemetry, reports, and session memory", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-timeout-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  const session = await forkSession(root, config, { name: "timeout" });
+  const command = [process.execPath, "--input-type=module", "-e", "setInterval(() => {}, 1000);"];
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    const result = await runExec(root, config, command, {
+      captureOutput: true,
+      skipRefresh: true,
+      timeout: 0.05,
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider: "codex",
+        prompt: "Continue the timeout session.",
+        task: "Verify timeout persistence.",
+        command,
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
+        },
+        captureMode: "captured-pipe",
+      },
+    });
+
+    const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+    const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+    const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+    const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+    const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
+    const turns = (await fs.readFile(path.join(session.sessionDir, "turns.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    const launches = (await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    const context = JSON.parse(await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8"));
+    const runEnd = turns.find((turn) => turn.turn_type === "run_end");
+    const launchRecord = launches.at(-1);
+    const runHistoryEntry = context.run_history.at(-1);
+
+    assert.equal(result.phase, "command");
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.timedOut, true);
+    assert.equal(result.timeoutMs, 50);
+    assert.match(result.signal, /^SIG(TERM|KILL)$/);
+    assert.equal(result.reason, "timeout");
+    assert.equal(telemetry.timed_out, true);
+    assert.equal(telemetry.timeout_ms, 50);
+    assert.equal(telemetry.signal, result.signal);
+    assert.equal(telemetry.reason, "timeout");
+    assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIG(?:TERM|KILL) reason=timeout/);
+    assert.match(html, /yes, after 50ms \(SIG(?:TERM|KILL)\)/);
+    assert.match(transcript, /Timeout: yes after 50ms \(signal: SIG(?:TERM|KILL)\)/);
+    assert.equal(runEnd.timed_out, true);
+    assert.equal(runEnd.timeout_ms, 50);
+    assert.equal(runEnd.signal, result.signal);
+    assert.equal(launchRecord.timed_out, true);
+    assert.equal(launchRecord.timeout_ms, 50);
+    assert.equal(launchRecord.reason, "timeout");
+    assert.equal(runHistoryEntry.timed_out, true);
+    assert.equal(runHistoryEntry.timeout_ms, 50);
+    assert.equal(context.context_facts.latest_timed_out, true);
+    assert.equal(context.context_facts.latest_timeout_ms, 50);
+  } finally {
+    process.exitCode = originalExitCode;
+  }
 });
 
 test("runExec skips refresh when only Agentify session artifacts change", async () => {

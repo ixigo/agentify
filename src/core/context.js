@@ -4,6 +4,7 @@ import path from "node:path";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { searchIndex } from "./db/structural-store.js";
 import { searchSemanticIndex } from "./db/semantic-store.js";
+import { normalizeContextMode } from "./context-mode.js";
 
 const MAX_FETCH_LINES = 240;
 
@@ -190,13 +191,7 @@ export async function fetchContext(root, filePath, options = {}) {
   };
 }
 
-export function normalizeContextMode(value) {
-  const mode = String(value || "direct").trim().toLowerCase();
-  if (mode === "direct" || mode === "routed") {
-    return mode;
-  }
-  throw new Error("--context-mode must be direct or routed");
-}
+export { normalizeContextMode };
 
 export function buildRoutedPrompt(basePrompt, memoryMarkdown = "", options = {}) {
   const task = String(basePrompt || "").trim();

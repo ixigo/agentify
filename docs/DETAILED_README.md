@@ -100,7 +100,7 @@ agentify check
 
 Why this is better than a minimal setup:
 
-- `doctor` tells you whether required tier tools are missing and whether optional features like MemPalace are available.
+- `doctor` tells you whether `pnpm`, external provider binaries, required tier tools, and optional features like MemPalace are available. Provider binary presence is reported separately from auth readiness.
 - project-scoped skills make provider behavior more repeatable across contributors and sessions.
 - hooks keep the repo healthier between manual runs.
 - `up` and `check` ensure the repo is indexed, documented, and validated before agent work starts; use `--docs=false` only when you want a scan/check/test pass without markdown refresh.
@@ -138,6 +138,48 @@ It is written so the model treats the current working directory as the target re
 | `agentify semantic refresh` | Refreshes semantic TypeScript/JavaScript project facts when semantic indexing is enabled. | Use in TS/JS-heavy repos when you want richer planner/query/doc output without running the full pipeline. | `agentify semantic refresh` |
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
+| `agentify completion` | Prints zsh, bash, or fish completion scripts. | Use when you want shell tab completion for commands, flags, providers, skills, sessions, and path arguments. | `agentify completion zsh` |
+
+#### Shell Completion Setup
+
+`agentify completion <shell>` prints a shell completion script. It never edits shell startup files or creates completion files automatically, so users stay in control of `~/.zshrc`, `~/.bashrc`, fish config, and completion directories.
+
+For current-shell setup:
+
+```bash
+# zsh
+source <(agentify completion zsh)
+
+# bash
+source <(agentify completion bash)
+
+# fish
+agentify completion fish | source
+```
+
+For persistent zsh setup, write the script to an `_agentify` file and make sure its directory is on `fpath` before `compinit` runs:
+
+```bash
+mkdir -p ~/.zsh/completions
+agentify completion zsh > ~/.zsh/completions/_agentify
+```
+
+```bash
+# ~/.zshrc
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+For persistent fish setup:
+
+```bash
+mkdir -p ~/.config/fish/completions
+agentify completion fish > ~/.config/fish/completions/agentify.fish
+```
+
+Bash can use the current-shell `source <(agentify completion bash)` form directly. Teams that already manage bash completions centrally can save that printed script into their normal bash-completion location instead.
+
+Completion includes static Agentify commands and flags plus dynamic suggestions. Provider and skill suggestions come from Agentify's current configuration and built-in skill registry, session suggestions come from local `.agentify/session/` state, and file path suggestions are delegated to the shell. If a fresh repo has no sessions yet, session completion can be empty until a session is created.
 
 #### Project Test Environment
 
@@ -166,6 +208,21 @@ tests:
     extra:
       NODE_ENV: test
 ```
+
+#### Provider Subprocess Environment
+
+Provider-backed commands (`agentify run`, `agentify sess run`, `agentify sess resume`, and provider-backed documentation generation) also use a sanitized subprocess environment by default. Agentify forwards runtime essentials plus known provider auth/config variables for Codex, Claude, Gemini, and OpenCode, but arbitrary host variables are not inherited.
+
+Configure provider overrides in `.agentify.yaml` under the `providerEnv` key:
+
+```yaml
+providerEnv:
+  inherit: false        # set to true to forward the entire host environment (not recommended)
+  passthrough: []       # list of additional env var names to forward from the host shell
+  extra: {}             # explicit key/value map injected into provider subprocesses
+```
+
+For wrapper scripts or private provider gateways that need extra variables, prefer targeted `providerEnv.passthrough` entries over `providerEnv.inherit: true`.
 
 ### Planning, Execution, And Continuity
 
@@ -210,7 +267,7 @@ Use the outputs differently:
 
 Sessions are the compaction boundary. `sess run`, `sess resume`, and `sess fork` write structured local state under `.agentify/session/<id>/`, including run history, rolling summaries, launch records, memory context, and optional markdown artifacts. On resume, Agentify prepares a compact child prompt from those artifacts and the current repo index. That gives the next provider launch a smaller prepared context, but it does not retroactively remove material from an older provider conversation.
 
-Routed context artifacts are local/generated by default. Keep `.agentify/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of commits unless your team intentionally changes the ignore policy. Agentify sanitizes repo test subprocess environments by default, so arbitrary host secrets are not forwarded into detected test commands. Provider executions still run with the provider environment, and Agentify does not redact secrets that are already present in tracked files, generated summaries, selected slices, transcripts, or explicit `tests.env.passthrough` / `tests.env.extra` values. Put sensitive paths in `.agentignore` and keep credentials out of source files.
+Routed context artifacts are local/generated by default. Keep `.agentify/`, `.current_session/`, `AGENTIFY.md`, `docs/repo-map.md`, `docs/modules/`, `output.txt`, and `agentify-report.html` out of commits unless your team intentionally changes the ignore policy. Agentify sanitizes repo test and provider subprocess environments by default, so arbitrary host secrets are not forwarded into detected test commands or provider CLIs. Agentify does not redact secrets that are already present in tracked files, generated summaries, selected slices, transcripts, or explicit `tests.env.*` / `providerEnv.*` values. Put sensitive paths in `.agentignore` and keep credentials out of source files.
 
 ### Query, Skills, Hooks, And Cache
 
@@ -371,7 +428,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--continue` | Resume the provider's most recent session for `run`. Omit it when you want the default fresh provider task. |
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
-| `--context-mode <direct|routed>` | Use `routed` to launch `run` and `sess` with docs/DB-first instructions and only bounded `agentify context ...` retrieval commands. |
+| `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `compact` is the default; `direct` is accepted as a backward-compatible alias for `compact`. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
 | `--root <path>` | Target a repo other than the current working directory. Use this in scripts or monorepo tooling. |
 | `--scope <project|user>` | Choose where skills are installed. Use `project` for repo-local behavior and `user` for account-level installs. |

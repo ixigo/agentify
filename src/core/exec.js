@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
+import { buildProviderEnv } from "./provider-env.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
@@ -12,6 +13,7 @@ import * as ui from "./ui.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
+const FORCE_KILL_TIMEOUT_MS = 5000;
 const REFRESH_NEUTRAL_PATH_PATTERNS = [
   /^\.agentify(\/|$)/,
   /^\.current_session(\/|$)/,
@@ -157,6 +159,14 @@ function buildScriptCommand(argv, capturePath) {
   };
 }
 
+function killChildProcess(child, signal) {
+  try {
+    child.kill(signal);
+  } catch {
+    // The process may have exited between timeout scheduling and signal delivery.
+  }
+}
+
 async function removeRawInteractiveLog(capturePath, raw) {
   try {
     await fs.rm(capturePath, { force: true });
@@ -175,27 +185,18 @@ function getCaptureBufferMaxBytes(config) {
   return normalizeCaptureMaxBytes(config?.session?.captureMaxKb, DEFAULT_CAPTURE_MAX_KB);
 }
 
-function normalizeCommandForDisplay(argv) {
-  if (!Array.isArray(argv) || argv.length === 0) {
-    return "";
-  }
-
-  return argv.map((part) => {
-    const text = String(part);
-    if (!/[\s"'\\]/.test(text)) {
-      return text;
-    }
-    return `"${text.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
-  }).join(" ");
-}
-
 function summarizeProviderCommand(argv) {
   const parts = Array.isArray(argv) ? argv.map(String) : [];
+  const executable = parts[0] || null;
+  const argc = parts.length;
+
   return {
-    executable: parts[0] || null,
-    argv: parts,
-    argc: parts.length,
-    display: normalizeCommandForDisplay(parts),
+    executable,
+    argc,
+    argv_redacted: true,
+    display: executable
+      ? `${executable} [argv redacted; argc=${argc}]`
+      : `[argv redacted; argc=${argc}]`,
   };
 }
 
@@ -205,6 +206,47 @@ function summarizeChangedFiles(files) {
     path: file.path,
     ...(file.origPath ? { orig_path: file.origPath } : {}),
   }));
+}
+
+function normalizeTimeoutMs(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildTimeoutOutcomeFields(source) {
+  const timedOut = Boolean(source?.timedOut);
+  const timeoutMs = normalizeTimeoutMs(source?.timeoutMs);
+  const signal = source?.signal || null;
+  return {
+    timedOut,
+    timeoutMs,
+    signal,
+    ...(timedOut ? { reason: "timeout" } : {}),
+  };
+}
+
+function buildTimeoutTelemetryFields(source) {
+  const timeout = buildTimeoutOutcomeFields(source);
+  return {
+    timed_out: timeout.timedOut,
+    timeout_ms: timeout.timeoutMs,
+    signal: timeout.signal,
+    ...(timeout.timedOut ? { reason: "timeout" } : {}),
+  };
+}
+
+function buildCommandResultOutcomeFields(commandResult) {
+  return {
+    stdout: commandResult.stdout,
+    stderr: commandResult.stderr,
+    interactiveTranscript: commandResult.interactiveTranscript,
+    interactiveCaptureError: commandResult.interactiveCaptureError,
+    rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    ...buildTimeoutOutcomeFields(commandResult),
+  };
 }
 
 function getPostProviderValidationOptions(flags) {
@@ -240,6 +282,7 @@ function buildExecutionTelemetry({
     duration_ms: durationMs,
     phase: result.phase,
     exit_code: result.exitCode,
+    ...buildTimeoutTelemetryFields(commandResult || result),
     skipped_refresh: Boolean(result.skippedRefresh),
     provider: config.provider || null,
     provider_model: config.providerModel || config.provider_model || null,
@@ -282,7 +325,7 @@ function runWrappedCommand(argv, options) {
     const child = spawn(command.cmd, command.args, {
       cwd: options.cwd,
       stdio,
-      env: process.env,
+      env: buildProviderEnv(options.providerEnv),
     });
 
     if (captureMode === "pipe") {
@@ -297,16 +340,30 @@ function runWrappedCommand(argv, options) {
     }
 
     let timer;
+    let killTimer;
+    let timedOut = false;
+    function clearTimers() {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+    }
     if (options.timeout) {
       timer = setTimeout(() => {
-        child.kill("SIGTERM");
-        setTimeout(() => child.kill("SIGKILL"), 5000);
+        timedOut = true;
+        killChildProcess(child, "SIGTERM");
+        killTimer = setTimeout(() => killChildProcess(child, "SIGKILL"), FORCE_KILL_TIMEOUT_MS);
       }, options.timeout);
     }
 
-    child.on("error", reject);
-    child.on("close", async (code) => {
-      if (timer) clearTimeout(timer);
+    child.on("error", (error) => {
+      clearTimers();
+      reject(error);
+    });
+    child.on("close", async (code, signal) => {
+      clearTimers();
       let interactiveTranscript = "";
       let interactiveCaptureError = "";
       if (captureMode === "pty" && options.capturePath) {
@@ -321,6 +378,10 @@ function runWrappedCommand(argv, options) {
 
       resolve({
         exitCode: code ?? 1,
+        timedOut,
+        timeoutMs: normalizeTimeoutMs(options.timeout),
+        signal: signal || null,
+        ...(timedOut ? { reason: "timeout" } : {}),
         stdout: captureMode === "pipe" ? stdoutCapture.toString() : "",
         stderr: captureMode === "pipe" ? stderrCapture.toString() : "",
         interactiveTranscript,
@@ -359,6 +420,7 @@ export async function runExec(root, config, agentCommand, flags) {
       captureOutputMode,
       captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
+      providerEnv: config.providerEnv,
     });
   } catch (error) {
     if (captureOutputMode === "pty" && error?.code === "ENOENT") {
@@ -370,6 +432,7 @@ export async function runExec(root, config, agentCommand, flags) {
         timeout: flags.timeout ? flags.timeout * 1000 : undefined,
         captureOutputMode: "inherit",
         captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
+        providerEnv: config.providerEnv,
       });
     } else {
       if (preparedSessionMemory) {
@@ -450,11 +513,7 @@ export async function runExec(root, config, agentCommand, flags) {
       phase: commandFailed ? "command" : "complete",
       exitCode,
       skippedRefresh: true,
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...buildCommandResultOutcomeFields(commandResult),
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -476,11 +535,7 @@ export async function runExec(root, config, agentCommand, flags) {
       exitCode,
       validation,
       skippedRefresh: true,
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...buildCommandResultOutcomeFields(commandResult),
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -498,14 +553,12 @@ export async function runExec(root, config, agentCommand, flags) {
       exitCode = AGENTIFY_EXIT_REFRESH_ERROR;
     }
     process.exitCode = exitCode;
+    const commandOutcome = buildCommandResultOutcomeFields(commandResult);
     const result = {
       phase: "refresh-error",
       exitCode,
-      stdout: commandResult.stdout,
-      stderr: `${commandResult.stderr}${commandResult.stderr ? "\n" : ""}${error.message}`,
-      interactiveTranscript: commandResult.interactiveTranscript,
-      interactiveCaptureError: commandResult.interactiveCaptureError,
-      rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+      ...commandOutcome,
+      stderr: `${commandOutcome.stderr}${commandOutcome.stderr ? "\n" : ""}${error.message}`,
     };
     if (preparedSessionMemory) {
       await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);
@@ -531,11 +584,7 @@ export async function runExec(root, config, agentCommand, flags) {
     phase: "complete",
     exitCode,
     validation,
-    stdout: commandResult.stdout,
-    stderr: commandResult.stderr,
-    interactiveTranscript: commandResult.interactiveTranscript,
-    interactiveCaptureError: commandResult.interactiveCaptureError,
-    rawInteractiveLogPath: commandResult.rawInteractiveLogPath,
+    ...buildCommandResultOutcomeFields(commandResult),
   };
   if (preparedSessionMemory) {
     await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, result, config);

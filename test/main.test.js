@@ -4,13 +4,17 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { isHelpRequest, isVersionRequest } from "../src/core/cli-fast-paths.js";
+import { CONTEXT_MODE_DESCRIPTION, CONTEXT_MODE_HELP_LABEL } from "../src/core/context-mode.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
 import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
+const repoRoot = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
 async function initGitRepo(root) {
   await execFileAsync("git", ["init"], { cwd: root });
@@ -25,6 +29,21 @@ async function installFakeCodex(binDir, capturePath) {
   await fs.writeFile(codexPath, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(process.argv.slice(2)));
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+  return codexPath;
+}
+
+async function installFakeCodexEnvCapture(binDir, capturePath) {
+  const codexPath = path.join(binDir, "codex");
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  argv: process.argv.slice(2),
+  secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,
+  allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,
+  extra: process.env.AGENTIFY_PROVIDER_EXTRA || null
+}));
 `, "utf8");
   await fs.chmod(codexPath, 0o755);
   return codexPath;
@@ -68,6 +87,47 @@ async function captureConsoleLog(fn) {
   return output;
 }
 
+async function runCliWithImportTrace(args) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cli-import-trace-"));
+  const loaderPath = path.join(tempDir, "trace-loader.mjs");
+  const tracePath = path.join(tempDir, "imports.log");
+  await fs.writeFile(tracePath, "", "utf8");
+  await fs.writeFile(loaderPath, `
+import fs from "node:fs";
+
+const tracePath = process.env.AGENTIFY_IMPORT_TRACE_PATH;
+const blocked = [
+  "/src/main.js",
+  "/src/core/indexer.js",
+  "/node_modules/typescript/",
+];
+
+export async function resolve(specifier, context, nextResolve) {
+  const result = await nextResolve(specifier, context);
+  if (tracePath && blocked.some((entry) => result.url.includes(entry))) {
+    fs.appendFileSync(tracePath, result.url + "\\n");
+  }
+  return result;
+}
+`, "utf8");
+
+  const result = await execFileAsync(process.execPath, [
+    "--loader",
+    loaderPath,
+    "src/cli.js",
+    ...args,
+  ], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      AGENTIFY_IMPORT_TRACE_PATH: tracePath,
+      NO_COLOR: "1",
+    },
+  });
+  const imports = (await fs.readFile(tracePath, "utf8")).trim().split("\n").filter(Boolean);
+  return { ...result, imports };
+}
+
 function extractHelpSection(help, heading, nextHeading) {
   const start = help.indexOf(heading);
   assert.notEqual(start, -1, `missing help heading ${heading}`);
@@ -108,11 +168,28 @@ test("parseArgs and config resolve context mode explicitly", () => {
 
   assert.equal(args.contextMode, "routed");
   assert.equal(resolveRunContextMode(args, { context: { mode: "compact" } }), "routed");
+  assert.equal(resolveRunContextMode(parseArgs(["run", "--context-mode", "direct", "implement login"]), {}), "compact");
   assert.equal(resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }), "compact");
   assert.throws(
     () => resolveRunContextMode(parseArgs(["run", "--context-mode", "wide", "implement login"]), {}),
-    /--context-mode must be "compact", "direct", or "routed"/,
+    /--context-mode must be "compact" or "routed" \("direct" is accepted as an alias for "compact"\)/,
   );
+});
+
+test("help and docs share a single context-mode contract", async () => {
+  const help = await captureHelpText();
+  const readme = await fs.readFile(new URL("../README.md", import.meta.url), "utf8");
+  const detailedReadme = await fs.readFile(new URL("../docs/DETAILED_README.md", import.meta.url), "utf8");
+  const commandSection = extractHelpSection(help, "COMMANDS", "OPTIONS");
+  const optionSection = extractHelpSection(help, "OPTIONS", "EXEC FLAGS");
+
+  assert.equal([...commandSection.matchAll(/^\s{4}context\s{2,}/gm)].length, 1);
+  assert.equal([...optionSection.matchAll(/--context-mode/g)].length, 1);
+  assert.match(optionSection, new RegExp(`--context-mode\\s+${CONTEXT_MODE_HELP_LABEL.replace("|", "\\|")}`));
+  assert.match(optionSection, new RegExp(CONTEXT_MODE_DESCRIPTION));
+  assert.match(readme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
+  assert.match(detailedReadme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
+  assert.doesNotMatch(`${optionSection}\n${readme}\n${detailedReadme}`, /<direct\|routed>/);
 });
 
 test("README CLI reference includes every command and option from help", async () => {
@@ -143,6 +220,28 @@ test("parseArgs supports short help and version flags", () => {
   const args = parseArgs(["-h", "-V"]);
   assert.equal(args.help, true);
   assert.equal(args.version, true);
+});
+
+test("CLI help and version fast paths avoid heavy dispatcher imports", async () => {
+  const pkg = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
+  const versionResult = await runCliWithImportTrace(["--version"]);
+  assert.equal(versionResult.stdout, `agentify v${pkg.version}\n`);
+  assert.deepEqual(versionResult.imports, []);
+
+  const helpResult = await runCliWithImportTrace(["--help"]);
+  assert.match(helpResult.stderr, /COMMANDS/);
+  assert.match(helpResult.stderr, /agentify run --provider codex/);
+  assert.deepEqual(helpResult.imports, []);
+});
+
+test("CLI fast paths ignore passthrough flags after --", () => {
+  assert.equal(isHelpRequest(["exec", "--", "node", "--help"]), false);
+  assert.equal(isHelpRequest(["exec", "--", "node", "-h"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "--version"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "-v"]), false);
+
+  assert.equal(isHelpRequest(["exec", "--help", "--", "node"]), true);
+  assert.equal(isVersionRequest(["exec", "--version", "--", "node"]), true);
 });
 
 test("parseArgs supports interactive flags", () => {
@@ -270,11 +369,44 @@ test("prepareSessionLaunch records interactive template sessions through PTY cap
     assert.equal(launch.sessionRecord.captureMode, "interactive-pty");
     assert.equal(launch.sessionRecord.provider, provider);
     assert.equal(launch.sessionRecord.task, task);
+    assert.equal(launch.sessionRecord.contextMode, "compact");
     assert.equal(launch.runExecFlags.sessionRecord, launch.sessionRecord);
     assert.equal(launch.agentCommand[0], provider);
     assert.doesNotMatch(launch.agentCommand.join(" "), /\bexec\b|-p\b/);
     assert.match(launch.agentCommand.at(-1), /Current task: Capture the provider transcript\./);
   }
+});
+
+test("prepareSessionLaunch treats direct as the compact context-mode alias", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-session-context-mode-"));
+  const sessionResult = {
+    manifest: {
+      session_id: "sess_context_mode",
+      provider: "codex",
+      name: "Context mode session",
+    },
+    bootstrap: "# Session Context\n- Provider: codex",
+  };
+  const config = {
+    provider: "codex",
+    session: {
+      memoryPromptMaxKb: 4,
+      memoryResults: 3,
+      memoryTurns: 6,
+    },
+  };
+
+  const launch = await prepareSessionLaunch(
+    root,
+    config,
+    parseArgs(["sess", "run", "--context-mode", "direct", "Continue work"]),
+    sessionResult,
+    "Continue work",
+  );
+
+  assert.equal(launch.sessionRecord.contextMode, "compact");
+  assert.match(launch.prompt, /Current task: Continue work/);
+  assert.doesNotMatch(launch.prompt, /Agentify routed context mode/);
 });
 
 test("buildSessionPrompt injects automatic memory excerpts before the current task", () => {
@@ -433,6 +565,59 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   assert.doesNotMatch(prompt, /Planner summary/);
   assert.doesNotMatch(prompt, /Selected file slices/);
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
+test("runCli launches provider run with sanitized provider env config", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-provider-env-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-env.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), [
+    "providerEnv:",
+    "  passthrough:",
+    "    - AGENTIFY_PROVIDER_ALLOWED",
+    "  extra:",
+    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(root);
+  await installFakeCodexEnvCapture(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+      "Inspect env",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+
+  const captured = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  assert.deepEqual(captured.argv.slice(0, 2), ["--cd", root]);
+  assert.equal(captured.secret, null);
+  assert.equal(captured.allowed, "allowed-value");
+  assert.equal(captured.extra, "extra-value");
 });
 
 test("runCli launches interactive provider context without prompting when run has no task", async () => {
@@ -1230,6 +1415,167 @@ test("runCli doctor --json emits a single machine-readable payload", async () =>
   assert.ok(typeof payload.tier === "number");
   assert.ok(payload.tools && typeof payload.tools === "object");
   assert.ok(payload.tools.mempalace && typeof payload.tools.mempalace.available === "boolean");
+  assert.equal(payload.package_manager.name, "pnpm");
+  assert.ok(typeof payload.package_manager.available === "boolean");
+  assert.deepEqual(Object.keys(payload.providers).sort(), ["claude", "codex", "gemini", "opencode"]);
+  assert.equal(payload.providers.codex.binary, "codex");
+  assert.ok(typeof payload.providers.codex.available === "boolean");
+  assert.ok(payload.providers.codex.auth && typeof payload.providers.codex.auth.state === "string");
+});
+
+test("runCli doctor --json reports package manager and provider readiness", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-readiness-"));
+  const binDir = path.join(root, "bin");
+  const homeDir = path.join(root, "home");
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.mkdir(path.join(homeDir, ".gemini"), { recursive: true });
+  await fs.writeFile(path.join(homeDir, ".gemini", "oauth_creds.json"), "{}\n", "utf8");
+  await installFakeExecutable(binDir, "pnpm", "#!/bin/sh\necho '10.1.2'\n");
+  await installFakeExecutable(binDir, "codex", `#!/bin/sh
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  echo "Logged in"
+  exit 0
+fi
+echo "codex 1.2.3"
+`);
+  await installFakeExecutable(binDir, "claude", `#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  echo '{"loggedIn":true,"authMethod":"test"}'
+  exit 0
+fi
+echo "claude 2.3.4"
+`);
+  await installFakeExecutable(binDir, "gemini", "#!/bin/sh\necho 'gemini 3.4.5'\n");
+
+  const originalLog = console.log;
+  const originalPath = process.env.PATH;
+  const originalHome = process.env.HOME;
+  const originalGeminiApiKey = process.env.GEMINI_API_KEY;
+  const originalGoogleApiKey = process.env.GOOGLE_API_KEY;
+  const originalGoogleCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const output = [];
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.PATH = `${binDir}:/bin:/usr/bin`;
+  process.env.HOME = homeDir;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalGeminiApiKey === undefined) {
+      delete process.env.GEMINI_API_KEY;
+    } else {
+      process.env.GEMINI_API_KEY = originalGeminiApiKey;
+    }
+    if (originalGoogleApiKey === undefined) {
+      delete process.env.GOOGLE_API_KEY;
+    } else {
+      process.env.GOOGLE_API_KEY = originalGoogleApiKey;
+    }
+    if (originalGoogleCredentials === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = originalGoogleCredentials;
+    }
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.package_manager.available, true);
+  assert.equal(payload.package_manager.version, "10.1.2");
+  assert.equal(payload.providers.codex.available, true);
+  assert.equal(payload.providers.codex.version, "1.2.3");
+  assert.equal(payload.providers.codex.auth.state, "ready");
+  assert.equal(payload.providers.claude.available, true);
+  assert.equal(payload.providers.claude.auth.state, "ready");
+  assert.equal(payload.providers.gemini.available, true);
+  assert.equal(payload.providers.gemini.auth.state, "ready");
+  assert.equal(payload.providers.opencode.available, false);
+  assert.equal(payload.providers.opencode.auth.state, "skipped");
+  assert.equal(payload.providers.local, undefined);
+});
+
+test("runCli doctor --json marks missing pnpm and provider binaries", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-missing-readiness-"));
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+
+  const originalLog = console.log;
+  const originalPath = process.env.PATH;
+  const output = [];
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.PATH = `${binDir}:/bin:/usr/bin`;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.package_manager.available, false);
+  assert.equal(payload.package_manager.reason, "command not found");
+  for (const provider of ["codex", "claude", "gemini", "opencode"]) {
+    assert.equal(payload.providers[provider].available, false);
+    assert.equal(payload.providers[provider].auth.state, "skipped");
+    assert.equal(payload.providers[provider].auth.detail, "binary missing");
+  }
+});
+
+test("runCli doctor --json marks binaries unavailable when readiness checks fail", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-doctor-failed-readiness-"));
+  const binDir = path.join(root, "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  await installFakeExecutable(binDir, "pnpm", "#!/bin/sh\necho 'pnpm broken' >&2\nexit 2\n");
+  await installFakeExecutable(binDir, "codex", "#!/bin/sh\necho 'codex broken' >&2\nexit 2\n");
+
+  const originalLog = console.log;
+  const originalPath = process.env.PATH;
+  const output = [];
+  console.log = (...args) => {
+    output.push(args.join(" "));
+  };
+  process.env.PATH = `${binDir}:/bin:/usr/bin`;
+
+  try {
+    await runCli(["doctor", "--root", root, "--json"]);
+  } finally {
+    console.log = originalLog;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  }
+
+  const payload = JSON.parse(output[0]);
+  assert.equal(payload.package_manager.available, false);
+  assert.equal(payload.package_manager.check_status, "failed");
+  assert.equal(payload.providers.codex.available, false);
+  assert.equal(payload.providers.codex.check_status, "failed");
+  assert.equal(payload.providers.codex.auth.state, "skipped");
+  assert.equal(payload.providers.codex.auth.detail, "binary missing");
 });
 
 test("runCli sync upgrades repo-owned Agentify assets and emits sync json", async () => {

@@ -6,14 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import {
-  COMPLETION_SPEC,
-  getCompletionCommandNames,
-  getCompletionSubcommandNames,
-  listCompletionValues,
-  renderCompletionScript,
-} from "../src/core/completion.js";
+import { generateCompletionScript, getCompletionValues } from "../src/core/completion.js";
 import { SUPPORTED_PROVIDERS } from "../src/core/provider-command.js";
+import { forkSession } from "../src/core/session.js";
 import { listBuiltinSkills } from "../src/core/skills.js";
 import { runCli } from "../src/main.js";
 
@@ -21,8 +16,8 @@ const execFileAsync = promisify(execFile);
 
 async function captureStdout(fn) {
   const chunks = [];
-  const originalWrite = process.stdout.write;
-  process.stdout.write = function write(chunk, encoding, callback) {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk, encoding, callback) => {
     chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
     if (typeof encoding === "function") {
       encoding();
@@ -30,7 +25,7 @@ async function captureStdout(fn) {
       callback();
     }
     return true;
-  };
+  });
 
   try {
     await fn();
@@ -41,129 +36,87 @@ async function captureStdout(fn) {
   return chunks.join("");
 }
 
-async function makeSession(root, sessionId, createdAt) {
-  const sessionDir = path.join(root, ".agentify", "session", sessionId);
-  await fs.mkdir(sessionDir, { recursive: true });
-  await fs.writeFile(
-    path.join(sessionDir, "session-manifest.json"),
-    JSON.stringify({
-      session_id: sessionId,
-      provider: "codex",
-      created_at: createdAt,
-    }),
-    "utf8",
+test("generateCompletionScript prints zsh, bash, and fish scripts from one metadata source", () => {
+  const zsh = generateCompletionScript("zsh");
+  const bash = generateCompletionScript("bash");
+  const fish = generateCompletionScript("fish");
+
+  assert.match(zsh, /^#compdef agentify/);
+  assert.match(zsh, /agentify completion values "\$1" --root "\$PWD"/);
+  assert.match(zsh, /compadd -- .*'completion'/);
+  assert.match(zsh, /compadd -- .*'run'/);
+  assert.match(zsh, /compadd -- .*'skill'/);
+
+  assert.match(bash, /complete -F _agentify_completion agentify/);
+  assert.match(bash, /agentify completion values "\$1" --root "\$PWD"/);
+  assert.match(bash, /'completion'/);
+  assert.match(bash, /'run'/);
+  assert.match(bash, /'skill'/);
+
+  assert.match(fish, /function __agentify_complete_providers/);
+  assert.match(fish, /agentify completion values skills --root \(pwd\)/);
+  assert.match(fish, /complete -c agentify .* -a 'completion'/);
+  assert.match(fish, /__fish_seen_subcommand_from skill skills; and not __fish_seen_subcommand_from list install/);
+  assert.match(fish, /__fish_seen_subcommand_from sess session; and not __fish_seen_subcommand_from list run fork resume/);
+  assert.match(fish, /__fish_complete_path/);
+});
+
+test("completion values use existing provider and skill sources of truth", async () => {
+  assert.deepEqual(await getCompletionValues("providers"), SUPPORTED_PROVIDERS);
+  assert.deepEqual(
+    await getCompletionValues("skills"),
+    listBuiltinSkills().map((skill) => skill.name).sort(),
   );
-}
 
-test("completion generators emit non-empty scripts with command completions", () => {
-  for (const shell of ["zsh", "bash", "fish"]) {
-    const script = renderCompletionScript(shell);
+  const providerOutput = await captureStdout(() => runCli(["completion", "values", "providers"]));
+  assert.deepEqual(providerOutput.trim().split("\n"), SUPPORTED_PROVIDERS);
 
-    assert.ok(script.length > 100, `${shell} completion should not be empty`);
-    assert.match(script, /agentify/, `${shell} script should reference agentify`);
-    assert.match(script, /run/, `${shell} script should include run completion`);
-    assert.match(script, /context/, `${shell} script should include context completion`);
-    assert.match(script, /skill/, `${shell} script should include skill completion`);
-    assert.match(script, /completion values providers/, `${shell} script should call provider values endpoint`);
-  }
+  const skillOutput = await captureStdout(() => runCli(["completion", "values", "skills"]));
+  assert.match(skillOutput, /^auto-pilot$/m);
+  assert.match(skillOutput, /^worktree-autopilot$/m);
 });
 
-test("completion metadata pins representative commands, subcommands, and flags", () => {
-  const commands = getCompletionCommandNames();
-  for (const command of ["run", "context", "skill", "sess", "completion"]) {
-    assert.ok(commands.includes(command), `missing command completion for ${command}`);
-  }
-
-  assert.ok(getCompletionSubcommandNames("context").includes("search"), "missing context search completion");
-  assert.ok(getCompletionSubcommandNames("context").includes("fetch"), "missing context fetch completion");
-  assert.ok(getCompletionSubcommandNames("skill").includes("install"), "missing skill install completion");
-  assert.ok(getCompletionSubcommandNames("sess").includes("resume"), "missing sess resume completion");
-
-  for (const flag of ["--provider", "--root", "--context-mode", "--caveman"]) {
-    assert.ok(COMPLETION_SPEC.flags.includes(flag), `missing flag completion for ${flag}`);
-  }
-});
-
-test("provider completion values come from the provider source of truth", async () => {
-  const values = await listCompletionValues("providers");
-
-  assert.deepEqual(values, SUPPORTED_PROVIDERS);
-});
-
-test("skill completion values include built-in skill names", async () => {
-  const values = await listCompletionValues("skills");
-  const builtIns = listBuiltinSkills().map((skill) => skill.name);
-
-  assert.deepEqual(values, builtIns);
-  assert.ok(values.includes("gh-autopilot"));
-});
-
-test("session completion values return ids and degrade silently for missing state", async () => {
+test("completion values sessions degrade silently when session state is missing or unreadable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-sessions-"));
+  const missingOutput = await captureStdout(() =>
+    runCli(["completion", "values", "sessions", "--root", root])
+  );
+  assert.equal(missingOutput, "");
 
-  assert.deepEqual(await listCompletionValues("sessions", { root }), []);
+  await fs.mkdir(path.join(root, ".agents", "session", "broken"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agents", "session", "broken", "session-manifest.json"), "{", "utf8");
+  const brokenOutput = await captureStdout(() =>
+    runCli(["completion", "values", "sessions", "--root", root])
+  );
+  assert.equal(brokenOutput, "");
+});
 
-  await makeSession(root, "sess_20260507093000_newest", "2026-05-07T09:30:00.000Z");
-  await makeSession(root, "sess_20260507091500_older", "2026-05-07T09:15:00.000Z");
+test("completion values sessions list known session ids", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-session-list-"));
+  const created = await forkSession(root, { provider: "codex" }, { name: "completion test" });
 
-  assert.deepEqual(await listCompletionValues("sessions", { root }), [
-    "sess_20260507093000_newest",
-    "sess_20260507091500_older",
-  ]);
-
-  await fs.writeFile(
-    path.join(root, ".agentify", "session", "sess_20260507093000_newest", "session-manifest.json"),
-    "{not-json",
-    "utf8",
+  const output = await captureStdout(() =>
+    runCli(["completion", "values", "sessions", "--root", root])
   );
 
-  assert.deepEqual(await listCompletionValues("sessions", { root }), []);
+  assert.deepEqual(output.trim().split("\n"), [created.sessionId]);
 });
 
-test("runCli prints completion scripts and dynamic values", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-cli-"));
-  await makeSession(root, "sess_20260507100000_cli", "2026-05-07T10:00:00.000Z");
+test("cli completion command writes only the script to stdout", async () => {
+  const result = await execFileAsync(process.execPath, ["src/cli.js", "completion", "bash"], {
+    cwd: path.resolve(new URL("..", import.meta.url).pathname),
+  });
 
-  const zshScript = await captureStdout(() => runCli(["completion", "zsh", "--root", root]));
-  assert.match(zshScript, /#compdef agentify/);
-  assert.match(zshScript, /completion values providers/);
-
-  const bashScript = await captureStdout(() => runCli(["completion", "bash", "--root", root]));
-  assert.match(bashScript, /complete -F _agentify_completion agentify/);
-
-  const fishScript = await captureStdout(() => runCli(["completion", "fish", "--root", root]));
-  assert.match(fishScript, /complete -c agentify/);
-
-  const providers = await captureStdout(() => runCli(["completion", "values", "providers", "--root", root]));
-  for (const provider of SUPPORTED_PROVIDERS) {
-    assert.match(providers, new RegExp(`(^|\\n)${provider}(\\n|$)`));
-  }
-
-  const skills = await captureStdout(() => runCli(["completion", "values", "skills", "--root", root]));
-  assert.match(skills, /gh-autopilot/);
-
-  const sessions = await captureStdout(() => runCli(["completion", "values", "sessions", "--root", root]));
-  assert.equal(sessions, "sess_20260507100000_cli\n");
-});
-
-test("zsh completion reaches dynamic branches before generic subcommand cases", () => {
-  const zshScript = renderCompletionScript("zsh");
-  const dynamicBranchIndex = zshScript.indexOf("skill|skills|sess|session");
-  const genericSkillCaseIndex = zshScript.indexOf("      skill) _values 'subcommands'");
-
-  assert.notEqual(dynamicBranchIndex, -1);
-  assert.notEqual(genericSkillCaseIndex, -1);
-  assert.ok(dynamicBranchIndex < genericSkillCaseIndex);
-  assert.match(zshScript, /\$\(agentify completion values skills 2>\/dev\/null\)/);
-  assert.match(zshScript, /\$\(agentify completion values sessions 2>\/dev\/null\)/);
+  assert.match(result.stdout, /^# bash completion for agentify/);
+  assert.equal(result.stderr, "");
 });
 
 test("cli completion command suppresses banner after global flags", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-root-"));
-  const result = await execFileAsync(process.execPath, ["src/cli.js", "--root", root, "completion", "zsh"], {
+  const result = await execFileAsync(process.execPath, ["src/cli.js", "--root", root, "completion", "bash"], {
     cwd: path.resolve(new URL("..", import.meta.url).pathname),
   });
 
-  assert.match(result.stdout, /^#compdef agentify/);
+  assert.match(result.stdout, /^# bash completion for agentify/);
   assert.equal(result.stderr, "");
 });

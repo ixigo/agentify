@@ -316,11 +316,16 @@ function enclosingSymbolId(stack) {
   return stack.length > 0 ? stack[stack.length - 1] : null;
 }
 
-async function main() {
-  const root = process.argv[2];
-  const payload = JSON.parse(process.argv[3] || "{}");
-  const project = payload.project;
-  const analyzerVersion = payload.analyzerVersion || "semantic-tsjs-v1";
+async function computeContentFingerprint(root, repoFiles) {
+  const contentEntries = [];
+  for (const filePath of repoFiles) {
+    const content = await fs.readFile(path.join(root, filePath), "utf8");
+    contentEntries.push(`${filePath}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+  }
+  return crypto.createHash("sha256").update(contentEntries.sort().join("\n")).digest("hex");
+}
+
+async function analyzeProject(root, project, analyzerVersion, contentFingerprint = null) {
   const parsed = parseProject(root, project);
   const program = ts.createProgram(parsed.fileNames, parsed.options);
   const checker = program.getTypeChecker();
@@ -591,18 +596,14 @@ async function main() {
   }
 
   const fileCount = repoFiles.length;
-  const contentEntries = [];
-  for (const filePath of repoFiles) {
-    const content = await fs.readFile(path.join(root, filePath), "utf8");
-    contentEntries.push(`${filePath}:${crypto.createHash("sha256").update(content).digest("hex")}`);
-  }
+  const resolvedContentFingerprint = contentFingerprint || await computeContentFingerprint(root, repoFiles);
 
   const publicEntries = [
     ...symbols.filter((symbol) => symbol.is_exported).map((symbol) => `export:${symbol.file_path}:${symbol.export_name}:${symbol.kind}`),
     ...surfaces.map((surface) => `surface:${surface.kind}:${surface.surface_key}:${surface.role}:${surface.file_path}`),
   ];
 
-  process.stdout.write(`${JSON.stringify({
+  return {
     project: {
       project_id: projectId,
       config_path: project.configPath || null,
@@ -616,7 +617,7 @@ async function main() {
       symbol_count: symbols.length,
       surface_count: surfaces.length,
       edge_count: symbolEdges.length,
-      content_fingerprint: crypto.createHash("sha256").update(contentEntries.sort().join("\n")).digest("hex"),
+      content_fingerprint: resolvedContentFingerprint,
       public_fingerprint: crypto.createHash("sha256").update(publicEntries.sort().join("\n")).digest("hex"),
       refreshed_at: new Date().toISOString(),
       last_error: null,
@@ -638,7 +639,33 @@ async function main() {
     symbols,
     surfaces,
     symbolEdges,
-  }, null, 2)}\n`);
+  };
+}
+
+async function main() {
+  const root = process.argv[2];
+  const payload = JSON.parse(process.argv[3] || "{}");
+  if (Array.isArray(payload.projects)) {
+    const snapshots = [];
+    for (const item of payload.projects) {
+      snapshots.push(await analyzeProject(
+        root,
+        item.project,
+        item.analyzerVersion || payload.analyzerVersion || "semantic-tsjs-v1",
+        item.contentFingerprint || null
+      ));
+    }
+    process.stdout.write(`${JSON.stringify(snapshots, null, 2)}\n`);
+    return;
+  }
+
+  const snapshot = await analyzeProject(
+    root,
+    payload.project,
+    payload.analyzerVersion || "semantic-tsjs-v1",
+    payload.contentFingerprint || null
+  );
+  process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`);
 }
 
 main().catch((error) => {

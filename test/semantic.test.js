@@ -22,7 +22,11 @@ import {
   queryRefs,
   querySearch,
 } from "../src/core/query.js";
-import { runSemanticRefresh } from "../src/core/semantic.js";
+import {
+  computeSemanticProjectFingerprint,
+  discoverSemanticProjects,
+  runSemanticRefresh,
+} from "../src/core/semantic.js";
 import { runDoctor } from "../src/core/toolchain.js";
 import { setSilent } from "../src/core/ui.js";
 
@@ -330,16 +334,23 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     "semantic.tsjs.enabled": true,
   });
   const fingerprintReads = [];
+  const workerBatches = [];
   const instrumentation = {
     onContentRead(filePath) {
       fingerprintReads.push(filePath);
+    },
+    onTsJsWorkerStart(projectIds) {
+      workerBatches.push(projectIds);
     },
   };
 
   const first = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
   assert.ok(fingerprintReads.length > 0);
+  assert.equal(workerBatches.length, 1);
+  assert.ok(workerBatches[0].length >= 2);
 
   fingerprintReads.length = 0;
+  workerBatches.length = 0;
   const second = await runSemanticRefresh(root, config, { silent: true, skipOutput: true, instrumentation });
 
   const db = openIndexDatabase(root);
@@ -352,9 +363,20 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
     assert.equal(second.refreshed_projects.length, 0);
     assert.ok(second.skipped_projects.length >= 2);
     assert.deepEqual(fingerprintReads, []);
+    assert.deepEqual(workerBatches, []);
     assert.ok(projects.every((project) => project.config_path !== "tsconfig.base.json"));
     assert.equal(routeSurfaces.length, 1);
     assert.equal(reactSurfaces.length, 1);
+
+    const discovered = await discoverSemanticProjects(root, config);
+    for (const discoveredProject of discovered) {
+      const indexedProject = projects.find((project) => project.project_id === discoveredProject.id);
+      assert.ok(indexedProject);
+      assert.equal(
+        indexedProject.content_fingerprint,
+        await computeSemanticProjectFingerprint(root, discoveredProject.filePaths)
+      );
+    }
   } finally {
     closeIndexDatabase(db);
   }

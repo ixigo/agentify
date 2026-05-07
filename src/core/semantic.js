@@ -706,36 +706,69 @@ function shouldRefreshProject(project, existing, contentFingerprint) {
   return false;
 }
 
-async function analyzeTsJsProject(root, project, config) {
+function tsJsWorkerBatchSize(config) {
+  const value = Number(config.semantic?.tsjs?.workerBatchSize || 8);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 8;
+}
+
+async function analyzeTsJsProjects(root, projectInputs, config, instrumentation = null) {
+  if (projectInputs.length === 0) {
+    return [];
+  }
   const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "semantic-worker.js");
+  const timeoutMs = config.semantic?.tsjs?.timeoutMs || 45000;
   const args = [
     `--max-old-space-size=${config.semantic?.tsjs?.memoryMb || 1536}`,
     workerPath,
     root,
     JSON.stringify({
-      project,
-      analyzerVersion: config.semantic?.tsjs?.analyzerVersion || "semantic-tsjs-v1",
+      projects: projectInputs.map(({ project, contentFingerprint }) => ({
+        project,
+        analyzerVersion: project.analyzerVersion || config.semantic?.tsjs?.analyzerVersion || "semantic-tsjs-v1",
+        contentFingerprint,
+      })),
     }),
   ];
 
+  instrumentation?.onTsJsWorkerStart?.(projectInputs.map(({ project }) => project.id));
+
   const { stdout } = await execFileAsync(process.execPath, args, {
     cwd: root,
-    timeout: config.semantic?.tsjs?.timeoutMs || 45000,
+    timeout: timeoutMs * projectInputs.length,
     maxBuffer: 50 * 1024 * 1024,
   });
 
-  return JSON.parse(stdout);
+  const snapshots = JSON.parse(stdout);
+  if (!Array.isArray(snapshots) || snapshots.length !== projectInputs.length) {
+    throw new Error("TS/JS semantic worker returned an unexpected snapshot batch");
+  }
+  return snapshots;
 }
 
-async function analyzeProject(root, project, config, repoIndex) {
+async function analyzeTsJsProject(root, project, config, contentFingerprint = null, instrumentation = null) {
+  const [snapshot] = await analyzeTsJsProjects(root, [{ project, contentFingerprint }], config, instrumentation);
+  return snapshot;
+}
+
+async function analyzeProject(root, project, config, repoIndex, contentFingerprint = null, instrumentation = null) {
   if (project.adapterId === "tsjs") {
-    return analyzeTsJsProject(root, project, config);
+    return analyzeTsJsProject(root, project, config, contentFingerprint, instrumentation);
   }
   const adapter = GENERIC_SEMANTIC_ADAPTERS.find((item) => item.id === project.adapterId);
   if (!adapter) {
     throw new Error(`No semantic adapter registered for ${project.adapterId}`);
   }
   return buildGenericSnapshot(repoIndex, project, adapter);
+}
+
+function persistSemanticSnapshot(db, snapshot, project, fileHashCache) {
+  inTransaction(db, () => {
+    replaceSemanticProjectSnapshot(db, snapshot);
+    upsertSemanticMeta(db, "semantic_enabled", true);
+    upsertSemanticMeta(db, `semantic_${project.adapterId}_enabled`, true);
+    upsertSemanticMeta(db, `semantic_${project.adapterId}_analyzer_version`, project.analyzerVersion);
+    upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
+  });
 }
 
 function buildStatusSummary(projects, refreshedIds) {
@@ -794,6 +827,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
       }
     }
 
+    const pendingRefreshes = [];
     for (const project of discoveredProjects) {
       const contentFingerprint = await computeFingerprint(root, project.filePaths, fileHashCache, options.instrumentation);
       const existing = existingProjects.get(project.id);
@@ -802,16 +836,50 @@ export async function runSemanticRefresh(root, config, options = {}) {
         continue;
       }
 
-      const snapshot = await analyzeProject(root, project, config, repoIndex);
-      inTransaction(db, () => {
-        replaceSemanticProjectSnapshot(db, snapshot);
-        upsertSemanticMeta(db, "semantic_enabled", true);
-        upsertSemanticMeta(db, `semantic_${project.adapterId}_enabled`, true);
-        upsertSemanticMeta(db, `semantic_${project.adapterId}_analyzer_version`, project.analyzerVersion);
-        upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);
-      });
-      refreshedIds.add(project.id);
-      refreshed.push(project.id);
+      pendingRefreshes.push({ project, contentFingerprint });
+    }
+
+    const workerBatchSize = tsJsWorkerBatchSize(config);
+    for (let index = 0; index < pendingRefreshes.length;) {
+      const refresh = pendingRefreshes[index];
+      if (refresh.project.adapterId !== "tsjs") {
+        const snapshot = await analyzeProject(
+          root,
+          refresh.project,
+          config,
+          repoIndex,
+          refresh.contentFingerprint,
+          options.instrumentation
+        );
+        persistSemanticSnapshot(db, snapshot, refresh.project, fileHashCache);
+        refreshedIds.add(refresh.project.id);
+        refreshed.push(refresh.project.id);
+        index += 1;
+        continue;
+      }
+
+      const batch = [];
+      while (
+        index < pendingRefreshes.length
+        && pendingRefreshes[index].project.adapterId === "tsjs"
+        && batch.length < workerBatchSize
+      ) {
+        batch.push(pendingRefreshes[index]);
+        index += 1;
+      }
+
+      const snapshots = await analyzeTsJsProjects(root, batch, config, options.instrumentation);
+      for (let batchIndex = 0; batchIndex < batch.length; batchIndex += 1) {
+        const { project, contentFingerprint } = batch[batchIndex];
+        const snapshot = snapshots[batchIndex];
+        if (snapshot?.project?.project_id !== project.id) {
+          throw new Error(`TS/JS semantic worker returned snapshot for ${snapshot?.project?.project_id || "unknown"} while refreshing ${project.id}`);
+        }
+        snapshot.project.content_fingerprint = contentFingerprint;
+        persistSemanticSnapshot(db, snapshot, project, fileHashCache);
+        refreshedIds.add(project.id);
+        refreshed.push(project.id);
+      }
     }
     inTransaction(db, () => {
       upsertSemanticMeta(db, SEMANTIC_FILE_HASH_CACHE_KEY, fileHashCache);

@@ -9,6 +9,7 @@ import { setSilent } from "../src/core/ui.js";
 
 test("createRunReporter persists output and HTML report", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-"));
+  const sentinelPrompt = "AGENTIFY_SENTINEL_PROMPT_SHOULD_NOT_PERSIST";
   const previousSilent = false;
   setSilent(true);
   t.after(() => {
@@ -57,9 +58,9 @@ test("createRunReporter persists output and HTML report", async (t) => {
     provider: "codex",
     provider_command: {
       executable: "codex",
-      argv: ["codex", "run"],
-      argc: 2,
-      display: "codex run",
+      argv: ["codex", "exec", sentinelPrompt],
+      argc: 3,
+      display: `codex exec ${sentinelPrompt}`,
     },
     capture: {
       mode: "interactive-pty",
@@ -86,16 +87,24 @@ test("createRunReporter persists output and HTML report", async (t) => {
   const telemetry = JSON.parse(
     await fs.readFile(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json"), "utf8")
   );
+  const telemetryJson = JSON.stringify(telemetry);
 
   assert.match(output, /\[agentify\] tests: passed/);
   assert.match(output, /execution: phase=complete exit=0 duration_ms=1250/);
+  assert.doesNotMatch(output, new RegExp(sentinelPrompt));
   assert.match(html, /All configured test cases passed\./);
   assert.match(html, /execution telemetry/);
   assert.match(html, /src\/core\/exec\.js/);
+  assert.doesNotMatch(html, new RegExp(sentinelPrompt));
   assert.match(html, /Copy rerun tests command/);
   assert.match(html, /Total tokens/);
   assert.match(html, /&lt;script&gt;alert\('xss'\)&lt;\/script&gt;/);
   assert.equal(telemetry.phase, "complete");
+  assert.equal(telemetry.provider_command.executable, "codex");
+  assert.equal(telemetry.provider_command.argc, 3);
+  assert.equal(telemetry.provider_command.argv_redacted, true);
+  assert.equal(telemetry.provider_command.argv, undefined);
+  assert.doesNotMatch(telemetryJson, new RegExp(sentinelPrompt));
   assert.equal(telemetry.capture.transcript_available, true);
   assert.deepEqual(telemetry.changed_paths, ["src/core/exec.js", "src/core/run-report.js"]);
 });
@@ -133,6 +142,47 @@ test("createRunReporter shows test output truncation metadata in HTML", async (t
   assert.match(html, /stdout captured 1024 of 1536 bytes/);
   assert.match(html, /stderr captured 1024 of 1536 bytes/);
   assert.match(html, /tests\.outputMaxKb/);
+});
+
+test("createRunReporter surfaces execution timeout state", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-timeout-"));
+  const previousSilent = false;
+  setSilent(true);
+  t.after(() => {
+    setSilent(previousSilent);
+  });
+
+  const reporter = createRunReporter(root);
+  reporter.setCommand("exec");
+  reporter.setExecution({
+    run_id: "timeout-execution",
+    duration_ms: 75,
+    phase: "command",
+    exit_code: 1,
+    timed_out: true,
+    timeout_ms: 50,
+    signal: "SIGTERM",
+    reason: "timeout",
+    provider: "codex",
+    provider_command: { executable: "codex", display: "codex exec" },
+    changed_paths: [],
+    changed_files: [],
+    changed_files_count: 0,
+  });
+
+  await reporter.finalize();
+
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+  const telemetry = JSON.parse(
+    await fs.readFile(path.join(root, ".agentify", "runs", "timeout-execution-execution-telemetry.json"), "utf8")
+  );
+
+  assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIGTERM reason=timeout/);
+  assert.match(html, /yes, after 50ms \(SIGTERM\)/);
+  assert.equal(telemetry.timed_out, true);
+  assert.equal(telemetry.timeout_ms, 50);
+  assert.equal(telemetry.reason, "timeout");
 });
 
 test("createRunReporter redacts test stdout and stderr in persisted artifacts", async (t) => {

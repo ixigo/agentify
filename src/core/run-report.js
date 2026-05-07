@@ -16,6 +16,25 @@ function sanitizeForJsString(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
 }
 
+function normalizeProviderCommand(value) {
+  if (!value) {
+    return null;
+  }
+
+  const rawArgv = Array.isArray(value.argv) ? value.argv : [];
+  const executable = value.executable || rawArgv[0] || null;
+  const argc = Number.isFinite(Number(value.argc)) ? Number(value.argc) : rawArgv.length;
+
+  return {
+    executable,
+    argc,
+    argv_redacted: true,
+    display: executable
+      ? `${executable} [argv redacted; argc=${argc}]`
+      : `[argv redacted; argc=${argc}]`,
+  };
+}
+
 function redactTestsSummary(result) {
   if (!result || typeof result !== "object") {
     return result;
@@ -48,10 +67,14 @@ function normalizeExecutionTelemetry(value) {
     duration_ms: Number.isFinite(Number(value.duration_ms)) ? Number(value.duration_ms) : null,
     phase: value.phase || "unknown",
     exit_code: Number.isFinite(Number(value.exit_code)) ? Number(value.exit_code) : null,
+    timed_out: Boolean(value.timed_out),
+    timeout_ms: Number.isFinite(Number(value.timeout_ms)) ? Number(value.timeout_ms) : null,
+    signal: value.signal || null,
+    reason: value.reason || null,
     skipped_refresh: Boolean(value.skipped_refresh),
     provider: value.provider || null,
     provider_model: value.provider_model || null,
-    provider_command: value.provider_command || null,
+    provider_command: normalizeProviderCommand(value.provider_command),
     capture: value.capture || {
       mode: "inherit",
       transcript_available: false,
@@ -78,10 +101,14 @@ function renderExecutionOutputBlock(execution) {
     : "none";
   const command = execution.provider_command?.display || execution.provider_command?.executable || "unknown";
   const capture = execution.capture || {};
+  const timeoutLine = execution.timed_out
+    ? `[agentify] execution: timeout=yes timeout_ms=${execution.timeout_ms ?? "unknown"} signal=${execution.signal || "unknown"} reason=${execution.reason || "timeout"}`
+    : "[agentify] execution: timeout=no";
 
   return [
     "[agentify] execution telemetry",
     `[agentify] execution: phase=${execution.phase} exit=${execution.exit_code ?? "unknown"} duration_ms=${execution.duration_ms ?? "unknown"}`,
+    timeoutLine,
     `[agentify] execution: provider=${execution.provider || "unknown"} command=${command}`,
     `[agentify] execution: capture=${capture.mode || "inherit"} transcript=${capture.transcript_available ? "yes" : "no"} raw_log=${capture.raw_log_available ? "yes" : "no"}`,
     `[agentify] execution: changed_files=${execution.changed_files_count} head_changed=${execution.head_changed ? "yes" : "no"}`,
@@ -100,6 +127,9 @@ export function renderHtmlReport(summary) {
     : `<li class="empty">no changed paths recorded.</li>`;
   const executionCommand = execution?.provider_command?.display || execution?.provider_command?.executable || "unknown";
   const executionCapture = execution?.capture || {};
+  const executionTimeout = execution?.timed_out
+    ? `yes, after ${execution.timeout_ms ?? "unknown"}ms${execution.signal ? ` (${execution.signal})` : ""}`
+    : "no";
   const executionSection = execution
     ? `
       <div class="metrics" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
@@ -127,6 +157,7 @@ export function renderHtmlReport(summary) {
             <tbody>
               <tr><th scope="row">provider</th><td><code>${escapeHtml(execution.provider || "unknown")}</code></td></tr>
               <tr><th scope="row">command</th><td><code>${escapeHtml(executionCommand)}</code></td></tr>
+              <tr><th scope="row">timeout</th><td><code>${escapeHtml(executionTimeout)}</code></td></tr>
               <tr><th scope="row">capture mode</th><td><code>${escapeHtml(executionCapture.mode || "inherit")}</code></td></tr>
               <tr><th scope="row">raw interactive log</th><td><code>${escapeHtml(executionCapture.raw_log_available ? executionCapture.raw_log_path || "available" : "not available")}</code></td></tr>
               <tr><th scope="row">head changed</th><td><code>${escapeHtml(execution.head_changed ? "yes" : "no")}</code></td></tr>
