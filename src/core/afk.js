@@ -280,14 +280,23 @@ export async function runAfkCreate(root, config, args) {
     continueSession: false,
   });
   const sessionId = buildSessionId(slug);
+  const capturePath = path.join(root, ".agentify", "session", sessionId, "interactive.log");
+  await ensureDir(path.dirname(capturePath));
 
   const result = await runExec(root, config, agentCommand, {
     commandName: "afk-create",
     skipRefresh: true,
-    captureOutputMode: "pipe",
+    captureOutputMode: "pty",
+    capturePath,
     skipCodeBodyChanges: true,
   });
   const output = [result.stdout, result.stderr, result.interactiveTranscript].filter(Boolean).join("\n");
+  if (result.exitCode !== 0) {
+    const rawPath = await findAvailablePlanPath(root, slug, ".raw.md");
+    await writeText(rawPath, `${output.trim()}\n`);
+    throw new Error(`AFK provider command failed with exit code ${result.exitCode}. Raw provider output was saved to ${relative(root, rawPath)}.`);
+  }
+
   const extracted = extractAfkPlanMarkdown(output);
   let plan;
   try {

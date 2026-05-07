@@ -419,7 +419,7 @@ export async function runExec(root, config, agentCommand, flags) {
       timeout: flags.timeout ? flags.timeout * 1000 : undefined,
       captureOutputMode,
       captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
-      capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
+      capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || flags.capturePath || null,
       providerEnv: config.providerEnv,
     });
   } catch (error) {

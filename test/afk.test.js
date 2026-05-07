@@ -110,9 +110,17 @@ ${validPlan("final-plan")}
 test("agentify afk create captures provider output and writes a validated plan", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-"));
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
-  await installFakeCodex(binDir, `console.log(${JSON.stringify(validPlan("checkout-retries"))});`);
+  await installFakeCodex(binDir, `
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  argv: process.argv.slice(2),
+  stdoutIsTTY: Boolean(process.stdout.isTTY)
+}));
+console.log(${JSON.stringify(validPlan("checkout-retries"))});
+`);
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -132,7 +140,53 @@ test("agentify afk create captures provider output and writes a validated plan",
 
   const planPath = path.join(root, ".agentify", "planned", "checkout-retries.md");
   const plan = validateAfkPlanMarkdown(await fs.readFile(planPath, "utf8"));
+  const captured = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const argv = captured.argv;
+  const prompt = argv.at(-1);
+  assert.equal(captured.stdoutIsTTY, true);
+  assert.deepEqual(argv.slice(0, 2), ["--cd", root]);
+  assert.match(prompt, /planning-only session/);
   assert.equal(plan.frontmatter.task, "add checkout retries");
+});
+
+test("agentify afk create reports provider command failures before plan validation", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-fail-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-fail-bin-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, `
+console.error("Error: stdout is not a terminal");
+process.exit(1);
+`);
+
+  const previousPath = process.env.PATH;
+  const previousExitCode = process.exitCode;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  process.exitCode = undefined;
+  try {
+    await assert.rejects(
+      runCli([
+        "afk",
+        "create",
+        "--root",
+        root,
+        "--provider",
+        "codex",
+        "add checkout retries",
+      ]),
+      (error) => {
+        assert.match(error.message, /AFK provider command failed with exit code 1/);
+        assert.doesNotMatch(error.message, /Invalid AFK plan/);
+        return true;
+      },
+    );
+  } finally {
+    process.env.PATH = previousPath;
+    process.exitCode = previousExitCode;
+  }
+
+  const raw = await fs.readFile(path.join(root, ".agentify", "planned", "add-checkout-retries.raw.md"), "utf8");
+  assert.match(raw, /stdout is not a terminal/);
 });
 
 test("agentify afk run creates an isolated worktree and commits verified provider changes", async () => {
