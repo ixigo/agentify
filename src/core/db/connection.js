@@ -53,7 +53,7 @@ function openWithNodeSqlite(filename, options = {}) {
 }
 
 export function getIndexDbPath(root) {
-  return path.join(root, ".agents", "index.db");
+  return path.join(root, ".agentify", "index.db");
 }
 
 function createIndexSnapshot(dbPath) {
