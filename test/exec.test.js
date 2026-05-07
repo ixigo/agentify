@@ -36,6 +36,59 @@ async function addLocalSubmodule(root, submodulePath) {
   await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
 }
 
+test("runExec launches provider commands with a sanitized env", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-provider-env-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.providerEnv = {
+    inherit: false,
+    passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
+    extra: {
+      AGENTIFY_PROVIDER_EXTRA: "extra-value",
+    },
+  };
+
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+
+  const script = [
+    "process.stdout.write(JSON.stringify({",
+    "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
+    "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
+    "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
+    "}));",
+  ].join("");
+
+  try {
+    const result = await runExec(root, config, [process.execPath, "-e", script], {
+      captureOutput: true,
+      skipRefresh: true,
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      secret: null,
+      allowed: "allowed-value",
+      extra: "extra-value",
+    });
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+});
+
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-commit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
@@ -92,13 +145,14 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const beforeDocMtime = (await fs.stat(docPath)).mtimeMs;
   await fs.appendFile(path.join(root, "src", "index.js"), "export const preexisting = true;\n", "utf8");
   await new Promise((resolve) => setTimeout(resolve, 25));
+  const sentinelPrompt = "AGENTIFY_SENTINEL_PROMPT_SHOULD_NOT_PERSIST";
 
   const script = [
     "import fs from 'node:fs/promises';",
     "await fs.appendFile('src/index.js', 'export const fromRunExec = true;\\n', 'utf8');",
   ].join("");
 
-  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script, sentinelPrompt], {
     skipCodeBodyChanges: true,
   });
   const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
@@ -118,8 +172,16 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
+  const telemetryJson = JSON.stringify(telemetry);
   assert.match(output, /execution: changed_files=1/);
+  assert.doesNotMatch(output, new RegExp(sentinelPrompt));
   assert.match(html, /execution telemetry/);
+  assert.doesNotMatch(html, new RegExp(sentinelPrompt));
+  assert.equal(telemetry.provider_command.executable, "node");
+  assert.equal(telemetry.provider_command.argc, 5);
+  assert.equal(telemetry.provider_command.argv_redacted, true);
+  assert.equal(telemetry.provider_command.argv, undefined);
+  assert.doesNotMatch(telemetryJson, new RegExp(sentinelPrompt));
   assert.deepEqual(telemetry.changed_paths, ["src/index.js"]);
 });
 
