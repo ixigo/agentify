@@ -14,9 +14,8 @@ const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
 const FORCE_KILL_TIMEOUT_MS = 5000;
 const REFRESH_NEUTRAL_PATH_PATTERNS = [
-  /^\.agents(\/|$)/,
+  /^\.agentify(\/|$)/,
   /^\.current_session(\/|$)/,
-  /^\.agentify\/work(\/|$)/,
   /^docs\/repo-map\.md$/,
   /^docs\/modules(\/|$)/,
   /^output\.txt$/,
@@ -218,6 +217,9 @@ function summarizeChangedFiles(files) {
 }
 
 function normalizeTimeoutMs(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }

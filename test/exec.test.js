@@ -116,7 +116,7 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
 
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
-  const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+  const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
   assert.match(output, /execution: changed_files=1/);
   assert.match(html, /execution telemetry/);
@@ -283,15 +283,24 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
   const memoryContext = await fs.readFile(path.join(session.sessionDir, "memory-context.md"), "utf8");
   const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
   const launchRecord = JSON.parse(launches.trim().split(/\r?\n/).at(-1));
+  const context = JSON.parse(await fs.readFile(path.join(session.sessionDir, "context.json"), "utf8"));
+  const runHistoryEntry = context.run_history.at(-1);
 
   assert.equal(result.phase, "complete");
   assert.equal(result.exitCode, 0);
+  assert.equal(result.timedOut, false);
+  assert.equal(result.timeoutMs, null);
   assert.match(transcript, /> Current task/);
   assert.match(transcript, /assistant says hello/);
   assert.match(transcript, /> Run status/);
+  assert.match(transcript, /Timeout: no/);
   assert.match(memoryContext, /Automatic Session Memory/);
   assert.match(launches, /captured-pipe/);
   assert.match(launches, /Continue this session using the remembered context/);
+  assert.equal(launchRecord.timed_out, false);
+  assert.equal(launchRecord.timeout_ms, null);
+  assert.equal(runHistoryEntry.timed_out, false);
+  assert.equal(runHistoryEntry.timeout_ms, null);
   assert.equal(launchRecord.managed_context.estimate, true);
   assert.equal(launchRecord.managed_context.basis, "managed_context_bytes");
   assert.equal(launchRecord.managed_context.rollover_threshold_bytes, 96 * 1024);
@@ -334,7 +343,7 @@ test("runExec preserves timeout state in telemetry, reports, and session memory"
       },
     });
 
-    const telemetryPath = path.join(root, ".agents", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+    const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
     const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
     const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
     const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
@@ -387,7 +396,7 @@ test("runExec skips refresh when only Agentify session artifacts change", async 
 
   const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false, docs: true });
   const session = await forkSession(root, config, { name: "artifact-refresh" });
-  await execFileAsync("git", ["add", ".agents"], { cwd: root });
+  await execFileAsync("git", ["add", ".agentify"], { cwd: root });
   await execFileAsync("git", ["commit", "-m", "track session artifact baseline"], { cwd: root });
 
   const result = await runExec(

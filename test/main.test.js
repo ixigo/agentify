@@ -736,7 +736,7 @@ test("runCli sess run builds routed context with a fake codex provider", async (
   const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
   const prompt = argv.at(-1);
   assert.deepEqual(argv.slice(0, 2), ["exec", prompt]);
-  assert.match(prompt, /Full routing: host shell -> \.agents\/index\.db/);
+  assert.match(prompt, /Full routing: host shell -> \.agentify\/index\.db/);
   assert.match(prompt, /Current task: Use routed context/);
   assert.match(prompt, /Automatic Session Memory/);
 });
@@ -773,7 +773,7 @@ test("runCli sess run without a task asks the provider to collect one", async ()
   assert.match(prompt, /ask the user what task/);
   assert.doesNotMatch(prompt, /Current task: Continue this session/);
 
-  const sessionsRoot = path.join(root, ".agents", "session");
+  const sessionsRoot = path.join(root, ".agentify", "session");
   const [sessionId] = await fs.readdir(sessionsRoot);
   const launches = await fs.readFile(path.join(sessionsRoot, sessionId, "launches.jsonl"), "utf8");
   assert.match(launches, /"task":""/);
@@ -854,7 +854,7 @@ test("runCli passes routed context prompt to codex sess run and compacts facts",
   assert.match(prompt, /Session bootstrap:/);
   assert.match(prompt, /agentify context fetch <path> --symbol X/);
 
-  const sessionsRoot = path.join(root, ".agents", "session");
+  const sessionsRoot = path.join(root, ".agentify", "session");
   const entries = await fs.readdir(sessionsRoot);
   assert.equal(entries.length, 1);
   const facts = JSON.parse(await fs.readFile(path.join(sessionsRoot, entries[0], "context-facts.json"), "utf8"));
@@ -980,7 +980,7 @@ test("runCli init writes baseline local work and guardrail files", async () => {
 
   const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
   assert.match(gitignore, /# >>> agentify generated artifacts/);
-  assert.match(gitignore, /^\.agents\/$/m);
+  assert.match(gitignore, /^\.agentify\/$/m);
   assert.match(gitignore, /^docs\/modules\/$/m);
   assert.match(gitignore, /^agentify-report\.html$/m);
   assert.doesNotMatch(gitignore, /^\.agentify\.yaml$/m);
@@ -1010,6 +1010,8 @@ test("runCli init updates gitignore Agentify block without dropping user additio
     "",
     "# >>> agentify generated artifacts",
     ".agents/",
+    ".agentify/",
+    ".agentify/work/",
     "local.env",
     "# <<< agentify generated artifacts",
     "",
@@ -1025,6 +1027,8 @@ test("runCli init updates gitignore Agentify block without dropping user additio
   assert.match(gitignore, /^local\.env$/m);
   assert.match(gitignore, /^\.current_session\/$/m);
   assert.match(gitignore, /^agentify-report\.html$/m);
+  assert.doesNotMatch(gitignore, /^\.agents\/$/m);
+  assert.doesNotMatch(gitignore, /^\.agentify\/work\/$/m);
   assert.equal((gitignore.match(/^local\.env$/gm) || []).length, 1);
 });
 
@@ -1060,8 +1064,8 @@ test("runCli plan reports actionable guidance when the index is missing", async 
 test("runCli plan reports actionable guidance when the index is unreadable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-plan-invalid-index-"));
   await runCli(["init", "--root", root]);
-  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
-  await fs.writeFile(path.join(root, ".agents", "index.db"), "not sqlite", "utf8");
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agentify", "index.db"), "not sqlite", "utf8");
 
   await assert.rejects(
     () => runCli(["plan", "--root", root, "summarize setup"]),
@@ -1268,7 +1272,7 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.match(configText, /^semantic:/m);
   assert.match(configText, /^toolchain:/m);
   assert.match(gitignoreText, /# >>> agentify generated artifacts/);
-  assert.match(gitignoreText, /^\.agents\/$/m);
+  assert.match(gitignoreText, /^\.agentify\/$/m);
   assert.match(skillText, /Interview the user relentlessly/);
   assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));

@@ -17,7 +17,7 @@ test("createRunReporter persists output and HTML report", async (t) => {
 
   const reporter = createRunReporter(root);
   reporter.setCommand("up");
-  reporter.setScan({ wrote: [".agents/index.db"] });
+  reporter.setScan({ wrote: [".agentify/index.db"] });
   reporter.setDoc({
     modules_processed: 2,
     docs_written: 1,
@@ -84,7 +84,7 @@ test("createRunReporter persists output and HTML report", async (t) => {
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetry = JSON.parse(
-    await fs.readFile(path.join(root, ".agents", "runs", "test-execution-execution-telemetry.json"), "utf8")
+    await fs.readFile(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json"), "utf8")
   );
 
   assert.match(output, /\[agentify\] tests: passed/);
@@ -166,7 +166,7 @@ test("createRunReporter surfaces execution timeout state", async (t) => {
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetry = JSON.parse(
-    await fs.readFile(path.join(root, ".agents", "runs", "timeout-execution-execution-telemetry.json"), "utf8")
+    await fs.readFile(path.join(root, ".agentify", "runs", "timeout-execution-execution-telemetry.json"), "utf8")
   );
 
   assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIGTERM reason=timeout/);
@@ -174,6 +174,45 @@ test("createRunReporter surfaces execution timeout state", async (t) => {
   assert.equal(telemetry.timed_out, true);
   assert.equal(telemetry.timeout_ms, 50);
   assert.equal(telemetry.reason, "timeout");
+});
+
+test("createRunReporter redacts test stdout and stderr in persisted artifacts", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-redaction-"));
+  const previousSilent = false;
+  setSilent(true);
+  t.after(() => {
+    setSilent(previousSilent);
+  });
+
+  const stdoutSecret = "sk-live-secret12345";
+  const stderrSecret = "eyJhbGciOiJIUzI1NiJ9.secret";
+  const reporter = createRunReporter(root);
+  reporter.setCommand("up");
+  reporter.setValidation({ passed: true, failures: [] });
+  reporter.appendSection("[tests stdout]", `stdout context OPENAI_API_KEY=${stdoutSecret}`);
+  reporter.appendSection("[tests stderr]", `stderr context Authorization: Bearer ${stderrSecret}`);
+  reporter.setTests({
+    status: "passed",
+    passed: true,
+    command: "pnpm test",
+    stdout: `stdout context OPENAI_API_KEY=${stdoutSecret}`,
+    stderr: `stderr context Authorization: Bearer ${stderrSecret}`,
+    exit_code: 0,
+  });
+
+  await reporter.finalize();
+
+  const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
+  const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
+
+  assert.doesNotMatch(output, new RegExp(stdoutSecret));
+  assert.doesNotMatch(output, new RegExp(stderrSecret));
+  assert.doesNotMatch(html, new RegExp(stdoutSecret));
+  assert.doesNotMatch(html, new RegExp(stderrSecret));
+  assert.match(output, /stdout context OPENAI_API_KEY=\[REDACTED\]/);
+  assert.match(output, /stderr context Authorization: Bearer \[REDACTED\]/);
+  assert.match(html, /stdout context OPENAI_API_KEY=\[REDACTED\]/);
+  assert.match(html, /stderr context Authorization: Bearer \[REDACTED\]/);
 });
 
 test("createRunReporter uses live loader milestones on interactive stderr", async (t) => {
