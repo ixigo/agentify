@@ -36,6 +36,59 @@ async function addLocalSubmodule(root, submodulePath) {
   await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
 }
 
+test("runExec launches provider commands with a sanitized env", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-provider-env-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.providerEnv = {
+    inherit: false,
+    passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
+    extra: {
+      AGENTIFY_PROVIDER_EXTRA: "extra-value",
+    },
+  };
+
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+
+  const script = [
+    "process.stdout.write(JSON.stringify({",
+    "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
+    "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
+    "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
+    "}));",
+  ].join("");
+
+  try {
+    const result = await runExec(root, config, [process.execPath, "-e", script], {
+      captureOutput: true,
+      skipRefresh: true,
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      secret: null,
+      allowed: "allowed-value",
+      extra: "extra-value",
+    });
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+});
+
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-commit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
