@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/caveman.js";
+import { isHelpRequest, isVersionRequest } from "../src/core/cli-fast-paths.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
 import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
 
@@ -198,6 +199,16 @@ test("CLI help and version fast paths avoid heavy dispatcher imports", async () 
   assert.match(helpResult.stderr, /COMMANDS/);
   assert.match(helpResult.stderr, /agentify run --provider codex/);
   assert.deepEqual(helpResult.imports, []);
+});
+
+test("CLI fast paths ignore passthrough flags after --", () => {
+  assert.equal(isHelpRequest(["exec", "--", "node", "--help"]), false);
+  assert.equal(isHelpRequest(["exec", "--", "node", "-h"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "--version"]), false);
+  assert.equal(isVersionRequest(["exec", "--", "node", "-v"]), false);
+
+  assert.equal(isHelpRequest(["exec", "--help", "--", "node"]), true);
+  assert.equal(isVersionRequest(["exec", "--version", "--", "node"]), true);
 });
 
 test("parseArgs supports interactive flags", () => {

@@ -5,6 +5,11 @@ const pkg = require("../../package.json");
 
 export const VERSION = pkg.version;
 
+function agentifyArgsBeforePassthrough(args) {
+  const passthroughIndex = args.indexOf("--");
+  return passthroughIndex === -1 ? args : args.slice(0, passthroughIndex);
+}
+
 function hasColor() {
   return !process.env.NO_COLOR && process.stderr.isTTY;
 }
@@ -22,11 +27,13 @@ function dim(msg) {
 }
 
 export function isHelpRequest(args) {
-  return args.includes("--help") || args.includes("-h") || args[0] === "help" || args.length === 0;
+  const agentifyArgs = agentifyArgsBeforePassthrough(args);
+  return agentifyArgs.includes("--help") || agentifyArgs.includes("-h") || agentifyArgs[0] === "help" || agentifyArgs.length === 0;
 }
 
 export function isVersionRequest(args) {
-  return args.includes("--version") || args.includes("-v") || args.includes("-V");
+  const agentifyArgs = agentifyArgsBeforePassthrough(args);
+  return agentifyArgs.includes("--version") || agentifyArgs.includes("-v") || agentifyArgs.includes("-V");
 }
 
 export async function printHelp() {
