@@ -152,7 +152,7 @@ async function runCatFileBatch(root, specs) {
   try {
     return await runCatFileBatchOnce(root, specs, ["cat-file", "--batch", "-Z"], 0x00, "\0");
   } catch {
-    return runCatFileBatchOnce(root, specs, ["cat-file", "--batch"], 0x0a, "\n");
+    return runCatFileBatchOnce(root, specs, ["cat-file", "--batch", "-z"], 0x0a, "\0");
   }
 }
 
