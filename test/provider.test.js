@@ -90,6 +90,64 @@ test("runChild sanitizes provider subprocess env by default", async () => {
   }
 });
 
+test("runChild preserves standard proxy env by default", async () => {
+  const previousHttpProxy = process.env.HTTP_PROXY;
+  const previousHttpsProxy = process.env.HTTPS_PROXY;
+  const previousNoProxy = process.env.NO_PROXY;
+  const previousLowerHttpProxy = process.env.http_proxy;
+  const previousLowerHttpsProxy = process.env.https_proxy;
+  const previousLowerNoProxy = process.env.no_proxy;
+
+  process.env.HTTP_PROXY = "http://proxy.local:8080";
+  process.env.HTTPS_PROXY = "https://proxy.local:8443";
+  process.env.NO_PROXY = "localhost,127.0.0.1";
+  process.env.http_proxy = "http://lower-proxy.local:8080";
+  process.env.https_proxy = "https://lower-proxy.local:8443";
+  process.env.no_proxy = "example.test";
+
+  try {
+    const result = await runChild(process.execPath, [
+      "-e",
+      [
+        "process.stdout.write(JSON.stringify({",
+        "HTTP_PROXY: process.env.HTTP_PROXY || null,",
+        "HTTPS_PROXY: process.env.HTTPS_PROXY || null,",
+        "NO_PROXY: process.env.NO_PROXY || null,",
+        "http_proxy: process.env.http_proxy || null,",
+        "https_proxy: process.env.https_proxy || null,",
+        "no_proxy: process.env.no_proxy || null",
+        "}));",
+      ].join(""),
+    ], {
+      timeoutMs: 1000,
+    });
+
+    assert.deepEqual(JSON.parse(result.stdout), {
+      HTTP_PROXY: "http://proxy.local:8080",
+      HTTPS_PROXY: "https://proxy.local:8443",
+      NO_PROXY: "localhost,127.0.0.1",
+      http_proxy: "http://lower-proxy.local:8080",
+      https_proxy: "https://lower-proxy.local:8443",
+      no_proxy: "example.test",
+    });
+  } finally {
+    for (const [key, value] of [
+      ["HTTP_PROXY", previousHttpProxy],
+      ["HTTPS_PROXY", previousHttpsProxy],
+      ["NO_PROXY", previousNoProxy],
+      ["http_proxy", previousLowerHttpProxy],
+      ["https_proxy", previousLowerHttpsProxy],
+      ["no_proxy", previousLowerNoProxy],
+    ]) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test("external provider manager planning surfaces unavailable provider failures", async () => {
   const provider = createProvider("codex");
   const previousPath = process.env.PATH;
