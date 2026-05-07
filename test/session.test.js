@@ -419,6 +419,9 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result 
   try {
     const memory = await loadAutomaticRunMemory(root, "transcript decision query", config);
     assert.notEqual(memory.backend, "mempalace", "MemPalace must not be selected when no result rows are present");
+    const sync = JSON.parse(await fs.readFile(path.join(root, ".agentify", "mempalace", "session-sync.json"), "utf8"));
+    assert.equal(sync.transcript_count, 1);
+    await fs.access(path.join(root, ".agentify", "mempalace", "palace"));
   } finally {
     process.env.PATH = originalPath;
     if (originalCmd === undefined) {
@@ -431,7 +434,7 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result 
 
 test("loadAutomaticRunMemory preserves the previous MemPalace index when refresh mining fails", async () => {
   const { root, config } = await setupMemPalaceTestRepo();
-  const mempalaceDir = path.join(root, ".agents", "mempalace");
+  const mempalaceDir = path.join(root, ".agentify", "mempalace");
   const palacePath = path.join(mempalaceDir, "palace");
   const exportDir = path.join(mempalaceDir, "session-exports");
   await fs.mkdir(palacePath, { recursive: true });

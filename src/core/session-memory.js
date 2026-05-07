@@ -664,20 +664,22 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
           const stagedSearch = await searchMemPalaceIndex(root, query, config, wing, sync.palacePath, command);
           if (stagedSearch.hasErrorStdout) {
             emitMemPalaceDegradedWarning("refreshed index search reported a missing palace");
-          } else if (stagedSearch.usable) {
+          } else {
             await promoteMemPalaceRefresh(sync);
             refreshReady = true;
-            return buildMemoryResult("mempalace", [{
-              sessionId: null,
-              transcriptPath: sync.liveExportDir,
-              transcriptRelativePath: relative(root, sync.liveExportDir),
-              score: Number.NaN,
-              excerpt: stagedSearch.excerpt,
-            }], [
-              `- Query: ${query}`,
-              `- Wing: ${wing}`,
-              "- Source: repo-local MemPalace session export index.",
-            ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+            if (stagedSearch.usable) {
+              return buildMemoryResult("mempalace", [{
+                sessionId: null,
+                transcriptPath: sync.liveExportDir,
+                transcriptRelativePath: relative(root, sync.liveExportDir),
+                score: Number.NaN,
+                excerpt: stagedSearch.excerpt,
+              }], [
+                `- Query: ${query}`,
+                `- Wing: ${wing}`,
+                "- Source: repo-local MemPalace session export index.",
+              ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+            }
           }
         } catch (error) {
           emitMemPalaceDegradedWarning("refresh failed; keeping the previous index", error);
