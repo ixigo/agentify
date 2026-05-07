@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Issue-killer command</title>
+  <meta name="description" content="Learn the agentify issue-killer workflow: labelled GitHub issues, supervised tmux panes, Worktrunk worktrees, provider choices, limits, and safety controls.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="./">commands</a>
+        <a href="#preflight">preflight</a>
+        <a href="#examples">examples</a>
+        <span class="pill">issue-killer</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">agentify issue-killer</span>
+        <h1>Turn labelled issues into a <span class="accent">supervised mission board.</span></h1>
+        <p class="lede">Issue-killer pulls opted-in GitHub issues, gives each one an isolated Worktrunk worktree, and launches a watched tmux pane with the selected provider. The human stays in the control room; agents only get the issues selected for this run.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#preflight">check preflight</a>
+          <a class="cta cta-secondary" href="#examples">see launch examples</a>
+        </div>
+        <div class="hero-meta">
+          <span>default label <code>agentify-ready</code></span>
+          <span>default session <code>gh-issue-killer</code></span>
+          <span>max supervised panes <code>10</code></span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="Issue-killer supervised launch preview">
+        <div class="terminal-top">
+          <span>mission board</span>
+          <span>supervised v1</span>
+        </div>
+<pre><span class="c"># Inspect the selected queue first</span>
+<span class="a">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5 --dry-run</span>
+
+<span class="c"># Launch supervised worktrees and tmux panes</span>
+agentify issue-killer --label agentify-ready --agent-provider codex --limit 5
+
+<span class="c"># Attach to the control room</span>
+tmux attach -t gh-issue-killer</pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">mental model</span>
+        <h2>Issues move through a gated <span class="accent">queue.</span></h2>
+        <p class="section-lede">The command is built for supervised parallel work. It does not scan the whole backlog by default; it starts from an explicit issue URL list or the opt-in label you choose.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <div class="key">queue</div>
+            <p>With no explicit URLs, Agentify queries open GitHub issues matching <code>--label</code>. The default label is <code>agentify-ready</code>, so maintainers decide what can enter the board.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">worktree</div>
+            <p>Each selected issue gets a branch such as <code>issue/&lt;number&gt;-&lt;slug&gt;</code> and a Worktrunk worktree. Existing worktrees for the same branch are reused.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">pane</div>
+            <p>Each worktree launches in tmux with a prompt that pins the assigned issue, branch, path, verification, commit, push, and draft PR responsibilities.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">supervise</div>
+            <p>The summary prints the tmux session, attach command, issue URLs, branch names, and worktree paths so the human can watch and steer every pane.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="preflight">
+      <div class="container">
+        <span class="section-label">preflight first</span>
+        <h2>Prerequisites and safety controls come <span class="accent">before launch.</span></h2>
+        <p class="section-lede">A live run creates worktrees and starts provider CLIs. Check this board before moving from dry-run to launch.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">required</span>
+            <h3>GitHub access</h3>
+            <p>The command requires a Git checkout, the GitHub CLI, and an authenticated GitHub session. Run <code>gh auth status</code> when setup is uncertain.</p>
+            <span class="cmd">gh auth status</span>
+          </div>
+          <div class="move">
+            <span class="tag">live only</span>
+            <h3>Worktree control</h3>
+            <p>Non-dry-run launches also require <code>wt</code> for Worktrunk worktree creation and <code>tmux</code> for supervised pane orchestration.</p>
+            <span class="cmd">command -v wt tmux</span>
+          </div>
+          <div class="move">
+            <span class="tag">agents</span>
+            <h3>Provider CLIs</h3>
+            <p>Agentify v1 supports <code>codex</code> and <code>claude</code> as agent providers for issue-killer panes. The selected CLI must be available for live runs.</p>
+            <span class="cmd">agentify issue-killer --agent-provider codex --dry-run</span>
+          </div>
+          <div class="move">
+            <span class="tag">selection</span>
+            <h3>Opt-in queue</h3>
+            <p>Use the default <code>agentify-ready</code> label, a custom <code>--label</code>, or explicit <code>--issue-url</code> values. Empty labels are rejected unless explicit URLs are supplied.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --dry-run</span>
+          </div>
+        </div>
+
+        <div class="docs-strip">
+          <p>Dry-run still validates GitHub access and issue selection, but it does not create worktrees or launch tmux panes.</p>
+          <a class="doc-link" href="https://github.com/ixigo/agentify/blob/main/src/core/issue-killer.js">issue-killer source</a>
+          <a class="doc-link" href="session.html">session command</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">guardrails</span>
+        <h2>The board is capped and permission bypass is <span class="accent">explicit.</span></h2>
+        <p class="section-lede">The defaults are conservative for supervised v1 runs. Raise scope deliberately and keep provider permission bypass off unless the run has been approved for that mode.</p>
+
+        <div class="artifact-list">
+          <div class="artifact">
+            <strong>Default limit: 5</strong>
+            <span>Label-based runs select up to five open issues unless <code>--limit</code> is set.</span>
+          </div>
+          <div class="artifact">
+            <strong>Maximum limit: 10</strong>
+            <span><code>--limit</code> must be a positive integer and cannot exceed ten supervised panes.</span>
+          </div>
+          <div class="artifact">
+            <strong>Partial runs are opt-in</strong>
+            <span>If fewer open issues are found than requested, pass <code>--allow-partial</code> to launch fewer panes.</span>
+          </div>
+          <div class="artifact">
+            <strong>Explicit URLs are exact</strong>
+            <span><code>--issue-url</code> and <code>--issue-urls</code> select only those GitHub issue URLs and default the limit to the URL count.</span>
+          </div>
+          <div class="artifact">
+            <strong>GitHub only in v1</strong>
+            <span><code>--issue-provider github</code> is supported. GitLab and Azure DevOps are rejected as future providers.</span>
+          </div>
+          <div class="artifact">
+            <strong>Bypass is not default</strong>
+            <span><code>--bypass-permissions</code> must be supplied explicitly. Without it, panes keep provider permission prompts and sandbox approvals.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="examples">
+      <div class="container">
+        <span class="section-label">launch examples</span>
+        <h2>Start with dry-run, then launch the <span class="accent">selected board.</span></h2>
+        <p class="section-lede">These examples come after the safety controls because they create or preview supervised work. The bypass example is intentionally last.</p>
+
+        <div class="move-grid">
+          <div class="move">
+            <span class="tag">preview</span>
+            <h3>Inspect the default queue</h3>
+            <p>Verify labelled issue selection and output shape without creating worktrees or tmux panes.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5 --dry-run</span>
+          </div>
+          <div class="move">
+            <span class="tag">default board</span>
+            <h3>Launch Codex panes</h3>
+            <p>Launch up to five <code>agentify-ready</code> issues into the default <code>gh-issue-killer</code> tmux session.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --limit 5</span>
+          </div>
+          <div class="move">
+            <span class="tag">custom scope</span>
+            <h3>Use a smaller limit</h3>
+            <p>Keep the board narrow when you only want one or two supervised panes in flight.</p>
+            <span class="cmd">agentify issue-killer --label docs-ready --agent-provider claude --limit 2</span>
+          </div>
+          <div class="move">
+            <span class="tag">exact issues</span>
+            <h3>Target explicit URLs</h3>
+            <p>Skip label selection and launch only the issue URLs supplied to this run.</p>
+            <span class="cmd">agentify issue-killer --issue-url https://github.com/ixigo/agentify/issues/209 --agent-provider codex --dry-run</span>
+          </div>
+          <div class="move">
+            <span class="tag">session</span>
+            <h3>Reuse a control room</h3>
+            <p>Choose a named tmux session, or pass <code>--reuse-session</code> when continuing an existing supervised board.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --session-name gh-docs-board --reuse-session</span>
+          </div>
+          <div class="move">
+            <span class="tag">explicit bypass</span>
+            <h3>Only when approved</h3>
+            <p>Bypass mode changes provider launch permissions for every pane in this run. Leave it off for normal supervised work.</p>
+            <span class="cmd">agentify issue-killer --label agentify-ready --agent-provider codex --bypass-permissions</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">control room</span>
+        <h2>What appears after a live <span class="accent">launch.</span></h2>
+        <p class="section-lede">The command prints enough coordinates to inspect every assignment. Attach to tmux, read pane prompts, and keep issue-scoped work inside the generated branch and worktree.</p>
+
+        <div class="map panel" aria-label="Issue-killer workflow map">
+          <div class="node active">
+            <strong>label</strong>
+            <span>agentify-ready</span>
+          </div>
+          <div class="node">
+            <strong>select</strong>
+            <span>open GitHub issues</span>
+          </div>
+          <div class="node">
+            <strong>cap</strong>
+            <span>limit 1-10</span>
+          </div>
+          <div class="node">
+            <strong>branch</strong>
+            <span>issue/number-slug</span>
+          </div>
+          <div class="node">
+            <strong>worktree</strong>
+            <span>wt switch --create</span>
+          </div>
+          <div class="node">
+            <strong>pane</strong>
+            <span>codex or claude</span>
+          </div>
+          <div class="node">
+            <strong>watch</strong>
+            <span>tmux attach</span>
+          </div>
+          <div class="node">
+            <strong>ship</strong>
+            <span>tests, commit, draft PR</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify issue-killer command</span>
+      <span><a href="./">commands</a> · <a href="session.html">session</a> · <a href="../index.html">home</a></span>
+    </div>
+  </footer>
+</body>
+</html>
