@@ -388,7 +388,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
 | `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
-| `--bypass-permissions` | Explicitly bypass provider permission prompts for `issue-killer` panes |
+| `--bypass-permissions` | Control `issue-killer` YOLO mode. Permission bypass is on by default; use `--bypass-permissions=false` to disable. |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--current-worktree` | Run AFK execution in the current checkout instead of an isolated worktree |
 | `--allow-dirty` | Allow AFK current-worktree execution with local changes |
