@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Command pages</title>
+  <meta name="description" content="Browse Agentify command workflows as focused, buildless command pages.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="session.html">session</a>
+        <a href="../skill-catalog.html">skills</a>
+        <a href="https://github.com/ixigo/agentify/blob/main/README.md">docs</a>
+        <span class="pill">commands</span>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">command atlas</span>
+        <h1>Pick a <span class="accent">workflow</span>, not a flag list.</h1>
+        <p class="lede">Agentify commands are grouped as playable routes: what the command does, when to use it, which subcommands matter, and what artifacts appear on disk.</p>
+        <div class="hero-meta">
+          <span>buildless html</span>
+          <span>same site theme</span>
+          <span>first page: <code>sess</code></span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="Command route preview">
+        <div class="terminal-top">
+          <span>route unlocked</span>
+          <span>01 / sessions</span>
+        </div>
+<pre><span class="c"># durable campaign state</span>
+<span class="a">agentify sess run --name "checkout-retries"</span>
+agentify sess resume --session &lt;id&gt;
+agentify sess fork --from &lt;id&gt;
+agentify sess list</pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">available routes</span>
+        <h2>The first command page sets the <span class="accent">pattern.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
+
+        <div class="command-grid">
+          <a class="command-card" href="session.html">
+            <span class="tag">durable work</span>
+            <h3>Session command</h3>
+            <p>Use <code>agentify sess</code> as a campaign save file: start, resume, fork, inspect, and hand off provider-backed work.</p>
+            <span class="cmd">agentify sess run --provider codex --name "payments-v2"</span>
+          </a>
+          <div class="command-card">
+            <span class="tag">next routes</span>
+            <h3>More command families</h3>
+            <p>Run, context, query, risk, skill, issue-killer, setup, planning, and maintenance pages are tracked by the follow-up issues under the parent command-page tracker.</p>
+            <span class="cmd">Parent: #202</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify command pages</span>
+      <span><a href="../index.html">home</a> · <a href="session.html">session</a></span>
+    </div>
+  </footer>
+</body>
+</html>
