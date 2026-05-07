@@ -2,8 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
+import { CONTEXT_MODE_DEFAULT } from "./context-mode.js";
+
 const DEFAULT_CONFIG = {
   provider: "local",
+  providerEnv: {
+    inherit: false,
+    passthrough: [],
+    extra: {},
+  },
   strict: true,
   languages: "auto",
   moduleStrategy: "auto",
@@ -38,7 +45,7 @@ const DEFAULT_CONFIG = {
     maxSizeMb: 100,
   },
   context: {
-    mode: "compact",
+    mode: CONTEXT_MODE_DEFAULT,
     routedDefaultProvider: null,
     compactAfterRun: true,
     autoPrepareChildAboveKb: 96,
@@ -53,15 +60,6 @@ const DEFAULT_CONFIG = {
     maxGhostAgeDays: 3,
     pruneInvalidSessions: true,
     pruneCache: true,
-  },
-  context: {
-    mode: "compact",
-    routedDefaultProvider: null,
-    compactAfterRun: true,
-    autoPrepareChildAboveKb: 96,
-    maxFetchBytes: 12000,
-    maxSearchResults: 12,
-    allowProviderSummary: true,
   },
   session: {
     bootstrapMaxKb: 4,
@@ -212,6 +210,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
 
   const output = {
     provider: config.provider,
+    providerEnv: config.providerEnv,
     strict: config.strict,
     languages: config.languages,
     moduleStrategy: config.moduleStrategy,

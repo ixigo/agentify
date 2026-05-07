@@ -38,6 +38,7 @@ export function isVersionRequest(args) {
 
 export async function printHelp() {
   const { SUPPORTED_PROVIDERS } = await import("./provider-command.js");
+  const { CONTEXT_MODE_DESCRIPTION, CONTEXT_MODE_HELP_LABEL } = await import("./context-mode.js");
   const c = (s) => bold(cyan(s));
   const d = (s) => dim(s);
 
@@ -52,11 +53,10 @@ export async function printHelp() {
     `    ${c("sync")}            ${d("Upgrade repo-owned Agentify files, then run refresh")}`,
     `    ${c("check")}           ${d("Validate freshness, schemas, and safety rules")}`,
     `    ${c("plan")}            ${d("Preview the planner-selected context for a task")}`,
-    `    ${c("context")}         ${d("Search indexed context and fetch exact bounded file slices")}`,
+    `    ${c("context")}         ${d("Search, fetch, compact, and inspect routed context")}`,
     `    ${c("run")}             ${d("Run provider template command with auto-refresh")}`,
     `    ${c("exec")}            ${d("Advanced wrapper for custom agent commands")}`,
     `    ${c("this")}            ${d("Bootstrap this macOS repo for a provider-backed Agentify workflow")}`,
-    `    ${c("context")}         ${d("Search, fetch, compact, and inspect routed context")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed, def, refs, callers, impacts)")}`,
     `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
@@ -69,6 +69,7 @@ export async function printHelp() {
     `    ${c("semantic")}        ${d("Refresh semantic project facts")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("cache")}           ${d("Manage the content cache")}`,
+    `    ${c("completion")}      ${d("Generate shell completion scripts")}`,
     ``,
     `  ${bold("OPTIONS")}`,
     ``,
@@ -87,9 +88,8 @@ export async function printHelp() {
     `    ${c("--interactive")}, ${c("-i")}       Force interactive mode (template providers default to interactive for run/sess)`,
     `    ${c("--continue")}                  Resume the provider's most recent session for run`,
     `    ${c("--resume")}                    Alias for run --continue; with session/sess, resume Agentify session context`,
-    `    ${c("--context-mode")} ${d("<compact|routed>")}  Use compact prompts or routed bounded retrieval prompts`,
+    `    ${c("--context-mode")} ${d(CONTEXT_MODE_HELP_LABEL)}  ${CONTEXT_MODE_DESCRIPTION}`,
     `    ${c("--with-context")}              Inject planner-selected files, tests, and memory into run`,
-    `    ${c("--context-mode")} ${d("<direct|routed>")}     Use routed context retrieval for run/sess prompts`,
     `    ${c("--bypass-permissions")}        Explicitly bypass provider permission prompts for issue-killer panes`,
     `    ${c("--explain-plan")}              Print planner output before executing run`,
     `    ${c("--caveman[=level]")}            Terse output for run/sess (lite, full, ultra, wenyan*)`,
@@ -131,6 +131,7 @@ export async function printHelp() {
     `    ${d("$")} agentify handoff --session sess_20260101000000_abcdef "continue payments-v2"`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --limit 5`,
     `    ${d("$")} agentify issue-killer --label agentify-ready --agent-provider codex --bypass-permissions`,
+    `    ${d("$")} agentify completion zsh`,
     `    ${d("$")} agentify exec -- codex exec "fix auth bug"`,
     ``,
   ];

@@ -25,6 +25,7 @@ import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemo
 import { runDoctor } from "./core/toolchain.js";
 import { garbageCollect, cacheStatus } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
+import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { runSemanticRefresh } from "./core/semantic.js";
 import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
@@ -32,6 +33,11 @@ import { runRepoSync } from "./core/repo-sync.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
+import {
+  CONTEXT_MODE_DEFAULT,
+  normalizeContextMode,
+  toPlannerContextMode,
+} from "./core/context-mode.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
 
 function parseValue(raw) {
@@ -229,24 +235,10 @@ function resolveRunTask(args, startIndex) {
   return buildRunPrompt(getPromptFromArgs(args, startIndex));
 }
 
-function normalizeRunContextMode(value, { fallback = "compact" } = {}) {
-  const raw = value === undefined || value === null || value === false
-    ? fallback
-    : value;
-  const mode = String(raw).trim().toLowerCase();
-  if (mode === "compact" || mode === "direct") {
-    return "compact";
-  }
-  if (mode === "routed") {
-    return "routed";
-  }
-  throw new Error(`--context-mode must be "compact", "direct", or "routed", received "${raw}".`);
-}
-
 export function resolveRunContextMode(args = {}, config = {}) {
-  return normalizeRunContextMode(
+  return normalizeContextMode(
     hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
-    { fallback: "compact" },
+    { fallback: CONTEXT_MODE_DEFAULT },
   );
 }
 
@@ -315,7 +307,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const usingTemplateCommand = !args._exec?.length;
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const contextMode = hasOwn(args, "contextMode") ? normalizeSessionContextMode(args.contextMode) : "direct";
+  const contextMode = normalizeSessionContextMode(hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT);
   const subcommand = args._?.[1] || "run";
   const resumeMode = subcommand === "resume" || args.resume === true;
   const sessionInstruction = task
@@ -479,6 +471,20 @@ export async function runCli(argv, runtime = {}) {
     return;
   }
 
+  if (command === "completion") {
+    const root = path.resolve(String(args.root || process.cwd()));
+    if (subcommand === "values") {
+      const kind = args._[2];
+      if (!kind) {
+        throw new Error("completion values requires a kind: providers, skills, or sessions");
+      }
+      await printCompletionValues(kind, { root });
+      return;
+    }
+    process.stdout.write(generateCompletionScript(subcommand));
+    return;
+  }
+
   const root = path.resolve(String(args.root || process.cwd()));
   const config = await loadConfig(root, args);
 
@@ -538,13 +544,13 @@ export async function runCli(argv, runtime = {}) {
 
       case "plan": {
         const task = buildRunPrompt(getPromptFromArgs(args, 1));
-        const contextMode = normalizeRunContextMode(args.contextMode, { fallback: "compact" });
+        const contextMode = normalizeContextMode(args.contextMode, { fallback: CONTEXT_MODE_DEFAULT });
         const includeSource = contextMode !== "routed" || args.withContext === true;
         let plan;
         try {
           plan = await buildExecutionPlan(root, config, task, {
             explain: args.explain === true,
-            contextMode: contextMode === "routed" ? "routed" : "selected",
+            contextMode: toPlannerContextMode(contextMode),
             includeSource,
           });
         } catch (error) {
@@ -588,7 +594,7 @@ export async function runCli(argv, runtime = {}) {
             : { markdown: "" };
           plan = usesManagedContext && task
             ? await buildExecutionPlan(root, config, task, {
-              contextMode: contextMode === "routed" ? "routed" : "selected",
+              contextMode: toPlannerContextMode(contextMode),
               includeSource,
             })
             : null;

@@ -6,6 +6,7 @@ const args = process.argv.slice(2);
 const isJson = args.includes("--json");
 const isHelp = isHelpRequest(args);
 const isVersion = isVersionRequest(args);
+const isCompletion = args.includes("completion");
 
 async function main() {
   if (await handleFastPath(args)) {
@@ -14,7 +15,7 @@ async function main() {
 
   const { banner, error, dim } = await import("./core/ui.js");
 
-  if (!isJson && !isHelp && !isVersion) {
+  if (!isJson && !isHelp && !isVersion && !isCompletion) {
     banner();
   }
 
