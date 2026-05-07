@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { runScan, runDoc } from "./commands.js";
+import { buildProviderEnv } from "./provider-env.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
@@ -273,7 +274,7 @@ function runWrappedCommand(argv, options) {
     const child = spawn(command.cmd, command.args, {
       cwd: options.cwd,
       stdio,
-      env: process.env,
+      env: buildProviderEnv(options.providerEnv),
     });
 
     if (captureMode === "pipe") {
@@ -350,6 +351,7 @@ export async function runExec(root, config, agentCommand, flags) {
       captureOutputMode,
       captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
       capturePath: preparedSessionMemory?.paths.rawInteractiveLogPath || null,
+      providerEnv: config.providerEnv,
     });
   } catch (error) {
     if (captureOutputMode === "pty" && error?.code === "ENOENT") {
@@ -361,6 +363,7 @@ export async function runExec(root, config, agentCommand, flags) {
         timeout: flags.timeout ? flags.timeout * 1000 : undefined,
         captureOutputMode: "inherit",
         captureBufferMaxBytes: getCaptureBufferMaxBytes(config),
+        providerEnv: config.providerEnv,
       });
     } else {
       if (preparedSessionMemory) {

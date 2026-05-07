@@ -31,6 +31,21 @@ fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(process.argv.sli
   return codexPath;
 }
 
+async function installFakeCodexEnvCapture(binDir, capturePath) {
+  const codexPath = path.join(binDir, "codex");
+  await fs.writeFile(codexPath, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  argv: process.argv.slice(2),
+  secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,
+  allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,
+  extra: process.env.AGENTIFY_PROVIDER_EXTRA || null
+}));
+`, "utf8");
+  await fs.chmod(codexPath, 0o755);
+  return codexPath;
+}
+
 async function captureHelpText() {
   const chunks = [];
   const originalWrite = process.stderr.write;
@@ -484,6 +499,59 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   assert.doesNotMatch(prompt, /Planner summary/);
   assert.doesNotMatch(prompt, /Selected file slices/);
   assert.doesNotMatch(prompt, /Automatic Session Memory/);
+});
+
+test("runCli launches provider run with sanitized provider env config", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-provider-env-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
+  const capturePath = path.join(root, "codex-env.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), [
+    "providerEnv:",
+    "  passthrough:",
+    "    - AGENTIFY_PROVIDER_ALLOWED",
+    "  extra:",
+    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(root);
+  await installFakeCodexEnvCapture(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  const previousSecret = process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+      "Inspect env",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousSecret === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET;
+    } else {
+      process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = previousSecret;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+
+  const captured = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  assert.deepEqual(captured.argv.slice(0, 2), ["--cd", root]);
+  assert.equal(captured.secret, null);
+  assert.equal(captured.allowed, "allowed-value");
+  assert.equal(captured.extra, "extra-value");
 });
 
 test("runCli launches interactive provider context without prompting when run has no task", async () => {

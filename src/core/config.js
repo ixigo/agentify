@@ -6,6 +6,11 @@ import { CONTEXT_MODE_DEFAULT } from "./context-mode.js";
 
 const DEFAULT_CONFIG = {
   provider: "local",
+  providerEnv: {
+    inherit: false,
+    passthrough: [],
+    extra: {},
+  },
   strict: true,
   languages: "auto",
   moduleStrategy: "auto",
@@ -205,6 +210,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
 
   const output = {
     provider: config.provider,
+    providerEnv: config.providerEnv,
     strict: config.strict,
     languages: config.languages,
     moduleStrategy: config.moduleStrategy,
