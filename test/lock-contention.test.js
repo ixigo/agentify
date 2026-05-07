@@ -9,9 +9,9 @@ import { runCli } from "../src/main.js";
 async function setupBlockedRepo(prefix) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
-  await fs.mkdir(path.join(root, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
   await fs.writeFile(
-    path.join(root, ".agents", ".lock"),
+    path.join(root, ".agentify", ".lock"),
     JSON.stringify({
       pid: process.pid,
       operation: "scan",
@@ -48,7 +48,7 @@ test("runCli scan exits non-zero and emits a blocked JSON payload when the lock 
 
   assert.equal(process.exitCode, 1, "scan should exit non-zero on lock contention");
 
-  const dbExists = await fs.access(path.join(root, ".agents", "index.db")).then(() => true).catch(() => false);
+  const dbExists = await fs.access(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false);
   assert.equal(dbExists, false, "scan must not write the index when blocked");
 
   const payloads = captured

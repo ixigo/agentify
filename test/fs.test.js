@@ -29,14 +29,14 @@ test("walkFiles respects hard excludes and does not leak ignore cache across roo
   const rootA = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-a-"));
   await fs.writeFile(path.join(rootA, ".agentignore"), "ignored.js\n", "utf8");
   await fs.mkdir(path.join(rootA, "docs"), { recursive: true });
-  await fs.mkdir(path.join(rootA, ".agents"), { recursive: true });
+  await fs.mkdir(path.join(rootA, ".agentify"), { recursive: true });
   await fs.mkdir(path.join(rootA, ".codex", "skills"), { recursive: true });
   await fs.mkdir(path.join(rootA, ".claude", "skills"), { recursive: true });
   await fs.mkdir(path.join(rootA, "src"), { recursive: true });
   await fs.mkdir(path.join(rootA, "packages", "app"), { recursive: true });
   await fs.writeFile(path.join(rootA, "ignored.js"), "export const ignored = true;\n", "utf8");
   await fs.writeFile(path.join(rootA, "docs", "manual.md"), "# generated\n", "utf8");
-  await fs.writeFile(path.join(rootA, ".agents", "index.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(rootA, ".agentify", "index.json"), "{}\n", "utf8");
   await fs.writeFile(path.join(rootA, ".codex", "skills", "helper.md"), "# hidden\n", "utf8");
   await fs.writeFile(path.join(rootA, ".claude", "skills", "helper.md"), "# hidden\n", "utf8");
   await fs.writeFile(path.join(rootA, "src", "index.ts"), "export const ok = true;\n", "utf8");
@@ -138,11 +138,11 @@ test("walkFiles excludes Agentify runtime artifacts even when ignore rules are a
   resetIgnoreCache();
 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-artifacts-"));
-  await fs.mkdir(path.join(root, ".agents", "session", "sess_test"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "session", "sess_test"), { recursive: true });
   await fs.mkdir(path.join(root, ".current_session", "session"), { recursive: true });
   await fs.mkdir(path.join(root, "docs", "modules"), { recursive: true });
   await fs.mkdir(path.join(root, "src"), { recursive: true });
-  await fs.writeFile(path.join(root, ".agents", "session", "sess_test", "context.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "session", "sess_test", "context.json"), "{}\n", "utf8");
   await fs.writeFile(path.join(root, ".current_session", "session", "transcript.md"), "secret\n", "utf8");
   await fs.writeFile(path.join(root, "docs", "repo-map.md"), "# generated\n", "utf8");
   await fs.writeFile(path.join(root, "AGENTIFY.md"), "# generated\n", "utf8");

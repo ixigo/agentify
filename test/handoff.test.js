@@ -28,7 +28,7 @@ async function setupHandoffRepo() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-handoff-"));
   await fs.mkdir(path.join(root, "src", "core"), { recursive: true });
   await fs.mkdir(path.join(root, "test"), { recursive: true });
-  await fs.writeFile(path.join(root, ".gitignore"), ".agents/\n", "utf8");
+  await fs.writeFile(path.join(root, ".gitignore"), ".agentify/\n", "utf8");
   await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
     type: "module",
     scripts: { test: "node --test" },
@@ -139,7 +139,7 @@ test("writeHandoffBundle creates deterministic JSON and markdown with conflict h
     "utf8",
   );
 
-  const previousDir = path.join(root, ".agents", "session", "sess_previous");
+  const previousDir = path.join(root, ".agentify", "session", "sess_previous");
   await fs.mkdir(previousDir, { recursive: true });
   await fs.writeFile(path.join(previousDir, "session-manifest.json"), JSON.stringify({
     schema_version: "1.0",
@@ -158,8 +158,8 @@ test("writeHandoffBundle creates deterministic JSON and markdown with conflict h
   const second = await writeHandoffBundle(root, config, session.sessionId, "continue buildSessionPrompt handoff");
 
   assert.deepEqual(second.bundle, first.bundle);
-  assert.equal(first.relativeJsonPath, `.agents/session/${session.sessionId}/handoff.json`);
-  assert.equal(first.relativeMarkdownPath, `.agents/session/${session.sessionId}/handoff.md`);
+  assert.equal(first.relativeJsonPath, `.agentify/session/${session.sessionId}/handoff.json`);
+  assert.equal(first.relativeMarkdownPath, `.agentify/session/${session.sessionId}/handoff.md`);
   assert.ok(first.bundle.top_ranked_context.files.some((item) => item.path === "src/core/session.js"));
   assert.ok(first.bundle.touched_files.some((item) => item.path === "src/core/session.js"));
   assert.ok(first.bundle.touched_symbol_neighborhood.some((item) =>
@@ -201,6 +201,6 @@ test("runCli handoff writes the latest session bundle as JSON", async () => {
   const payload = JSON.parse(output[0]);
   assert.equal(payload.command, "handoff");
   assert.equal(payload.session_id, session.sessionId);
-  assert.equal(payload.json_path, `.agents/session/${session.sessionId}/handoff.json`);
-  assert.equal(payload.markdown_path, `.agents/session/${session.sessionId}/handoff.md`);
+  assert.equal(payload.json_path, `.agentify/session/${session.sessionId}/handoff.json`);
+  assert.equal(payload.markdown_path, `.agentify/session/${session.sessionId}/handoff.md`);
 });

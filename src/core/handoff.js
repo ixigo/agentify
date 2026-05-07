@@ -123,7 +123,7 @@ function summarizeTests(plan) {
 }
 
 async function loadTouchedSymbolNeighborhood(root, touchedFiles) {
-  if (touchedFiles.length === 0 || !(await exists(path.join(root, ".agents", "index.db")))) {
+  if (touchedFiles.length === 0 || !(await exists(path.join(root, ".agentify", "index.db")))) {
     return [];
   }
 
@@ -232,7 +232,7 @@ async function collectConflictHints(root, sessionId, touchedFiles) {
       name: session.name || null,
       severity: overlap.length >= 3 ? "high" : "medium",
       overlap_files: overlap,
-      handoff_path: `.agents/session/${session.session_id}/handoff.json`,
+      handoff_path: `.agentify/session/${session.session_id}/handoff.json`,
     });
   }
 
@@ -350,12 +350,12 @@ export async function buildHandoffBundle(root, config, sessionId, task = "") {
     base_head: manifest.head_commit_at_creation || "unknown",
     current_head: currentHead,
     artifact_refs: {
-      markdown: `.agents/session/${sessionId}/handoff.md`,
-      json: `.agents/session/${sessionId}/handoff.json`,
-      manifest: `.agents/session/${sessionId}/session-manifest.json`,
-      context: `.agents/session/${sessionId}/context.json`,
-      checklist: `.agents/session/${sessionId}/checklist.json`,
-      transcript: `.agents/session/${sessionId}/transcript.md`,
+      markdown: `.agentify/session/${sessionId}/handoff.md`,
+      json: `.agentify/session/${sessionId}/handoff.json`,
+      manifest: `.agentify/session/${sessionId}/session-manifest.json`,
+      context: `.agentify/session/${sessionId}/context.json`,
+      checklist: `.agentify/session/${sessionId}/checklist.json`,
+      transcript: `.agentify/session/${sessionId}/transcript.md`,
     },
     top_ranked_context: summarizePlan(plan),
     touched_files: touchedFiles,
