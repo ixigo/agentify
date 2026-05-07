@@ -13,6 +13,7 @@
       <a class="brand" href="../index.html">Agentify</a>
       <div class="nav-links">
         <a href="../index.html">home</a>
+        <a href="run.html">run</a>
         <a href="setup.html">setup</a>
         <a href="session.html">session</a>
         <a href="planning.html">planning</a>
@@ -42,6 +43,15 @@
       <aside class="terminal" aria-label="Command route preview">
         <div class="terminal-top">
           <span>routes unlocked</span>
+          <span>run + sessions</span>
+        </div>
+<pre><span class="c"># provider launch loadout</span>
+<span class="a">agentify run "add checkout retry tests"</span>
+
+<span class="c"># durable campaign state</span>
+agentify sess run --name "checkout-retries"
+agentify sess resume --session &lt;id&gt;
+agentify sess fork --from &lt;id&gt;</pre>
           <span>02 / planning</span>
           <span>02 / context</span>
           <span>setup / sessions</span>
@@ -70,10 +80,15 @@ agentify context fetch src/app.ts --lines 20:80</pre>
     <section class="shell">
       <div class="container">
         <span class="section-label">available routes</span>
-        <h2>The first command page sets the <span class="accent">pattern.</span></h2>
-        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command and what state it creates.</p>
+        <h2>Each command page follows the <span class="accent">route.</span></h2>
+        <p class="section-lede">Each route keeps the technical surface visible while giving users a memorable mental model for when to run the command, what context it sends, and what state it creates.</p>
 
         <div class="command-grid">
+          <a class="command-card" href="run.html">
+            <span class="tag">provider launch</span>
+            <h3>Run command</h3>
+            <p>Use <code>agentify run</code> as a provider loadout selector: fresh task, interactive launch, provider resume, routed context, selected context, explain-plan, and caveman output.</p>
+            <span class="cmd">agentify run --with-context "write retry tests"</span>
           <a class="command-card" href="setup.html">
             <span class="tag">onboarding</span>
             <h3>Setup checkpoints</h3>

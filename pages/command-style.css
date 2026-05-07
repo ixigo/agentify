@@ -904,6 +904,13 @@ footer a:hover { color: var(--accent); }
     flex-wrap: wrap;
   }
 
+  pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .cmd {
+    white-space: normal;
   pre,
   .cmd {
   .meter-track {
