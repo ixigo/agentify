@@ -340,7 +340,7 @@ function getRepoWing(root) {
 }
 
 async function listSessionTranscripts(root) {
-  const sessionsDir = path.join(root, ".agents", "session");
+  const sessionsDir = path.join(root, ".agentify", "session");
   if (!(await exists(sessionsDir))) {
     return [];
   }
@@ -370,7 +370,7 @@ async function listSessionTranscripts(root) {
 }
 
 async function listStructuredSessionTurns(root) {
-  const sessionsDir = path.join(root, ".agents", "session");
+  const sessionsDir = path.join(root, ".agentify", "session");
   if (!(await exists(sessionsDir))) {
     return [];
   }
@@ -400,7 +400,7 @@ async function listStructuredSessionTurns(root) {
 }
 
 function getMemPalacePaths(root) {
-  const baseDir = path.join(root, ".agents", "mempalace");
+  const baseDir = path.join(root, ".agentify", "mempalace");
   return {
     baseDir,
     palacePath: path.join(baseDir, "palace"),
@@ -627,7 +627,7 @@ async function createTranscriptSearchBackend(root, query, config, sharedInventor
 
       return buildMemoryResult("local-session-search", hits, [
         `- Query: ${query}`,
-        `- Search scope: \`${relative(root, path.join(root, ".agents", "session"))}/\``,
+        `- Search scope: \`${relative(root, path.join(root, ".agentify", "session"))}/\``,
       ], maxBytes);
     },
   };
@@ -763,7 +763,7 @@ async function createMemoryBackends(root, options, config) {
 }
 
 export function getSessionArtifactPaths(root, sessionId) {
-  const sessionDir = path.join(root, ".agents", "session", sessionId);
+  const sessionDir = path.join(root, ".agentify", "session", sessionId);
   return {
     sessionDir,
     transcriptPath: path.join(sessionDir, "transcript.md"),
@@ -1082,11 +1082,11 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
       `Started: ${startedAt}`,
       `Capture mode: ${sessionRecord.captureMode}`,
       `Command: ${normalizeCommand(sessionRecord.command) || "n/a"}`,
-      `Bootstrap: .agents/session/${sessionRecord.sessionId}/bootstrap.md`,
+      `Bootstrap: .agentify/session/${sessionRecord.sessionId}/bootstrap.md`,
       `Memory context: ${relative(root, paths.memoryContextPath)}`,
       "",
       "> Session bootstrap reference",
-      `Bootstrap context is persisted in \`.agents/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
+      `Bootstrap context is persisted in \`.agentify/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
       "",
       "> Automatic session memory",
       redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
