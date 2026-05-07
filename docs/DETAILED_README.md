@@ -121,6 +121,7 @@ It is written so the model treats the current working directory as the target re
 - `sync` upgrades repo-owned Agentify files when the CLI adds new baseline features.
 - `plan` and `query` help you inspect the indexed repo before you hand work to an agent.
 - `run`, `exec`, and `sess` launch provider workflows and keep the repo refreshed afterward.
+- `afk` separates interactive planning from fresh-session autonomous execution.
 
 ## Command Guide
 
@@ -232,6 +233,8 @@ For wrapper scripts or private provider gateways that need extra variables, pref
 | `agentify context search` | Searches indexed routed context for files, symbols, summaries, and semantic surfaces. | Use when selected context is too narrow and you need a bounded host-side lookup before fetching exact code. | `agentify context search analytics` |
 | `agentify context fetch` | Reads an exact bounded slice from a repo file by indexed symbol or 1-based line range. | Use after `plan` or `context search` identifies the path you need and summaries are not enough. | `agentify context fetch src/analytics/report.ts --symbol buildReport` |
 | `agentify run` | Uses the selected provider template command, executes the task, then refreshes the repo afterward. Without a task, launches interactive provider context and asks the provider to collect one. | Use for normal day-to-day agent work when you want Agentify to own context selection and post-run maintenance. | `agentify run --provider codex` |
+| `agentify afk create` | Launches the provider interactively with planning-only instructions, captures the final strict AFK markdown plan, and writes it under `.agentify/planned/`. | Use when you want to answer planning questions once and hand a validated local plan to a later fresh execution session. | `agentify afk create --provider codex "add retry logic to checkout"` |
+| `agentify afk run` | Validates an AFK plan, creates an isolated worktree and branch by default, runs the provider in a fresh non-interactive session, runs detected tests, and commits successful verified changes unless `--no-commit` is set. | Use when the plan is ready and execution should avoid carrying the create-phase provider context forward. | `agentify afk run .agentify/planned/checkout-retries.md` |
 | `agentify context` | Searches indexed refs, fetches bounded source slices, compacts session facts, and reports routed context status. | Use with `--context-mode routed` prompts when agents should retrieve context through bounded Agentify commands instead of receiving full file bodies. | `agentify context fetch src/auth.ts --lines 20:80` |
 | `agentify exec` | Runs a custom command after `--`, then performs the same refresh lifecycle as `run`. | Use when you want full control over the provider command line but still want Agentify wrapping, timeout handling, and refresh behavior. | `agentify exec -- codex exec "fix auth bug"` |
 | `agentify this` | Bootstraps the current macOS repo for provider-backed Agentify use. | Use on macOS when you want the shortest path to a working repo and are okay with Agentify verifying/installing local dependencies. | `agentify this --provider codex` |

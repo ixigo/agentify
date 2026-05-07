@@ -236,6 +236,8 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Open provider with context | `agentify run` |
 | Resume last provider session | `agentify run --resume` |
 | Run a bounded task | `agentify run "your task"` |
+| Create an AFK implementation plan | `agentify afk create "your task"` |
+| Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
 | Routed retrieval mode | `agentify run --context-mode routed "your task"` |
 | Inject selected context | `agentify run --with-context "your task"` |
 | Start a durable session | `agentify sess run --name "<stream>"` |
@@ -300,6 +302,8 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Open provider with context | `agentify run` |
 | Continue previous provider conversation | `agentify run --resume` |
 | Run a bounded task | `agentify run "your task"` |
+| Create an AFK implementation plan | `agentify afk create "your task"` |
+| Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
 | Run with routed retrieval | `agentify run --context-mode routed "your task"` |
 | Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>"` |
@@ -344,6 +348,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `plan` | Preview planner-selected context for a task |
 | `context` | Search, fetch, compact, and inspect routed context |
 | `run` | Run provider with auto-refresh |
+| `afk` | Create and run fresh-session autonomous plans |
 | `exec` | Advanced wrapper for custom agent commands |
 | `handoff` | Write cross-agent handoff bundle for a session |
 | `this` | Bootstrap macOS repo for provider-backed workflow |
@@ -385,6 +390,13 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--bypass-permissions` | Explicitly bypass provider permission prompts for `issue-killer` panes |
 | `--explain-plan` | Print planner output before executing `run` |
+| `--current-worktree` | Run AFK execution in the current checkout instead of an isolated worktree |
+| `--allow-dirty` | Allow AFK current-worktree execution with local changes |
+| `--no-commit` | Do not auto-commit successful AFK worktree changes |
+| `--cleanup <keep\|delete\|ask>` | Choose AFK plan cleanup after `afk run` |
+| `--planned` | Prune AFK planned artifacts with `clean` |
+| `--sessions` | Prune AFK session artifacts with `clean` |
+| `--all` | Include optional cleanup groups |
 | `--caveman[=level]` | Terse output (`lite`, `full`, `ultra`, `wenyan*`) |
 | `--root <path>` | Target repo root (default: cwd) |
 | `--scope <project\|user>` | Skill install scope |

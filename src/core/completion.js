@@ -111,6 +111,30 @@ const COMMANDS = [
       flag("--bypass-permissions", { description: "Bypass provider permission prompts" }),
     ],
   }),
+  command("afk", "Create and run fresh-session autonomous plans", {
+    subcommands: [
+      subcommand("create", "Create an implementation-ready AFK plan", {
+        flags: [
+          flag("--provider", { valueKind: "providers", description: "Planning provider" }),
+          flag("--slug", { valueKind: "text", description: "Plan slug" }),
+        ],
+      }),
+      subcommand("run", "Run an AFK plan in a fresh provider session", {
+        positionals: [positional("plan", "path")],
+        flags: [
+          flag("--provider", { valueKind: "providers", description: "Execution provider" }),
+          flag("--interactive", { description: "Run provider interactively" }),
+          flag("--current-worktree", { description: "Use the current checkout" }),
+          flag("--allow-dirty", { description: "Allow current checkout changes" }),
+          flag("--no-commit", { description: "Do not auto-commit successful worktree changes" }),
+          flag("--cleanup", { values: ["keep", "delete", "ask"], description: "Plan cleanup mode after run" }),
+        ],
+      }),
+      subcommand("clean", "Prune AFK plans and session artifacts", {
+        flags: [flag("--dry-run", { description: "Report planned removals only" })],
+      }),
+    ],
+  }),
   command("exec", "Advanced wrapper for custom agent commands", {
     flags: [
       flag("--timeout", { valueKind: "number", description: "Wrapped command timeout in seconds" }),
@@ -187,7 +211,12 @@ const COMMANDS = [
     subcommands: [subcommand("refresh", "Refresh semantic facts")],
   }),
   command("clean", "Prune stale generated artifacts", {
-    flags: [flag("--dry-run", { description: "Report planned removals only" })],
+    flags: [
+      flag("--dry-run", { description: "Report planned removals only" }),
+      flag("--planned", { description: "Prune AFK planned artifacts" }),
+      flag("--sessions", { description: "Prune AFK session artifacts" }),
+      flag("--all", { description: "Include optional cleanup groups" }),
+    ],
   }),
   command("cache", "Manage the content cache", {
     subcommands: [
