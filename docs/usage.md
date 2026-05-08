@@ -60,6 +60,7 @@ Install these native tools with your OS package manager when `doctor` reports th
 Optional:
 
 - `mempalace` for stronger session-memory recall
+- `rtk` for command-output compression; verify the correct binary with `rtk gain`
 
 `doctor` also reports whether `pnpm` is available and whether external provider binaries (`codex`, `claude`, `gemini`, `opencode`) are installed. Provider binary presence is reported separately from provider auth readiness.
 
@@ -81,9 +82,12 @@ Run a small task:
 agentify run
 agentify run "fix the checkout retry bug"
 agentify run --with-context "fix the checkout retry bug"
+agentify run --rtk "fix the checkout retry bug with noisy test output"
 ```
 
 The default interactive `run` starts a fresh provider task with a small prompt. Run `agentify run` without a task to open the provider with Agentify context and let the provider ask what to do next, or pass the task directly as `agentify run "task"`. Add `--resume` or `--continue` only when you want to resume the provider's most recent session, and use `--with-context` when you want Agentify to inject selected files, related tests, prior memory, and execution rules into the first provider prompt.
+
+Add `--rtk` when RTK is installed and command output is likely to be large. Agentify verifies RTK with `rtk gain`, adds compact provider guidance for `run`/`sess run`, and wraps Agentify-owned project tests for `up --rtk`; it does not change global Codex or RTK config.
 
 Use a session for work that will continue later:
 

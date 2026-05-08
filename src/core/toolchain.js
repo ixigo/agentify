@@ -12,6 +12,7 @@ import {
   discoverSemanticProjectParseFailures,
   discoverSemanticProjects,
 } from "./semantic.js";
+import { detectRtk, resolveRtkConfig } from "./rtk.js";
 import * as ui from "./ui.js";
 
 const execFileAsync = promisify(execFile);
@@ -28,6 +29,12 @@ const TOOLS = {
     purpose: "session memory recall",
     detectMode: "command-exists",
     commandEnv: "AGENTIFY_MEMPALACE_CMD",
+  },
+  rtk: {
+    minVersion: null,
+    tier: "optional",
+    purpose: "command-output compression for AI agent workflows",
+    detectMode: "rtk",
   },
   zoekt: { minVersion: null, tier: "optional", purpose: "indexed code search at scale" },
 };
@@ -201,9 +208,14 @@ async function detectProviderReadiness(provider, root) {
 
 export async function detectCapabilities(config = {}) {
   const results = {};
+  const rtkConfig = resolveRtkConfig(config);
   for (const [name, spec] of Object.entries(TOOLS)) {
     if (name === "zoekt" && !config.toolchain?.zoekt) {
       results[name] = { ...spec, available: false, version: null, reason: "opt-in disabled" };
+      continue;
+    }
+    if (name === "rtk") {
+      results[name] = { ...spec, ...(await detectRtk(rtkConfig.command, { cwd: config.root })) };
       continue;
     }
     const detection = await detectTool(name, spec);
@@ -242,6 +254,7 @@ function getInstallHint(name) {
     "ast-grep": "cargo install ast-grep / npm i -g @ast-grep/cli",
     "tree-sitter": "cargo install tree-sitter-cli / npm i -g tree-sitter-cli",
     mempalace: "install MemPalace and keep `mempalace` on PATH, or set AGENTIFY_MEMPALACE_CMD",
+    rtk: "brew install rtk / cargo install --git https://github.com/rtk-ai/rtk",
     zoekt: "go install github.com/sourcegraph/zoekt/cmd/zoekt-index@latest",
   };
   return hints[name] || `install ${name}`;
@@ -495,11 +508,15 @@ export async function runDoctor(root, config, options = {}) {
 
   const rows = [];
   for (const [name, info] of Object.entries(caps.tools)) {
-    const status = info.available
+    const status = name === "rtk" && info.available && !info.verified
+      ? ui.yellow("CHECK")
+      : info.available
       ? ui.green("OK")
       : ui.red("MISSING");
     const version = info.available
-      ? info.version
+      ? name === "rtk" && !info.verified
+        ? info.reason || info.version
+        : info.version
       : ui.dim(getInstallHint(name));
     rows.push([name, String(info.tier), status, version]);
   }

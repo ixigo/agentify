@@ -430,6 +430,7 @@ In the second command, Agentify reuses `codex` for the same repo.
 | `--interactive`, `-i` | Force interactive provider mode. Template providers already default to interactive mode for `run` and `sess`, but this is useful when you want to be explicit. |
 | `--continue` | Resume the provider's most recent session for `run`. Omit it when you want the default fresh provider task. |
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context. |
+| `--rtk` | Opt into RTK command-output compression guidance for provider prompts and test wrapping for `up`. |
 | `--with-context` | Inject planner-selected files, related tests, prior memory, and execution rules into `run`. Use this when you want the older rich first prompt instead of the default clean interactive prompt. |
 | `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `compact` is the default; `direct` is accepted as a backward-compatible alias for `compact`. |
 | `--explain-plan` | Print the planner result before `run` executes. Use this when you want to inspect Agentify's chosen context first. |
@@ -515,6 +516,53 @@ Important behavior:
 - Agentify tries MemPalace-backed recall first, then local transcript search, then direct lineage replay.
 - `run` can benefit from existing session history, but `run` itself does not create durable session artifacts.
 - Use `sess *` whenever you want future recall, auditability, or multi-launch continuity.
+
+## RTK Command-Output Compression
+
+RTK is an optional external CLI for reducing noisy command output before it enters an agent context. Agentify treats it as a toolchain capability, not a provider: it never vendors RTK, never wraps provider CLIs such as `codex` or `claude`, and never edits global `~/.codex`, `~/.claude`, `$CODEX_HOME`, or RTK config.
+
+Install and verify the upstream RTK binary first:
+
+```bash
+brew install rtk
+# or
+cargo install --git https://github.com/rtk-ai/rtk
+
+rtk --version
+rtk gain
+```
+
+`rtk gain` is the important verification command because an unrelated package can also install a binary named `rtk`.
+
+Use RTK per invocation:
+
+```bash
+agentify doctor
+agentify run --provider codex --rtk "fix noisy test output"
+agentify sess run --provider codex --rtk --name checkout-tests "continue the fix"
+agentify up --rtk
+```
+
+Or configure it explicitly:
+
+```yaml
+toolchain:
+  rtk:
+    enabled: true
+    command: rtk
+    providerInstruction: true
+    wrapProjectTests: true
+```
+
+Set `AGENTIFY_RTK_CMD=/absolute/path/to/rtk` when RTK is installed outside `PATH`.
+
+Behavior:
+
+- `agentify doctor --json` reports `tools.rtk.available`, `tools.rtk.verified`, version, path, and install or wrong-package guidance.
+- `agentify run --rtk` and `agentify sess run --rtk` add one compact provider instruction: prefer `rtk <command>` for large shell output and `rtk proxy <command>` when raw output is required.
+- `agentify up --rtk` wraps Agentify-owned project tests as `rtk test <detected test command>` while preserving exit codes, timeout handling, sanitized env, and output capture limits.
+- Codex integration is prompt guidance only unless upstream adds a real Codex hook in the future.
+- RTK stays off unless `--rtk` or `toolchain.rtk.*` enables it.
 
 ## Recommended Workflows
 

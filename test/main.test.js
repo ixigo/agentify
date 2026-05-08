@@ -1434,6 +1434,8 @@ test("runCli doctor --json emits a single machine-readable payload", async () =>
   assert.ok(typeof payload.tier === "number");
   assert.ok(payload.tools && typeof payload.tools === "object");
   assert.ok(payload.tools.mempalace && typeof payload.tools.mempalace.available === "boolean");
+  assert.ok(payload.tools.rtk && typeof payload.tools.rtk.available === "boolean");
+  assert.ok(typeof payload.tools.rtk.verified === "boolean");
   assert.equal(payload.package_manager.name, "pnpm");
   assert.ok(typeof payload.package_manager.available === "boolean");
   assert.deepEqual(Object.keys(payload.providers).sort(), ["claude", "codex", "gemini", "opencode"]);
@@ -1526,6 +1528,148 @@ echo "claude 2.3.4"
   assert.equal(payload.providers.opencode.available, false);
   assert.equal(payload.providers.opencode.auth.state, "skipped");
   assert.equal(payload.providers.local, undefined);
+});
+
+test("runCli run --rtk adds compact RTK guidance without wrapping the provider command", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-rtk-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-rtk-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  await installFakeExecutable(binDir, "rtk", `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "rtk 0.39.0"
+  exit 0
+fi
+if [ "$1" = "gain" ]; then
+  echo "token gain ok"
+  exit 0
+fi
+exit 0
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--rtk",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  const prompt = argv.at(-1);
+  assert.equal(argv[0], "--cd");
+  assert.match(prompt, /RTK is available\. Prefer `rtk <command>`/);
+  assert.doesNotMatch(prompt, /Planner summary/);
+});
+
+test("runCli run omits RTK guidance by default", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-no-rtk-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-no-rtk-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--skip-refresh",
+      "Implement login retries",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  assert.doesNotMatch(argv.at(-1), /RTK is available/);
+});
+
+test("runCli sess run --rtk adds compact RTK guidance", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-rtk-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-sess-rtk-bin-"));
+  const capturePath = path.join(root, "codex-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, capturePath);
+  await installFakeExecutable(binDir, "rtk", `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "rtk 0.39.0"
+  exit 0
+fi
+if [ "$1" = "gain" ]; then
+  echo "token gain ok"
+  exit 0
+fi
+exit 0
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    await runCli([
+      "sess",
+      "run",
+      "--root",
+      root,
+      "--provider",
+      "codex",
+      "--rtk",
+      "--skip-refresh",
+      "--name",
+      "rtk-session",
+      "Use RTK guidance",
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  const argv = JSON.parse(await fs.readFile(capturePath, "utf8"));
+  assert.match(argv.at(-1), /RTK is available\. Prefer `rtk <command>`/);
+});
+
+test("runCli run --rtk fails fast when RTK cannot be verified", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-rtk-missing-"));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-rtk-missing-bin-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await installFakeCodex(binDir, path.join(root, "codex-argv.json"));
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = binDir;
+  try {
+    await assert.rejects(
+      () => runCli([
+        "run",
+        "--root",
+        root,
+        "--provider",
+        "codex",
+        "--rtk",
+        "--skip-refresh",
+        "Implement login retries",
+      ]),
+      /RTK was requested/,
+    );
+  } finally {
+    process.env.PATH = previousPath;
+  }
 });
 
 test("runCli doctor --json marks missing pnpm and provider binaries", async () => {

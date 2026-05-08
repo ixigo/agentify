@@ -31,6 +31,7 @@ import { runSemanticRefresh } from "./core/semantic.js";
 import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { runRepoSync } from "./core/repo-sync.js";
+import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, resolveRtkConfig } from "./core/rtk.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
@@ -73,6 +74,7 @@ const BOOLEAN_FLAGS = new Set([
   "withContext",
   "continue",
   "resume",
+  "rtk",
   "currentWorktree",
   "allowDirty",
   "noCommit",
@@ -250,12 +252,12 @@ export function resolveRunContextMode(args = {}, config = {}) {
 }
 
 function buildRoutedExecutionPrompt(task, memoryMarkdown = "", options = {}) {
-  return applyCavemanPreamble(buildRoutedPrompt(task, memoryMarkdown), options.caveman, { promptKind: options.promptKind });
+  return applyCavemanPreamble([buildRoutedPrompt(task, memoryMarkdown), options.rtkInstruction].filter(Boolean).join("\n\n"), options.caveman, { promptKind: options.promptKind });
 }
 
 export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = {}) {
   const prompt = String(basePrompt || "").trim();
-  const promptWithMemory = [memoryMarkdown.trim(), prompt].filter(Boolean).join("\n\n");
+  const promptWithMemory = [memoryMarkdown.trim(), prompt, options.rtkInstruction].filter(Boolean).join("\n\n");
   return applyCavemanPreamble(promptWithMemory, options.caveman, { promptKind: options.promptKind });
 }
 
@@ -269,8 +271,12 @@ export function buildMinimalRunPrompt(userPrompt, options = {}) {
     "Follow the user's task. Load repo docs or installed skills only when they are needed or explicitly invoked.",
     "",
     `Task: ${task}`,
-  ].join("\n");
-  return applyCavemanPreamble(prompt, options.caveman, { promptKind: options.promptKind });
+  ];
+  if (options.rtkInstruction) {
+    prompt.push("", options.rtkInstruction);
+  }
+  const promptText = prompt.join("\n");
+  return applyCavemanPreamble(promptText, options.caveman, { promptKind: options.promptKind });
 }
 
 export function buildNoTaskRunPrompt(memoryMarkdown = "", options = {}) {
@@ -281,6 +287,9 @@ export function buildNoTaskRunPrompt(memoryMarkdown = "", options = {}) {
   ];
   if (memoryMarkdown.trim()) {
     sections.push("", memoryMarkdown.trim());
+  }
+  if (options.rtkInstruction) {
+    sections.push("", options.rtkInstruction);
   }
   sections.push("", instruction);
   return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
@@ -296,12 +305,30 @@ export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", o
   if (memoryMarkdown.trim()) {
     sections.push("", memoryMarkdown.trim());
   }
+  if (options.rtkInstruction) {
+    sections.push("", options.rtkInstruction);
+  }
   if (task) {
     sections.push("", `Current task: ${task}`);
   } else {
     sections.push("", options.resume ? RESUME_PROVIDER_INSTRUCTION : NO_TASK_PROVIDER_INSTRUCTION);
   }
   return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
+}
+
+async function resolveRtkPromptInstruction(root, config, args, provider) {
+  const rtkConfig = resolveRtkConfig(config, args);
+  if (!rtkConfig.providerInstruction) {
+    return "";
+  }
+  const detection = await detectRtk(rtkConfig.command, { cwd: root });
+  if (!detection.verified) {
+    if (rtkConfig.explicit) {
+      throw new Error(formatRtkUnavailableMessage(detection));
+    }
+    return "";
+  }
+  return buildRtkProviderInstruction(provider, detection);
 }
 
 export async function prepareSessionLaunch(root, config, args, sessionResult, task) {
@@ -317,11 +344,14 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const contextMode = normalizeSessionContextMode(hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT);
   const subcommand = args._?.[1] || "run";
   const resumeMode = subcommand === "resume" || args.resume === true;
+  const rtkInstruction = usingTemplateCommand
+    ? await resolveRtkPromptInstruction(root, config, args, provider)
+    : "";
   const sessionInstruction = task
     || (resumeMode ? DEFAULT_SESSION_TASK : NO_TASK_PROVIDER_INSTRUCTION);
   const prompt = contextMode === "routed"
-    ? buildRoutedExecutionPrompt(`${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman })
-    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman, resume: resumeMode });
+    ? buildRoutedExecutionPrompt(`${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman, rtkInstruction })
+    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman, resume: resumeMode, rtkInstruction });
   const agentCommand = args._exec?.length
     ? args._exec
     : buildProviderTemplateCommand(
@@ -611,11 +641,14 @@ export async function runCli(argv, runtime = {}) {
         if (args.explainPlan && plan) {
           console.log(JSON.stringify(plan, null, 2));
         }
+        const rtkInstruction = usingTemplateCommand
+          ? await resolveRtkPromptInstruction(root, config, args, config.provider)
+          : "";
         const prompt = noTaskInteractiveLaunch
-          ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession })
+          ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession, rtkInstruction })
           : usesManagedContext
-          ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman })
-          : buildMinimalRunPrompt(task, { caveman });
+          ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman, rtkInstruction })
+          : buildMinimalRunPrompt(task, { caveman, rtkInstruction });
         const agentCommand = args._exec?.length
           ? args._exec
           : buildProviderTemplateCommand(
