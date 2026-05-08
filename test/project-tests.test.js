@@ -28,6 +28,14 @@ function createReporter() {
   };
 }
 
+async function installFakeExecutable(binDir, name, script) {
+  const executablePath = path.join(binDir, name);
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(executablePath, script, "utf8");
+  await fs.chmod(executablePath, 0o755);
+  return executablePath;
+}
+
 test("detectTestCommand prefers the declared package manager", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-command-"));
   await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
@@ -335,6 +343,175 @@ test("runProjectTests redacts secrets from captured stdout and stderr before rep
   assert.match(result.stderr, /stderr context Authorization: Bearer \[REDACTED\]/);
   assert.match(sections, /\[REDACTED\]/);
   assert.deepEqual(reporter.tests, result);
+});
+
+test("runProjectTests leaves the command unchanged when RTK is disabled", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-disabled-"));
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-rtk-disabled",
+    scripts: { test: "node -e \"console.log('plain test')\"" },
+  }, null, 2));
+
+  const reporter = createReporter();
+  const result = await runProjectTests(root, reporter);
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.command, "npm test");
+  assert.equal(result.rtk, undefined);
+  assert.doesNotMatch(reporter.logs.join("\n"), /RTK wrapping enabled/);
+});
+
+test("runProjectTests wraps project tests with RTK when explicitly enabled", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-enabled-"));
+  const binDir = path.join(root, "bin");
+  const capturePath = path.join(root, "rtk-argv.json");
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-rtk-enabled",
+    scripts: { test: "node -e \"console.log('wrapped test')\"" },
+  }, null, 2));
+  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("rtk 0.39.0");
+  process.exit(0);
+}
+if (args[0] === "gain") {
+  console.log("token gain ok");
+  process.exit(0);
+}
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(args));
+console.log("compressed test output");
+process.exit(0);
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { rtk: true },
+    });
+
+    assert.equal(result.status, "passed");
+    assert.equal(result.command, "rtk test npm test");
+    assert.equal(result.rtk.verified, true);
+    assert.deepEqual(JSON.parse(await fs.readFile(capturePath, "utf8")), ["test", "npm", "test"]);
+    assert.match(reporter.logs.join("\n"), /RTK wrapping enabled/);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+});
+
+test("runProjectTests preserves non-zero RTK-wrapped test exits", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-fail-"));
+  const binDir = path.join(root, "bin");
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-rtk-fail",
+    scripts: { test: "node -e \"process.exit(7)\"" },
+  }, null, 2));
+  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("rtk 0.39.0");
+  process.exit(0);
+}
+if (args[0] === "gain") {
+  console.log("token gain ok");
+  process.exit(0);
+}
+process.exit(7);
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { rtk: true },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.passed, false);
+    assert.equal(result.exit_code, 7);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+});
+
+test("runProjectTests still enforces timeout with RTK wrapping", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-timeout-"));
+  const binDir = path.join(root, "bin");
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-rtk-timeout",
+    scripts: { test: "node -e \"setInterval(() => {}, 1000)\"" },
+  }, null, 2));
+  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("rtk 0.39.0");
+  process.exit(0);
+}
+if (args[0] === "gain") {
+  console.log("token gain ok");
+  process.exit(0);
+}
+setInterval(() => {}, 1000);
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { rtk: true, tests: { timeoutMs: 75 } },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.timed_out, true);
+    assert.equal(result.reason, "timeout");
+    assert.equal(result.timeout_ms, 75);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+});
+
+test("runProjectTests keeps output capture limits with RTK wrapping", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-output-bound-"));
+  const binDir = path.join(root, "bin");
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-rtk-output-bound",
+    scripts: { test: "node -e \"console.log('unused')\"" },
+  }, null, 2));
+  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("rtk 0.39.0");
+  process.exit(0);
+}
+if (args[0] === "gain") {
+  console.log("token gain ok");
+  process.exit(0);
+}
+process.stdout.write("x".repeat(1536));
+process.stderr.write("y".repeat(1536));
+`);
+
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
+  try {
+    const reporter = createReporter();
+    const result = await runProjectTests(root, reporter, {
+      config: { rtk: true, tests: { outputMaxKb: 1 } },
+    });
+
+    assert.equal(result.status, "passed");
+    assert.equal(result.stdout_truncated, true);
+    assert.equal(result.stderr_truncated, true);
+    assert.equal(result.output_max_bytes, 1024);
+  } finally {
+    process.env.PATH = previousPath;
+  }
 });
 
 test("runProjectTests times out a hanging test command", async () => {

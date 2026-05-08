@@ -34,6 +34,12 @@ const DEFAULT_CONFIG = {
   toolchain: {
     zoekt: false,
     preferNative: false,
+    rtk: {
+      enabled: false,
+      command: "rtk",
+      providerInstruction: false,
+      wrapProjectTests: false,
+    },
   },
   hooks: {
     preCommit: true,

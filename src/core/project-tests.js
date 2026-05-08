@@ -4,6 +4,7 @@ import path from "node:path";
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import { detectStacks } from "./detect.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
+import { buildRtkWrappedCommand, detectRtk, formatRtkUnavailableMessage, resolveRtkConfig } from "./rtk.js";
 import { redactSensitiveText } from "./session-memory.js";
 
 const DEFAULT_TEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -412,12 +413,30 @@ export async function runProjectTests(root, reporter, options = {}) {
   }
 
   const env = buildTestEnv(testsConfig);
+  const rtkConfig = resolveRtkConfig(options.config || {});
+  let command = testCommand.command;
+  let args = testCommand.args;
+  let rtkDetection = null;
 
-  reporter.log(`tests: running ${testCommand.command} ${testCommand.args.join(" ")}`);
+  if (rtkConfig.wrapProjectTests) {
+    rtkDetection = options.rtkDetection || await detectRtk(rtkConfig.command, { cwd: root, env });
+    if (!rtkDetection.verified) {
+      throw new Error(formatRtkUnavailableMessage(rtkDetection));
+    }
+    [command, ...args] = buildRtkWrappedCommand([testCommand.command, ...testCommand.args], {
+      kind: "test",
+      command: rtkConfig.command,
+    });
+  }
+
+  reporter.log(`tests: running ${command} ${args.join(" ")}`);
+  if (rtkDetection?.verified) {
+    reporter.log("tests: RTK wrapping enabled for test output compression");
+  }
   if (testsConfig.env?.inherit !== true) {
     reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
   }
-  const outcome = await runChildCommand(testCommand.command, testCommand.args, { cwd: root, env, outputMaxBytes, timeoutMs });
+  const outcome = await runChildCommand(command, args, { cwd: root, env, outputMaxBytes, timeoutMs });
   if (outcome.stdoutTruncated) {
     reporter.log(`tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`);
   }
@@ -439,7 +458,7 @@ export async function runProjectTests(root, reporter, options = {}) {
   const result = {
     status: outcome.code === 0 && !outcome.timedOut ? "passed" : "failed",
     passed: outcome.code === 0 && !outcome.timedOut,
-    command: `${testCommand.command} ${testCommand.args.join(" ")}`,
+    command: `${command} ${args.join(" ")}`,
     stdout,
     stderr,
     stdout_truncated: outcome.stdoutTruncated,
@@ -454,6 +473,14 @@ export async function runProjectTests(root, reporter, options = {}) {
   };
   if (outcome.timedOut) {
     result.reason = "timeout";
+  }
+  if (rtkDetection) {
+    result.rtk = {
+      enabled: true,
+      command: rtkDetection.command,
+      verified: rtkDetection.verified,
+      version: rtkDetection.version,
+    };
   }
   reporter.log(`tests: ${result.status}`);
   reporter.setTests(result);

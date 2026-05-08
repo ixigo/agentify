@@ -236,6 +236,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Open provider with context | `agentify run` |
 | Resume last provider session | `agentify run --resume` |
 | Run a bounded task | `agentify run "your task"` |
+| Use RTK output compression guidance | `agentify run --rtk "your task"` |
 | Create an AFK implementation plan | `agentify afk create "your task"` |
 | Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
 | Routed retrieval mode | `agentify run --context-mode routed "your task"` |
@@ -386,6 +387,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
 | `--continue` | Resume the provider's most recent session for `run`; omitted means a fresh provider task |
 | `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
+| `--rtk` | Opt into RTK command-output compression guidance for provider prompts and test wrapping for `up` |
 | `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
 | `--bypass-permissions` | Control `issue-killer` YOLO mode. Permission bypass is on by default; use `--bypass-permissions=false` to disable. |
@@ -418,6 +420,32 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 ---
 
 ## 🧩 Optional Accelerators
+
+- **RTK** — optional command-output compression for long test, lint, git, gh, package-manager, container, cloud, and log commands during AI-assisted workflows. Agentify does not vendor RTK or modify global RTK/Codex config. Install RTK separately, verify the correct binary with `rtk gain`, then opt in per invocation with `--rtk` or via `.agentify.yaml`:
+
+```bash
+brew install rtk
+# or: cargo install --git https://github.com/rtk-ai/rtk
+
+rtk --version
+rtk gain
+
+agentify doctor
+agentify run --provider codex --rtk "fix noisy checkout tests"
+agentify sess run --provider codex --rtk --name checkout-tests "continue the test fix"
+agentify up --rtk
+```
+
+```yaml
+toolchain:
+  rtk:
+    enabled: true
+    command: rtk
+    providerInstruction: true
+    wrapProjectTests: true
+```
+
+Set `AGENTIFY_RTK_CMD=/absolute/path/to/rtk` for custom installs. Codex support is prompt guidance only; use `rtk <command>` for large shell output and `rtk proxy <command>` when raw output is required.
 
 - **MemPalace** — local AI memory backend that mines `agentify sess` transcripts and surfaces relevant prior context on recall. Install: `pipx install mempalace` (Python 3.9+). Keep `mempalace` on `PATH` or set `AGENTIFY_MEMPALACE_CMD`. Setup: [docs/usage.md § 6](./docs/usage.md).
 

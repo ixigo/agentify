@@ -179,6 +179,9 @@ function summarizeTestResult(testResult) {
   if (testResult.discovery_error) {
     summary.discovery_error = testResult.discovery_error;
   }
+  if (testResult.rtk) {
+    summary.rtk = testResult.rtk;
+  }
   return summary;
 }
 
