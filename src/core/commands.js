@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { ensureDir, exists, writeJson, writeText } from "./fs.js";
+import { getLocalAgentifyRoot, getSharedAgentifyRoot, resolveLocalAgentifyPath } from "./artifact-paths.js";
 import { getHeadCommit } from "./git.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
 import { ensureAgentifyGitignore } from "./gitignore.js";
@@ -155,7 +156,7 @@ ${index.modules.map(moduleLink).join("\n")}
 }
 
 async function writeRunReport(root, report) {
-  const runPath = path.join(root, ".agentify", "runs", `${report.run_id}.json`);
+  const runPath = resolveLocalAgentifyPath(root, "runs", `${report.run_id}.json`);
   await writeJson(runPath, report);
   return runPath;
 }
@@ -227,9 +228,10 @@ export async function ensureBaselineArtifacts(root, config) {
   if (config.dryRun) {
     return;
   }
-  await ensureDir(path.join(root, ".agentify"));
-  await ensureDir(path.join(root, ".agentify", "runs"));
-  await ensureDir(path.join(root, ".agentify", "work"));
+  await ensureDir(getLocalAgentifyRoot(root));
+  await ensureDir(getSharedAgentifyRoot(root));
+  await ensureDir(resolveLocalAgentifyPath(root, "runs"));
+  await ensureDir(resolveLocalAgentifyPath(root, "work"));
   await ensureDir(path.join(root, "docs", "modules"));
   await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
   await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());

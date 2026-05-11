@@ -340,6 +340,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
+| `link` | Link this git worktree to an existing Agentify project store |
 | `index` | Build the SQLite repository index |
 | `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |

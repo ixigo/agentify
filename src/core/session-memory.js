@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import { resolveLocalAgentifyPath } from "./artifact-paths.js";
 import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
 
 const execFileAsync = promisify(execFile);
@@ -373,7 +374,7 @@ function getRepoWing(root) {
 }
 
 async function listSessionTranscripts(root) {
-  const sessionsDir = path.join(root, ".agentify", "session");
+  const sessionsDir = resolveLocalAgentifyPath(root, "session");
   if (!(await exists(sessionsDir))) {
     return [];
   }
@@ -403,7 +404,7 @@ async function listSessionTranscripts(root) {
 }
 
 async function listStructuredSessionTurns(root) {
-  const sessionsDir = path.join(root, ".agentify", "session");
+  const sessionsDir = resolveLocalAgentifyPath(root, "session");
   if (!(await exists(sessionsDir))) {
     return [];
   }
@@ -433,7 +434,7 @@ async function listStructuredSessionTurns(root) {
 }
 
 function getMemPalacePaths(root) {
-  const baseDir = path.join(root, ".agentify", "mempalace");
+  const baseDir = resolveLocalAgentifyPath(root, "mempalace");
   return {
     baseDir,
     palacePath: path.join(baseDir, "palace"),
@@ -805,7 +806,7 @@ async function createTranscriptSearchBackend(root, query, config, sharedInventor
 
       return buildMemoryResult("local-session-search", hits, [
         `- Query: ${query}`,
-        `- Search scope: \`${relative(root, path.join(root, ".agentify", "session"))}/\``,
+        `- Search scope: \`${relative(root, resolveLocalAgentifyPath(root, "session"))}/\``,
       ], maxBytes);
     },
   };
@@ -944,7 +945,7 @@ async function createMemoryBackends(root, options, config) {
 }
 
 export function getSessionArtifactPaths(root, sessionId) {
-  const sessionDir = path.join(root, ".agentify", "session", sessionId);
+  const sessionDir = resolveLocalAgentifyPath(root, "session", sessionId);
   return {
     sessionDir,
     transcriptPath: path.join(sessionDir, "transcript.md"),

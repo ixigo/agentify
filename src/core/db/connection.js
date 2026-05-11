@@ -6,6 +6,7 @@ import process from "node:process";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
+import { getLocalAgentifyRoot, getSharedAgentifyRoot } from "../artifact-paths.js";
 import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.js";
 import { toJson } from "./utils.js";
 
@@ -13,19 +14,6 @@ const require = createRequire(import.meta.url);
 const DB_SCHEMA_VERSION = "3.1";
 const SNAPSHOT_DIR_MODE = 0o700;
 const SNAPSHOT_FILE_MODE = 0o600;
-const LINK_CONFIG_NAMES = [
-  "shared_store",
-  "sharedStore",
-  "shared_project_store",
-  "sharedProjectStore",
-  "project_store",
-  "projectStore",
-  "projectStorePath",
-  "artifact_root",
-  "artifactRoot",
-  "store",
-];
-
 let driver = null;
 
 function openWithBetterSqlite3(filename, options = {}) {
@@ -93,45 +81,6 @@ function resolveGitPath(root, value) {
   return path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value);
 }
 
-function readLinkConfig(root) {
-  const linkPath = path.join(root, ".agentify", "link.json");
-  if (!fs.existsSync(linkPath)) {
-    return null;
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(fs.readFileSync(linkPath, "utf8"));
-  } catch (error) {
-    throw new Error(`invalid Agentify link at ${linkPath}${getErrorReason(error)}`);
-  }
-
-  for (const name of LINK_CONFIG_NAMES) {
-    if (typeof parsed?.[name] === "string" && parsed[name].trim()) {
-      return {
-        linkPath,
-        sharedStore: path.resolve(path.dirname(linkPath), parsed[name]),
-      };
-    }
-  }
-
-  if (typeof parsed?.canonical_root === "string" && parsed.canonical_root.trim()) {
-    return {
-      linkPath,
-      sharedStore: path.join(path.resolve(path.dirname(linkPath), parsed.canonical_root), ".agentify"),
-    };
-  }
-
-  if (typeof parsed?.canonicalRoot === "string" && parsed.canonicalRoot.trim()) {
-    return {
-      linkPath,
-      sharedStore: path.join(path.resolve(path.dirname(linkPath), parsed.canonicalRoot), ".agentify"),
-    };
-  }
-
-  throw new Error(`invalid Agentify link at ${linkPath}: missing shared project store path`);
-}
-
 function getGitSnapshotIdentity(root) {
   const worktreeRoot = resolveGitPath(root, runGit(root, ["rev-parse", "--show-toplevel"])) || path.resolve(root);
   const commonDir = resolveGitPath(
@@ -166,14 +115,16 @@ function indexSnapshotKey(identity) {
 }
 
 export function getIndexSnapshot(root) {
-  const link = readLinkConfig(root);
-  if (!link) {
-    const dbPath = path.join(root, ".agentify", "index.db");
+  const localStore = getLocalAgentifyRoot(root);
+  const sharedStore = getSharedAgentifyRoot(root);
+  const linked = normalizePath(localStore) !== normalizePath(sharedStore);
+  if (!linked) {
+    const dbPath = path.join(localStore, "index.db");
     return {
       linked: false,
       key: "default",
       identity: null,
-      storeRoot: path.join(root, ".agentify"),
+      storeRoot: localStore,
       path: dbPath,
       reference: ".agentify/index.db",
     };
@@ -181,14 +132,13 @@ export function getIndexSnapshot(root) {
 
   const identity = getGitSnapshotIdentity(root);
   const key = indexSnapshotKey(identity);
-  const dbPath = path.join(link.sharedStore, "indexes", key, "index.db");
+  const dbPath = path.join(sharedStore, "indexes", key, "index.db");
   return {
     linked: true,
     key,
     identity,
-    storeRoot: link.sharedStore,
+    storeRoot: sharedStore,
     path: dbPath,
-    linkPath: link.linkPath,
     reference: dbPath,
   };
 }
