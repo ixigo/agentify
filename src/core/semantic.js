@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
 
+import { getSharedAgentifyRoot } from "./artifact-paths.js";
 import { buildRepositoryIndex } from "./indexer.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
@@ -805,7 +806,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
 
   const artifactRoot = options.artifactRoot || root;
   if (!config.dryRun) {
-    await ensureDir(path.join(artifactRoot, ".agentify"));
+    await ensureDir(getSharedAgentifyRoot(artifactRoot));
   }
   const db = openIndexDatabase(artifactRoot);
   const { projects: discoveredProjects, repoIndex } = await discoverAllSemanticProjects(root, config);

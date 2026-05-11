@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import YAML from "yaml";
 
+import { resolveLocalAgentifyPath } from "./artifact-paths.js";
 import { ensureDir, exists, readText, relative, writeText } from "./fs.js";
 import { getChangedFiles } from "./git.js";
 import { runProjectTests } from "./project-tests.js";
@@ -276,7 +277,7 @@ function buildSessionId(slug) {
 }
 
 async function findAvailablePlanPath(root, slug, extension = ".md") {
-  const plannedDir = path.join(root, ".agentify", "planned");
+  const plannedDir = resolveLocalAgentifyPath(root, "planned");
   await ensureDir(plannedDir);
   for (let index = 1; index < 1000; index += 1) {
     const suffix = index === 1 ? "" : `-${index}`;
@@ -378,7 +379,7 @@ export async function runAfkCreate(root, config, args) {
     continueSession: false,
   });
   const sessionId = buildSessionId(slug);
-  const capturePath = path.join(root, ".agentify", "session", sessionId, "interactive.log");
+  const capturePath = resolveLocalAgentifyPath(root, "session", sessionId, "interactive.log");
   await ensureDir(path.dirname(capturePath));
 
   const result = await runExec(root, config, agentCommand, {
@@ -407,7 +408,7 @@ export async function runAfkCreate(root, config, args) {
 
   const planPath = await findAvailablePlanPath(root, normalizeSlug(plan.frontmatter.slug, slug));
   await writeText(planPath, `${plan.markdown}\n`);
-  await writeText(path.join(root, ".agentify", "session", sessionId, "afk-create.json"), `${JSON.stringify({
+  await writeText(resolveLocalAgentifyPath(root, "session", sessionId, "afk-create.json"), `${JSON.stringify({
     schema_version: "1.0",
     type: "agentify-afk-create",
     session_id: sessionId,

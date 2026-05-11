@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import process from "node:process";
 
+import { resolveSharedAgentifyPath } from "../artifact-paths.js";
 import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.js";
 import { toJson } from "./utils.js";
 
@@ -53,7 +54,7 @@ function openWithNodeSqlite(filename, options = {}) {
 }
 
 export function getIndexDbPath(root) {
-  return path.join(root, ".agentify", "index.db");
+  return resolveSharedAgentifyPath(root, "index.db");
 }
 
 function createIndexSnapshot(dbPath) {

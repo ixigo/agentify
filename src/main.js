@@ -1,6 +1,7 @@
 import path from "node:path";
 import process from "node:process";
 
+import { resolveSharedAgentifyPath } from "./core/artifact-paths.js";
 import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
@@ -1076,7 +1077,7 @@ export async function runCli(argv, runtime = {}) {
       }
 
       case "cache": {
-        const cacheRoot = path.join(root, ".agentify", "cache");
+        const cacheRoot = resolveSharedAgentifyPath(root, "cache");
         if (subcommand === "gc") {
           const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
           const result = await garbageCollect(cacheRoot, maxAge);

@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import { promisify } from "node:util";
 
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, openIndexDatabase } from "./db/connection.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
 import { exists } from "./fs.js";
 import { EXECUTABLE_PROVIDER_NAMES, getProviderDefinition } from "./provider-registry.js";
@@ -290,7 +290,7 @@ async function buildSemanticDoctorReport(root, config) {
   const parseFailures = await discoverSemanticProjectParseFailures(root);
   const discoveredById = new Map(discoveredProjects.map((project) => [project.id, project]));
   const discoveredIds = new Set(discoveredById.keys());
-  const dbPath = `${root}/.agentify/index.db`;
+  const dbPath = getIndexDbPath(root);
   const indexPresent = await exists(dbPath);
   const failures = [];
   const staleFingerprints = [];
@@ -553,7 +553,7 @@ export async function runDoctor(root, config, options = {}) {
   if (semanticReport) {
     renderSemanticDoctorReport(semanticReport);
   } else if (config.semantic?.tsjs?.enabled && root) {
-    const dbPath = `${root}/.agentify/index.db`;
+    const dbPath = getIndexDbPath(root);
     if (await exists(dbPath)) {
       const db = openIndexDatabase(root, { readOnly: true });
       try {

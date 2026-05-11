@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveLocalAgentifyPath, resolveSharedAgentifyPath } from "./artifact-paths.js";
 import { garbageCollect } from "./cache.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, openIndexDatabase } from "./db/connection.js";
 import { listArtifacts } from "./db/artifact-store.js";
 import { loadModules } from "./db/structural-store.js";
 
@@ -71,7 +72,9 @@ async function listModuleRootDocs(root) {
 async function pruneOrphanedModuleArtifacts(root, dryRun) {
   const expectedDocs = new Set();
   const expectedMetadata = new Set();
-  if (await exists(path.join(root, ".agentify", "index.db"))) {
+  const indexDbPath = getIndexDbPath(root);
+  const legacyIndexPath = resolveSharedAgentifyPath(root, "index.json");
+  if (await exists(indexDbPath)) {
     const db = openIndexDatabase(root);
     try {
       for (const moduleInfo of loadModules(db)) {
@@ -80,8 +83,8 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
     } finally {
       closeIndexDatabase(db);
     }
-  } else if (await exists(path.join(root, ".agentify", "index.json"))) {
-    const legacyIndex = await readJson(path.join(root, ".agentify", "index.json"));
+  } else if (await exists(legacyIndexPath)) {
+    const legacyIndex = await readJson(legacyIndexPath);
     for (const moduleInfo of legacyIndex.modules || []) {
       addExpectedDocPath(expectedDocs, moduleInfo.doc_path);
       if (moduleInfo.metadata_path) {
@@ -115,7 +118,7 @@ async function pruneOrphanedModuleArtifacts(root, dryRun) {
     removed.push(relativePath);
   }
 
-  const metadataDir = path.join(root, ".agentify", "modules");
+  const metadataDir = resolveSharedAgentifyPath(root, "modules");
   for (const file of await listFiles(metadataDir)) {
     if (!file.endsWith(".json") || expectedMetadata.has(file)) {
       continue;
@@ -227,7 +230,7 @@ async function pruneInvalidSessionDirs(root, dryRun, enabled) {
     return [];
   }
 
-  const sessionsRoot = path.join(root, ".agentify", "session");
+  const sessionsRoot = resolveLocalAgentifyPath(root, "session");
   const removed = [];
   for (const dirName of await listDirs(sessionsRoot)) {
     const manifestPath = path.join(sessionsRoot, dirName, "session-manifest.json");
@@ -244,7 +247,7 @@ async function prunePlannedArtifacts(root, dryRun, enabled) {
   if (!enabled) {
     return [];
   }
-  const plannedRoot = path.join(root, ".agentify", "planned");
+  const plannedRoot = resolveLocalAgentifyPath(root, "planned");
   const removed = [];
   for (const fileName of await listFiles(plannedRoot)) {
     if (!fileName.endsWith(".md")) {
@@ -260,7 +263,7 @@ async function pruneAfkSessionDirs(root, dryRun, enabled) {
   if (!enabled) {
     return [];
   }
-  const sessionsRoot = path.join(root, ".agentify", "session");
+  const sessionsRoot = resolveLocalAgentifyPath(root, "session");
   const removed = [];
   for (const dirName of await listDirs(sessionsRoot)) {
     if (!dirName.startsWith("afk_")) {
@@ -316,7 +319,7 @@ export async function runClean(root, config, options = {}) {
   const cleanSessions = options.sessions === true || options.all === true;
 
   const orphaned = await pruneOrphanedModuleArtifacts(root, dryRun);
-  const runReports = await pruneRetainedFiles(path.join(root, ".agentify", "runs"), {
+  const runReports = await pruneRetainedFiles(resolveLocalAgentifyPath(root, "runs"), {
     keep: cleanupConfig.keepRuns ?? 20,
     maxAgeDays: cleanupConfig.maxRunAgeDays ?? 14,
     matcher: (name) => name.endsWith(".json"),
@@ -335,16 +338,16 @@ export async function runClean(root, config, options = {}) {
   const afkSessions = await pruneAfkSessionDirs(root, dryRun, cleanSessions);
   const cacheRemoved = cleanupConfig.pruneCache === false
     ? 0
-    : (await garbageCollect(path.join(root, ".agentify", "cache"), config.cache?.maxAgeDays || 7, { dryRun })).removed;
+    : (await garbageCollect(resolveSharedAgentifyPath(root, "cache"), config.cache?.maxAgeDays || 7, { dryRun })).removed;
 
   const emptyDirs = [
     ...(await pruneEmptyDirs(path.join(root, "docs", "modules"), dryRun)).map((item) => `docs/modules/${item}`),
-    ...(await pruneEmptyDirs(path.join(root, ".agentify", "modules"), dryRun)).map((item) => `.agentify/modules/${item}`),
-    ...(await pruneEmptyDirs(path.join(root, ".agentify", "runs"), dryRun)).map((item) => `.agentify/runs/${item}`),
-    ...(await pruneEmptyDirs(path.join(root, ".agentify", "planned"), dryRun)).map((item) => `.agentify/planned/${item}`),
-    ...(await pruneEmptyDirs(path.join(root, ".agentify", "session"), dryRun)).map((item) => `.agentify/session/${item}`),
+    ...(await pruneEmptyDirs(resolveSharedAgentifyPath(root, "modules"), dryRun)).map((item) => `.agentify/modules/${item}`),
+    ...(await pruneEmptyDirs(resolveLocalAgentifyPath(root, "runs"), dryRun)).map((item) => `.agentify/runs/${item}`),
+    ...(await pruneEmptyDirs(resolveLocalAgentifyPath(root, "planned"), dryRun)).map((item) => `.agentify/planned/${item}`),
+    ...(await pruneEmptyDirs(resolveLocalAgentifyPath(root, "session"), dryRun)).map((item) => `.agentify/session/${item}`),
     ...(await pruneEmptyDirs(path.join(root, ".current_session"), dryRun)).map((item) => `.current_session/${item}`),
-    ...(await pruneEmptyDirs(path.join(root, ".agentify", "cache"), dryRun)).map((item) => `.agentify/cache/${item}`),
+    ...(await pruneEmptyDirs(resolveSharedAgentifyPath(root, "cache"), dryRun)).map((item) => `.agentify/cache/${item}`),
   ];
 
   const removedPaths = toArray([

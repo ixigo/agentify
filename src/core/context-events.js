@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveLocalAgentifyPath } from "./artifact-paths.js";
 import { ensureDir, exists } from "./fs.js";
 import { checkSchema, SCHEMA_VERSIONS } from "./schema.js";
 
@@ -31,11 +32,11 @@ function normalizeConfidence(value) {
 export function getContextEventLogPath(root, options = {}) {
   if (options.sessionId) {
     const sessionId = assertRuntimeId(options.sessionId, "session id");
-    return path.join(root, ".agentify", "session", sessionId, "context-events.jsonl");
+    return resolveLocalAgentifyPath(root, "session", sessionId, "context-events.jsonl");
   }
 
   const runId = assertRuntimeId(options.runId, "run id");
-  return path.join(root, ".agentify", "work", "context-events", `${runId}.jsonl`);
+  return resolveLocalAgentifyPath(root, "work", "context-events", `${runId}.jsonl`);
 }
 
 export function createContextEventRecord(event, options = {}) {
