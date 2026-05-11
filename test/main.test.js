@@ -1257,10 +1257,51 @@ test("runCli link writes a stable pointer for another git worktree", async () =>
   assert.equal(link.canonical_root, canonicalRoot);
   assert.equal(link.project_store, path.join(canonicalRoot, ".agentify"));
   assert.ok(path.isAbsolute(link.git_common_dir));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify.yaml")));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentignore")));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".guardrails")));
+  assert.match(await fs.readFile(path.join(linked, ".gitignore"), "utf8"), /^\.agentify\/$/m);
   await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "work")));
 
   await runCli(["link", "--root", linked, "--from", canonical]);
   assert.equal(await fs.readFile(linkPath, "utf8"), rawLink);
+});
+
+test("runCli link preserves existing branch-local policy files", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-link-policy-"));
+  const canonical = path.join(parent, "canonical");
+  const linked = path.join(parent, "linked");
+  await fs.mkdir(canonical, { recursive: true });
+  await fs.writeFile(path.join(canonical, "package.json"), "{}\n", "utf8");
+  await initGitRepo(canonical);
+  await runCli(["init", "--root", canonical]);
+  await execFileAsync("git", ["-C", canonical, "worktree", "add", "-b", "linked-policy-worktree", linked]);
+
+  await fs.writeFile(path.join(linked, ".agentify.yaml"), "provider: gemini\nstrict: false\n", "utf8");
+  await fs.writeFile(path.join(linked, ".agentignore"), "branch-only.log\n", "utf8");
+  await fs.writeFile(path.join(linked, ".guardrails"), "# Branch guardrails\n", "utf8");
+  await fs.writeFile(path.join(linked, ".gitignore"), [
+    "dist/",
+    "",
+    "# >>> agentify generated artifacts",
+    ".agentify/",
+    "local-policy.cache",
+    "# <<< agentify generated artifacts",
+    "",
+  ].join("\n"), "utf8");
+
+  await runCli(["link", "--root", linked, "--from", canonical]);
+
+  assert.equal(await fs.readFile(path.join(linked, ".agentify.yaml"), "utf8"), "provider: gemini\nstrict: false\n");
+  assert.equal(await fs.readFile(path.join(linked, ".agentignore"), "utf8"), "branch-only.log\n");
+  assert.equal(await fs.readFile(path.join(linked, ".guardrails"), "utf8"), "# Branch guardrails\n");
+
+  const gitignore = await fs.readFile(path.join(linked, ".gitignore"), "utf8");
+  assert.match(gitignore, /^dist\/$/m);
+  assert.match(gitignore, /^local-policy\.cache$/m);
+  assert.match(gitignore, /^\.agentify\/$/m);
+  assert.match(gitignore, /^AGENTIFY\.md$/m);
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "link.json")));
 });
 
 test("runCli link rejects unrelated git repositories without writing a pointer", async () => {
