@@ -130,6 +130,7 @@ It is written so the model treats the current working directory as the target re
 | Command | What it does | Why and when to use it | Example |
 | --- | --- | --- | --- |
 | `agentify init` | Creates baseline Agentify artifacts such as `.agentify.yaml`, `.agentignore`, `.guardrails`, `.agentify/`, and `docs/modules/` for root-module fallback docs. | Use once when enabling a repo manually, especially on Linux or pre-provisioned machines where you do not want bootstrap automation. | `agentify init --provider codex` |
+| `agentify link` | Writes a local `.agentify/link.json` pointer from this Git worktree to an existing canonical Agentify project store. | Use after `git worktree add` when the new worktree should reuse the repo's durable Agentify artifacts without sharing sessions, runs, scratch state, or locks. | `agentify link --from ../canonical-worktree` |
 | `agentify index` | Scans the repo and writes the SQLite index. | Use when you want the machine-readable repo graph refreshed but do not need markdown docs yet. | `agentify index` |
 | `agentify scan` | Alias for `index`. | Use it when you prefer the word "scan" in scripts or team docs. Functionally it is the same as `index`. | `agentify scan` |
 | `agentify doc` | Generates `AGENTIFY.md`, module docs, repo map updates, and refreshes eligible file headers. | Use after indexing when you want human-readable and agent-readable documentation updated. | `agentify doc` |
@@ -140,6 +141,45 @@ It is written so the model treats the current working directory as the target re
 | `agentify clean` | Prunes stale generated artifacts, dead sessions, old run outputs, and invalid Agentify folders. | Use when the repo accumulates outdated docs, runs, or broken session folders and you want safe cleanup. | `agentify clean --dry-run` |
 | `agentify doctor` | Checks toolchain health and capability tier. | Use during setup or when a provider/tooling command is failing and you need a concrete readiness report. | `agentify doctor` |
 | `agentify completion` | Prints zsh, bash, or fish completion scripts. | Use when you want shell tab completion for commands, flags, providers, skills, sessions, and path arguments. | `agentify completion zsh` |
+
+#### Linked Worktree Setup
+
+`agentify link --from <canonical-worktree>` is for Git worktrees created from the same repository, not for separate clones. The command resolves both paths through Git, verifies that they share the same Git common directory, prepares baseline local runtime folders, and writes a stable pointer at `.agentify/link.json` in the current worktree.
+
+Typical flow:
+
+```bash
+cd /path/to/canonical-repo
+agentify init --provider codex
+agentify up
+
+git worktree add ../repo-feature feature-branch
+cd ../repo-feature
+agentify link --from ../canonical-repo
+agentify up
+agentify check
+```
+
+The link payload records the canonical root, shared project store, and Git common directory. `agentify --help` lists the command and shows the same `agentify link --from ../canonical-worktree` syntax in examples.
+
+Linked worktrees deliberately do not symlink the whole `.agentify/` directory. Symlinking the full runtime would make parallel branches share live session transcripts, run reports, scratch files, planned work, memory-helper state, and locks. The link model shares durable project artifacts while keeping volatile worktree activity local.
+
+| Shared through the canonical project store | Local to the linked worktree |
+| --- | --- |
+| cache artifacts | `.agentify/link.json` |
+| module and generated project-store artifacts | `.agentify/runs/` |
+| branch-aware index snapshots under `.agentify/indexes/<snapshot>/index.db` | `.agentify/session/` |
+| shared paths resolved through the Agentify project store | `.agentify/work/`, `.agentify/planned/`, `.agentify/mempalace/`, and `.agentify/.lock` |
+
+Policy remains branch-local. `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block are normal worktree files. Agentify does not replace them with shared-store state; use Git merges/rebases when a policy change should move across branches.
+
+Troubleshooting:
+
+- Missing canonical store: run `agentify init` or `agentify up` in the canonical worktree so its `.agentify/` project store exists, then rerun `agentify link --from <canonical-worktree>` in the linked worktree.
+- Unrelated repo error: `agentify link` only accepts worktrees that share the same Git common directory. Use `git worktree list` from the canonical repo to confirm the target path; two clones of the same remote are still unrelated for this command.
+- Stale or wrong index results: run `agentify up` or `agentify index` from the affected linked worktree. Linked indexes are branch-aware and include worktree, branch, and HEAD identity in the snapshot key.
+- Broken or moved canonical path: restore the canonical worktree, choose another surviving worktree as the canonical path, and rerun `agentify link --from <canonical-worktree>` so `.agentify/link.json` points at the right store.
+- Unlinking: remove only the local `.agentify/link.json`. The worktree will fall back to a local `.agentify/` store; run `agentify init` or `agentify up` afterward if you want local artifacts regenerated.
 
 #### Shell Completion Setup
 

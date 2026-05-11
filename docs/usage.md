@@ -115,6 +115,40 @@ agentify check
 agentify risk --since origin/main
 ```
 
+## Linked Git Worktrees
+
+Use `agentify link` when you create another Git worktree for a repo that already has Agentify initialized:
+
+```bash
+git -C /path/to/canonical-repo worktree add ../repo-feature feature-branch
+cd ../repo-feature
+agentify link --from /path/to/canonical-repo
+agentify up
+agentify check
+```
+
+The `--from` path must be another worktree from the same Git repository. Agentify verifies that both paths share the same Git common directory and rejects unrelated repos before writing `.agentify/link.json`.
+
+Linked worktrees share durable project artifacts from the canonical `.agentify/` store:
+
+| Shared from canonical store | Local to each linked worktree |
+| --- | --- |
+| cache and module artifacts | `.agentify/link.json` |
+| generated project store data | `.agentify/runs/` |
+| branch-aware index snapshots in `.agentify/indexes/<snapshot>/index.db` | `.agentify/session/` |
+| shared artifacts resolved through the project store | `.agentify/work/`, `.agentify/planned/`, `.agentify/mempalace/`, and locks |
+
+Agentify uses a project-store pointer instead of symlinking the whole `.agentify/` directory because runs, sessions, scratch files, planned work, memory helper state, and locks are volatile. Sharing those across active worktrees would mix unrelated agent work and can make parallel branches unsafe.
+
+Policy files stay branch-local. Keep `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block in the current worktree and commit policy changes through Git when you want them shared. The shared store does not overwrite those files.
+
+Troubleshooting:
+
+- Missing canonical store: run `agentify init` or `agentify up` in the canonical worktree, then rerun `agentify link --from <canonical-worktree>` in the linked worktree.
+- Unrelated repo error: confirm the target was created with `git worktree add` from the canonical repo. A clone of the same remote is still unrelated for `agentify link`.
+- Stale index snapshot: run `agentify up` or `agentify index` in the affected linked worktree. Linked indexes are branch-aware, so each worktree writes its own snapshot under the shared store.
+- Unlink or repair: delete only the local `.agentify/link.json`, then either rerun `agentify link --from <canonical-worktree>` or run `agentify init` to use a fully local `.agentify/` store again.
+
 Optional shell aliases for shorter daily use:
 
 ```bash
@@ -180,6 +214,7 @@ agentify completion fish > ~/.config/fish/completions/agentify.fish
 | Check machine/repo readiness | `agentify doctor` |
 | First-time macOS bootstrap | `agentify this --provider codex` |
 | First-time manual setup | `agentify init --provider codex` |
+| Reuse Agentify in another Git worktree | `agentify link --from ../canonical-worktree` |
 | Refresh repo context and run tests | `agentify up` |
 | Cheap deterministic refresh | `agentify up --provider local` |
 | Validate generated state | `agentify check` |

@@ -214,6 +214,24 @@ docs/repo-map.md            # routing map (generated, gitignored)
 
 Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block. Everything under `.agentify/` is local runtime.
 
+### Linked Git Worktrees
+
+When you create a second Git worktree for the same repo, reuse the canonical Agentify project store instead of running a brand-new setup:
+
+```bash
+git -C /path/to/canonical-repo worktree add ../repo-feature feature-branch
+cd ../repo-feature
+agentify link --from /path/to/canonical-repo
+agentify up
+agentify check
+```
+
+`agentify link --from <canonical-worktree>` writes `.agentify/link.json` in the current worktree. Agentify shares durable project artifacts from the canonical `.agentify/` store, including cache/module data and branch-aware index snapshots under `.agentify/indexes/<snapshot>/index.db`. It keeps volatile state local to the current worktree: `.agentify/link.json`, `.agentify/runs/`, `.agentify/session/`, `.agentify/work/`, `.agentify/planned/`, `.agentify/mempalace/`, and local locks.
+
+Agentify links a project store instead of symlinking the whole `.agentify/` directory so parallel worktrees do not share live run logs, session state, scratch files, or locks. Policy files remain branch-local: `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block are still normal files in each worktree and are not replaced by shared-store state.
+
+If a link breaks, rerun `agentify link --from <canonical-worktree>` after restoring or choosing the canonical worktree. To unlink a worktree, remove its local `.agentify/link.json` and run `agentify init` or `agentify up` to return to a local store.
+
 ---
 
 ## 📚 Useful Commands
@@ -225,6 +243,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Check readiness | `agentify doctor` |
 | Bootstrap (macOS) | `agentify this --provider codex` |
 | Bootstrap (manual) | `agentify init --provider codex` |
+| Link a Git worktree to an existing Agentify store | `agentify link --from ../canonical-worktree` |
 | Build repository index | `agentify index` |
 | Refresh index + checks + tests | `agentify up` |
 | Validate repo state | `agentify check` |
