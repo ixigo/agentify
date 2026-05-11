@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
-import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
+import { closeIndexDatabase, getIndexSnapshot, openIndexDatabase } from "../src/core/db/connection.js";
 import { replaceSemanticProjectSnapshot } from "../src/core/db/semantic-store.js";
 import {
   queryCallers,
@@ -15,6 +17,22 @@ import {
   queryRefs,
   querySearch,
 } from "../src/core/query.js";
+import { forkSession } from "../src/core/session.js";
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(root, args) {
+  await execFileAsync("git", args, { cwd: root });
+}
+
+async function writeLink(root, sharedStore) {
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, ".agentify", "link.json"),
+    `${JSON.stringify({ shared_store: sharedStore }, null, 2)}\n`,
+    "utf8",
+  );
+}
 
 test("querySearch reads an existing index when the database is read-only", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-query-readonly-"));
@@ -41,6 +59,54 @@ test("querySearch reads an existing index when the database is read-only", async
     await fs.chmod(dbDir, 0o755);
     await fs.chmod(dbPath, 0o644);
   }
+});
+
+test("linked worktrees use branch-aware index snapshots for query and sessions", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-linked-index-"));
+  const root = path.join(parent, "repo");
+  const featureRoot = path.join(parent, "repo-feature");
+  const sharedStore = path.join(parent, "agentify-store");
+
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "context.ts"), "export function mainOnly() { return 'main'; }\n", "utf8");
+  await runGit(root, ["init"]);
+  await runGit(root, ["config", "user.name", "Agentify Tests"]);
+  await runGit(root, ["config", "user.email", "agentify-tests@example.com"]);
+  await runGit(root, ["add", "."]);
+  await runGit(root, ["commit", "-m", "initial"]);
+  await runGit(root, ["worktree", "add", "-b", "feature", featureRoot]);
+
+  await fs.writeFile(path.join(featureRoot, "src", "context.ts"), "export function featureOnly() { return 'feature'; }\n", "utf8");
+  await writeLink(root, sharedStore);
+  await writeLink(featureRoot, sharedStore);
+
+  const rootConfig = await loadConfig(root, { provider: "local", dryRun: false });
+  const featureConfig = await loadConfig(featureRoot, { provider: "local", dryRun: false });
+  await runScan(root, rootConfig, { skipOutput: true });
+  await runScan(featureRoot, featureConfig, { skipOutput: true });
+
+  const rootSnapshot = getIndexSnapshot(root);
+  const featureSnapshot = getIndexSnapshot(featureRoot);
+  assert.equal(rootSnapshot.linked, true);
+  assert.equal(featureSnapshot.linked, true);
+  assert.equal(rootSnapshot.identity.common_dir, featureSnapshot.identity.common_dir);
+  assert.notEqual(rootSnapshot.identity.worktree_root, featureSnapshot.identity.worktree_root);
+  assert.notEqual(rootSnapshot.path, featureSnapshot.path);
+
+  const rootSearch = await querySearch(root, "mainOnly");
+  const rootCrossSearch = await querySearch(root, "featureOnly");
+  const featureSearch = await querySearch(featureRoot, "featureOnly");
+  const featureCrossSearch = await querySearch(featureRoot, "mainOnly");
+
+  assert.ok(rootSearch.symbols.some((symbol) => symbol.name === "mainOnly"));
+  assert.equal(rootCrossSearch.symbols.some((symbol) => symbol.name === "featureOnly"), false);
+  assert.ok(featureSearch.symbols.some((symbol) => symbol.name === "featureOnly"));
+  assert.equal(featureCrossSearch.symbols.some((symbol) => symbol.name === "mainOnly"), false);
+
+  const session = await forkSession(featureRoot, featureConfig, { name: "feature-session" });
+  assert.equal(session.manifest.index_snapshot, featureSnapshot.path);
+  assert.match(session.bootstrap, new RegExp(featureSnapshot.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 async function writeSemanticQueryFixture(root) {

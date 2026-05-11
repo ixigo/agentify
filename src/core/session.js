@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, getIndexDbReference, openIndexDatabase } from "./db/connection.js";
 import { loadModules } from "./db/structural-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 
@@ -126,6 +126,7 @@ function clampRunHistory(history, limit, perEntryBytes) {
 
 function fitContext(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
+  const indexReference = options.indexReference || ".agentify/index.db";
   const staleModules = [];
   const maxBytes = getSessionLimitKb(config, "contextMaxKb", 16) * 1024;
   const memoryArtifacts = getSessionArtifactPaths(options.root || "", manifest.session_id);
@@ -152,11 +153,11 @@ function fitContext(manifest, index, checklist, options, config) {
     const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
     const includeHandoffRefs = attempt !== attempts[attempts.length - 1];
     const cacheRefs = attempt.minimalRefs ? {
-      repo_index: ".agentify/index.db",
+      repo_index: indexReference,
       repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
       checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
     } : {
-      repo_index: ".agentify/index.db",
+      repo_index: indexReference,
       repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
       checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
       transcript: transcriptRef,
@@ -206,6 +207,7 @@ function fitContext(manifest, index, checklist, options, config) {
 export function synthesizeBootstrapFromContext(manifest, context) {
   const moduleIds = context?.index_snapshot?.module_ids || [];
   const moduleCount = Number(context?.index_snapshot?.module_count || moduleIds.length);
+  const indexReference = context?.cache_refs?.repo_index || manifest.index_snapshot || ".agentify/index.db";
   const checklist = Array.isArray(context?.checklist) ? context.checklist : [];
   const checklistSummary = context?.checklist_summary || {
     total_items: checklist.length,
@@ -236,7 +238,7 @@ export function synthesizeBootstrapFromContext(manifest, context) {
 - HEAD: ${manifest.head_commit_at_creation}
 - Module count: ${moduleCount}
 - Module preview: ${summarizeModules(moduleIds, Math.min(moduleIds.length, 12))}
-- Full routing: host shell -> .agentify/index.db
+- Full routing: host shell -> ${indexReference}
 
 ## Checklist Status
 ${renderChecklistMarkdown(manifest.session_id, checklist, checklistSummary.total_items ?? checklist.length)}
@@ -251,6 +253,7 @@ ${rolling || "- No rolling summary recorded yet."}
 
 function fitBootstrap(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
+  const indexReference = options.indexReference || ".agentify/index.db";
   const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
   const baseStartHere = options.startHere || [
     "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
@@ -280,7 +283,7 @@ function fitBootstrap(manifest, index, checklist, options, config) {
 - HEAD: ${manifest.head_commit_at_creation}
 - Module count: ${moduleIds.length}
 - Module preview: ${summarizeModules(moduleIds, attempt.moduleLimit)}
-- Full routing: host shell -> .agentify/index.db
+- Full routing: host shell -> ${indexReference}
 
 ## Checklist Status
 ${renderChecklistMarkdown(manifest.session_id, previewChecklist, checklist.length)}
@@ -304,8 +307,10 @@ export async function forkSession(root, config, options = {}) {
   await ensureDir(sessionDir);
 
   const headCommit = await getHeadCommit(root);
+  const indexPath = getIndexDbPath(root);
+  const indexReference = getIndexDbReference(root);
   let index = null;
-  if (await exists(path.join(root, ".agentify", "index.db"))) {
+  if (await exists(indexPath)) {
     const db = openIndexDatabase(root, { readOnly: true });
     try {
       index = {
@@ -328,7 +333,7 @@ export async function forkSession(root, config, options = {}) {
     name: options.name || null,
     status: "active",
     head_commit_at_creation: headCommit,
-    index_snapshot: ".agentify/index.db",
+    index_snapshot: indexReference,
     cache_refs: [
       `.agentify/session/${sessionId}/context.json`,
       `.agentify/session/${sessionId}/checklist.json`,
@@ -402,10 +407,11 @@ export async function forkSession(root, config, options = {}) {
   const contextResult = fitContext(manifest, index, parentChecklist, {
     ...options,
     root,
+    indexReference,
     runHistory: options.runHistory || parentRunHistory,
     rollingSummary: options.rollingSummary || parentRollingSummary,
   }, config);
-  const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, options, config);
+  const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, { ...options, indexReference }, config);
   const context = contextResult.value;
   const bootstrap = bootstrapResult.value;
 

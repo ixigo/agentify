@@ -12,7 +12,7 @@ import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock } from "./lock.js";
-import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, getIndexDbReference, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { getArtifact, removeArtifact, upsertArtifact } from "./db/artifact-store.js";
 import {
@@ -469,6 +469,7 @@ async function _runScanInner(root, config, options, progress) {
     ? (options.ghostRunId || `ghost_${Date.now()}`)
     : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const indexReference = getIndexDbReference(artifactRoot);
 
   await ensureBaselineArtifacts(artifactRoot, config);
   const headCommit = await getHeadCommit(root);
@@ -497,7 +498,7 @@ async function _runScanInner(root, config, options, progress) {
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
-    wrote: config.dryRun ? [] : [".agentify/index.db", "docs/repo-map.md"],
+    wrote: config.dryRun ? [] : [indexReference, "docs/repo-map.md"],
   };
   progress.setCommand(options.commandName || "scan");
   progress.setScan(result);
@@ -701,7 +702,8 @@ async function _runDocInner(root, config, options, progress) {
   const fallbackProvider = provider.name === "local" ? provider : createProvider("local", config);
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
-  const dbPath = path.join(artifactRoot, ".agentify", "index.db");
+  const dbPath = getIndexDbPath(artifactRoot);
+  const indexReference = getIndexDbReference(artifactRoot);
   const scanSnapshot = options.scanSnapshot || null;
 
   if (!config.dryRun && (scanSnapshot || !(await exists(dbPath)))) {
@@ -1120,7 +1122,7 @@ async function _runDocInner(root, config, options, progress) {
       docs_written: docsWritten,
       provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agentify/index.db", ".agentify/runs/*.json"],
+      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", indexReference, ".agentify/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);

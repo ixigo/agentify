@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import process from "node:process";
+import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.js";
 import { toJson } from "./utils.js";
@@ -11,6 +13,18 @@ const require = createRequire(import.meta.url);
 const DB_SCHEMA_VERSION = "3.1";
 const SNAPSHOT_DIR_MODE = 0o700;
 const SNAPSHOT_FILE_MODE = 0o600;
+const LINK_CONFIG_NAMES = [
+  "shared_store",
+  "sharedStore",
+  "shared_project_store",
+  "sharedProjectStore",
+  "project_store",
+  "projectStore",
+  "projectStorePath",
+  "artifact_root",
+  "artifactRoot",
+  "store",
+];
 
 let driver = null;
 
@@ -52,8 +66,139 @@ function openWithNodeSqlite(filename, options = {}) {
   };
 }
 
+function normalizePath(value) {
+  const resolved = path.resolve(String(value || ""));
+  try {
+    return fs.realpathSync.native(resolved).split(path.sep).join("/");
+  } catch {
+    return resolved.split(path.sep).join("/");
+  }
+}
+
+function runGit(root, args) {
+  try {
+    return execFileSync("git", ["-C", root, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function resolveGitPath(root, value) {
+  if (!value) {
+    return null;
+  }
+  return path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value);
+}
+
+function readLinkConfig(root) {
+  const linkPath = path.join(root, ".agentify", "link.json");
+  if (!fs.existsSync(linkPath)) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(linkPath, "utf8"));
+  } catch (error) {
+    throw new Error(`invalid Agentify link at ${linkPath}${getErrorReason(error)}`);
+  }
+
+  for (const name of LINK_CONFIG_NAMES) {
+    if (typeof parsed?.[name] === "string" && parsed[name].trim()) {
+      return {
+        linkPath,
+        sharedStore: path.resolve(path.dirname(linkPath), parsed[name]),
+      };
+    }
+  }
+
+  if (typeof parsed?.canonical_root === "string" && parsed.canonical_root.trim()) {
+    return {
+      linkPath,
+      sharedStore: path.join(path.resolve(path.dirname(linkPath), parsed.canonical_root), ".agentify"),
+    };
+  }
+
+  if (typeof parsed?.canonicalRoot === "string" && parsed.canonicalRoot.trim()) {
+    return {
+      linkPath,
+      sharedStore: path.join(path.resolve(path.dirname(linkPath), parsed.canonicalRoot), ".agentify"),
+    };
+  }
+
+  throw new Error(`invalid Agentify link at ${linkPath}: missing shared project store path`);
+}
+
+function getGitSnapshotIdentity(root) {
+  const worktreeRoot = resolveGitPath(root, runGit(root, ["rev-parse", "--show-toplevel"])) || path.resolve(root);
+  const commonDir = resolveGitPath(
+    root,
+    runGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+      || runGit(root, ["rev-parse", "--git-common-dir"]),
+  ) || null;
+  const gitDir = resolveGitPath(
+    root,
+    runGit(root, ["rev-parse", "--path-format=absolute", "--git-dir"])
+      || runGit(root, ["rev-parse", "--git-dir"]),
+  ) || null;
+  const branch = runGit(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]) || "detached";
+  const head = runGit(root, ["rev-parse", "HEAD"]) || "nogit";
+
+  return {
+    common_dir: commonDir ? normalizePath(commonDir) : null,
+    worktree_root: normalizePath(worktreeRoot),
+    agentify_root: normalizePath(root),
+    git_dir: gitDir ? normalizePath(gitDir) : null,
+    branch,
+    head,
+  };
+}
+
+function indexSnapshotKey(identity) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(identity))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+export function getIndexSnapshot(root) {
+  const link = readLinkConfig(root);
+  if (!link) {
+    const dbPath = path.join(root, ".agentify", "index.db");
+    return {
+      linked: false,
+      key: "default",
+      identity: null,
+      storeRoot: path.join(root, ".agentify"),
+      path: dbPath,
+      reference: ".agentify/index.db",
+    };
+  }
+
+  const identity = getGitSnapshotIdentity(root);
+  const key = indexSnapshotKey(identity);
+  const dbPath = path.join(link.sharedStore, "indexes", key, "index.db");
+  return {
+    linked: true,
+    key,
+    identity,
+    storeRoot: link.sharedStore,
+    path: dbPath,
+    linkPath: link.linkPath,
+    reference: dbPath,
+  };
+}
+
 export function getIndexDbPath(root) {
-  return path.join(root, ".agentify", "index.db");
+  return getIndexSnapshot(root).path;
+}
+
+export function getIndexDbReference(root) {
+  return getIndexSnapshot(root).reference;
 }
 
 function createIndexSnapshot(dbPath) {
