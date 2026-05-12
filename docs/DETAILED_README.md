@@ -373,10 +373,35 @@ Built-in skills:
 - `grill-me`
 - `improve-codebase-architecture`
 - `gh-autopilot` (alias: `gh-issue-autopilot`)
+- `glab-autopilot` (aliases: `gitlab-autopilot`, `glab-issues-autopilot`, `gitlab-issues-autopilot`)
 - `issue-killer` (alias: `gh-issue-killer`)
+- `gitlab-triage` (alias: `glab-triage`)
 - `worktree-autopilot` (aliases: `worktree-verifier`, `god-mode`)
 - `pr-creator`
 - `commit-creator`
+
+GitLab skills require the GitLab CLI. Before using them in a GitLab-backed
+checkout, verify:
+
+```bash
+command -v glab
+glab auth status
+glab repo view
+```
+
+Examples:
+
+```bash
+agentify skill install glab-autopilot --provider codex --scope project
+agentify skill install gitlab-triage --provider codex --scope project
+```
+
+Example GitLab issue and merge request requests after installing the skill:
+
+```text
+Use $glab-autopilot to resolve GitLab issue #42 and create a draft MR when validated.
+Use $glab-autopilot to inspect MR !7 and summarize review comments.
+```
 
 Use `--scope project` when you want the repository to carry its own provider skill setup under directories like `.codex/skills/`. Use `--scope user` when you want skills installed globally for your local account.
 

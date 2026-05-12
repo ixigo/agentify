@@ -60,6 +60,12 @@ const BUILTIN_SKILLS = [
       "Triage GitHub issues through a label-based state machine. Use when the user wants to create, triage, review, or prepare issues for agent work.",
   },
   {
+    name: "gitlab-triage",
+    aliases: ["glab-triage"],
+    description:
+      "Triage GitLab issues through conservative label and state management with glab CLI, including issue notes and prior triage context.",
+  },
+  {
     name: "grill-me",
     aliases: [],
     description:
@@ -76,6 +82,12 @@ const BUILTIN_SKILLS = [
     aliases: ["gh-issue-autopilot"],
     description:
       "Handle GitHub issue, PR, review, comment, and label workflows via gh CLI, and hand code changes off to worktree-autopilot when isolated implementation is needed.",
+  },
+  {
+    name: "glab-autopilot",
+    aliases: ["gitlab-autopilot", "glab-issues-autopilot", "gitlab-issues-autopilot"],
+    description:
+      "Handle GitLab issue, merge request, review, comment, and label workflows via glab CLI, and hand code changes off to worktree-autopilot when isolated implementation is needed.",
   },
   {
     name: "issue-killer",

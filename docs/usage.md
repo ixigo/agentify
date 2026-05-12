@@ -313,12 +313,30 @@ Project scope writes repo-local provider instructions, for example `.codex/skill
 ```bash
 agentify skill install all --provider codex --scope project
 agentify skill install gh-autopilot --provider codex --scope project
+agentify skill install glab-autopilot --provider codex --scope project
+agentify skill install gitlab-triage --provider codex --scope project
 ```
 
 User scope keeps the install local to one developer machine:
 
 ```bash
 agentify skill install caveman --provider codex --scope user
+```
+
+GitLab skills require `glab` in the target repository. Verify these before
+using `glab-autopilot` or `gitlab-triage`:
+
+```bash
+command -v glab
+glab auth status
+glab repo view
+```
+
+Example GitLab requests after installing the skill:
+
+```text
+Use $glab-autopilot to resolve GitLab issue #42 and prepare a draft MR.
+Use $glab-autopilot to inspect MR !7 and summarize review comments.
 ```
 
 </details>

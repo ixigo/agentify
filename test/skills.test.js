@@ -65,6 +65,9 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("god-mode").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("worktree-verifier").name, "worktree-autopilot");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-autopilot").name, "gh-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("gitlab-autopilot").name, "glab-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("glab-issues-autopilot").name, "glab-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("glab-triage").name, "gitlab-triage");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-killer").name, "issue-killer");
   assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
 });
@@ -133,6 +136,39 @@ test("installBuiltinSkill copies gh autopilot skill bundle into project scope", 
 
   const skillPath = path.join(root, ".codex", "skills", "gh-autopilot", "SKILL.md");
   const uiPath = path.join(root, ".codex", "skills", "gh-autopilot", "agents", "openai.yaml");
+
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies GitLab autopilot skill bundle into project scope through legacy alias", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-glab-auto-"));
+  const result = await installBuiltinSkill(root, {
+    name: "glab-issues-autopilot",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "glab-autopilot", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "glab-autopilot", "agents", "openai.yaml");
+
+  assert.equal(result.skill.name, "glab-autopilot");
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies GitLab triage skill bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-gitlab-triage-"));
+  const result = await installBuiltinSkill(root, {
+    name: "gitlab-triage",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const skillPath = path.join(root, ".codex", "skills", "gitlab-triage", "SKILL.md");
+  const uiPath = path.join(root, ".codex", "skills", "gitlab-triage", "agents", "openai.yaml");
 
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
