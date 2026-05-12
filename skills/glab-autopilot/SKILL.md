@@ -68,16 +68,18 @@ GLAB_USER="$(glab api user | jq -r .username)"
 Latest open issue authored by current user by default:
 
 ```bash
-glab issue list --state opened --author "$GLAB_USER" --per-page 100 --output json | jq 'sort_by(.created_at) | reverse | .[0]'
+glab issue list --author "$GLAB_USER" --per-page 100 --output json | jq 'sort_by(.created_at) | reverse | .[0]'
 ```
 
 First open issue authored by current user by default:
 
 ```bash
-glab issue list --state opened --author "$GLAB_USER" --per-page 100 --output json | jq 'sort_by(.created_at) | .[0]'
+glab issue list --author "$GLAB_USER" --per-page 100 --output json | jq 'sort_by(.created_at) | .[0]'
 ```
 
 If explicitly requested to include all authors, drop `--author "$GLAB_USER"`.
+`glab issue list` returns open issues by default; use `--closed` or `--all`
+only when the human explicitly asks for those states.
 
 Load full issue details:
 

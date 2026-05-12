@@ -7,6 +7,7 @@ import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from
 import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
+import { linkProject } from "./core/link.js";
 import { buildRoutedPrompt, fetchContext, normalizeContextMode as normalizeSessionContextMode, searchContext } from "./core/context.js";
 import {
   queryCallers,
@@ -41,6 +42,11 @@ import {
   toPlannerContextMode,
 } from "./core/context-mode.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
+
+async function ensureLinkTargetPolicy(root, config) {
+  await writeDefaultConfig(root, config, { dryRun: config.dryRun });
+  await ensureBaselineArtifacts(root, config);
+}
 
 function parseValue(raw) {
   if (raw === "true") {
@@ -554,6 +560,24 @@ export async function runCli(argv, runtime = {}) {
           log(skillInstallHint.message);
         }
         return;
+
+      case "link": {
+        const result = await linkProject(root, {
+          from: args.from,
+          dryRun: config.dryRun,
+          prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
+        });
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else if (result.changed) {
+          success("Linked Agentify project store");
+          log(`Shared store: ${result.project_store}`);
+        } else {
+          success("Agentify project link already up to date");
+          log(`Shared store: ${result.project_store}`);
+        }
+        return;
+      }
 
       case "index":
         await runScan(root, config, { commandName: "index" });

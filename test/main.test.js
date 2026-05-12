@@ -1124,7 +1124,7 @@ test("runCli supports skill install all for codex project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-all-codex-"));
   await runCli(["skill", "install", "all", "--root", root, "--provider", "codex", "--scope", "project"]);
 
-  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-autopilot", "copy-mode", "worktree-autopilot", "pr-creator", "commit-creator"]) {
+  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-autopilot", "ado-autopilot", "azure-devops-triage", "copy-mode", "worktree-autopilot", "pr-creator", "commit-creator"]) {
     await assert.doesNotReject(() =>
       fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
     );
@@ -1234,6 +1234,93 @@ test("runCli init updates gitignore Agentify block without dropping user additio
   assert.doesNotMatch(gitignore, /^\.agents\/$/m);
   assert.doesNotMatch(gitignore, /^\.agentify\/work\/$/m);
   assert.equal((gitignore.match(/^local\.env$/gm) || []).length, 1);
+});
+
+test("runCli link writes a stable pointer for another git worktree", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-link-"));
+  const canonical = path.join(parent, "canonical");
+  const linked = path.join(parent, "linked");
+  await fs.mkdir(canonical, { recursive: true });
+  await fs.writeFile(path.join(canonical, "package.json"), "{}\n", "utf8");
+  await initGitRepo(canonical);
+  await runCli(["init", "--root", canonical]);
+  await execFileAsync("git", ["-C", canonical, "worktree", "add", "-b", "linked-worktree", linked]);
+
+  await runCli(["link", "--root", linked, "--from", canonical]);
+  const linkPath = path.join(linked, ".agentify", "link.json");
+  const rawLink = await fs.readFile(linkPath, "utf8");
+  const link = JSON.parse(rawLink);
+  const canonicalRoot = await fs.realpath(canonical);
+
+  assert.equal(link.schema_version, 1);
+  assert.equal(link.kind, "agentify-linked-project");
+  assert.equal(link.canonical_root, canonicalRoot);
+  assert.equal(link.project_store, path.join(canonicalRoot, ".agentify"));
+  assert.ok(path.isAbsolute(link.git_common_dir));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify.yaml")));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentignore")));
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".guardrails")));
+  assert.match(await fs.readFile(path.join(linked, ".gitignore"), "utf8"), /^\.agentify\/$/m);
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "work")));
+
+  await runCli(["link", "--root", linked, "--from", canonical]);
+  assert.equal(await fs.readFile(linkPath, "utf8"), rawLink);
+});
+
+test("runCli link preserves existing branch-local policy files", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-link-policy-"));
+  const canonical = path.join(parent, "canonical");
+  const linked = path.join(parent, "linked");
+  await fs.mkdir(canonical, { recursive: true });
+  await fs.writeFile(path.join(canonical, "package.json"), "{}\n", "utf8");
+  await initGitRepo(canonical);
+  await runCli(["init", "--root", canonical]);
+  await execFileAsync("git", ["-C", canonical, "worktree", "add", "-b", "linked-policy-worktree", linked]);
+
+  await fs.writeFile(path.join(linked, ".agentify.yaml"), "provider: gemini\nstrict: false\n", "utf8");
+  await fs.writeFile(path.join(linked, ".agentignore"), "branch-only.log\n", "utf8");
+  await fs.writeFile(path.join(linked, ".guardrails"), "# Branch guardrails\n", "utf8");
+  await fs.writeFile(path.join(linked, ".gitignore"), [
+    "dist/",
+    "",
+    "# >>> agentify generated artifacts",
+    ".agentify/",
+    "local-policy.cache",
+    "# <<< agentify generated artifacts",
+    "",
+  ].join("\n"), "utf8");
+
+  await runCli(["link", "--root", linked, "--from", canonical]);
+
+  assert.equal(await fs.readFile(path.join(linked, ".agentify.yaml"), "utf8"), "provider: gemini\nstrict: false\n");
+  assert.equal(await fs.readFile(path.join(linked, ".agentignore"), "utf8"), "branch-only.log\n");
+  assert.equal(await fs.readFile(path.join(linked, ".guardrails"), "utf8"), "# Branch guardrails\n");
+
+  const gitignore = await fs.readFile(path.join(linked, ".gitignore"), "utf8");
+  assert.match(gitignore, /^dist\/$/m);
+  assert.match(gitignore, /^local-policy\.cache$/m);
+  assert.match(gitignore, /^\.agentify\/$/m);
+  assert.match(gitignore, /^AGENTIFY\.md$/m);
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "link.json")));
+});
+
+test("runCli link rejects unrelated git repositories without writing a pointer", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-link-unrelated-"));
+  const canonical = path.join(parent, "canonical");
+  const unrelated = path.join(parent, "unrelated");
+  await fs.mkdir(canonical, { recursive: true });
+  await fs.mkdir(unrelated, { recursive: true });
+  await fs.writeFile(path.join(canonical, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(unrelated, "package.json"), "{}\n", "utf8");
+  await initGitRepo(canonical);
+  await initGitRepo(unrelated);
+  await runCli(["init", "--root", canonical]);
+
+  await assert.rejects(
+    () => runCli(["link", "--root", unrelated, "--from", canonical]),
+    /Cannot link unrelated repositories/,
+  );
+  await assert.rejects(() => fs.access(path.join(unrelated, ".agentify", "link.json")), { code: "ENOENT" });
 });
 
 test("runCli generated artifacts stay out of git status after repo config is committed", async () => {

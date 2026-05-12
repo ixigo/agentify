@@ -643,11 +643,13 @@
       { id: "kb", title: "Knowledge & content", desc: "Notes, articles, compact prose.",
         skills: ["obsidian-vault", "edit-article", "scaffold-exercises", "caveman", "caveman-compress"] },
       { id: "ext", title: "External platforms", desc: "Jira, ADO, GitLab — non-GitHub source of truth.",
-        skills: ["glab-autopilot", "gitlab-triage", "jira", "pr-convention-learner"] }
+        skills: ["ado-autopilot", "azure-devops-triage", "glab-autopilot", "gitlab-triage", "jira", "pr-convention-learner"] }
     ];
 
     const needs = {
+      "ado-autopilot": "<code>az</code>, Azure DevOps extension, org/project defaults",
       "auto-pilot": "git repo, project commands, edit + validation perms",
+      "azure-devops-triage": "<code>az boards</code> access + work item ID/URL",
       "caveman-compress": "text or memory artifact",
       "caveman": "level: lite / full / ultra / wenyan",
       "commit-creator": "git, completed changes, stage + commit perms",
@@ -691,6 +693,20 @@
         helps: "Reduces handholding for routine implementation; keeps changes scoped to repository evidence.",
         invoke: "implement &lt;goal&gt; — agent reads repo, plans, edits, validates, commits.",
         tags: ["autonomous", "validation"] },
+      { name: "ado-autopilot",
+        short: "Azure Boards and Azure Repos orchestration via <code>az</code>.",
+        when: "Azure DevOps work item or PR context should drive execution, review, or PR creation.",
+        why: "ADO work needs org/project/repo detection and auth checks before mutations are safe.",
+        helps: "Resolves work items and PRs, checks CLI context, then hands code changes to worktree automation.",
+        invoke: "ado &lt;work-item|PR-url&gt; — resolves context, builds checklist, routes implementation.",
+        tags: ["ado", "az-cli"] },
+      { name: "azure-devops-triage",
+        short: "Inspect and prepare Azure Boards work items.",
+        when: "ADO work items need field, tag, state, or readiness triage before implementation.",
+        why: "Azure Boards process templates vary, so state changes need conservative recommendations.",
+        helps: "Reads standard System fields, comments, and tags; recommends updates without assuming a template.",
+        invoke: "ado-triage &lt;id|url&gt; — summarizes readiness and recommended changes.",
+        tags: ["ado", "triage"] },
       { name: "caveman-compress",
         short: "Memory compression placeholder. Experimental.",
         when: "Only when experimenting with compacting memory or long notes into terse agent-readable form.",

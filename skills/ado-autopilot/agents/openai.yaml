@@ -1,0 +1,4 @@
+interface:
+  display_name: "ADO Autopilot"
+  short_description: "Orchestrate Azure Boards work items and Azure Repos PRs"
+  default_prompt: "Use $ado-autopilot to validate az Azure DevOps context, resolve the work item or PR, and invoke $worktree-autopilot if code changes are needed."

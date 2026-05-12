@@ -368,6 +368,8 @@ Built-in skill bundles live under the repository-level [`skills/`](../skills/) d
 
 Built-in skills:
 
+- `ado-autopilot` (aliases: `azure-devops-autopilot`, `ado`)
+- `azure-devops-triage` (alias: `ado-triage`)
 - `copy-mode`
 - `copy-pr`
 - `grill-me`
@@ -389,11 +391,22 @@ glab auth status
 glab repo view
 ```
 
+Azure DevOps skills require Azure CLI plus the Azure DevOps extension:
+
+```bash
+command -v az
+az extension show --name azure-devops
+az account show
+az devops configure --list
+```
+
 Examples:
 
 ```bash
 agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
+agentify skill install ado-autopilot --provider codex --scope project
+agentify skill install azure-devops-triage --provider codex --scope project
 ```
 
 Example GitLab issue and merge request requests after installing the skill:

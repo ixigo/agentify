@@ -134,11 +134,13 @@ agentify skill install all --provider codex --scope project
 agentify skill install caveman --provider codex --scope project   # terse output mode
 agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
+agentify skill install ado-autopilot --provider codex --scope project
 ```
 
 GitLab skills require the GitLab CLI: `glab auth status` and `glab repo view`
 should succeed in the target repository before the skill mutates issues or
 merge requests.
+Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
 
 </details>
 
@@ -347,6 +349,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | Command | Description |
 | --- | --- |
 | `init` | Create baseline Agentify artifacts |
+| `link` | Link this git worktree to an existing Agentify project store |
 | `index` | Build the SQLite repository index |
 | `scan` | Alias for `index` |
 | `doc` | Generate docs, metadata, key-file headers |

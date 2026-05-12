@@ -91,13 +91,14 @@ number, title, age, labels, and a one-line body summary.
 Useful read-only commands:
 
 ```bash
-glab issue list --state opened --per-page 100 --output json
-glab issue view <number> --output json
-glab issue note list <number>
+glab issue list --per-page 100 --output json
+glab issue view <number> --comments --output json
 ```
 
-If `glab issue note list` is unavailable in the installed `glab` version, use
-`glab api` for the project's issue notes endpoint and state the fallback used.
+`glab issue list` returns open issues by default; use `--closed` or `--all`
+only when the maintainer asks for those states. If `glab issue view --comments`
+does not return the needed note history, use `glab api` for the project's issue
+notes endpoint and state the fallback used.
 
 ## Workflow: Triage A Specific Issue
 

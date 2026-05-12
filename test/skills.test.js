@@ -69,6 +69,8 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("glab-issues-autopilot").name, "glab-autopilot");
   assert.deepEqual(resolveBuiltinSkill("glab-triage").name, "gitlab-triage");
   assert.deepEqual(resolveBuiltinSkill("gh-issue-killer").name, "issue-killer");
+  assert.deepEqual(resolveBuiltinSkill("azure-devops-autopilot").name, "ado-autopilot");
+  assert.deepEqual(resolveBuiltinSkill("ado-triage").name, "azure-devops-triage");
   assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
 });
 
@@ -173,6 +175,34 @@ test("installBuiltinSkill copies GitLab triage skill bundle into project scope",
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies Azure DevOps skill bundles into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-ado-"));
+  const autopilot = await installBuiltinSkill(root, {
+    name: "azure-devops-autopilot",
+    provider: "codex",
+    scope: "project",
+  });
+  const triage = await installBuiltinSkill(root, {
+    name: "ado-triage",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const autopilotPath = path.join(root, ".codex", "skills", "ado-autopilot", "SKILL.md");
+  const autopilotUiPath = path.join(root, ".codex", "skills", "ado-autopilot", "agents", "openai.yaml");
+  const triagePath = path.join(root, ".codex", "skills", "azure-devops-triage", "SKILL.md");
+  const triageUiPath = path.join(root, ".codex", "skills", "azure-devops-triage", "agents", "openai.yaml");
+
+  assert.equal(autopilot.skill.name, "ado-autopilot");
+  assert.equal(triage.skill.name, "azure-devops-triage");
+  assert.equal(autopilot.results[0].status, "installed");
+  assert.equal(triage.results[0].status, "installed");
+  assert.equal(await exists(autopilotPath), true);
+  assert.equal(await exists(autopilotUiPath), true);
+  assert.equal(await exists(triagePath), true);
+  assert.equal(await exists(triageUiPath), true);
 });
 
 test("installBuiltinSkill copies pr creator skill bundle into project scope", async () => {
