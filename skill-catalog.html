@@ -598,7 +598,7 @@
       <span>scope project</span>
       <span><a href="https://github.com/ixigo/agentify">ixigo/agentify</a></span>
     </div>
-    <p class="req"><b>Prereqs</b>GitHub CLI for issue/PR skills (<code>gh --version</code> → <code>gh auth login</code>). Atlassian CLI for <code>jira</code> (<code>acli jira workitem --help</code>).</p>
+    <p class="req"><b>Prereqs</b>GitHub CLI for issue/PR skills (<code>gh --version</code> → <code>gh auth login</code>). GitLab CLI for GitLab skills (<code>glab auth status</code> → <code>glab repo view</code>). Atlassian CLI for <code>jira</code> (<code>acli jira workitem --help</code>).</p>
   </header>
 
   <main>
@@ -643,7 +643,7 @@
       { id: "kb", title: "Knowledge & content", desc: "Notes, articles, compact prose.",
         skills: ["obsidian-vault", "edit-article", "scaffold-exercises", "caveman", "caveman-compress"] },
       { id: "ext", title: "External platforms", desc: "Jira, ADO, GitLab — non-GitHub source of truth.",
-        skills: ["ado-autopilot", "azure-devops-triage", "jira", "pr-convention-learner"] }
+        skills: ["ado-autopilot", "azure-devops-triage", "glab-autopilot", "gitlab-triage", "jira", "pr-convention-learner"] }
     ];
 
     const needs = {
@@ -659,8 +659,10 @@
       "domain-model": "plan/conversation context, optional CONTEXT.md / ADRs",
       "edit-article": "draft or file path",
       "gh-autopilot": "<code>gh</code> authenticated + repo/issue context",
+      "glab-autopilot": "<code>glab</code> authenticated + repo/issue/MR context",
       "git-guardrails-claude-code": "Claude Code hooks, edit local hook config",
       "github-triage": "<code>gh</code> with read + label + create",
+      "gitlab-triage": "<code>glab</code> with issue read + notes + label perms",
       "grill-me": "rough plan; <code>gh</code> if filing issues",
       "improve-codebase-architecture": "repo read, time to inspect modules + tests",
       "issue-killer": "<code>gh</code>, tmux, worktree support, explicit opt-in",
@@ -768,6 +770,13 @@
         helps: "Uses <code>gh</code> to inspect live state, then routes isolated implementation when needed.",
         invoke: "gh &lt;intent&gt; — e.g. <code>gh fix #42</code> or <code>gh review PR-7</code>.",
         tags: ["github", "gh-cli"] },
+      { name: "glab-autopilot",
+        short: "Issue, MR, review, comment, label flows via <code>glab</code> CLI.",
+        when: "GitLab issue handling, draft MR creation, review comments, labels, or code changes driven by GitLab context.",
+        why: "GitLab work needs authenticated CLI and repo context before mutations are safe.",
+        helps: "Uses <code>glab</code> to inspect live state, then routes isolated implementation when needed.",
+        invoke: "glab &lt;intent&gt; — e.g. <code>glab fix #42</code> or <code>glab review !7</code>.",
+        tags: ["gitlab", "glab-cli"] },
       { name: "git-guardrails-claude-code",
         short: "Claude Code hooks that block dangerous git commands.",
         when: "Repo needs local protection from accidental push, reset, clean, or destructive branch commands.",
@@ -782,6 +791,13 @@
         helps: "Turns rough reports into labeled, actionable GitHub work items.",
         invoke: "triage — agent walks open issues and applies labels + state.",
         tags: ["github", "triage"] },
+      { name: "gitlab-triage",
+        short: "Triage GitLab issues via conservative labels and notes.",
+        when: "Incoming GitLab issues need classification, prior triage review, or prep for an agent or human.",
+        why: "GitLab projects often have custom labels, so state changes need careful mapping.",
+        helps: "Inspects issues and notes, recommends state/category labels, and applies approved changes.",
+        invoke: "gitlab-triage #42 — reads issue + notes, recommends labels, posts approved notes.",
+        tags: ["gitlab", "triage"] },
       { name: "grill-me",
         short: "Interrogate a plan until it becomes executable.",
         when: "Feature, design, or refactor plan has hidden assumptions or weak requirements.",

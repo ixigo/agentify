@@ -1,0 +1,4 @@
+interface:
+  display_name: "GLab Autopilot"
+  short_description: "Orchestrate GitLab issues, merge requests, reviews, and task execution"
+  default_prompt: "Use $glab-autopilot to resolve the GitLab task, perform the necessary glab operations, and invoke $worktree-autopilot if code changes are needed."

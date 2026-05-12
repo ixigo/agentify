@@ -47,6 +47,8 @@
 
 <span class="c"># install a single skill at project scope</span>
 agentify skill install caveman --provider codex --scope project
+agentify skill install glab-autopilot --provider codex --scope project
+agentify skill install ado-autopilot --provider codex --scope project
 
 <span class="c"># install everything for a provider</span>
 agentify skill install all --provider claude --scope user
@@ -79,6 +81,8 @@ agentify skill install all --provider codex --dry-run</pre>
             <p><strong>Flags:</strong> <code>--provider &lt;value&gt;</code>, <code>--scope &lt;project|user&gt;</code> (default project), <code>--force</code>, <code>--dry-run</code>, <code>--root</code>, <code>--json</code>.</p>
             <p><strong>Writes:</strong> skill files into <code>.agentify/skills/&lt;scope&gt;/&lt;provider&gt;/</code> for project scope, or the user-level skills directory.</p>
             <span class="cmd">agentify skill install all --provider codex --scope project</span>
+            <span class="cmd">agentify skill install gitlab-triage --provider codex --scope project</span>
+            <span class="cmd">agentify skill install azure-devops-triage --provider codex --scope project</span>
           </div>
         </div>
       </div>
@@ -97,6 +101,14 @@ agentify skill install all --provider codex --dry-run</pre>
           <div class="campaign-row">
             <div class="key">provider</div>
             <p>Skills are templated per-provider. Pass <code>--provider</code> to target one provider or rely on <code>defaultProvider</code> from <code>.agentify.yaml</code>.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">GitLab</div>
+            <p>Use <code>glab-autopilot</code> and <code>gitlab-triage</code> for GitLab issue and MR workflows. Verify <code>glab auth status</code> and <code>glab repo view</code> in the target repo first.</p>
+          </div>
+          <div class="campaign-row">
+            <div class="key">Azure</div>
+            <p>Use <code>ado-autopilot</code> and <code>azure-devops-triage</code> for Azure Boards and Azure Repos workflows. Verify <code>az extension show --name azure-devops</code>, <code>az account show</code>, and <code>az devops configure --list</code>.</p>
           </div>
           <div class="campaign-row">
             <div class="key">force</div>

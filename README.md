@@ -132,9 +132,14 @@ Skills are opt-in. Install only if you need them:
 ```bash
 agentify skill install all --provider codex --scope project
 agentify skill install caveman --provider codex --scope project   # terse output mode
+agentify skill install glab-autopilot --provider codex --scope project
+agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
 ```
 
+GitLab skills require the GitLab CLI: `glab auth status` and `glab repo view`
+should succeed in the target repository before the skill mutates issues or
+merge requests.
 Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
 
 </details>
@@ -247,6 +252,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Start a durable session | `agentify sess run --name "<stream>"` |
 | Cross-agent handoff | `agentify handoff --session <id> "next task"` |
 | Install built-in skills | `agentify skill install all --provider codex --scope project` |
+| Install GitLab issue/MR skill | `agentify skill install glab-autopilot --provider codex --scope project` |
 | Sync repo files after upgrade | `agentify sync` |
 
 > **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Provider-backed `run`, `sess`, and doc-generation subprocesses are sanitized too. Configure `tests.env.*` or `providerEnv.*` in `.agentify.yaml` when a command needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).

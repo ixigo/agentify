@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitLab Triage"
+  short_description: "Triage GitLab issues with glab labels, notes, and conservative state transitions"
+  default_prompt: "Use $gitlab-triage to inspect GitLab issues with glab, recommend category and state labels, and apply only the maintainer-approved triage action."
