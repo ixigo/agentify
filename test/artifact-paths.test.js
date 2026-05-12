@@ -11,7 +11,7 @@ import {
   resolveLocalAgentifyPath,
   resolveSharedAgentifyPath,
 } from "../src/core/artifact-paths.js";
-import { closeIndexDatabase, getIndexDbPath, openIndexDatabase } from "../src/core/db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, getIndexSnapshot, openIndexDatabase } from "../src/core/db/connection.js";
 import { acquireLock } from "../src/core/lock.js";
 import { forkSession } from "../src/core/session.js";
 
@@ -46,7 +46,8 @@ test("linked artifact paths share durable store and keep volatile state local", 
   await writeLink(linked, sharedStore);
 
   assert.equal(getSharedAgentifyRoot(linked), sharedStore);
-  assert.equal(getIndexDbPath(linked), path.join(sharedStore, "index.db"));
+  assert.equal(getIndexDbPath(linked), getIndexSnapshot(linked).path);
+  assert.equal(getIndexDbPath(linked).startsWith(path.join(sharedStore, "indexes")), true);
   assert.equal(resolveAgentifyPath(linked, "cache", "manifest.json"), path.join(sharedStore, "cache", "manifest.json"));
   assert.equal(resolveAgentifyPath(linked, "modules", "auth.json"), path.join(sharedStore, "modules", "auth.json"));
   assert.equal(resolveAgentifyPath(linked, ".agentify"), path.join(linked, ".agentify"));
@@ -74,7 +75,7 @@ test("linked index writes go to the shared store", async () => {
     closeIndexDatabase(db);
   }
 
-  assert.equal(await exists(path.join(sharedStore, "index.db")), true);
+  assert.equal(await exists(getIndexSnapshot(linked).path), true);
   assert.equal(await exists(path.join(linked, ".agentify", "index.db")), false);
 });
 
