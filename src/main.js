@@ -43,6 +43,11 @@ import {
 } from "./core/context-mode.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
 
+async function ensureLinkTargetPolicy(root, config) {
+  await writeDefaultConfig(root, config, { dryRun: config.dryRun });
+  await ensureBaselineArtifacts(root, config);
+}
+
 function parseValue(raw) {
   if (raw === "true") {
     return true;
@@ -560,7 +565,7 @@ export async function runCli(argv, runtime = {}) {
         const result = await linkProject(root, {
           from: args.from,
           dryRun: config.dryRun,
-          prepareTarget: (targetRoot) => ensureBaselineArtifacts(targetRoot, config),
+          prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
