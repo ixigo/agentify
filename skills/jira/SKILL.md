@@ -25,7 +25,18 @@ Run these before a workflow if Jira access or command shape is uncertain:
 command -v acli
 acli jira --help
 acli jira workitem --help
+acli jira auth status
 ```
+
+If `acli` is not installed when the Jira skill is invoked, do not continue with Jira operations. Tell the user to install and authenticate:
+
+```bash
+brew tap atlassian/homebrew-acli
+brew install acli
+acli jira auth login --web
+```
+
+If `acli` is installed but unauthenticated, ask the user to run `acli jira auth login --web` or authenticate with their site/email/token as shown by `acli jira auth login --help`.
 
 When a read/search command is needed, inspect available subcommands first because the exact `acli` surface may differ by version:
 
@@ -36,6 +47,22 @@ acli jira workitem search --help
 ```
 
 Load `references/acli-workitem.md` when exact create/edit/transition examples are needed.
+
+## Jira URLs
+
+After every successful Jira operation, return the direct Jira URL for each affected work item so the user can open it immediately. Resolve the site from `acli jira auth status` and construct:
+
+```text
+https://<site>/browse/<KEY>
+```
+
+Example: if auth status reports `Site: ixigodev.atlassian.net`, key `ABC-123` should be returned as `https://ixigodev.atlassian.net/browse/ABC-123`.
+
+For create operations, parse the created key from `acli` output or run a narrow follow-up lookup only if needed. For edit, transition, view, comment, and search/list workflows, use the explicit keys already in the command/result. If the operation affects multiple keys, return one URL per key. If the site cannot be resolved, say that the Jira URL could not be constructed and include the key plus the command to open it:
+
+```bash
+acli jira workitem view KEY-123 --web
+```
 
 ## Daily Assigned Work
 

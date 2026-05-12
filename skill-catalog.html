@@ -595,7 +595,6 @@
     <p class="tag">A terse index of reusable agent skills for daily engineering work — planning, repo context, issues, PRs, validation, handoffs.</p>
     <div class="meta">
       <span>install <code>codex</code> · <code>claude-code</code></span>
-      <span>scope project</span>
       <span><a href="https://github.com/ixigo/agentify">ixigo/agentify</a></span>
     </div>
     <p class="req"><b>Prereqs</b>GitHub CLI for issue/PR skills (<code>gh --version</code> → <code>gh auth login</code>). GitLab CLI for GitLab skills (<code>glab auth status</code> → <code>glab repo view</code>). Atlassian CLI for <code>jira</code> (<code>acli jira workitem --help</code>).</p>
@@ -948,7 +947,7 @@
 
     function skillRow(s) {
       const need = needs[s.name] || "files, creds, local tools as required";
-      const cmd = `gh skill install ixigo/agentify skills/${s.name} --agent codex --scope project`;
+      const cmd = `gh skill install ixigo/agentify skills/${s.name} --agent codex`;
       const tags = s.tags.map(t => `<span class="t">${t}</span>`).join("");
       const blob = [s.name, s.short, need, cmd, s.when, s.why, s.helps, s.invoke, s.tags.join(" ")].join(" ").toLowerCase();
       return `
