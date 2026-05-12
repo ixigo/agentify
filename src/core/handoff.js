@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { buildExecutionPlan } from "./planner.js";
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, openIndexDatabase } from "./db/connection.js";
 import { loadSymbols } from "./db/structural-store.js";
 import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
@@ -123,7 +123,7 @@ function summarizeTests(plan) {
 }
 
 async function loadTouchedSymbolNeighborhood(root, touchedFiles) {
-  if (touchedFiles.length === 0 || !(await exists(path.join(root, ".agentify", "index.db")))) {
+  if (touchedFiles.length === 0 || !(await exists(getIndexDbPath(root)))) {
     return [];
   }
 

@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { resolveLocalAgentifyPath } from "./artifact-paths.js";
 import { writeJson, writeText } from "./fs.js";
 import { redactSensitiveText } from "./session-memory.js";
 import * as ui from "./ui.js";
@@ -1268,7 +1269,7 @@ export function createRunReporter(root) {
       const htmlPath = path.join(root, "agentify-report.html");
       let telemetryJsonPath = null;
       if (summary.execution) {
-        telemetryJsonPath = path.join(root, ".agentify", "runs", `${summary.execution.run_id}-execution-telemetry.json`);
+        telemetryJsonPath = resolveLocalAgentifyPath(root, "runs", `${summary.execution.run_id}-execution-telemetry.json`);
         await writeJson(telemetryJsonPath, summary.execution);
       }
       await writeText(outputPath, events.join(""));

@@ -4,7 +4,7 @@ import path from "node:path";
 import { getChangedFiles, getFileContentsAtHead, getHeadCommit } from "./git.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, getIndexDbPath, getIndexDbReference, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { loadModules } from "./db/structural-store.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
@@ -80,13 +80,14 @@ export function validateHeaderOnlyChange(before, after, filePath, headerWindow =
 
 async function validateFreshness(root, failures, options = {}) {
   const targetRoot = options.artifactRoot || root;
-  const indexPath = path.join(targetRoot, ".agentify", "index.db");
+  const indexPath = getIndexDbPath(targetRoot);
+  const indexReference = getIndexDbReference(targetRoot);
   if (!(await exists(indexPath))) {
     failures.push(
       createFailure(
         FAILURE_CATEGORIES.FRESHNESS_STALE,
-        ".agentify/index.db",
-        "missing .agentify/index.db"
+        indexReference,
+        `missing ${indexReference}`
       )
     );
     return;
@@ -99,7 +100,7 @@ async function validateFreshness(root, failures, options = {}) {
       failures.push(
         createFailure(
           FAILURE_CATEGORIES.FRESHNESS_STALE,
-          ".agentify/index.db",
+          indexReference,
           `stale index head_commit: expected ${headCommit}, found ${meta.head_commit || "unknown"}`
         )
       );
@@ -150,7 +151,7 @@ async function validateFreshness(root, failures, options = {}) {
           failures.push(
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
-              ".agentify/index.db",
+              indexReference,
               `semantic project ${projectInfo.project_id} is ${projectInfo.status}`
             )
           );
@@ -159,7 +160,7 @@ async function validateFreshness(root, failures, options = {}) {
           failures.push(
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
-              ".agentify/index.db",
+              indexReference,
               `semantic project ${projectInfo.project_id} has partial coverage`
             )
           );
