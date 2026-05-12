@@ -368,6 +368,8 @@ Built-in skill bundles live under the repository-level [`skills/`](../skills/) d
 
 Built-in skills:
 
+- `ado-autopilot` (aliases: `azure-devops-autopilot`, `ado`)
+- `azure-devops-triage` (alias: `ado-triage`)
 - `copy-mode`
 - `copy-pr`
 - `grill-me`
@@ -377,6 +379,22 @@ Built-in skills:
 - `worktree-autopilot` (aliases: `worktree-verifier`, `god-mode`)
 - `pr-creator`
 - `commit-creator`
+
+Azure DevOps skills require Azure CLI plus the Azure DevOps extension:
+
+```bash
+command -v az
+az extension show --name azure-devops
+az account show
+az devops configure --list
+```
+
+Examples:
+
+```bash
+agentify skill install ado-autopilot --provider codex --scope project
+agentify skill install azure-devops-triage --provider codex --scope project
+```
 
 Use `--scope project` when you want the repository to carry its own provider skill setup under directories like `.codex/skills/`. Use `--scope user` when you want skills installed globally for your local account.
 

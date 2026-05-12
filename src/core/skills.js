@@ -12,10 +12,22 @@ export const SKILL_INSTALL_PROVIDERS = SKILL_INSTALL_PROVIDER_NAMES;
 
 const BUILTIN_SKILLS = [
   {
+    name: "ado-autopilot",
+    aliases: ["azure-devops-autopilot", "ado"],
+    description:
+      "Orchestrate Azure Boards work items and Azure Repos PR workflows via az CLI, and hand implementation work off to worktree-autopilot after context is resolved.",
+  },
+  {
     name: "auto-pilot",
     aliases: [],
     description:
       "Execute a task end-to-end with minimal user interaction by deriving requirements from the repository first, then implementing, validating, and committing autonomously.",
+  },
+  {
+    name: "azure-devops-triage",
+    aliases: ["ado-triage"],
+    description:
+      "Triage Azure Boards work items by inspecting standard System fields, comments, states, and tags, then recommending conservative updates without assuming a process template.",
   },
   {
     name: "caveman",

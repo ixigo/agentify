@@ -1,0 +1,4 @@
+interface:
+  display_name: "Azure DevOps Triage"
+  short_description: "Inspect and prepare Azure Boards work items safely"
+  default_prompt: "Use $azure-devops-triage to inspect the Azure Boards work item, summarize state and tags, and recommend conservative updates without mutating unless I ask."
