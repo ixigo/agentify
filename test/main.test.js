@@ -1124,7 +1124,7 @@ test("runCli supports skill install all for codex project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-all-codex-"));
   await runCli(["skill", "install", "all", "--root", root, "--provider", "codex", "--scope", "project"]);
 
-  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-autopilot", "copy-mode", "worktree-autopilot", "pr-creator", "commit-creator"]) {
+  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-autopilot", "ado-autopilot", "azure-devops-triage", "copy-mode", "worktree-autopilot", "pr-creator", "commit-creator"]) {
     await assert.doesNotReject(() =>
       fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
     );

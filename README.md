@@ -132,7 +132,10 @@ Skills are opt-in. Install only if you need them:
 ```bash
 agentify skill install all --provider codex --scope project
 agentify skill install caveman --provider codex --scope project   # terse output mode
+agentify skill install ado-autopilot --provider codex --scope project
 ```
+
+Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
 
 </details>
 
