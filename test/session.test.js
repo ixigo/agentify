@@ -281,6 +281,33 @@ test("loadAutomaticSessionMemory searches older sessions when the direct parent 
   }
 });
 
+test("loadAutomaticRunMemory rejects symlinked session transcripts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-symlink-transcript-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-outside-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const session = await forkSession(root, config, { name: "symlinked-transcript" });
+  const paths = getSessionArtifactPaths(root, session.sessionId);
+  await fs.writeFile(path.join(outside, "transcript.md"), [
+    "# Agentify Session Run",
+    "",
+    "> Current task",
+    "outside",
+    "",
+    "> Provider response",
+    "outside secret",
+    "",
+  ].join("\n"), "utf8");
+  await fs.symlink(path.join(outside, "transcript.md"), paths.transcriptPath);
+
+  await assert.rejects(
+    loadAutomaticRunMemory(root, "outside secret", config),
+    /Refusing to follow symlinked artifact path: .*transcript\.md/,
+  );
+});
+
 test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is available", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-memory-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");

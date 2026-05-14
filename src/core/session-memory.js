@@ -7,7 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
-import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
+import { appendText, assertNoSymlinkPath, ensureDir, exists, readJson, readText, relative, statFile, writeJson, writeText } from "./fs.js";
 
 const execFileAsync = promisify(execFile);
 const SESSION_LOCK_STALE_MS = 300000;
@@ -377,6 +377,7 @@ async function listSessionTranscripts(root) {
   if (!(await exists(sessionsDir))) {
     return [];
   }
+  await assertNoSymlinkPath(sessionsDir);
 
   const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
   const transcripts = [];
@@ -389,7 +390,7 @@ async function listSessionTranscripts(root) {
     if (!(await exists(transcriptPath))) {
       continue;
     }
-    const stat = await fs.stat(transcriptPath);
+    const stat = await statFile(transcriptPath);
     transcripts.push({
       sessionId: entry.name,
       transcriptPath,
@@ -407,6 +408,7 @@ async function listStructuredSessionTurns(root) {
   if (!(await exists(sessionsDir))) {
     return [];
   }
+  await assertNoSymlinkPath(sessionsDir);
 
   const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
   const results = [];
@@ -419,7 +421,7 @@ async function listStructuredSessionTurns(root) {
     if (!(await exists(turnsPath))) {
       continue;
     }
-    const stat = await fs.stat(turnsPath);
+    const stat = await statFile(turnsPath);
     results.push({
       sessionId: entry.name,
       turnsPath,
@@ -457,7 +459,7 @@ async function writeMemPalaceSessionExports(exportDir, transcripts) {
   await ensureDir(exportDir);
 
   for (const item of transcripts) {
-    const transcript = await fs.readFile(item.transcriptPath, "utf8");
+    const transcript = await readText(item.transcriptPath);
     const exportPath = path.join(exportDir, `${item.sessionId}.md`);
     await writeText(exportPath, [
       "# Agentify Transcript Export",
@@ -477,7 +479,7 @@ async function syncMemPalaceSessionExports(root, transcripts) {
   let cachedState = null;
   if (await exists(syncStatePath)) {
     try {
-      cachedState = JSON.parse(await fs.readFile(syncStatePath, "utf8"));
+      cachedState = JSON.parse(await readText(syncStatePath));
     } catch {
       cachedState = null;
     }
@@ -512,6 +514,7 @@ async function movePathIfExists(from, to) {
     return false;
   }
   await ensureDir(path.dirname(to));
+  await assertNoSymlinkPath(to);
   await fs.rename(from, to);
   return true;
 }
@@ -757,7 +760,7 @@ async function createTranscriptSearchBackend(root, query, config, sharedInventor
       const matches = [];
 
       for (const item of transcripts) {
-        const transcript = await fs.readFile(item.transcriptPath, "utf8");
+        const transcript = await readText(item.transcriptPath);
         const passages = buildPassages(parseTranscriptTurns(transcript));
         for (const passage of passages) {
           const score = scorePassage(query, tokens, passage);
@@ -883,7 +886,7 @@ async function createLineageBackend(root, manifest, config) {
         let turns = [];
         let sourcePath = null;
         if (await exists(transcriptPath)) {
-          const transcript = await fs.readFile(transcriptPath, "utf8");
+          const transcript = await readText(transcriptPath);
           turns = parseTranscriptTurns(transcript);
           sourcePath = transcriptPath;
         } else if (await exists(turnsPath)) {
@@ -1006,6 +1009,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
     };
 
     try {
+      await assertNoSymlinkPath(paths.lockPath);
       const handle = await fs.open(paths.lockPath, "wx");
       try {
         await handle.writeFile(JSON.stringify(lockData));
@@ -1021,7 +1025,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
 
     let existing = null;
     try {
-      existing = JSON.parse(await fs.readFile(paths.lockPath, "utf8"));
+      existing = JSON.parse(await readText(paths.lockPath));
     } catch (error) {
       if (error.code === "ENOENT") {
         continue;
@@ -1066,7 +1070,7 @@ async function safeFileBytes(filePath) {
     return 0;
   }
   try {
-    const stat = await fs.stat(filePath);
+    const stat = await statFile(filePath);
     return stat.isFile() ? stat.size : 0;
   } catch {
     return 0;
@@ -1115,7 +1119,7 @@ async function readJsonlTurns(targetPath) {
   if (!(await exists(targetPath))) {
     return [];
   }
-  const raw = await fs.readFile(targetPath, "utf8");
+  const raw = await readText(targetPath);
   const turns = [];
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -1150,7 +1154,7 @@ async function readStructuredTurnsAsText(turnsPath) {
 
 async function appendTurnsRecord(turnsPath, record) {
   await ensureDir(path.dirname(turnsPath));
-  await fs.appendFile(turnsPath, `${JSON.stringify(redactSensitiveValue(record))}\n`, "utf8");
+  await appendText(turnsPath, `${JSON.stringify(redactSensitiveValue(record))}\n`);
 }
 
 function clampRunHistoryEntry(entry, summaryMaxBytes) {
@@ -1191,7 +1195,7 @@ async function readJsonLines(filePath) {
   if (!(await exists(filePath))) {
     return [];
   }
-  const raw = await fs.readFile(filePath, "utf8");
+  const raw = await readText(filePath);
   const rows = [];
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -1395,7 +1399,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
         ""
       );
 
-      await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
+      await appendText(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`);
     }
     return { startedAt, paths, emitMarkdown, sessionArtifactLock: lock };
   } catch (error) {
@@ -1468,7 +1472,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
         `Ended: ${endedAt}`,
         ""
       ].filter(Boolean).join("\n");
-      await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+      await appendText(prepared.paths.transcriptPath, transcriptTail);
     }
 
     const managedContext = await buildEstimatedManagedContext(root, sessionRecord, prepared.paths, config);
@@ -1501,7 +1505,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       interactive_capture_error: outcome?.interactiveCaptureError || null,
       managed_context: managedContext,
     };
-    await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
+    await appendText(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`);
 
     await appendRunSummaryUnlocked(root, sessionRecord.sessionId, {
       started_at: prepared.startedAt,

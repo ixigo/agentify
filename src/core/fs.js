@@ -32,6 +32,16 @@ const HARD_EXCLUDES = [
 ];
 
 const ignorePatternCache = new Map();
+const ARTIFACT_PATH_MARKERS = new Set([
+  ".agentify",
+  ".current_session",
+  "docs",
+  "AGENTIFY.md",
+  "agentify-report.html",
+  "output.txt",
+  ".agentignore",
+  ".guardrails",
+]);
 
 async function loadAgentignore(root) {
   const ignorePath = path.join(root, ".agentignore");
@@ -144,16 +154,91 @@ export async function exists(targetPath) {
   }
 }
 
+export async function assertNoSymlinkPath(targetPath) {
+  const resolved = path.resolve(targetPath);
+  const { root } = path.parse(resolved);
+  const parts = resolved.slice(root.length).split(path.sep).filter(Boolean);
+  let startIndex = await findRepoRelativeStartIndex(resolved, root, parts);
+  if (startIndex === -1) {
+    startIndex = parts.findIndex((part) => ARTIFACT_PATH_MARKERS.has(part));
+  }
+  if (startIndex === -1) {
+    return;
+  }
+
+  let current = path.join(root, ...parts.slice(0, startIndex));
+
+  for (const part of parts.slice(startIndex)) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = await fs.lstat(current);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Refusing to follow symlinked artifact path: ${current}`);
+    }
+  }
+}
+
+async function findRepoRelativeStartIndex(resolved, root, parts) {
+  let current = resolved;
+  try {
+    const stat = await fs.lstat(current);
+    if (!stat.isDirectory()) {
+      current = path.dirname(current);
+    }
+  } catch {
+    current = path.dirname(current);
+  }
+
+  let startIndex = -1;
+  while (current && current !== root) {
+    if (await hasRepoBoundaryMarker(current)) {
+      const relativeToBoundary = path.relative(current, resolved);
+      if (!relativeToBoundary || relativeToBoundary.startsWith("..") || path.isAbsolute(relativeToBoundary)) {
+        return startIndex;
+      }
+      const boundaryParts = current.slice(root.length).split(path.sep).filter(Boolean);
+      startIndex = Math.min(parts.length, boundaryParts.length + 1);
+    }
+    current = path.dirname(current);
+  }
+
+  return startIndex;
+}
+
+async function hasRepoBoundaryMarker(directory) {
+  for (const marker of [".git", "package.json"]) {
+    try {
+      await fs.lstat(path.join(directory, marker));
+      return true;
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+        throw error;
+      }
+    }
+  }
+  return false;
+}
+
 export async function ensureDir(targetPath) {
+  await assertNoSymlinkPath(targetPath);
   await fs.mkdir(targetPath, { recursive: true });
 }
 
 export async function readJson(targetPath) {
+  await assertNoSymlinkPath(targetPath);
   return JSON.parse(await fs.readFile(targetPath, "utf8"));
 }
 
 export async function writeJson(targetPath, value) {
   await ensureDir(path.dirname(targetPath));
+  await assertNoSymlinkPath(targetPath);
   const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
   const content = `${JSON.stringify(value, null, 2)}\n`;
   await fs.writeFile(tmp, content, "utf8");
@@ -210,11 +295,24 @@ export function relative(root, targetPath) {
 
 export async function writeText(targetPath, text) {
   await ensureDir(path.dirname(targetPath));
+  await assertNoSymlinkPath(targetPath);
   const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
   await fs.writeFile(tmp, text, "utf8");
   await fs.rename(tmp, targetPath);
 }
 
+export async function appendText(targetPath, text) {
+  await ensureDir(path.dirname(targetPath));
+  await assertNoSymlinkPath(targetPath);
+  await fs.appendFile(targetPath, text, "utf8");
+}
+
 export async function readText(targetPath) {
+  await assertNoSymlinkPath(targetPath);
   return fs.readFile(targetPath, "utf8");
+}
+
+export async function statFile(targetPath) {
+  await assertNoSymlinkPath(targetPath);
+  return fs.stat(targetPath);
 }

@@ -5,7 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { resetIgnoreCache, walkFiles, relative } from "../src/core/fs.js";
+import {
+  appendText,
+  ensureDir,
+  readJson,
+  readText,
+  relative,
+  resetIgnoreCache,
+  walkFiles,
+  writeJson,
+  writeText,
+} from "../src/core/fs.js";
 
 async function runGit(root, args) {
   await new Promise((resolve, reject) => {
@@ -153,4 +163,69 @@ test("walkFiles excludes Agentify runtime artifacts even when ignore rules are a
   const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();
 
   assert.deepEqual(files, ["src/index.js"]);
+});
+
+test("filesystem helpers reject symlinked artifact directories and files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-symlink-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-outside-"));
+
+  await fs.symlink(outside, path.join(root, "docs"), "dir");
+  await assert.rejects(
+    ensureDir(path.join(root, "docs", "modules")),
+    /Refusing to follow symlinked artifact path: .*docs/,
+  );
+  await assert.rejects(
+    writeText(path.join(root, "docs", "repo-map.md"), "# Repo Map\n"),
+    /Refusing to follow symlinked artifact path: .*docs/,
+  );
+  await assert.rejects(
+    writeJson(path.join(root, "docs", "repo-map.json"), { ok: true }),
+    /Refusing to follow symlinked artifact path: .*docs/,
+  );
+  assert.equal(await fs.access(path.join(outside, "repo-map.md")).then(() => true, () => false), false);
+
+  await fs.rm(path.join(root, "docs"), { force: true });
+  await fs.mkdir(path.join(root, ".agentify", "session", "sess_safe"), { recursive: true });
+  await fs.writeFile(path.join(outside, "transcript.md"), "outside secret\n", "utf8");
+  await fs.symlink(
+    path.join(outside, "transcript.md"),
+    path.join(root, ".agentify", "session", "sess_safe", "transcript.md"),
+  );
+  await assert.rejects(
+    readText(path.join(root, ".agentify", "session", "sess_safe", "transcript.md")),
+    /Refusing to follow symlinked artifact path: .*transcript\.md/,
+  );
+  await assert.rejects(
+    appendText(path.join(root, ".agentify", "session", "sess_safe", "transcript.md"), "new\n"),
+    /Refusing to follow symlinked artifact path: .*transcript\.md/,
+  );
+  assert.equal(await fs.readFile(path.join(outside, "transcript.md"), "utf8"), "outside secret\n");
+
+  await fs.writeFile(path.join(outside, "context.json"), "{\"secret\":true}\n", "utf8");
+  await fs.symlink(
+    path.join(outside, "context.json"),
+    path.join(root, ".agentify", "session", "sess_safe", "context.json"),
+  );
+  await assert.rejects(
+    readJson(path.join(root, ".agentify", "session", "sess_safe", "context.json")),
+    /Refusing to follow symlinked artifact path: .*context\.json/,
+  );
+
+  await fs.writeFile(path.join(outside, "AGENTIFY.md"), "outside guide\n", "utf8");
+  await fs.symlink(path.join(outside, "AGENTIFY.md"), path.join(root, "AGENTIFY.md"));
+  await assert.rejects(
+    writeText(path.join(root, "AGENTIFY.md"), "# AGENTIFY.md\n"),
+    /Refusing to follow symlinked artifact path: .*AGENTIFY\.md/,
+  );
+  assert.equal(await fs.readFile(path.join(outside, "AGENTIFY.md"), "utf8"), "outside guide\n");
+
+  await fs.rm(path.join(root, "AGENTIFY.md"), { force: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "packages"), { recursive: true });
+  await fs.mkdir(path.join(outside, "module"), { recursive: true });
+  await fs.symlink(path.join(outside, "module"), path.join(root, "packages", "app"), "dir");
+  await assert.rejects(
+    writeText(path.join(root, "packages", "app", "AGENTIFY.md"), "# Module\n"),
+    /Refusing to follow symlinked artifact path: .*app/,
+  );
 });
