@@ -134,6 +134,22 @@ test("walkFiles treats unreadable .agentignore as an empty ignore list", async (
   assert.deepEqual(files, ["visible.js"]);
 });
 
+test("walkFiles treats .agentignore regex metacharacters as literal text", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-metachar-"));
+  await fs.writeFile(path.join(root, ".agentignore"), "[abc\nliteral (draft)+?.js\n*.log\nsrc/**\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "[abc"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "literal (draft)+?.js"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "debug.log"), "ignored\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "hidden.js"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "visible.js"), "export const visible = true;\n", "utf8");
+
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  assert.deepEqual(files.sort(), [".agentignore", "visible.js"]);
+});
+
 test("walkFiles excludes Agentify runtime artifacts even when ignore rules are absent", async () => {
   resetIgnoreCache();
 

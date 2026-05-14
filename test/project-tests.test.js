@@ -101,6 +101,19 @@ test("detectTestCommand prefers pytest when tests directory is the only Python t
   });
 });
 
+test("detectTestCommand tolerates malformed .agentignore metacharacters during file discovery", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-agentignore-metachar-"));
+  await fs.writeFile(path.join(root, ".agentignore"), "[abc\n", "utf8");
+  await fs.writeFile(path.join(root, "example_test.py"), "def test_example():\n    assert True\n");
+
+  const result = await detectTestCommand(root);
+
+  assert.deepEqual(result, {
+    command: process.platform === "win32" ? "python" : "python3",
+    args: ["-m", "pytest"],
+  });
+});
+
 test("detectTestCommand uses Windows Gradle wrapper only when gradlew.bat exists", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-gradle-win-"));
   await fs.writeFile(path.join(root, "gradlew"), "");
