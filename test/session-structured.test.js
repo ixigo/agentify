@@ -216,6 +216,35 @@ test("prepareSessionMemoryRun rejects a concurrent same-session run while the fi
   assert.match(context.rolling_summary, /first task/);
 });
 
+test("prepareSessionMemoryRun stale holder release does not remove a reclaimed successor lock", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-stale-release-"));
+  const sessionId = "sess_stale_release";
+  const config = { session: { emitMarkdownArtifacts: false } };
+  const paths = getSessionArtifactPaths(root, sessionId);
+
+  const stalePrepared = await prepareSessionMemoryRun(root, createSessionRecord(sessionId, "first task"), config);
+  const stalePayload = JSON.parse(await fs.readFile(paths.lockPath, "utf8"));
+  await fs.writeFile(
+    paths.lockPath,
+    JSON.stringify({
+      ...stalePayload,
+      host: "stale-host-for-test",
+      acquired_at: Date.now() - 301000,
+    }),
+    "utf8",
+  );
+
+  const replacementPrepared = await prepareSessionMemoryRun(root, createSessionRecord(sessionId, "second task"), config);
+  await stalePrepared.sessionArtifactLock.release();
+
+  const current = JSON.parse(await fs.readFile(paths.lockPath, "utf8"));
+  assert.equal(current.operation, "session-run");
+  assert.notEqual(current.owner_id, stalePayload.owner_id);
+
+  await replacementPrepared.sessionArtifactLock.release();
+  assert.equal(await fileExists(paths.lockPath), false);
+});
+
 test("forkSession inherits run_history and rolling_summary from parent", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-inherit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");

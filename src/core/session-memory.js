@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
 import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
+import { canReclaimLock, createLockData, unlinkLockIfOwned } from "./lock-file.js";
 
 const execFileAsync = promisify(execFile);
 const SESSION_LOCK_STALE_MS = 300000;
@@ -963,31 +963,6 @@ export function getSessionArtifactPaths(root, sessionId) {
   };
 }
 
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
-
-function canReclaimSessionLock(existing) {
-  if (!existing || typeof existing.acquired_at !== "number") {
-    return false;
-  }
-
-  if (Date.now() - existing.acquired_at <= SESSION_LOCK_STALE_MS) {
-    return false;
-  }
-
-  return !(existing.host === os.hostname() && isProcessAlive(existing.pid));
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -998,12 +973,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
   const deadline = Date.now() + waitMs;
 
   for (;;) {
-    const lockData = {
-      pid: process.pid,
-      operation,
-      acquired_at: Date.now(),
-      host: os.hostname(),
-    };
+    const lockData = createLockData(operation);
 
     try {
       const handle = await fs.open(paths.lockPath, "wx");
@@ -1012,7 +982,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
       } finally {
         await handle.close();
       }
-      return { release: () => fs.unlink(paths.lockPath).catch(() => {}) };
+      return { release: () => unlinkLockIfOwned(paths.lockPath, lockData) };
     } catch (error) {
       if (error.code !== "EEXIST") {
         throw error;
@@ -1033,12 +1003,8 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
       continue;
     }
 
-    if (canReclaimSessionLock(existing)) {
-      await fs.unlink(paths.lockPath).catch((error) => {
-        if (error.code !== "ENOENT") {
-          throw error;
-        }
-      });
+    if (canReclaimLock(existing, SESSION_LOCK_STALE_MS)) {
+      await unlinkLockIfOwned(paths.lockPath, existing);
       continue;
     }
 
