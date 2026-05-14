@@ -7,7 +7,21 @@ import path from "node:path";
 import { createRunReporter } from "../src/core/run-report.js";
 import { setSilent } from "../src/core/ui.js";
 
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
 test("createRunReporter persists output and HTML report", async (t) => {
+  if (process.platform !== "win32") {
+    withUmask(t, 0o000);
+  }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-run-report-"));
   const sentinelPrompt = "AGENTIFY_SENTINEL_PROMPT_SHOULD_NOT_PERSIST";
   const previousSilent = false;
@@ -107,6 +121,12 @@ test("createRunReporter persists output and HTML report", async (t) => {
   assert.doesNotMatch(telemetryJson, new RegExp(sentinelPrompt));
   assert.equal(telemetry.capture.transcript_available, true);
   assert.deepEqual(telemetry.changed_paths, ["src/core/exec.js", "src/core/run-report.js"]);
+  if (process.platform !== "win32") {
+    assert.equal(await modeOf(path.join(root, "output.txt")), 0o600);
+    assert.equal(await modeOf(path.join(root, "agentify-report.html")), 0o600);
+    assert.equal(await modeOf(path.join(root, ".agentify", "runs")), 0o700);
+    assert.equal(await modeOf(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json")), 0o600);
+  }
 });
 
 test("createRunReporter shows test output truncation metadata in HTML", async (t) => {

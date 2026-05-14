@@ -3,6 +3,9 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export const PRIVATE_DIR_MODE = 0o700;
+export const PRIVATE_FILE_MODE = 0o600;
+
 const SKIP_DIRS = new Set([
   ".git",
   "node_modules",
@@ -148,16 +151,38 @@ export async function ensureDir(targetPath) {
   await fs.mkdir(targetPath, { recursive: true });
 }
 
+export async function ensurePrivateDir(targetPath) {
+  await fs.mkdir(targetPath, { recursive: true, mode: PRIVATE_DIR_MODE });
+  await fs.chmod(targetPath, PRIVATE_DIR_MODE);
+}
+
 export async function readJson(targetPath) {
   return JSON.parse(await fs.readFile(targetPath, "utf8"));
 }
 
-export async function writeJson(targetPath, value) {
-  await ensureDir(path.dirname(targetPath));
+async function atomicWriteText(targetPath, text, options = {}) {
+  const ensureParent = options.private && options.privateDir !== false ? ensurePrivateDir : ensureDir;
+  await ensureParent(path.dirname(targetPath));
   const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
-  const content = `${JSON.stringify(value, null, 2)}\n`;
-  await fs.writeFile(tmp, content, "utf8");
+  const writeOptions = options.private
+    ? { encoding: "utf8", mode: PRIVATE_FILE_MODE }
+    : "utf8";
+  await fs.writeFile(tmp, text, writeOptions);
+  if (options.private) {
+    await fs.chmod(tmp, PRIVATE_FILE_MODE);
+  }
   await fs.rename(tmp, targetPath);
+  if (options.private) {
+    await fs.chmod(targetPath, PRIVATE_FILE_MODE);
+  }
+}
+
+export async function writeJson(targetPath, value) {
+  await atomicWriteText(targetPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export async function writePrivateJson(targetPath, value) {
+  await atomicWriteText(targetPath, `${JSON.stringify(value, null, 2)}\n`, { private: true });
 }
 
 export async function walkFiles(root, { respectIgnore = false } = {}) {
@@ -209,10 +234,24 @@ export function relative(root, targetPath) {
 }
 
 export async function writeText(targetPath, text) {
-  await ensureDir(path.dirname(targetPath));
-  const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
-  await fs.writeFile(tmp, text, "utf8");
-  await fs.rename(tmp, targetPath);
+  await atomicWriteText(targetPath, text);
+}
+
+export async function writePrivateText(targetPath, text, options = {}) {
+  await atomicWriteText(targetPath, text, { private: true, ...options });
+}
+
+export async function appendPrivateText(targetPath, text) {
+  await ensurePrivateDir(path.dirname(targetPath));
+  try {
+    await fs.chmod(targetPath, PRIVATE_FILE_MODE);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  await fs.appendFile(targetPath, text, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
+  await fs.chmod(targetPath, PRIVATE_FILE_MODE);
 }
 
 export async function readText(targetPath) {

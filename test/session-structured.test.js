@@ -58,6 +58,17 @@ function createSessionRecord(sessionId, task) {
   };
 }
 
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
 test("forkSession initializes structured run_history and rolling_summary in context.json", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-structured-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
@@ -73,6 +84,44 @@ test("forkSession initializes structured run_history and rolling_summary in cont
   assert.ok(result.manifest.cache_refs.some((item) => item.endsWith("context-events.jsonl")));
   assert.ok(result.manifest.metadata.runtime_artifacts.includes("context-events.jsonl"));
   assert.ok(result.manifest.metadata.optional_markdown_artifacts.includes("bootstrap.md"));
+});
+
+test("session memory run artifacts use restrictive permissions", async (t) => {
+  if (process.platform === "win32") {
+    return;
+  }
+  withUmask(t, 0o000);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-memory-perms-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const created = await forkSession(root, config, { name: "memory-perms" });
+  const record = createSessionRecord(created.sessionId, "permission-sensitive task");
+  const prepared = await prepareSessionMemoryRun(root, record, config);
+
+  await finalizeSessionMemoryRun(root, record, prepared, {
+    phase: "complete",
+    exitCode: 0,
+    stdout: "done",
+    stderr: "",
+    validation: { passed: true },
+  }, config);
+
+  const paths = getSessionArtifactPaths(root, created.sessionId);
+  assert.equal(await modeOf(paths.sessionDir), 0o700);
+  for (const artifactPath of [
+    paths.turnsPath,
+    paths.transcriptPath,
+    paths.memoryContextPath,
+    paths.launchesPath,
+    paths.contextPath,
+    paths.contextFactsPath,
+    paths.contextFactsMarkdownPath,
+  ]) {
+    assert.equal(await modeOf(artifactPath), 0o600, path.basename(artifactPath));
+  }
 });
 
 test("resumeSession synthesizes bootstrap from context when markdown artifacts are disabled", async () => {

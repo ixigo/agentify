@@ -7,7 +7,18 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
-import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
+import {
+  appendPrivateText,
+  ensureDir,
+  ensurePrivateDir,
+  exists,
+  PRIVATE_FILE_MODE,
+  readJson,
+  relative,
+  writePrivateJson,
+  writePrivateText,
+  writeText,
+} from "./fs.js";
 
 const execFileAsync = promisify(execFile);
 const SESSION_LOCK_STALE_MS = 300000;
@@ -993,7 +1004,7 @@ function sleep(ms) {
 }
 
 async function acquireSessionArtifactLock(paths, operation, options = {}) {
-  await ensureDir(paths.sessionDir);
+  await ensurePrivateDir(paths.sessionDir);
   const waitMs = Math.max(0, Number(options.waitMs) || 0);
   const deadline = Date.now() + waitMs;
 
@@ -1006,7 +1017,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
     };
 
     try {
-      const handle = await fs.open(paths.lockPath, "wx");
+      const handle = await fs.open(paths.lockPath, "wx", PRIVATE_FILE_MODE);
       try {
         await handle.writeFile(JSON.stringify(lockData));
       } finally {
@@ -1149,8 +1160,7 @@ async function readStructuredTurnsAsText(turnsPath) {
 }
 
 async function appendTurnsRecord(turnsPath, record) {
-  await ensureDir(path.dirname(turnsPath));
-  await fs.appendFile(turnsPath, `${JSON.stringify(redactSensitiveValue(record))}\n`, "utf8");
+  await appendPrivateText(turnsPath, `${JSON.stringify(redactSensitiveValue(record))}\n`);
 }
 
 function clampRunHistoryEntry(entry, summaryMaxBytes) {
@@ -1264,10 +1274,10 @@ async function compactSessionContextUnlocked(root, sessionId, config = {}, paths
   };
 
   context.context_facts = facts;
-  await writeJson(paths.contextPath, context);
-  await writeJson(paths.contextFactsPath, facts);
+  await writePrivateJson(paths.contextPath, context);
+  await writePrivateJson(paths.contextFactsPath, facts);
   if (config?.session?.emitMarkdownArtifacts !== false) {
-    await writeText(paths.contextFactsMarkdownPath, renderContextFactsMarkdown(facts));
+    await writePrivateText(paths.contextFactsMarkdownPath, renderContextFactsMarkdown(facts));
   }
   return {
     session_id: sessionId,
@@ -1299,7 +1309,7 @@ async function appendRunSummaryUnlocked(root, sessionId, entry, config, paths = 
   const next = [...previous, clampRunHistoryEntry(entry, summaryBytes)].slice(-historyLimit);
   context.run_history = next;
   context.rolling_summary = clipToBytes(buildRollingSummary(next), Math.max(summaryBytes * 2, 512));
-  await writeJson(paths.contextPath, context);
+  await writePrivateJson(paths.contextPath, context);
   return { run_history: next, rolling_summary: context.rolling_summary };
 }
 
@@ -1341,7 +1351,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
   const startedAt = new Date().toISOString();
   const paths = getSessionArtifactPaths(root, sessionRecord.sessionId);
   const lock = await acquireSessionArtifactLock(paths, "session-run");
-  await ensureDir(paths.sessionDir);
+  await ensurePrivateDir(paths.sessionDir);
   const emitMarkdown = config?.session?.emitMarkdownArtifacts !== false;
 
   try {
@@ -1368,7 +1378,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
 
     if (emitMarkdown) {
       const memoryMarkdown = redactSensitiveText(sessionRecord.memoryContext?.markdown || buildNoMemoryMarkdown());
-      await writeText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
+      await writePrivateText(paths.memoryContextPath, `${memoryMarkdown.trim()}\n`);
 
       const transcriptLines = [];
       if (await exists(paths.transcriptPath)) {
@@ -1395,7 +1405,7 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
         ""
       );
 
-      await fs.appendFile(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`, "utf8");
+      await appendPrivateText(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`);
     }
     return { startedAt, paths, emitMarkdown, sessionArtifactLock: lock };
   } catch (error) {
@@ -1468,7 +1478,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
         `Ended: ${endedAt}`,
         ""
       ].filter(Boolean).join("\n");
-      await fs.appendFile(prepared.paths.transcriptPath, transcriptTail, "utf8");
+      await appendPrivateText(prepared.paths.transcriptPath, transcriptTail);
     }
 
     const managedContext = await buildEstimatedManagedContext(root, sessionRecord, prepared.paths, config);
@@ -1501,7 +1511,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       interactive_capture_error: outcome?.interactiveCaptureError || null,
       managed_context: managedContext,
     };
-    await fs.appendFile(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`, "utf8");
+    await appendPrivateText(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`);
 
     await appendRunSummaryUnlocked(root, sessionRecord.sessionId, {
       started_at: prepared.startedAt,
