@@ -194,10 +194,12 @@ Configure overrides in `.agentify.yaml` under the `tests.env` key:
 tests:
   timeoutMs: 600000       # wall-clock timeout for the detected test command
   env:
-    inherit: false        # set to true to forward the entire host environment (legacy behavior, not recommended)
+    inherit: false        # repo config cannot enable full host-environment inheritance
     passthrough: []       # list of additional env var names to forward from the host shell
     extra: {}             # explicit key/value map injected into the test subprocess
 ```
+
+Tracked `.agentify.yaml` files cannot opt project tests into full host-environment inheritance. If you intentionally need host variables, prefer named `tests.env.passthrough` entries. Full-environment inheritance is reserved for explicit runtime opt-in outside repo-controlled config.
 
 For example, a project whose tests need `MY_TEST_DB_URL` from the shell and a fixed `NODE_ENV` should declare:
 

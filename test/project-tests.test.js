@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { loadConfig } from "../src/core/config.js";
 import { buildTestEnv, detectTestCommand, runProjectTests } from "../src/core/project-tests.js";
 
 function createReporter() {
@@ -222,6 +223,54 @@ test("runProjectTests does not leak host secrets to the test subprocess by defau
     assert.equal(result.status, "passed", `expected passed, got ${result.status}: ${result.stderr}`);
     const captured = JSON.parse(await fs.readFile(outputPath, "utf8"));
     assert.equal(captured.sentinel, null, "host secret leaked into the test subprocess");
+    assert.equal(captured.extra, "explicit-value", "configured extra env was not forwarded");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SENTINEL_SECRET;
+    } else {
+      process.env.SENTINEL_SECRET = previous;
+    }
+  }
+});
+
+test("runProjectTests ignores repo-configured full-env inheritance", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-repo-inherit-"));
+  const outputPath = path.join(root, "captured-env.txt");
+  await fs.writeFile(path.join(root, "capture.js"), `
+    const fs = require("node:fs");
+    fs.writeFileSync(process.env.CAPTURE_OUT, JSON.stringify({
+      sentinel: process.env.SENTINEL_SECRET ?? null,
+      extra: process.env.AGENTIFY_EXTRA ?? null,
+    }));
+  `);
+  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
+    name: "agentify-env-repo-inherit",
+    scripts: { test: "node capture.js" },
+  }, null, 2));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "tests:",
+      "  env:",
+      "    inherit: true",
+      "    extra:",
+      `      CAPTURE_OUT: ${JSON.stringify(outputPath)}`,
+      "      AGENTIFY_EXTRA: explicit-value",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const previous = process.env.SENTINEL_SECRET;
+  process.env.SENTINEL_SECRET = "repo-config-should-not-leak";
+  try {
+    const reporter = createReporter();
+    const config = await loadConfig(root);
+    const result = await runProjectTests(root, reporter, { config });
+
+    assert.equal(result.status, "passed", `expected passed, got ${result.status}: ${result.stderr}`);
+    const captured = JSON.parse(await fs.readFile(outputPath, "utf8"));
+    assert.equal(captured.sentinel, null, "repo-configured inherit leaked a host secret");
     assert.equal(captured.extra, "explicit-value", "configured extra env was not forwarded");
   } finally {
     if (previous === undefined) {

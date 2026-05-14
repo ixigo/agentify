@@ -70,6 +70,50 @@ test("loadConfig provides project test timeout defaults", async () => {
   assert.equal(config.tests.timeoutMs, 600000);
 });
 
+test("loadConfig ignores repo-configured project test full-env inheritance", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-test-env-inherit-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "tests:",
+      "  env:",
+      "    inherit: true",
+      "    passthrough:",
+      "      - MY_TEST_VAR",
+      "    extra:",
+      "      NODE_ENV: test",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root);
+
+  assert.equal(config.tests.env.inherit, false);
+  assert.deepEqual(config.tests.env.passthrough, ["MY_TEST_VAR"]);
+  assert.deepEqual(config.tests.env.extra, { NODE_ENV: "test" });
+});
+
+test("loadConfig allows explicit flag opt-in for project test full-env inheritance", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-test-env-flag-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "tests:",
+      "  env:",
+      "    inherit: true",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root, {
+    "tests.env.inherit": true,
+  });
+
+  assert.equal(config.tests.env.inherit, true);
+});
+
 test("loadConfig provides provider env policy defaults", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-provider-env-"));
 
