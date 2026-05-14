@@ -36,6 +36,28 @@ const HARD_EXCLUDES = [
 
 const ignorePatternCache = new Map();
 
+function escapeRegexLiteral(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function compileAgentignorePattern(pattern) {
+  let regexStr = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        regexStr += ".*";
+        index += 1;
+      } else {
+        regexStr += "[^/]*";
+      }
+      continue;
+    }
+    regexStr += escapeRegexLiteral(char);
+  }
+  return new RegExp(`^${regexStr}$`);
+}
+
 async function loadAgentignore(root) {
   const ignorePath = path.join(root, ".agentignore");
   let stat = null;
@@ -71,14 +93,7 @@ async function loadAgentignore(root) {
   const patterns = raw
     .split(/\r?\n/)
     .filter((line) => line.trim() && !line.startsWith("#"))
-    .map((pattern) => {
-      const regexStr = pattern
-        .replace(/\./g, "\\.")
-        .replace(/\*\*/g, "{{GLOBSTAR}}")
-        .replace(/\*/g, "[^/]*")
-        .replace(/\{\{GLOBSTAR\}\}/g, ".*");
-      return new RegExp(`^${regexStr}$`);
-    });
+    .map((pattern) => compileAgentignorePattern(pattern));
   ignorePatternCache.set(root, { mtimeNs: stat.mtimeNs, size: stat.size, patterns });
   return patterns;
 }
