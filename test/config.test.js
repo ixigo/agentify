@@ -30,6 +30,29 @@ test("loadConfig applies nested semantic flags", async () => {
   assert.equal(config.semantic.tsjs.workerConcurrency, 2);
 });
 
+test("loadConfig rejects prototype-polluting dotted flags", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-unsafe-flags-"));
+
+  try {
+    for (const [key, unsafeSegment] of [
+      ["__proto__.polluted", "__proto__"],
+      ["providerEnv.prototype.polluted", "prototype"],
+      ["providerEnv.constructor.prototype.polluted", "constructor"],
+    ]) {
+      await assert.rejects(
+        loadConfig(root, {
+          [key]: "flag-owned",
+        }),
+        new RegExp(`Unsafe config key "${unsafeSegment}" is not allowed`),
+      );
+    }
+
+    assert.equal({}.polluted, undefined);
+  } finally {
+    delete Object.prototype.polluted;
+  }
+});
+
 test("loadConfig keeps doctor --semantic from replacing semantic settings", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-doctor-semantic-"));
 
@@ -80,6 +103,27 @@ test("loadConfig provides provider env policy defaults", async () => {
     passthrough: [],
     extra: {},
   });
+});
+
+test("loadConfig rejects prototype-polluting file config keys", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-unsafe-yaml-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "providerEnv:",
+      "  __proto__:",
+      "    nestedPolluted: yaml-provider-env",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  await assert.rejects(
+    loadConfig(root),
+    /Unsafe config key "__proto__" is not allowed/,
+  );
+
+  assert.equal({}.nestedPolluted, undefined);
 });
 
 test("loadConfig provides context orchestration defaults", async () => {
