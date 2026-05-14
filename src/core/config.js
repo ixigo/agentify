@@ -122,14 +122,38 @@ const DEFAULT_CONFIG = {
   },
 };
 
+const RESERVED_CONFIG_PATH_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
+
+function assertSafeConfigPath(parts) {
+  const unsafe = parts.find((part) => RESERVED_CONFIG_PATH_SEGMENTS.has(part));
+  if (unsafe) {
+    throw new Error(`Unsafe config key "${unsafe}" is not allowed`);
+  }
+}
+
+function assertSafeConfigObject(value, pathParts = []) {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const key of Object.keys(value)) {
+    const nextPath = [...pathParts, key];
+    assertSafeConfigPath(nextPath);
+    assertSafeConfigObject(value[key], nextPath);
+  }
+}
+
 function parseConfigFile(text) {
   const result = parseYaml(text);
-  return result && typeof result === "object" ? result : {};
+  const config = result && typeof result === "object" ? result : {};
+  assertSafeConfigObject(config);
+  return config;
 }
 
 function deepMerge(target, source) {
   const result = { ...target };
   for (const key of Object.keys(source)) {
+    assertSafeConfigPath([key]);
     if (
       source[key] &&
       typeof source[key] === "object" &&
@@ -173,6 +197,7 @@ function applyNestedFlags(config, flags) {
       .split(".")
       .filter(Boolean)
       .map((part) => part.replace(/-([a-z])/g, (_, char) => char.toUpperCase()));
+    assertSafeConfigPath(parts);
     setNested(result, parts, value);
   }
   return result;
