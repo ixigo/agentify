@@ -90,6 +90,9 @@ test("AFK planner prompt includes the strict plan contract", () => {
   assert.match(prompt, /Do not install skills during AFK create/);
   assert.match(prompt, /type: "agentify-afk-plan"/);
   assert.match(prompt, /## Implementation Steps/);
+  assert.match(prompt, /## AFK Execution Handoff/);
+  assert.match(prompt, /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/);
+  assert.match(prompt, /agentify afk run \.agentify\/planned\/checkout-retries\.md/);
   assert.match(prompt, /User task:\nAdd checkout retries/);
 });
 
@@ -171,7 +174,8 @@ console.log(${JSON.stringify(validPlan("checkout-retries"))});
   }
 
   const planPath = path.join(root, ".agentify", "planned", "checkout-retries.md");
-  const plan = validateAfkPlanMarkdown(await fs.readFile(planPath, "utf8"));
+  const planMarkdown = await fs.readFile(planPath, "utf8");
+  const plan = validateAfkPlanMarkdown(planMarkdown);
   const captured = JSON.parse(await fs.readFile(capturePath, "utf8"));
   const argv = captured.argv;
   const prompt = argv.at(-1);
@@ -179,6 +183,10 @@ console.log(${JSON.stringify(validPlan("checkout-retries"))});
   assert.deepEqual(argv.slice(0, 2), ["--cd", root]);
   assert.match(prompt, /planning-only session/);
   assert.equal(plan.frontmatter.task, "add checkout retries");
+  assert.match(planMarkdown, /## AFK Execution Handoff/);
+  assert.match(planMarkdown, /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/);
+  assert.match(planMarkdown, /\/compact` or `\/clear/);
+  assert.match(planMarkdown, /agentify afk run \.agentify\/planned\/checkout-retries\.md/);
 });
 
 test("agentify afk create reports provider command failures before plan validation", async () => {
@@ -242,6 +250,10 @@ test("agentify afk create returns execution command and clean-session hint", asy
   assert.equal(result.plan_path, ".agentify/planned/checkout-retries.md");
   assert.equal(result.run_command, "agentify afk run .agentify/planned/checkout-retries.md");
   assert.match(result.next_step_hint, /\/compact or \/clear/);
+  const planMarkdown = await fs.readFile(path.join(root, result.plan_path), "utf8");
+  assert.match(planMarkdown, /## AFK Execution Handoff/);
+  assert.match(planMarkdown, /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/);
+  assert.match(planMarkdown, /agentify afk run \.agentify\/planned\/checkout-retries\.md/);
 });
 
 test("agentify afk run creates an isolated worktree and commits verified provider changes", async () => {

@@ -26,6 +26,7 @@ export const AFK_REQUIRED_SECTIONS = [
   "Done Criteria",
   "Cleanup",
 ];
+const AFK_EXECUTION_HANDOFF_SECTION = "AFK Execution Handoff";
 const AFK_SLUG_MAX_LENGTH = 48;
 const AFK_TASK_SLUG_STOP_WORDS = new Set([
   "a",
@@ -156,6 +157,27 @@ export function validateAfkPlanMarkdown(markdown) {
   };
 }
 
+function stripAfkExecutionHandoff(markdown) {
+  const normalized = String(markdown || "").replace(/\r\n/g, "\n").trim();
+  const handoffPattern = new RegExp(`\\n##\\s+${AFK_EXECUTION_HANDOFF_SECTION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n[\\s\\S]*$`);
+  return normalized.replace(handoffPattern, "").trim();
+}
+
+function appendAfkExecutionHandoff(markdown, runCommand) {
+  return [
+    stripAfkExecutionHandoff(markdown),
+    "",
+    `## ${AFK_EXECUTION_HANDOFF_SECTION}`,
+    `- Agentify writes this plan file before execution: \`${runCommand.replace(/^agentify afk run\s+/, "")}\`.`,
+    "- In the current provider session, run `/compact` or `/clear` before starting execution.",
+    "- Then run this command from the repository root:",
+    "",
+    "```sh",
+    runCommand,
+    "```",
+  ].join("\n");
+}
+
 function stripMarkdownFence(value) {
   const trimmed = String(value || "").trim();
   const fenceMatch = trimmed.match(/^```(?:md|markdown)?\s*\n([\s\S]*?)\n```$/i);
@@ -237,6 +259,8 @@ export function renderAfkPlannerPrompt(task, options = {}) {
   const slug = normalizeSlug(options.slug, task);
   const createdAt = options.createdAt || nowIso();
   const provider = options.provider || "unknown";
+  const plannedPath = `.agentify/planned/${slug}.md`;
+  const defaultRunCommand = `agentify afk run ${plannedPath}`;
 
   return [
     "You are creating an Agentify AFK implementation plan.",
@@ -264,6 +288,14 @@ export function renderAfkPlannerPrompt(task, options = {}) {
     `# AFK Plan: ${slug}`,
     "",
     ...AFK_REQUIRED_SECTIONS.map((section) => `## ${section}\n- Fill this section with implementation-ready details.`),
+    `## ${AFK_EXECUTION_HANDOFF_SECTION}`,
+    `- Agentify writes this plan file before execution: \`${plannedPath}\`.`,
+    "- In the current provider session, run `/compact` or `/clear` before starting execution.",
+    "- Then run this command from the repository root:",
+    "",
+    "```sh",
+    defaultRunCommand,
+    "```",
     "```",
     "",
     "User task:",
@@ -406,7 +438,9 @@ export async function runAfkCreate(root, config, args) {
   }
 
   const planPath = await findAvailablePlanPath(root, normalizeSlug(plan.frontmatter.slug, slug));
-  await writeText(planPath, `${plan.markdown}\n`);
+  const runCommand = `agentify afk run ${relative(root, planPath)}`;
+  const savedPlanMarkdown = appendAfkExecutionHandoff(plan.markdown, runCommand);
+  await writeText(planPath, `${savedPlanMarkdown}\n`);
   await writeText(path.join(root, ".agentify", "session", sessionId, "afk-create.json"), `${JSON.stringify({
     schema_version: "1.0",
     type: "agentify-afk-create",
@@ -424,7 +458,7 @@ export async function runAfkCreate(root, config, args) {
     provider,
     plan_path: relative(root, planPath),
     session_id: sessionId,
-    run_command: `agentify afk run ${relative(root, planPath)}`,
+    run_command: runCommand,
     next_step_hint: "Before running the command, use /compact or /clear in the current provider session so execution starts with a clean prompt.",
   };
 }
@@ -442,7 +476,7 @@ function renderAfkRunPrompt(plan) {
     "Do not continue previous provider history.",
     "Implement only the plan below. Keep changes scoped, run the listed tests, and stop if the plan is unsafe or ambiguous.",
     "",
-    plan.markdown,
+    stripAfkExecutionHandoff(plan.markdown),
   ].join("\n");
 }
 
