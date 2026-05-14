@@ -5,7 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { resetIgnoreCache, walkFiles, relative } from "../src/core/fs.js";
+import {
+  appendPrivateText,
+  ensurePrivateDir,
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
+  resetIgnoreCache,
+  walkFiles,
+  relative,
+  writePrivateJson,
+  writePrivateText,
+} from "../src/core/fs.js";
 
 async function runGit(root, args) {
   await new Promise((resolve, reject) => {
@@ -22,6 +32,40 @@ async function runGit(root, args) {
     });
   });
 }
+
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
+test("private fs helpers create restrictive directories and files independent of umask", async (t) => {
+  if (process.platform === "win32") {
+    return;
+  }
+  withUmask(t, 0o000);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-private-"));
+  const dir = path.join(root, ".agentify", "session", "sess_private");
+  const jsonPath = path.join(dir, "context.json");
+  const textPath = path.join(dir, "transcript.md");
+  const appendPath = path.join(dir, "turns.jsonl");
+
+  await ensurePrivateDir(dir);
+  await writePrivateJson(jsonPath, { ok: true });
+  await writePrivateText(textPath, "secret\n");
+  await appendPrivateText(appendPath, "{\"ok\":true}\n");
+
+  assert.equal(await modeOf(dir), PRIVATE_DIR_MODE);
+  assert.equal(await modeOf(jsonPath), PRIVATE_FILE_MODE);
+  assert.equal(await modeOf(textPath), PRIVATE_FILE_MODE);
+  assert.equal(await modeOf(appendPath), PRIVATE_FILE_MODE);
+});
 
 test("walkFiles respects hard excludes and does not leak ignore cache across roots", async () => {
   resetIgnoreCache();

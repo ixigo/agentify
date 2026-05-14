@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { ensureDir, exists } from "./fs.js";
+import { appendPrivateText, ensureDir, exists } from "./fs.js";
 import { checkSchema, SCHEMA_VERSIONS } from "./schema.js";
 
 const CONTEXT_RUNTIME_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
@@ -66,8 +66,12 @@ export async function appendContextEvent(root, event, options = {}) {
     sessionId: options.sessionId,
     runId: options.runId || record.run_id,
   });
-  await ensureDir(path.dirname(targetPath));
-  await fs.appendFile(targetPath, `${JSON.stringify(record)}\n`, "utf8");
+  if (options.sessionId) {
+    await appendPrivateText(targetPath, `${JSON.stringify(record)}\n`);
+  } else {
+    await ensureDir(path.dirname(targetPath));
+    await fs.appendFile(targetPath, `${JSON.stringify(record)}\n`, "utf8");
+  }
   return { path: targetPath, record };
 }
 

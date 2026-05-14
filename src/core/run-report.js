@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { writeJson, writeText } from "./fs.js";
+import { writePrivateJson, writePrivateText } from "./fs.js";
 import { redactSensitiveText } from "./session-memory.js";
 import * as ui from "./ui.js";
 
@@ -1269,10 +1269,10 @@ export function createRunReporter(root) {
       let telemetryJsonPath = null;
       if (summary.execution) {
         telemetryJsonPath = path.join(root, ".agentify", "runs", `${summary.execution.run_id}-execution-telemetry.json`);
-        await writeJson(telemetryJsonPath, summary.execution);
+        await writePrivateJson(telemetryJsonPath, summary.execution);
       }
-      await writeText(outputPath, events.join(""));
-      await writeText(htmlPath, renderHtmlReport(summary));
+      await writePrivateText(outputPath, events.join(""), { privateDir: false });
+      await writePrivateText(htmlPath, renderHtmlReport(summary), { privateDir: false });
 
       loader.clear();
       ui.box("Run Complete", [

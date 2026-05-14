@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
+import { ensurePrivateDir, exists, readJson, writePrivateJson, writePrivateText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModules } from "./db/structural-store.js";
@@ -301,7 +301,7 @@ ${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect the session c
 export async function forkSession(root, config, options = {}) {
   const sessionId = generateSessionId();
   const sessionDir = path.join(root, ".agentify", "session", sessionId);
-  await ensureDir(sessionDir);
+  await ensurePrivateDir(sessionDir);
 
   const headCommit = await getHeadCommit(root);
   let index = null;
@@ -414,11 +414,11 @@ export async function forkSession(root, config, options = {}) {
   manifest.metadata.context_truncated = contextResult.truncated;
   manifest.metadata.bootstrap_truncated = bootstrapResult.truncated;
 
-  await writeJson(path.join(sessionDir, "session-manifest.json"), manifest);
-  await writeJson(path.join(sessionDir, "checklist.json"), parentChecklist);
-  await writeJson(path.join(sessionDir, "context.json"), context);
+  await writePrivateJson(path.join(sessionDir, "session-manifest.json"), manifest);
+  await writePrivateJson(path.join(sessionDir, "checklist.json"), parentChecklist);
+  await writePrivateJson(path.join(sessionDir, "context.json"), context);
   if (emitMarkdown) {
-    await writeText(path.join(sessionDir, "bootstrap.md"), bootstrap);
+    await writePrivateText(path.join(sessionDir, "bootstrap.md"), bootstrap);
   }
 
   return { sessionId, sessionDir, manifest, context, bootstrap };
@@ -499,7 +499,7 @@ export async function maybePrepareChildSession(root, config, parentSessionId, op
     threshold_bytes: thresholdKb * 1024,
     resume_command: `agentify sess resume --session ${child.sessionId}`,
   };
-  await writeJson(parentManifestPath, parentManifest);
+  await writePrivateJson(parentManifestPath, parentManifest);
 
   return {
     parent_session_id: parentSessionId,

@@ -13,6 +13,17 @@ import {
 } from "../src/core/context-events.js";
 import { SCHEMA_VERSIONS } from "../src/core/schema.js";
 
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
 test("createContextEventRecord normalizes the context event schema", () => {
   const record = createContextEventRecord({
     runId: "run_1",
@@ -45,7 +56,10 @@ test("context event schema rejects incompatible major versions", () => {
   assert.match(result.reason, /Major version mismatch/);
 });
 
-test("appendContextEvent persists session events under ignored session artifacts", async () => {
+test("appendContextEvent persists session events under ignored session artifacts", async (t) => {
+  if (process.platform !== "win32") {
+    withUmask(t, 0o000);
+  }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-context-events-session-"));
 
   const result = await appendContextEvent(root, {
@@ -69,6 +83,10 @@ test("appendContextEvent persists session events under ignored session artifacts
   assert.equal(events.length, 1);
   assert.equal(events[0].event_type, "compact");
   assert.equal(events[0].run_id, "run_2");
+  if (process.platform !== "win32") {
+    assert.equal(await modeOf(path.dirname(result.path)), 0o700);
+    assert.equal(await modeOf(result.path), 0o600);
+  }
 });
 
 test("appendContextEvent persists run events under ignored Agentify work artifacts", async () => {
