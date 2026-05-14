@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ensureDir, exists, readJson, writeJson, writeText } from "./fs.js";
+import { assertNoSymlinkPath, ensureDir, exists, readJson, readText, writeJson, writeText } from "./fs.js";
 import { getHeadCommit } from "./git.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModules } from "./db/structural-store.js";
@@ -427,6 +427,7 @@ export async function forkSession(root, config, options = {}) {
 export async function listSessions(root) {
   const sessionsDir = path.join(root, ".agentify", "session");
   if (!(await exists(sessionsDir))) return [];
+  await assertNoSymlinkPath(sessionsDir);
 
   const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
   const sessions = [];
@@ -457,7 +458,7 @@ export async function resumeSession(root, sessionId) {
   const context = await readJson(path.join(sessionDir, "context.json"));
   const bootstrapPath = path.join(sessionDir, "bootstrap.md");
   const bootstrap = (await exists(bootstrapPath))
-    ? await fs.readFile(bootstrapPath, "utf8")
+    ? await readText(bootstrapPath)
     : synthesizeBootstrapFromContext(manifest, context);
 
   return { manifest, context, bootstrap };
@@ -479,7 +480,7 @@ export async function maybePrepareChildSession(root, config, parentSessionId, op
     return null;
   }
 
-  const contextText = await fs.readFile(contextPath, "utf8");
+  const contextText = await readText(contextPath);
   const contextBytes = bytes(contextText);
   if (contextBytes <= thresholdKb * 1024) {
     return null;

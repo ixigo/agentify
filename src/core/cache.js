@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ensureDir, exists, readJson, writeJson } from "./fs.js";
+import { assertNoSymlinkPath, exists, readJson, readText, statFile, writeJson, writeText } from "./fs.js";
 
 function blobHash(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -15,13 +15,12 @@ export async function storeBlob(cacheRoot, content) {
   const hash = blobHash(content);
   const target = blobPath(cacheRoot, hash);
   if (await exists(target)) return hash;
-  await ensureDir(path.dirname(target));
-  await fs.writeFile(target, content, "utf8");
+  await writeText(target, content);
   return hash;
 }
 
 export async function readBlob(cacheRoot, hash) {
-  return fs.readFile(blobPath(cacheRoot, hash), "utf8");
+  return readText(blobPath(cacheRoot, hash));
 }
 
 export async function updateManifest(cacheRoot, moduleId, blobRefs) {
@@ -59,11 +58,13 @@ export async function garbageCollect(cacheRoot, maxAgeDays = 7, options = {}) {
   let removed = 0;
   const blobsRoot = path.join(cacheRoot, "blobs");
   if (await exists(blobsRoot)) {
+    await assertNoSymlinkPath(blobsRoot);
     const prefixes = await fs.readdir(blobsRoot);
     for (const prefix of prefixes) {
       const prefixDir = path.join(blobsRoot, prefix);
       let files;
       try {
+        await assertNoSymlinkPath(prefixDir);
         files = await fs.readdir(prefixDir);
       } catch {
         continue;
@@ -99,11 +100,13 @@ export async function cacheStatus(cacheRoot) {
   let totalSize = 0;
   const blobsRoot = path.join(cacheRoot, "blobs");
   if (await exists(blobsRoot)) {
+    await assertNoSymlinkPath(blobsRoot);
     const prefixes = await fs.readdir(blobsRoot);
     for (const prefix of prefixes) {
       const prefixDir = path.join(blobsRoot, prefix);
       let files;
       try {
+        await assertNoSymlinkPath(prefixDir);
         files = await fs.readdir(prefixDir);
       } catch {
         continue;
@@ -111,7 +114,7 @@ export async function cacheStatus(cacheRoot) {
       for (const file of files) {
         blobCount += 1;
         try {
-          const stat = await fs.stat(path.join(prefixDir, file));
+          const stat = await statFile(path.join(prefixDir, file));
           totalSize += stat.size;
         } catch {
           // skip unreadable blobs

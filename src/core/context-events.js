@@ -1,7 +1,6 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 
-import { ensureDir, exists } from "./fs.js";
+import { appendText, exists, readText } from "./fs.js";
 import { checkSchema, SCHEMA_VERSIONS } from "./schema.js";
 
 const CONTEXT_RUNTIME_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
@@ -66,8 +65,7 @@ export async function appendContextEvent(root, event, options = {}) {
     sessionId: options.sessionId,
     runId: options.runId || record.run_id,
   });
-  await ensureDir(path.dirname(targetPath));
-  await fs.appendFile(targetPath, `${JSON.stringify(record)}\n`, "utf8");
+  await appendText(targetPath, `${JSON.stringify(record)}\n`);
   return { path: targetPath, record };
 }
 
@@ -77,7 +75,7 @@ export async function readContextEvents(root, options = {}) {
     return [];
   }
 
-  const raw = await fs.readFile(targetPath, "utf8");
+  const raw = await readText(targetPath);
   return raw
     .split(/\r?\n/)
     .map((line) => line.trim())
