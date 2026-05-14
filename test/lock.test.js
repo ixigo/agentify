@@ -50,3 +50,31 @@ test("acquireLock reclaims a stale lock when the recorded owner is gone", async 
   await result.release();
   await assert.rejects(() => fs.access(path.join(root, ".agentify", ".lock")));
 });
+
+test("acquireLock stale holder release does not remove a reclaimed successor lock", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-stale-release-"));
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
+  const lockPath = path.join(root, ".agentify", ".lock");
+
+  const staleHolder = await acquireLock(root, "scan");
+  const stalePayload = JSON.parse(await fs.readFile(lockPath, "utf8"));
+  await fs.writeFile(
+    lockPath,
+    JSON.stringify({
+      ...stalePayload,
+      host: "stale-host-for-test",
+      acquired_at: Date.now() - 301000,
+    }),
+    "utf8",
+  );
+
+  const replacement = await acquireLock(root, "doc");
+  await staleHolder.release();
+
+  const current = JSON.parse(await fs.readFile(lockPath, "utf8"));
+  assert.equal(current.operation, "doc");
+  assert.notEqual(current.owner_id, stalePayload.owner_id);
+
+  await replacement.release();
+  await assert.rejects(() => fs.access(lockPath));
+});
