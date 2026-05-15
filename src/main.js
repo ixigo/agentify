@@ -388,6 +388,7 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
       captureOutputMode: captureSettings.captureOutputMode,
       sessionRecord,
       commandName: `sess ${args._?.[1] || "run"}`,
+      providerEnvMode: usingTemplateCommand ? "provider" : "generic",
       skipCodeBodyChanges: true,
     }),
   };
@@ -634,7 +635,7 @@ export async function runCli(argv, runtime = {}) {
           continueSession: args.continue === true || args.resume === true,
         };
         const noTaskInteractiveLaunch = !task && usingTemplateCommand && providerOptions.interactive === true;
-        if (!task && !noTaskInteractiveLaunch) {
+        if (!task && !noTaskInteractiveLaunch && !args._exec?.length) {
           throw new Error('agentify run requires a task when not launching an interactive provider. Pass one as `agentify run "task"`.');
         }
         const contextMode = resolveRunContextMode(args, config);
@@ -672,6 +673,8 @@ export async function runCli(argv, runtime = {}) {
           ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession, rtkInstruction })
           : usesManagedContext
           ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman, rtkInstruction })
+          : !task && args._exec?.length
+          ? ""
           : buildMinimalRunPrompt(task, { caveman, rtkInstruction });
         const agentCommand = args._exec?.length
           ? args._exec
@@ -683,6 +686,7 @@ export async function runCli(argv, runtime = {}) {
 
         await runExec(root, config, agentCommand, getExecFlags(args, {
           commandName: "run",
+          providerEnvMode: usingTemplateCommand ? "provider" : "generic",
           skipCodeBodyChanges: true,
         }));
         return;
@@ -740,6 +744,7 @@ export async function runCli(argv, runtime = {}) {
         }
         await runExec(root, config, agentCommand, getExecFlags(args, {
           commandName: "exec",
+          providerEnvMode: "generic",
           skipCodeBodyChanges: true,
         }));
         return;

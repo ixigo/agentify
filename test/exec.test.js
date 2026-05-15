@@ -89,6 +89,102 @@ test("runExec launches provider commands with a sanitized env", async () => {
   }
 });
 
+test("runExec launches generic wrapped commands without default provider credentials", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-generic-env-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.providerEnv = {
+    inherit: false,
+    passthrough: ["AGENTIFY_GENERIC_ALLOWED"],
+    extra: {
+      AGENTIFY_GENERIC_EXTRA: "extra-value",
+    },
+  };
+
+  const previousOpenAi = process.env.OPENAI_API_KEY;
+  const previousGoogleCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const previousAllowed = process.env.AGENTIFY_GENERIC_ALLOWED;
+  process.env.OPENAI_API_KEY = "openai-secret";
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/google-creds.json";
+  process.env.AGENTIFY_GENERIC_ALLOWED = "allowed-value";
+
+  const script = [
+    "process.stdout.write(JSON.stringify({",
+    "openai: process.env.OPENAI_API_KEY || null,",
+    "googleCreds: process.env.GOOGLE_APPLICATION_CREDENTIALS || null,",
+    "allowed: process.env.AGENTIFY_GENERIC_ALLOWED || null,",
+    "extra: process.env.AGENTIFY_GENERIC_EXTRA || null",
+    "}));",
+  ].join("");
+
+  try {
+    const result = await runExec(root, config, [process.execPath, "-e", script], {
+      captureOutput: true,
+      providerEnvMode: "generic",
+      skipRefresh: true,
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      openai: null,
+      googleCreds: null,
+      allowed: "allowed-value",
+      extra: "extra-value",
+    });
+  } finally {
+    if (previousOpenAi === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousOpenAi;
+    }
+    if (previousGoogleCreds === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = previousGoogleCreds;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_GENERIC_ALLOWED;
+    } else {
+      process.env.AGENTIFY_GENERIC_ALLOWED = previousAllowed;
+    }
+  }
+});
+
+test("runExec generic wrapped commands require explicit provider credential passthrough", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-generic-provider-opt-in-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex", dryRun: false, tokenReport: false });
+  config.providerEnv = {
+    inherit: false,
+    passthrough: ["OPENAI_API_KEY"],
+    extra: {},
+  };
+
+  const previousOpenAi = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "openai-secret";
+
+  try {
+    const result = await runExec(root, config, [process.execPath, "-e", "process.stdout.write(process.env.OPENAI_API_KEY || '')"], {
+      captureOutput: true,
+      providerEnvMode: "generic",
+      skipRefresh: true,
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "openai-secret");
+  } finally {
+    if (previousOpenAi === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousOpenAi;
+    }
+  }
+});
+
 test("runExec refreshes when the wrapped command commits and exits clean", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-exec-commit-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
