@@ -156,6 +156,12 @@ const BUILTIN_SKILLS = [
       "Guide test-driven development with a red-green-refactor loop. Use for test-first feature work, bug fixes, and integration-style tests.",
   },
   {
+    name: "ui-screenshot-eval",
+    aliases: ["playwright-ui-eval", "visual-ui-eval"],
+    description:
+      "Drive UI implementation with Playwright screenshots, stable data-testid anchors, and visual iteration against a screenshot or Figma reference.",
+  },
+  {
     name: "to-issues",
     aliases: [],
     description:

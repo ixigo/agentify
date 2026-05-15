@@ -378,6 +378,7 @@ Built-in skills:
 - `glab-autopilot` (aliases: `gitlab-autopilot`, `glab-issues-autopilot`, `gitlab-issues-autopilot`)
 - `issue-killer` (alias: `gh-issue-killer`)
 - `gitlab-triage` (alias: `glab-triage`)
+- `ui-screenshot-eval` (aliases: `playwright-ui-eval`, `visual-ui-eval`)
 - `worktree-autopilot` (aliases: `worktree-verifier`, `god-mode`)
 - `pr-creator`
 - `commit-creator`
@@ -407,7 +408,10 @@ agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
 agentify skill install azure-devops-triage --provider codex --scope project
+agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
+
+UI screenshot eval requires Playwright in the target frontend repo. It captures full-page and scoped screenshots around a stable `data-testid` and writes artifacts under `.agentify/ui-eval/`.
 
 Example GitLab issue and merge request requests after installing the skill:
 

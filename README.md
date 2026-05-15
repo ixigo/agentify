@@ -135,12 +135,14 @@ agentify skill install caveman --provider codex --scope project   # terse output
 agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
+agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 
 GitLab skills require the GitLab CLI: `glab auth status` and `glab repo view`
 should succeed in the target repository before the skill mutates issues or
 merge requests.
 Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
+UI screenshot eval uses Playwright from the target frontend repo and stores before/after artifacts under `.agentify/ui-eval/`.
 
 </details>
 
@@ -336,6 +338,31 @@ agentify completion fish | source
 ```
 
 For persistent setup, save the generated script into your shell's completion location. For example, zsh can load an `_agentify` file from a directory on `fpath`, and fish can load `~/.config/fish/completions/agentify.fish`.
+
+For persistent zsh completion:
+
+```bash
+mkdir -p ~/.zsh/completions
+agentify completion zsh > ~/.zsh/completions/_agentify
+```
+
+Then add the completion directory before `compinit` in `~/.zshrc`:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+Reload zsh and verify tab completion:
+
+```bash
+source ~/.zshrc
+agentify <TAB>
+agentify completion <TAB>
+agentify run --provider <TAB>
+```
+
+If you are testing from this checkout and `agentify` is not on your `PATH`, use `source <(node src/cli.js completion zsh)` for the current shell.
 
 Dynamic completions use the current repo. Providers and installed skills appear when configured, sessions appear after Agentify has session state, and paths come from the shell's working directory.
 

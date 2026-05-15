@@ -71,6 +71,8 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("gh-issue-killer").name, "issue-killer");
   assert.deepEqual(resolveBuiltinSkill("azure-devops-autopilot").name, "ado-autopilot");
   assert.deepEqual(resolveBuiltinSkill("ado-triage").name, "azure-devops-triage");
+  assert.deepEqual(resolveBuiltinSkill("playwright-ui-eval").name, "ui-screenshot-eval");
+  assert.deepEqual(resolveBuiltinSkill("visual-ui-eval").name, "ui-screenshot-eval");
   assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
 });
 
@@ -258,6 +260,24 @@ test("installBuiltinSkill copies commit creator skill bundle into project scope"
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(uiPath), true);
+});
+
+test("installBuiltinSkill copies ui screenshot eval helper into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-ui-eval-"));
+  const result = await installBuiltinSkill(root, {
+    name: "playwright-ui-eval",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const basePath = path.join(root, ".codex", "skills", "ui-screenshot-eval");
+  const skillPath = path.join(basePath, "SKILL.md");
+  const captureScriptPath = path.join(basePath, "scripts", "capture.mjs");
+
+  assert.equal(result.skill.name, "ui-screenshot-eval");
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(captureScriptPath), true);
 });
 
 test("installBuiltinSkill installs canonical skill name for alias across all providers", async () => {

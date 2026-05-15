@@ -317,9 +317,11 @@ agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
 agentify skill install azure-devops-triage --provider codex --scope project
+agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 
 Azure DevOps skills require `az`, the `azure-devops` extension, a valid `az account show`, and configured organization/project defaults from `az devops configure --list`.
+UI screenshot eval requires Playwright in the target frontend repo and writes before/after screenshots under `.agentify/ui-eval/`.
 
 User scope keeps the install local to one developer machine:
 
