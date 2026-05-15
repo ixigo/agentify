@@ -5,7 +5,17 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { resetIgnoreCache, walkFiles, relative } from "../src/core/fs.js";
+import {
+  appendPrivateText,
+  ensurePrivateDir,
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
+  resetIgnoreCache,
+  walkFiles,
+  relative,
+  writePrivateJson,
+  writePrivateText,
+} from "../src/core/fs.js";
 
 async function runGit(root, args) {
   await new Promise((resolve, reject) => {
@@ -22,6 +32,40 @@ async function runGit(root, args) {
     });
   });
 }
+
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
+test("private fs helpers create restrictive directories and files independent of umask", async (t) => {
+  if (process.platform === "win32") {
+    return;
+  }
+  withUmask(t, 0o000);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-private-"));
+  const dir = path.join(root, ".agentify", "session", "sess_private");
+  const jsonPath = path.join(dir, "context.json");
+  const textPath = path.join(dir, "transcript.md");
+  const appendPath = path.join(dir, "turns.jsonl");
+
+  await ensurePrivateDir(dir);
+  await writePrivateJson(jsonPath, { ok: true });
+  await writePrivateText(textPath, "secret\n");
+  await appendPrivateText(appendPath, "{\"ok\":true}\n");
+
+  assert.equal(await modeOf(dir), PRIVATE_DIR_MODE);
+  assert.equal(await modeOf(jsonPath), PRIVATE_FILE_MODE);
+  assert.equal(await modeOf(textPath), PRIVATE_FILE_MODE);
+  assert.equal(await modeOf(appendPath), PRIVATE_FILE_MODE);
+});
 
 test("walkFiles respects hard excludes and does not leak ignore cache across roots", async () => {
   resetIgnoreCache();
@@ -132,6 +176,22 @@ test("walkFiles treats unreadable .agentignore as an empty ignore list", async (
 
   const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   assert.deepEqual(files, ["visible.js"]);
+});
+
+test("walkFiles treats .agentignore regex metacharacters as literal text", async () => {
+  resetIgnoreCache();
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fs-metachar-"));
+  await fs.writeFile(path.join(root, ".agentignore"), "[abc\nliteral (draft)+?.js\n*.log\nsrc/**\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "[abc"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "literal (draft)+?.js"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "debug.log"), "ignored\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "hidden.js"), "export const ignored = true;\n", "utf8");
+  await fs.writeFile(path.join(root, "visible.js"), "export const visible = true;\n", "utf8");
+
+  const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
+  assert.deepEqual(files.sort(), [".agentignore", "visible.js"]);
 });
 
 test("walkFiles excludes Agentify runtime artifacts even when ignore rules are absent", async () => {

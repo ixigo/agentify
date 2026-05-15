@@ -49,6 +49,18 @@ fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   return codexPath;
 }
 
+function buildGenericEnvCaptureScript(capturePath) {
+  return `
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  openai: process.env.OPENAI_API_KEY || null,
+  googleCreds: process.env.GOOGLE_APPLICATION_CREDENTIALS || null,
+  allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,
+  extra: process.env.AGENTIFY_PROVIDER_EXTRA || null
+}));
+`;
+}
+
 async function installFakeExecutable(binDir, name, script) {
   const executablePath = path.join(binDir, name);
   await fs.writeFile(executablePath, script, "utf8");
@@ -637,6 +649,120 @@ test("runCli launches provider run with sanitized provider env config", async ()
   assert.equal(captured.secret, null);
   assert.equal(captured.allowed, "allowed-value");
   assert.equal(captured.extra, "extra-value");
+});
+
+test("runCli launches run passthrough commands without default provider credentials", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-generic-env-"));
+  const capturePath = path.join(root, "generic-env.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), [
+    "providerEnv:",
+    "  passthrough:",
+    "    - AGENTIFY_PROVIDER_ALLOWED",
+    "  extra:",
+    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(root);
+
+  const previousOpenAi = process.env.OPENAI_API_KEY;
+  const previousGoogleCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.OPENAI_API_KEY = "openai-secret";
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/google-creds.json";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+  try {
+    await runCli([
+      "run",
+      "--root",
+      root,
+      "--skip-refresh",
+      "--",
+      process.execPath,
+      "-e",
+      buildGenericEnvCaptureScript(capturePath),
+    ]);
+  } finally {
+    if (previousOpenAi === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousOpenAi;
+    }
+    if (previousGoogleCreds === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = previousGoogleCreds;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+
+  assert.deepEqual(JSON.parse(await fs.readFile(capturePath, "utf8")), {
+    openai: null,
+    googleCreds: null,
+    allowed: "allowed-value",
+    extra: "extra-value",
+  });
+});
+
+test("runCli launches exec commands without default provider credentials", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-exec-generic-env-"));
+  const capturePath = path.join(root, "generic-env.json");
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify.yaml"), [
+    "providerEnv:",
+    "  passthrough:",
+    "    - AGENTIFY_PROVIDER_ALLOWED",
+    "  extra:",
+    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(root);
+
+  const previousOpenAi = process.env.OPENAI_API_KEY;
+  const previousGoogleCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const previousAllowed = process.env.AGENTIFY_PROVIDER_ALLOWED;
+  process.env.OPENAI_API_KEY = "openai-secret";
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/google-creds.json";
+  process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
+  try {
+    await runCli([
+      "exec",
+      "--root",
+      root,
+      "--skip-refresh",
+      "--",
+      process.execPath,
+      "-e",
+      buildGenericEnvCaptureScript(capturePath),
+    ]);
+  } finally {
+    if (previousOpenAi === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = previousOpenAi;
+    }
+    if (previousGoogleCreds === undefined) {
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    } else {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = previousGoogleCreds;
+    }
+    if (previousAllowed === undefined) {
+      delete process.env.AGENTIFY_PROVIDER_ALLOWED;
+    } else {
+      process.env.AGENTIFY_PROVIDER_ALLOWED = previousAllowed;
+    }
+  }
+
+  assert.deepEqual(JSON.parse(await fs.readFile(capturePath, "utf8")), {
+    openai: null,
+    googleCreds: null,
+    allowed: "allowed-value",
+    extra: "extra-value",
+  });
 });
 
 test("runCli launches interactive provider context without prompting when run has no task", async () => {

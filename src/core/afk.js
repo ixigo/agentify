@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import YAML from "yaml";
 
-import { ensureDir, exists, readText, relative, writeText } from "./fs.js";
+import { ensureDir, ensurePrivateDir, exists, readText, relative, writePrivateText, writeText } from "./fs.js";
 import { getChangedFiles } from "./git.js";
 import { runProjectTests } from "./project-tests.js";
 import { buildProviderTemplateCommand } from "./provider-command.js";
@@ -411,7 +411,7 @@ export async function runAfkCreate(root, config, args) {
   });
   const sessionId = buildSessionId(slug);
   const capturePath = path.join(root, ".agentify", "session", sessionId, "interactive.log");
-  await ensureDir(path.dirname(capturePath));
+  await ensurePrivateDir(path.dirname(capturePath));
 
   const result = await runExec(root, config, agentCommand, {
     commandName: "afk-create",
@@ -441,7 +441,7 @@ export async function runAfkCreate(root, config, args) {
   const runCommand = `agentify afk run ${relative(root, planPath)}`;
   const savedPlanMarkdown = appendAfkExecutionHandoff(plan.markdown, runCommand);
   await writeText(planPath, `${savedPlanMarkdown}\n`);
-  await writeText(path.join(root, ".agentify", "session", sessionId, "afk-create.json"), `${JSON.stringify({
+  await writePrivateText(path.join(root, ".agentify", "session", sessionId, "afk-create.json"), `${JSON.stringify({
     schema_version: "1.0",
     type: "agentify-afk-create",
     session_id: sessionId,

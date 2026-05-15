@@ -4,7 +4,7 @@ import path from "node:path";
 import { buildExecutionPlan } from "./planner.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadSymbols } from "./db/structural-store.js";
-import { ensureDir, exists, readJson, relative, writeJson, writeText } from "./fs.js";
+import { ensurePrivateDir, exists, readJson, relative, writePrivateJson, writePrivateText } from "./fs.js";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 import { listSessions, resumeSession } from "./session.js";
@@ -375,9 +375,9 @@ export async function buildHandoffBundle(root, config, sessionId, task = "") {
 export async function writeHandoffBundle(root, config, sessionId, task = "") {
   const paths = getSessionArtifactPaths(root, sessionId);
   const bundle = await buildHandoffBundle(root, config, sessionId, task);
-  await ensureDir(paths.sessionDir);
-  await writeJson(paths.handoffJsonPath, bundle);
-  await writeText(paths.handoffMarkdownPath, renderHandoffMarkdown(bundle));
+  await ensurePrivateDir(paths.sessionDir);
+  await writePrivateJson(paths.handoffJsonPath, bundle);
+  await writePrivateText(paths.handoffMarkdownPath, renderHandoffMarkdown(bundle));
   return {
     bundle,
     jsonPath: paths.handoffJsonPath,

@@ -257,7 +257,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Install GitLab issue/MR skill | `agentify skill install glab-autopilot --provider codex --scope project` |
 | Sync repo files after upgrade | `agentify sync` |
 
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Provider-backed `run`, `sess`, and doc-generation subprocesses are sanitized too. Configure `tests.env.*` or `providerEnv.*` in `.agentify.yaml` when a command needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Provider-backed `run`, `sess`, and doc-generation subprocesses are sanitized too. Generic commands supplied after `--` get runtime essentials but no provider credentials unless they are explicitly opted in with `providerEnv.*`. Configure `tests.env.*` or `providerEnv.*` in `.agentify.yaml` when a command needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).
 
 ---
 
@@ -277,7 +277,7 @@ agentify sess resume --session <id> "write tests from the prepared compacted con
 
 Reported `prompt_bytes` and `session_context_bytes` are UTF-8 byte estimates for Agentify-managed material — **not** a provider token count or a guarantee about live provider context size.
 
-Routed artifacts are local/generated under `.agentify/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test and provider subprocess envs by default. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.*` / `providerEnv.*` when needed.
+Routed artifacts are local/generated under `.agentify/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test, provider, and generic wrapped-command subprocess envs by default. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.*` / `providerEnv.*` when needed.
 
 ---
 
@@ -366,7 +366,7 @@ If you are testing from this checkout and `agentify` is not on your `PATH`, use 
 
 Dynamic completions use the current repo. Providers and installed skills appear when configured, sessions appear after Agentify has session state, and paths come from the shell's working directory.
 
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded wholesale to test or provider subprocesses; configure `tests.env.*` / `providerEnv.*` in `.agentify.yaml` if a subprocess needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
+> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded wholesale to test, provider, or generic wrapped-command subprocesses; configure `tests.env.*` / `providerEnv.*` in `.agentify.yaml` if a subprocess needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
 
 ## 📖 CLI Reference
 
@@ -427,7 +427,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `--rtk` | Opt into RTK command-output compression guidance for provider prompts and test wrapping for `up` |
 | `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
-| `--bypass-permissions` | Control `issue-killer` YOLO mode. Permission bypass is on by default; use `--bypass-permissions=false` to disable. |
+| `--bypass-permissions` | Explicitly enable `issue-killer` YOLO mode. Permission bypass is off by default. |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--current-worktree` | Run AFK execution in the current checkout instead of an isolated worktree |
 | `--allow-dirty` | Allow AFK current-worktree execution with local changes |

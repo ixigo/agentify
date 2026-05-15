@@ -1,4 +1,4 @@
-const DEFAULT_PROVIDER_PASSTHROUGH_ENV = Object.freeze([
+const DEFAULT_RUNTIME_PASSTHROUGH_ENV = Object.freeze([
   "PATH",
   "HOME",
   "SHELL",
@@ -43,6 +43,10 @@ const DEFAULT_PROVIDER_PASSTHROUGH_ENV = Object.freeze([
   "SYSTEMDRIVE",
   "WINDIR",
   "COMSPEC",
+]);
+
+const DEFAULT_PROVIDER_PASSTHROUGH_ENV = Object.freeze([
+  ...DEFAULT_RUNTIME_PASSTHROUGH_ENV,
   "CODEX_HOME",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
@@ -66,23 +70,31 @@ const DEFAULT_PROVIDER_PASSTHROUGH_ENV = Object.freeze([
   "OPENCODE_CONFIG",
 ]);
 
-export function buildProviderEnv(providerEnvConfig = {}, sourceEnv = process.env) {
-  const envConfig = providerEnvConfig && typeof providerEnvConfig === "object"
+function normalizeEnvConfig(providerEnvConfig = {}) {
+  return providerEnvConfig && typeof providerEnvConfig === "object"
     ? providerEnvConfig
     : {};
+}
+
+function applyExtraEnv(env, envConfig) {
+  const extra = envConfig.extra && typeof envConfig.extra === "object" ? envConfig.extra : {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (value === null || value === undefined) continue;
+    env[key] = String(value);
+  }
+}
+
+function buildEnvFromAllowlist(providerEnvConfig, sourceEnv, defaultPassthrough) {
+  const envConfig = normalizeEnvConfig(providerEnvConfig);
 
   if (envConfig.inherit === true) {
     const inherited = { ...sourceEnv };
-    const extra = envConfig.extra && typeof envConfig.extra === "object" ? envConfig.extra : {};
-    for (const [key, value] of Object.entries(extra)) {
-      if (value === null || value === undefined) continue;
-      inherited[key] = String(value);
-    }
+    applyExtraEnv(inherited, envConfig);
     return inherited;
   }
 
   const env = {};
-  for (const key of DEFAULT_PROVIDER_PASSTHROUGH_ENV) {
+  for (const key of defaultPassthrough) {
     if (sourceEnv[key] !== undefined) {
       env[key] = sourceEnv[key];
     }
@@ -96,11 +108,15 @@ export function buildProviderEnv(providerEnvConfig = {}, sourceEnv = process.env
     }
   }
 
-  const extra = envConfig.extra && typeof envConfig.extra === "object" ? envConfig.extra : {};
-  for (const [key, value] of Object.entries(extra)) {
-    if (value === null || value === undefined) continue;
-    env[key] = String(value);
-  }
+  applyExtraEnv(env, envConfig);
 
   return env;
+}
+
+export function buildProviderEnv(providerEnvConfig = {}, sourceEnv = process.env) {
+  return buildEnvFromAllowlist(providerEnvConfig, sourceEnv, DEFAULT_PROVIDER_PASSTHROUGH_ENV);
+}
+
+export function buildGenericWrappedCommandEnv(providerEnvConfig = {}, sourceEnv = process.env) {
+  return buildEnvFromAllowlist(providerEnvConfig, sourceEnv, DEFAULT_RUNTIME_PASSTHROUGH_ENV);
 }

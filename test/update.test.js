@@ -62,7 +62,21 @@ async function readLatestRunReport(root, commandName) {
   return JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
 }
 
-test("scan and doc generate required artifacts", async () => {
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
+test("scan and doc generate required artifacts", async (t) => {
+  if (process.platform !== "win32") {
+    withUmask(t, 0o000);
+  }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
@@ -80,6 +94,12 @@ test("scan and doc generate required artifacts", async () => {
   const summary = await fs.readFile(path.join(root, "AGENTIFY.md"), "utf8");
   assert.match(summary, /# AGENTIFY\.md/);
   assert.match(summary, /## Run Metrics/);
+  if (process.platform !== "win32") {
+    const runDir = path.join(root, ".agentify", "runs");
+    const runFiles = await fs.readdir(runDir);
+    assert.equal(await modeOf(runDir), 0o700);
+    assert.equal(await modeOf(path.join(runDir, runFiles[0])), 0o600);
+  }
 });
 
 test("validateRepo allows tracked header-only code changes", async () => {

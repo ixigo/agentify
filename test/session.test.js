@@ -61,6 +61,17 @@ exit 1
   return scriptPath;
 }
 
+async function modeOf(targetPath) {
+  return (await fs.stat(targetPath)).mode & 0o777;
+}
+
+function withUmask(t, mask) {
+  const previous = process.umask(mask);
+  t.after(() => {
+    process.umask(previous);
+  });
+}
+
 test("forkSession writes provider in manifest and bootstrap", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n");
@@ -72,6 +83,25 @@ test("forkSession writes provider in manifest and bootstrap", async () => {
 
   assert.equal(result.manifest.provider, "codex");
   assert.match(resumed.bootstrap, /Provider: codex/);
+});
+
+test("forkSession writes session artifacts with restrictive permissions", async (t) => {
+  if (process.platform === "win32") {
+    return;
+  }
+  withUmask(t, 0o000);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-session-perms-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n");
+  await initGitRepo(root);
+
+  const config = await loadConfig(root, { provider: "codex" });
+  const created = await forkSession(root, config, { name: "permissions" });
+
+  assert.equal(await modeOf(created.sessionDir), 0o700);
+  for (const artifact of ["session-manifest.json", "checklist.json", "context.json", "bootstrap.md"]) {
+    assert.equal(await modeOf(path.join(created.sessionDir, artifact)), 0o600, artifact);
+  }
 });
 
 test("resolveSessionProvider supports legacy tool manifests", () => {
