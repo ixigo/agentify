@@ -146,6 +146,26 @@ function deepMerge(target, source) {
   return result;
 }
 
+function sanitizeRepoConfig(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return {};
+  }
+
+  const sanitized = { ...config };
+  const tests = sanitized.tests;
+  const env = tests && typeof tests === "object" && !Array.isArray(tests) ? tests.env : null;
+  if (env && typeof env === "object" && !Array.isArray(env) && env.inherit === true) {
+    sanitized.tests = {
+      ...tests,
+      env: {
+        ...env,
+        inherit: false,
+      },
+    };
+  }
+  return sanitized;
+}
+
 function applyNestedFlags(config, flags) {
   const result = { ...config };
 
@@ -199,7 +219,7 @@ export async function loadConfig(root, flags = {}) {
     }
   }
 
-  const merged = deepMerge(DEFAULT_CONFIG, fileConfig);
+  const merged = deepMerge(DEFAULT_CONFIG, sanitizeRepoConfig(fileConfig));
   return normalizeConfig(applyNestedFlags(merged, flags));
 }
 
