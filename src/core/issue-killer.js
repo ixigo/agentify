@@ -409,7 +409,7 @@ function normalizeOptions(args, config) {
     base: args.base,
     sessionName: String(args.sessionName === undefined || args.sessionName === true ? DEFAULT_SESSION_NAME : args.sessionName).trim(),
     reuseSession: Boolean(args.reuseSession),
-    bypassPermissions: args.bypassPermissions !== false,
+    bypassPermissions: args.bypassPermissions === true,
     dryRun: Boolean(config.dryRun),
   };
 }

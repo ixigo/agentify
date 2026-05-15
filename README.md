@@ -400,7 +400,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | `--rtk` | Opt into RTK command-output compression guidance for provider prompts and test wrapping for `up` |
 | `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
 | `--with-context` | Inject planner-selected files, tests, and memory into `run` |
-| `--bypass-permissions` | Control `issue-killer` YOLO mode. Permission bypass is on by default; use `--bypass-permissions=false` to disable. |
+| `--bypass-permissions` | Explicitly enable `issue-killer` YOLO mode. Permission bypass is off by default. |
 | `--explain-plan` | Print planner output before executing `run` |
 | `--current-worktree` | Run AFK execution in the current checkout instead of an isolated worktree |
 | `--allow-dirty` | Allow AFK current-worktree execution with local changes |
