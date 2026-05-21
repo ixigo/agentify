@@ -24,7 +24,7 @@ import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
 import { forkSession, listSessions, maybePrepareChildSession, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
 import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
-import { garbageCollect, cacheStatus } from "./core/cache.js";
+import { cleanCache, garbageCollect, cacheStatus, hasSharedStoreLocks } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
 import { runAfk } from "./core/afk.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
@@ -36,7 +36,7 @@ import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, re
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
-import { resolveAgentifyPaths } from "./core/project-store.js";
+import { resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./core/project-store.js";
 import {
   CONTEXT_MODE_DEFAULT,
   normalizeContextMode,
@@ -61,6 +61,22 @@ function renderAutoLinkSummary(result) {
   log("Local artifacts:");
   for (const name of result.local_artifacts || []) {
     log(`  - ${name}`);
+  }
+  if (result.migration) {
+    log("");
+    if (result.migration.migrated?.length > 0) {
+      log("Migrated reusable artifacts:");
+      for (const item of result.migration.migrated) {
+        log(`  - ${item.artifact}: ${item.source} -> ${item.target}`);
+      }
+    } else if (result.migration.mode === "none") {
+      log("Migration: skipped (--migrate=none)");
+    } else {
+      log("Migration: no reusable local artifacts copied");
+    }
+    for (const warning of result.migration.warnings || []) {
+      log(`Warning: ${warning}`);
+    }
   }
 }
 
@@ -89,6 +105,45 @@ function renderLinkStatus(result) {
     log(`Store created:   ${result.store_meta.created_at || "?"}`);
     log(`Store last used: ${result.store_meta.last_used_at || "?"}`);
   }
+}
+
+function buildCacheStatus(paths, status) {
+  return {
+    ...status,
+    store: paths.mode === "shared" ? "shared" : "local",
+    cache_root: paths.cacheRoot,
+    runtime_root: paths.runtimeRoot,
+    project_store: paths.projectStore,
+  };
+}
+
+function cacheCleanTargets(root, agentifyPaths, args) {
+  const localPaths = resolveLocalAgentifyPaths(root);
+  const wantsLocal = args.local === true;
+  const wantsShared = args.shared === true;
+  const wantsAll = args.all === true;
+  const selectedCount = [wantsLocal, wantsShared, wantsAll].filter(Boolean).length;
+  if (selectedCount !== 1) {
+    throw new Error("cache clean requires exactly one of --local, --shared, or --all");
+  }
+  if ((wantsShared || wantsAll) && agentifyPaths.mode !== "shared") {
+    throw new Error("cache clean --shared requires a linked or shared Agentify project store");
+  }
+  if (wantsAll && !args.dryRun && args.yes !== true) {
+    throw new Error("cache clean --all requires --yes unless --dry-run is used");
+  }
+
+  const targets = [];
+  if (wantsLocal || wantsAll) {
+    targets.push({ store: "local", cacheRoot: localPaths.cacheRoot, shared: false });
+  }
+  if (wantsShared || wantsAll) {
+    const alreadyIncluded = targets.some((target) => target.cacheRoot === agentifyPaths.cacheRoot);
+    if (!alreadyIncluded) {
+      targets.push({ store: "shared", cacheRoot: agentifyPaths.cacheRoot, shared: true });
+    }
+  }
+  return targets;
 }
 
 function parseValue(raw) {
@@ -615,6 +670,7 @@ export async function runCli(argv, runtime = {}) {
           auto: args.auto === true,
           status: args.status === true,
           force: args.force === true,
+          migrate: args.migrate,
           dryRun: config.dryRun,
           config,
           prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
@@ -646,6 +702,7 @@ export async function runCli(argv, runtime = {}) {
           const result = await linkProject(root, {
             auto: true,
             force: args.force === true,
+            migrate: args.migrate,
             dryRun: config.dryRun,
             config,
             prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
@@ -1209,14 +1266,46 @@ export async function runCli(argv, runtime = {}) {
           const result = await garbageCollect(cacheRoot, maxAge);
           success(`Garbage collected ${result.removed} blob(s).`);
         } else if (subcommand === "status") {
-          const status = await cacheStatus(cacheRoot);
+          const status = buildCacheStatus(config._agentifyPaths, await cacheStatus(cacheRoot));
           if (config.json) {
             console.log(JSON.stringify(status, null, 2));
           } else {
+            log(`Store: ${bold(status.store)}  Path: ${dim(status.cache_root)}`);
             log(`Blobs: ${bold(String(status.blobs))}  Size: ${bold(status.totalSize || "0 B")}`);
           }
+        } else if (subcommand === "clean") {
+          const targets = cacheCleanTargets(root, config._agentifyPaths, args);
+          const touchesShared = targets.some((target) => target.shared);
+          if (touchesShared && !config.dryRun && await hasSharedStoreLocks(config._agentifyPaths.locksRoot)) {
+            throw new Error(`Refusing to clean shared cache while shared store locks are present: ${config._agentifyPaths.locksRoot}`);
+          }
+
+          const cleaned = [];
+          for (const target of targets) {
+            cleaned.push({
+              store: target.store,
+              cache_root: target.cacheRoot,
+              ...(await cleanCache(target.cacheRoot, { dryRun: config.dryRun })),
+            });
+          }
+          const result = {
+            command: "cache clean",
+            dry_run: Boolean(config.dryRun),
+            cleaned,
+          };
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            for (const item of cleaned) {
+              const verb = config.dryRun ? "would remove" : "removed";
+              log(`Cache clean ${item.store}: ${verb} ${item.removed} item(s) from ${dim(item.cache_root)}`);
+              for (const removedPath of item.removed_paths) {
+                log(`  - ${removedPath}`);
+              }
+            }
+          }
         } else {
-          throw new Error("cache requires a subcommand: gc or status");
+          throw new Error("cache requires a subcommand: gc, status, or clean");
         }
         return;
       }

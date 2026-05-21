@@ -120,6 +120,7 @@ export async function printHelp() {
     `    ${d("$")} agentify link --auto`,
     `    ${d("$")} agentify link --from ../canonical-worktree`,
     `    ${d("$")} agentify worktree status`,
+    `    ${d("$")} agentify cache clean --shared --dry-run`,
     `    ${d("$")} agentify this --provider codex`,
     `    ${d("$")} agentify up --provider codex`,
     `    ${d("$")} agentify sync`,

@@ -224,6 +224,15 @@ const COMMANDS = [
         flags: [flag("--max-age", { valueKind: "number", description: "Maximum age in days" })],
       }),
       subcommand("status", "Show cache status"),
+      subcommand("clean", "Remove cache contents from the selected store", {
+        flags: [
+          flag("--local", { description: "Clean only the current worktree cache" }),
+          flag("--shared", { description: "Clean only the shared project-store cache" }),
+          flag("--all", { description: "Clean local and shared cache stores" }),
+          flag("--dry-run", { description: "Report planned removals only" }),
+          flag("--yes", { description: "Confirm --all without prompting" }),
+        ],
+      }),
     ],
   }),
   command("completion", "Generate shell completion scripts", {
