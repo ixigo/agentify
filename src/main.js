@@ -48,6 +48,48 @@ async function ensureLinkTargetPolicy(root, config) {
   await ensureBaselineArtifacts(root, config);
 }
 
+function renderAutoLinkSummary(result) {
+  log(`Current worktree: ${result.root}`);
+  log(`Git common dir:  ${result.git_common_dir}`);
+  log(`Project store:   ${result.project_store}`);
+  log("");
+  log("Shared artifacts:");
+  for (const name of result.shared_artifacts || []) {
+    log(`  - ${name}`);
+  }
+  log("Local artifacts:");
+  for (const name of result.local_artifacts || []) {
+    log(`  - ${name}`);
+  }
+}
+
+function renderLinkStatus(result) {
+  log("Agentify runtime status");
+  log("");
+  log(`Mode:            ${result.runtime_mode}`);
+  log(`Current root:    ${result.root}`);
+  log(`Runtime root:    ${result.runtime_root}`);
+  log(`Project store:   ${result.project_store}`);
+  if (result.git_common_dir) {
+    log(`Git common dir:  ${result.git_common_dir}`);
+  }
+  if (result.repo_key) {
+    log(`Repo key:        ${result.repo_key}`);
+  }
+  log("");
+  if (!result.link_present) {
+    log("Link file:       (none)");
+  } else if (!result.link_valid) {
+    log(`Link file:       invalid (${result.link_invalid_reason || "unknown"})`);
+  } else {
+    log("Link file:       ok");
+  }
+  if (result.store_meta) {
+    log(`Store created:   ${result.store_meta.created_at || "?"}`);
+    log(`Store last used: ${result.store_meta.last_used_at || "?"}`);
+  }
+}
+
 function parseValue(raw) {
   if (raw === "true") {
     return true;
@@ -87,6 +129,9 @@ const BOOLEAN_FLAGS = new Set([
   "planned",
   "sessions",
   "all",
+  "auto",
+  "status",
+  "force",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
@@ -565,11 +610,24 @@ export async function runCli(argv, runtime = {}) {
       case "link": {
         const result = await linkProject(root, {
           from: args.from,
+          auto: args.auto === true,
+          status: args.status === true,
+          force: args.force === true,
           dryRun: config.dryRun,
+          config,
           prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
+        } else if (result.mode === "status") {
+          renderLinkStatus(result);
+        } else if (result.mode === "auto") {
+          if (result.changed) {
+            success("Linked Agentify shared project store");
+          } else {
+            success("Agentify shared project store link already up to date");
+          }
+          renderAutoLinkSummary(result);
         } else if (result.changed) {
           success("Linked Agentify project store");
           log(`Shared store: ${result.project_store}`);
@@ -578,6 +636,39 @@ export async function runCli(argv, runtime = {}) {
           log(`Shared store: ${result.project_store}`);
         }
         return;
+      }
+
+      case "worktree": {
+        const sub = String(subcommand || "").toLowerCase();
+        if (sub === "attach") {
+          const result = await linkProject(root, {
+            auto: true,
+            force: args.force === true,
+            dryRun: config.dryRun,
+            config,
+            prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
+          });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else if (result.changed) {
+            success("Linked Agentify shared project store");
+            renderAutoLinkSummary(result);
+          } else {
+            success("Agentify shared project store link already up to date");
+            renderAutoLinkSummary(result);
+          }
+          return;
+        }
+        if (sub === "status" || sub === "") {
+          const result = await linkProject(root, { status: true, config });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            renderLinkStatus(result);
+          }
+          return;
+        }
+        throw new Error(`Unknown worktree subcommand: ${subcommand}. Try \`agentify worktree attach\` or \`agentify worktree status\`.`);
       }
 
       case "index":
