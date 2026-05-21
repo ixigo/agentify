@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import ts from "typescript";
 
 import { buildRepositoryIndex } from "./indexer.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { loadFiles, loadModules } from "./db/structural-store.js";
@@ -804,10 +805,11 @@ export async function runSemanticRefresh(root, config, options = {}) {
   }
 
   const artifactRoot = options.artifactRoot || root;
+  const agentifyPaths = options.artifactPaths || config._agentifyPaths || await resolveAgentifyPaths(artifactRoot, config);
   if (!config.dryRun) {
-    await ensureDir(path.join(artifactRoot, ".agentify"));
+    await ensureDir(agentifyPaths.projectStore);
   }
-  const db = openIndexDatabase(artifactRoot);
+  const db = openIndexDatabase(agentifyPaths);
   const { projects: discoveredProjects, repoIndex } = await discoverAllSemanticProjects(root, config);
   const semanticMeta = getSemanticMeta(db);
   const fileHashCache = normalizeFileHashCache(semanticMeta[SEMANTIC_FILE_HASH_CACHE_KEY]);
@@ -980,12 +982,12 @@ function buildDeterministicSummary(facts) {
   return summary.charAt(0).toUpperCase() + summary.slice(1);
 }
 
-export async function applySemanticHeaders(root, artifactRoot, config, { ghost = false } = {}) {
+export async function applySemanticHeaders(root, artifactRoot, config, { ghost = false, artifactPaths = null } = {}) {
   if (!isSemanticEnabled(config) || config.dryRun) {
     return { plannedHeaders: [], changed: 0 };
   }
 
-  const db = openIndexDatabase(artifactRoot);
+  const db = openIndexDatabase(artifactPaths || artifactRoot);
   try {
     const files = loadFiles(db);
     const modules = loadModules(db);
@@ -1045,8 +1047,8 @@ export async function applySemanticHeaders(root, artifactRoot, config, { ghost =
   }
 }
 
-export async function writeSemanticRepoMap(root, artifactRoot) {
-  const db = openIndexDatabase(artifactRoot);
+export async function writeSemanticRepoMap(root, artifactRoot, options = {}) {
+  const db = openIndexDatabase(options.artifactPaths || artifactRoot);
   try {
     const meta = getRepoMeta(db);
     const modules = loadModules(db);

@@ -6,6 +6,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadSymbols } from "./db/structural-store.js";
 import { ensurePrivateDir, exists, readJson, relative, writePrivateJson, writePrivateText } from "./fs.js";
 import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 import { listSessions, resumeSession } from "./session.js";
 
@@ -122,13 +123,13 @@ function summarizeTests(plan) {
   };
 }
 
-async function loadTouchedSymbolNeighborhood(root, touchedFiles) {
-  if (touchedFiles.length === 0 || !(await exists(path.join(root, ".agentify", "index.db")))) {
+async function loadTouchedSymbolNeighborhood(root, touchedFiles, agentifyPaths) {
+  if (touchedFiles.length === 0 || !(await exists(agentifyPaths.indexDb))) {
     return [];
   }
 
   const touched = new Set(touchedFiles.map((item) => item.path));
-  const db = openIndexDatabase(root, { readOnly: true });
+  const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const symbolsByFile = new Map();
     for (const symbolInfo of loadSymbols(db).filter((item) => touched.has(item.file_path)).sort(byPathThenLine)) {
@@ -328,6 +329,7 @@ export async function buildHandoffBundle(root, config, sessionId, task = "") {
     || "Continue this session from the latest repository state.";
   const touchedFiles = await collectTouchedFiles(root, manifest);
   const currentHead = await getHeadCommit(root);
+  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
   let plan = null;
   const planWarnings = [];
 
@@ -338,7 +340,7 @@ export async function buildHandoffBundle(root, config, sessionId, task = "") {
   }
 
   const selectedRiskPaths = plan?.selected_files?.map((item) => item.path) || [];
-  const touchedSymbolNeighborhood = await loadTouchedSymbolNeighborhood(root, touchedFiles);
+  const touchedSymbolNeighborhood = await loadTouchedSymbolNeighborhood(root, touchedFiles, agentifyPaths);
   const bundle = {
     schema_version: "1.0",
     bundle_type: "agentify-handoff",

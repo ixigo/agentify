@@ -1,9 +1,10 @@
-import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 
+import { resolveLocalAgentifyPaths } from "../project-store.js";
 import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.js";
 import { toJson } from "./utils.js";
 
@@ -53,7 +54,10 @@ function openWithNodeSqlite(filename, options = {}) {
 }
 
 export function getIndexDbPath(root) {
-  return path.join(root, ".agentify", "index.db");
+  if (root && typeof root === "object" && typeof root.indexDb === "string") {
+    return root.indexDb;
+  }
+  return resolveLocalAgentifyPaths(root).indexDb;
 }
 
 function createIndexSnapshot(dbPath) {

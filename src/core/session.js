@@ -5,6 +5,7 @@ import { ensurePrivateDir, exists, readJson, writePrivateJson, writePrivateText 
 import { getHeadCommit } from "./git.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModules } from "./db/structural-store.js";
+import { resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./project-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 
 function generateSessionId() {
@@ -32,7 +33,7 @@ export function validateSessionId(sessionId, label = "session id") {
 
 function resolveSessionDirSafely(root, sessionId, label = "session id") {
   validateSessionId(sessionId, label);
-  const sessionsRoot = path.resolve(root, ".agentify", "session");
+  const sessionsRoot = resolveLocalAgentifyPaths(root).sessionRoot;
   const sessionDir = path.resolve(sessionsRoot, sessionId);
   const expectedPrefix = sessionsRoot + path.sep;
   if (!sessionDir.startsWith(expectedPrefix) || path.dirname(sessionDir) !== sessionsRoot) {
@@ -300,13 +301,14 @@ ${clipToBytes(baseStartHere, attempt.startHereBytes) || "- Inspect the session c
 
 export async function forkSession(root, config, options = {}) {
   const sessionId = generateSessionId();
-  const sessionDir = path.join(root, ".agentify", "session", sessionId);
+  const sessionDir = path.join(resolveLocalAgentifyPaths(root).sessionRoot, sessionId);
   await ensurePrivateDir(sessionDir);
 
   const headCommit = await getHeadCommit(root);
   let index = null;
-  if (await exists(path.join(root, ".agentify", "index.db"))) {
-    const db = openIndexDatabase(root, { readOnly: true });
+  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  if (await exists(agentifyPaths.indexDb)) {
+    const db = openIndexDatabase(agentifyPaths, { readOnly: true });
     try {
       index = {
         modules: loadModules(db).map((moduleInfo) => ({ id: moduleInfo.id })),
@@ -425,7 +427,7 @@ export async function forkSession(root, config, options = {}) {
 }
 
 export async function listSessions(root) {
-  const sessionsDir = path.join(root, ".agentify", "session");
+  const sessionsDir = resolveLocalAgentifyPaths(root).sessionRoot;
   if (!(await exists(sessionsDir))) return [];
 
   const entries = await fs.readdir(sessionsDir, { withFileTypes: true });

@@ -8,6 +8,7 @@ import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
 import { ensureAgentifyGitignore } from "./gitignore.js";
 import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { runProjectTests } from "./project-tests.js";
+import { ensureProjectStore, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./project-store.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
@@ -154,8 +155,8 @@ ${index.modules.map(moduleLink).join("\n")}
 `;
 }
 
-async function writeRunReport(root, report) {
-  const runPath = path.join(root, ".agentify", "runs", `${report.run_id}.json`);
+async function writeRunReport(root, report, options = {}) {
+  const runPath = path.join((options.paths || resolveLocalAgentifyPaths(root)).runsRoot, `${report.run_id}.json`);
   await writePrivateJson(runPath, report);
   return runPath;
 }
@@ -223,13 +224,17 @@ async function writeTextIfMissing(targetPath, text) {
   return true;
 }
 
-export async function ensureBaselineArtifacts(root, config) {
+export async function ensureBaselineArtifacts(root, config, options = {}) {
   if (config.dryRun) {
     return;
   }
-  await ensureDir(path.join(root, ".agentify"));
-  await ensurePrivateDir(path.join(root, ".agentify", "runs"));
-  await ensureDir(path.join(root, ".agentify", "work"));
+  const agentifyPaths = options.paths || await resolveArtifactPaths(root, config, { artifactRoot: root });
+  await ensureDir(agentifyPaths.runtimeRoot);
+  await ensurePrivateDir(agentifyPaths.runsRoot);
+  await ensureDir(agentifyPaths.workRoot);
+  if (agentifyPaths.mode === "shared") {
+    await ensureProjectStore(agentifyPaths);
+  }
   await ensureDir(path.join(root, "docs", "modules"));
   await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
   await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
@@ -241,6 +246,20 @@ function resolveArtifactRoot(root, config, runId) {
     return path.join(root, ".current_session", runId || `ghost_${Date.now()}`);
   }
   return root;
+}
+
+async function resolveArtifactPaths(root, config, { artifactRoot = root } = {}) {
+  if (artifactRoot !== root) {
+    return resolveAgentifyPaths(artifactRoot, config, {
+      ...process.env,
+      AGENTIFY_RUNTIME_STORE: "local",
+      AGENTIFY_DISABLE_LINK: "1",
+    });
+  }
+  if (config._agentifyPaths?.root === path.resolve(root)) {
+    return config._agentifyPaths;
+  }
+  return resolveAgentifyPaths(root, config);
 }
 
 function buildRenderableIndex(root, meta, modules) {
@@ -469,14 +488,46 @@ async function _runScanInner(root, config, options, progress) {
     ? (options.ghostRunId || `ghost_${Date.now()}`)
     : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
 
-  await ensureBaselineArtifacts(artifactRoot, config);
+  await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths });
   const headCommit = await getHeadCommit(root);
+  if (!config.dryRun && artifactPaths.mode === "shared" && await exists(artifactPaths.indexDb)) {
+    try {
+      const db = openIndexDatabase(artifactPaths, { readOnly: true });
+      try {
+        const meta = getRepoMeta(db);
+        if (meta.head_commit === headCommit) {
+          const result = {
+            command: options.commandName || "scan",
+            status: "reused",
+            reused_index: true,
+            index_path: artifactPaths.indexDb,
+            wrote: [],
+          };
+          progress.log("scan: reused warm shared index");
+          progress.setCommand(options.commandName || "scan");
+          progress.setScan(result);
+          if (!options.skipOutput && (config.json || !config._suppressProgress)) {
+            progress.json(result);
+          }
+          if (!options.skipFinalize) {
+            await progress.finalize();
+          }
+          return result;
+        }
+      } finally {
+        closeIndexDatabase(db);
+      }
+    } catch {
+      // Fall through and rebuild an unreadable or stale shared index.
+    }
+  }
   const snapshot = options.scanSnapshot || await buildRepositoryIndex(root, config);
   progress.log(`scan: analyzed ${snapshot.files.length} files and detected ${snapshot.modules.length} modules`);
 
   if (!config.dryRun) {
-    const db = openIndexDatabase(artifactRoot);
+    const db = openIndexDatabase(artifactPaths);
     try {
       inTransaction(db, () => {
         writeRepositoryIndex(db, snapshot, {
@@ -695,18 +746,19 @@ async function _runDocInner(root, config, options, progress) {
     ? (options.ghostRunId || `ghost_${Date.now()}`)
     : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
 
-  await ensureBaselineArtifacts(artifactRoot, config);
+  await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths });
   const provider = createProvider(config.provider, config);
   const fallbackProvider = provider.name === "local" ? provider : createProvider("local", config);
   const now = new Date().toISOString();
   const headCommit = await getHeadCommit(root);
-  const dbPath = path.join(artifactRoot, ".agentify", "index.db");
+  const dbPath = artifactPaths.indexDb;
   const scanSnapshot = options.scanSnapshot || null;
 
   if (!config.dryRun && (scanSnapshot || !(await exists(dbPath)))) {
     const snapshot = scanSnapshot || await buildRepositoryIndex(root, config);
-    const writeDb = openIndexDatabase(artifactRoot);
+    const writeDb = openIndexDatabase(artifactPaths);
     try {
       inTransaction(writeDb, () => {
         writeRepositoryIndex(writeDb, snapshot, {
@@ -725,6 +777,7 @@ async function _runDocInner(root, config, options, progress) {
     progress.percent("doc", 5, "refreshing semantic facts");
     await runSemanticRefresh(root, config, {
       artifactRoot,
+      artifactPaths,
       silent: true,
       skipOutput: true,
     });
@@ -736,13 +789,13 @@ async function _runDocInner(root, config, options, progress) {
     if (scanSnapshot) {
       indexData = createIndexDataFromSnapshot(root, scanSnapshot, headCommit, config.provider);
     } else if (await exists(dbPath)) {
-      db = openIndexDatabase(artifactRoot);
+      db = openIndexDatabase(artifactPaths);
       indexData = createDbSnapshot(root, db);
     } else {
       indexData = createIndexDataFromSnapshot(root, await buildRepositoryIndex(root, config), headCommit, config.provider);
     }
   } else {
-    db = openIndexDatabase(artifactRoot);
+    db = openIndexDatabase(artifactPaths);
     indexData = createDbSnapshot(root, db);
   }
 
@@ -989,6 +1042,7 @@ async function _runDocInner(root, config, options, progress) {
       progress.log("doc: applying deterministic semantic headers");
       const semanticHeaderResult = await applySemanticHeaders(root, artifactRoot, config, {
         ghost: Boolean(config.ghost || config.ghostMode),
+        artifactPaths,
       });
       filesWithHeaders += semanticHeaderResult.changed;
       plannedHeaders.push(...semanticHeaderResult.plannedHeaders);
@@ -996,7 +1050,7 @@ async function _runDocInner(root, config, options, progress) {
 
     if (!config.dryRun) {
       if (semanticEnabled) {
-        await writeSemanticRepoMap(root, artifactRoot);
+        await writeSemanticRepoMap(root, artifactRoot, { artifactPaths });
       } else {
         await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(indexData.index));
       }
@@ -1073,7 +1127,7 @@ async function _runDocInner(root, config, options, progress) {
     };
 
     if (config.tokenReport && !config.dryRun) {
-      await writeRunReport(artifactRoot, runReport);
+      await writeRunReport(artifactRoot, runReport, { paths: artifactPaths });
     }
     if (!config.dryRun && db) {
       upsertArtifact(db, {
@@ -1205,6 +1259,7 @@ export async function runUpdate(root, config, options = {}) {
   const commandName = options.commandName || "up";
   const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
   const progress = createRunReporter(artifactRoot);
   const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
   progress.setCommand(commandName);
@@ -1226,6 +1281,7 @@ export async function runUpdate(root, config, options = {}) {
   }
   const result = await validateRepo(root, config, {
     artifactRoot,
+    artifactPaths,
     skipFreshness: config.dryRun,
     skipCodeBodyChanges: options.skipCodeBodyChanges === true,
   });
@@ -1234,7 +1290,7 @@ export async function runUpdate(root, config, options = {}) {
   const testResult = await runProjectTests(root, progress, { config });
   const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
-    const db = openIndexDatabase(artifactRoot);
+    const db = openIndexDatabase(artifactPaths);
     const meta = getRepoMeta(db);
     closeIndexDatabase(db);
     const runReport = {
@@ -1258,7 +1314,7 @@ export async function runUpdate(root, config, options = {}) {
       validation: result,
       tests
     };
-    await writeRunReport(artifactRoot, runReport);
+    await writeRunReport(artifactRoot, runReport, { paths: artifactPaths });
   }
   const finalOutput = {
     command: commandName,

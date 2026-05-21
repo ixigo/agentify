@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModuleDependencies, loadModules, searchIndex } from "./db/structural-store.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import {
   loadSemanticFileContext,
   loadSemanticInternalEdges,
@@ -186,8 +187,12 @@ function computeImpacts(filePath, edges, maxDepth) {
   });
 }
 
-export async function queryOwner(root, filePath) {
-  const db = openIndexDatabase(root, { readOnly: true });
+async function resolveQueryPaths(root, options = {}) {
+  return options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+}
+
+export async function queryOwner(root, filePath, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const modules = loadModules(db);
     const owner = findOwningModule(modules, filePath);
@@ -211,8 +216,8 @@ export async function queryOwner(root, filePath) {
   }
 }
 
-export async function queryDeps(root, moduleId) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function queryDeps(root, moduleId, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const modules = loadModules(db);
     const moduleInfo = modules.find((item) => item.id === moduleId);
@@ -233,8 +238,8 @@ export async function queryDeps(root, moduleId) {
   }
 }
 
-export async function queryChanged(root, sinceCommit) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function queryChanged(root, sinceCommit, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const modules = loadModules(db);
     const changed = await getChangedFilesSince(root, sinceCommit);
@@ -267,8 +272,8 @@ export async function queryChanged(root, sinceCommit) {
   }
 }
 
-export async function querySearch(root, term) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function querySearch(root, term, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const semantic = searchSemanticIndex(db, term);
     return {
@@ -281,8 +286,8 @@ export async function querySearch(root, term) {
   }
 }
 
-export async function queryDef(root, symbol) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function queryDef(root, symbol, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     return symbolResolution(symbol, resolveSemanticSymbols(db, symbol));
   } finally {
@@ -290,8 +295,8 @@ export async function queryDef(root, symbol) {
   }
 }
 
-export async function queryRefs(root, symbol) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function queryRefs(root, symbol, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const definitions = resolveSemanticSymbols(db, symbol);
     const references = rankedReferences(loadSemanticReferencesToSymbols(
@@ -307,8 +312,8 @@ export async function queryRefs(root, symbol) {
   }
 }
 
-export async function queryCallers(root, symbol) {
-  const db = openIndexDatabase(root, { readOnly: true });
+export async function queryCallers(root, symbol, options = {}) {
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const definitions = resolveSemanticSymbols(db, symbol);
     const edges = loadSemanticReferencesToSymbols(
@@ -325,7 +330,7 @@ export async function queryCallers(root, symbol) {
 }
 
 export async function queryImpacts(root, filePath, options = {}) {
-  const db = openIndexDatabase(root, { readOnly: true });
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const normalized = normalizePath(filePath);
     const depth = normalizeDepth(options.depth);
