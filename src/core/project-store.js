@@ -123,20 +123,41 @@ function resolveSharedBase(config, env) {
 function paths({ runtimeRoot, projectStore }) {
   return {
     indexDb: path.join(projectStore, "index.db"),
+    legacyIndexJson: path.join(projectStore, "index.json"),
     cacheRoot: path.join(projectStore, "cache"),
     semanticRoot: path.join(projectStore, "semantic"),
     contextRoot: path.join(projectStore, "context"),
     repoMapRoot: path.join(projectStore, "repo-map"),
     embeddingsRoot: path.join(projectStore, "embeddings"),
+    modulesRoot: path.join(projectStore, "modules"),
 
     runsRoot: path.join(runtimeRoot, "runs"),
     sessionRoot: path.join(runtimeRoot, "session"),
     workRoot: path.join(runtimeRoot, "work"),
     tmpRoot: path.join(runtimeRoot, "tmp"),
+    plannedRoot: path.join(runtimeRoot, "planned"),
+    mempalaceRoot: path.join(runtimeRoot, "mempalace"),
+    lockPath: path.join(runtimeRoot, ".lock"),
 
     storeMetaPath: path.join(projectStore, "store.json"),
     indexMetaPath: path.join(projectStore, "index.meta.json"),
     locksRoot: path.join(projectStore, "locks"),
+  };
+}
+
+export function resolveLocalAgentifyPaths(root) {
+  const resolvedRoot = path.resolve(root);
+  const runtimeRoot = path.join(resolvedRoot, ".agentify");
+  return {
+    root: resolvedRoot,
+    runtimeRoot,
+    projectStore: runtimeRoot,
+    mode: "local",
+    linked: false,
+    linkPath: path.join(runtimeRoot, "link.json"),
+    ...paths({ runtimeRoot, projectStore: runtimeRoot }),
+    sharedArtifactNames: SHARED_ARTIFACT_NAMES,
+    localArtifactNames: LOCAL_ARTIFACT_NAMES,
   };
 }
 

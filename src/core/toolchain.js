@@ -7,6 +7,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
 import { exists } from "./fs.js";
 import { EXECUTABLE_PROVIDER_NAMES, getProviderDefinition } from "./provider-registry.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import {
   computeSemanticProjectFingerprint,
   discoverSemanticProjectParseFailures,
@@ -290,14 +291,15 @@ async function buildSemanticDoctorReport(root, config) {
   const parseFailures = await discoverSemanticProjectParseFailures(root);
   const discoveredById = new Map(discoveredProjects.map((project) => [project.id, project]));
   const discoveredIds = new Set(discoveredById.keys());
-  const dbPath = `${root}/.agentify/index.db`;
+  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const dbPath = agentifyPaths.indexDb;
   const indexPresent = await exists(dbPath);
   const failures = [];
   const staleFingerprints = [];
   let indexedProjects = [];
 
   if (indexPresent) {
-    const db = openIndexDatabase(root, { readOnly: true });
+    const db = openIndexDatabase(agentifyPaths, { readOnly: true });
     try {
       indexedProjects = listSemanticProjects(db);
     } finally {
@@ -553,9 +555,10 @@ export async function runDoctor(root, config, options = {}) {
   if (semanticReport) {
     renderSemanticDoctorReport(semanticReport);
   } else if (config.semantic?.tsjs?.enabled && root) {
-    const dbPath = `${root}/.agentify/index.db`;
+    const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+    const dbPath = agentifyPaths.indexDb;
     if (await exists(dbPath)) {
-      const db = openIndexDatabase(root, { readOnly: true });
+      const db = openIndexDatabase(agentifyPaths, { readOnly: true });
       try {
         const semanticProjects = listSemanticProjects(db);
         ui.newline();

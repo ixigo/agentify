@@ -8,6 +8,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { loadModules } from "./db/structural-store.js";
 import { listSemanticProjects } from "./db/semantic-store.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import { isSemanticEnabled } from "./semantic.js";
 
 const ALLOWED_DOC_PATHS = [
@@ -80,7 +81,8 @@ export function validateHeaderOnlyChange(before, after, filePath, headerWindow =
 
 async function validateFreshness(root, failures, options = {}) {
   const targetRoot = options.artifactRoot || root;
-  const indexPath = path.join(targetRoot, ".agentify", "index.db");
+  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(targetRoot, options.config || {});
+  const indexPath = agentifyPaths.indexDb;
   if (!(await exists(indexPath))) {
     failures.push(
       createFailure(
@@ -91,7 +93,7 @@ async function validateFreshness(root, failures, options = {}) {
     );
     return;
   }
-  const db = openIndexDatabase(targetRoot);
+  const db = openIndexDatabase(agentifyPaths);
   try {
     const meta = getRepoMeta(db);
     const headCommit = await getHeadCommit(root);

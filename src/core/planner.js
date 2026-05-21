@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { toPlannerContextMode } from "./context-mode.js";
 import {
@@ -852,7 +853,10 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
   const tokens = tokenizeTask(taskText);
   const changedFiles = await getChangedFiles(root);
   const changedPaths = new Set(changedFiles.map((item) => item.path));
-  const db = openIndexDatabase(options.artifactRoot || root, { readOnly: true });
+  const agentifyPaths = options.artifactPaths
+    || (options.artifactRoot ? await resolveAgentifyPaths(options.artifactRoot, config) : config._agentifyPaths)
+    || await resolveAgentifyPaths(root, config);
+  const db = openIndexDatabase(agentifyPaths, { readOnly: true });
 
   try {
     const meta = getRepoMeta(db);

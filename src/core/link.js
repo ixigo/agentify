@@ -17,6 +17,7 @@ import {
   getGitIdentity,
   readLink,
   resolveAgentifyPaths,
+  resolveLocalAgentifyPaths,
 } from "./project-store.js";
 
 const execFileAsync = promisify(execFile);
@@ -57,7 +58,7 @@ function createFromLinkPayload({ canonical, current }) {
     schema_version: 1,
     kind: LINK_KIND,
     canonical_root: canonical.root,
-    project_store: path.join(canonical.root, ".agentify"),
+    project_store: resolveLocalAgentifyPaths(canonical.root).projectStore,
     git_common_dir: current.gitCommonDir,
   };
 }
@@ -109,7 +110,7 @@ async function linkFromCanonical(root, options) {
   }
 
   const payload = createFromLinkPayload({ canonical, current });
-  const linkPath = path.join(current.root, ".agentify", "link.json");
+  const linkPath = resolveLocalAgentifyPaths(current.root).linkPath;
 
   if (!options.dryRun && options.prepareTarget) {
     await options.prepareTarget(current.root);

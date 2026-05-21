@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import { resolveLocalAgentifyPaths } from "./project-store.js";
+
 const LOCK_STALE_MS = 300000;
 
 function isProcessAlive(pid) {
@@ -31,7 +33,7 @@ function canReclaimLock(existing) {
 }
 
 export async function acquireLock(root, operation) {
-  const lockPath = path.join(root, ".agentify", ".lock");
+  const lockPath = resolveLocalAgentifyPaths(root).lockPath;
 
   try {
     await fs.mkdir(path.dirname(lockPath), { recursive: true });

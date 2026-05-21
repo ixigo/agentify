@@ -1430,6 +1430,47 @@ test("runCli link preserves existing branch-local policy files", async () => {
   await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "link.json")));
 });
 
+test("runCli scan reuses a linked shared index across git worktrees", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-shared-scan-"));
+  const primary = path.join(parent, "primary");
+  const secondary = path.join(parent, "secondary");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(path.join(primary, "src"), { recursive: true });
+  await fs.writeFile(path.join(primary, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(primary, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await initGitRepo(primary);
+  await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "shared-scan-worktree", secondary]);
+
+  const previousSharedStorePath = process.env.AGENTIFY_SHARED_STORE_PATH;
+  process.env.AGENTIFY_SHARED_STORE_PATH = sharedBase;
+  try {
+    await runCli(["link", "--root", primary, "--auto"]);
+    await runCli(["link", "--root", secondary, "--auto"]);
+    await runCli(["scan", "--root", primary]);
+
+    const primaryLink = JSON.parse(await fs.readFile(path.join(primary, ".agentify", "link.json"), "utf8"));
+    const secondaryLink = JSON.parse(await fs.readFile(path.join(secondary, ".agentify", "link.json"), "utf8"));
+    assert.equal(primaryLink.project_store, secondaryLink.project_store);
+
+    const sharedIndex = path.join(primaryLink.project_store, "index.db");
+    await assert.doesNotReject(() => fs.access(sharedIndex));
+    await assert.rejects(() => fs.access(path.join(primary, ".agentify", "index.db")), { code: "ENOENT" });
+    await assert.rejects(() => fs.access(path.join(secondary, ".agentify", "index.db")), { code: "ENOENT" });
+
+    const output = await captureConsoleLog(() => runCli(["scan", "--root", secondary, "--json"]));
+    const result = JSON.parse(output.join("\n"));
+    assert.equal(result.status, "reused");
+    assert.equal(result.reused_index, true);
+    assert.equal(result.index_path, sharedIndex);
+  } finally {
+    if (previousSharedStorePath === undefined) {
+      delete process.env.AGENTIFY_SHARED_STORE_PATH;
+    } else {
+      process.env.AGENTIFY_SHARED_STORE_PATH = previousSharedStorePath;
+    }
+  }
+});
+
 test("runCli link rejects unrelated git repositories without writing a pointer", async () => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-link-unrelated-"));
   const canonical = path.join(parent, "canonical");

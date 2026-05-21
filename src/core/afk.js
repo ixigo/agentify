@@ -6,6 +6,7 @@ import YAML from "yaml";
 
 import { ensureDir, ensurePrivateDir, exists, readText, relative, writePrivateText, writeText } from "./fs.js";
 import { getChangedFiles } from "./git.js";
+import { resolveLocalAgentifyPaths } from "./project-store.js";
 import { runProjectTests } from "./project-tests.js";
 import { buildProviderTemplateCommand } from "./provider-command.js";
 import { runExec } from "./exec.js";
@@ -308,7 +309,7 @@ function buildSessionId(slug) {
 }
 
 async function findAvailablePlanPath(root, slug, extension = ".md") {
-  const plannedDir = path.join(root, ".agentify", "planned");
+  const plannedDir = resolveLocalAgentifyPaths(root).plannedRoot;
   await ensureDir(plannedDir);
   for (let index = 1; index < 1000; index += 1) {
     const suffix = index === 1 ? "" : `-${index}`;
@@ -410,7 +411,7 @@ export async function runAfkCreate(root, config, args) {
     continueSession: false,
   });
   const sessionId = buildSessionId(slug);
-  const capturePath = path.join(root, ".agentify", "session", sessionId, "interactive.log");
+  const capturePath = path.join(resolveLocalAgentifyPaths(root).sessionRoot, sessionId, "interactive.log");
   await ensurePrivateDir(path.dirname(capturePath));
 
   const result = await runExec(root, config, agentCommand, {
@@ -441,7 +442,7 @@ export async function runAfkCreate(root, config, args) {
   const runCommand = `agentify afk run ${relative(root, planPath)}`;
   const savedPlanMarkdown = appendAfkExecutionHandoff(plan.markdown, runCommand);
   await writeText(planPath, `${savedPlanMarkdown}\n`);
-  await writePrivateText(path.join(root, ".agentify", "session", sessionId, "afk-create.json"), `${JSON.stringify({
+  await writePrivateText(path.join(resolveLocalAgentifyPaths(root).sessionRoot, sessionId, "afk-create.json"), `${JSON.stringify({
     schema_version: "1.0",
     type: "agentify-afk-create",
     session_id: sessionId,

@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import { normalizeRows } from "./db/utils.js";
 import { loadCommands, loadFiles, loadModules, loadSymbols, loadTests } from "./db/structural-store.js";
 import { getChangedFiles, getChangedFilesSince } from "./git.js";
@@ -486,7 +487,8 @@ function buildReasons(changedFileScores, impactedModules, semanticFactsByFile) {
 }
 
 export async function buildRiskReport(root, options = {}) {
-  const db = openIndexDatabase(root, { readOnly: true });
+  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+  const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const modules = loadModules(db);
     const files = loadFiles(db);

@@ -36,6 +36,7 @@ import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, re
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
+import { resolveAgentifyPaths } from "./core/project-store.js";
 import {
   CONTEXT_MODE_DEFAULT,
   normalizeContextMode,
@@ -576,6 +577,7 @@ export async function runCli(argv, runtime = {}) {
 
   const root = path.resolve(String(args.root || process.cwd()));
   const config = await loadConfig(root, args);
+  config._agentifyPaths = await resolveAgentifyPaths(root, config);
 
   if (args.json) {
     config.json = true;
@@ -598,7 +600,7 @@ export async function runCli(argv, runtime = {}) {
             command: "init",
             root,
             dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify", ".agentify/runs", ".agentify/work", "docs/modules"],
+            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", `.agentify`, ".agentify/runs", ".agentify/work", "docs/modules"],
             skill_install_hint: skillInstallHint,
           }, null, 2));
         } else {
@@ -785,16 +787,18 @@ export async function runCli(argv, runtime = {}) {
 
       case "context": {
         let result;
+        const contextOptions = { config, artifactPaths: config._agentifyPaths };
         try {
           if (subcommand === "search") {
             const term = args.term || getPromptFromArgs(args, 2);
-            result = await searchContext(root, term);
+            result = await searchContext(root, term, contextOptions);
           } else if (subcommand === "fetch") {
             const target = args._[2] || args.file || args.path;
             if (!target) {
               throw new Error("context fetch requires <path>");
             }
             result = await fetchContext(root, target, {
+              ...contextOptions,
               lines: args.lines,
               symbol: args.symbol,
             });
@@ -884,30 +888,31 @@ export async function runCli(argv, runtime = {}) {
 
       case "query": {
         let result;
+        const queryOptions = { config, artifactPaths: config._agentifyPaths };
         try {
           if (subcommand === "owner") {
             if (!args.file) throw new Error("query owner requires --file <path>");
-            result = await queryOwner(root, args.file);
+            result = await queryOwner(root, args.file, queryOptions);
           } else if (subcommand === "deps") {
             if (!args.module) throw new Error("query deps requires --module <id>");
-            result = await queryDeps(root, args.module);
+            result = await queryDeps(root, args.module, queryOptions);
           } else if (subcommand === "changed") {
             if (!args.since) throw new Error("query changed requires --since <commit>");
-            result = await queryChanged(root, args.since);
+            result = await queryChanged(root, args.since, queryOptions);
           } else if (subcommand === "search") {
-            result = await querySearch(root, getSearchTerm(args, "query"));
+            result = await querySearch(root, getSearchTerm(args, "query"), queryOptions);
           } else if (subcommand === "def") {
             if (!args.symbol) throw new Error("query def requires --symbol <name>");
-            result = await queryDef(root, args.symbol);
+            result = await queryDef(root, args.symbol, queryOptions);
           } else if (subcommand === "refs") {
             if (!args.symbol) throw new Error("query refs requires --symbol <name>");
-            result = await queryRefs(root, args.symbol);
+            result = await queryRefs(root, args.symbol, queryOptions);
           } else if (subcommand === "callers") {
             if (!args.symbol) throw new Error("query callers requires --symbol <name>");
-            result = await queryCallers(root, args.symbol);
+            result = await queryCallers(root, args.symbol, queryOptions);
           } else if (subcommand === "impacts") {
             if (!args.file) throw new Error("query impacts requires --file <path>");
-            result = await queryImpacts(root, args.file, { depth: args.depth });
+            result = await queryImpacts(root, args.file, { ...queryOptions, depth: args.depth });
           } else {
             throw new Error("query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts");
           }
@@ -923,6 +928,8 @@ export async function runCli(argv, runtime = {}) {
         try {
           result = await buildRiskReport(root, {
             since: normalizeOptionalSince(args, "risk"),
+            config,
+            artifactPaths: config._agentifyPaths,
           });
         } catch (error) {
           throwWithIndexGuidance(error, root);
@@ -1196,7 +1203,7 @@ export async function runCli(argv, runtime = {}) {
       }
 
       case "cache": {
-        const cacheRoot = path.join(root, ".agentify", "cache");
+        const cacheRoot = config._agentifyPaths.cacheRoot;
         if (subcommand === "gc") {
           const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
           const result = await garbageCollect(cacheRoot, maxAge);

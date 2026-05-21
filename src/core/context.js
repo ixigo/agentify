@@ -5,6 +5,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { searchIndex } from "./db/structural-store.js";
 import { searchSemanticIndex } from "./db/semantic-store.js";
 import { normalizeContextMode } from "./context-mode.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 
 const MAX_FETCH_LINES = 240;
 
@@ -79,7 +80,8 @@ export async function searchContext(root, term, options = {}) {
   if (!query || query === "true") {
     throw new Error("context search requires a search term");
   }
-  const db = openIndexDatabase(root, { readOnly: true });
+  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+  const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const structural = searchIndex(db, query, options.limit || 20);
     const semantic = searchSemanticIndex(db, query, options.limit || 20);
@@ -93,8 +95,8 @@ export async function searchContext(root, term, options = {}) {
   }
 }
 
-function findSymbolRange(root, normalizedPath, symbol) {
-  const db = openIndexDatabase(root, { readOnly: true });
+function findSymbolRange(root, normalizedPath, symbol, options = {}) {
+  const db = openIndexDatabase(options.artifactPaths || root, { readOnly: true });
   try {
     const semantic = db.prepare(`
       SELECT name, display_name, kind, start_line, end_line
@@ -155,7 +157,8 @@ export async function fetchContext(root, filePath, options = {}) {
     if (!symbolName || symbolName === "true") {
       throw new Error("context fetch --symbol requires a symbol name");
     }
-    symbol = findSymbolRange(root, normalized, symbolName);
+    const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+    symbol = findSymbolRange(root, normalized, symbolName, { artifactPaths: agentifyPaths });
     if (!symbol) {
       throw new Error(`context fetch could not find symbol "${symbolName}" in ${normalized}`);
     }

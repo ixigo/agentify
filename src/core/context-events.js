@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { appendPrivateText, ensureDir, exists } from "./fs.js";
+import { resolveLocalAgentifyPaths } from "./project-store.js";
 import { checkSchema, SCHEMA_VERSIONS } from "./schema.js";
 
 const CONTEXT_RUNTIME_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
@@ -29,13 +30,14 @@ function normalizeConfidence(value) {
 }
 
 export function getContextEventLogPath(root, options = {}) {
+  const agentifyPaths = resolveLocalAgentifyPaths(root);
   if (options.sessionId) {
     const sessionId = assertRuntimeId(options.sessionId, "session id");
-    return path.join(root, ".agentify", "session", sessionId, "context-events.jsonl");
+    return path.join(agentifyPaths.sessionRoot, sessionId, "context-events.jsonl");
   }
 
   const runId = assertRuntimeId(options.runId, "run id");
-  return path.join(root, ".agentify", "work", "context-events", `${runId}.jsonl`);
+  return path.join(agentifyPaths.workRoot, "context-events", `${runId}.jsonl`);
 }
 
 export function createContextEventRecord(event, options = {}) {
