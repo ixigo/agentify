@@ -106,6 +106,20 @@ async function captureConsoleLog(fn) {
   return output;
 }
 
+async function withEnv(name, value, fn) {
+  const previous = process.env[name];
+  process.env[name] = value;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previous;
+    }
+  }
+}
+
 async function runCliWithImportTrace(args) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cli-import-trace-"));
   const loaderPath = path.join(tempDir, "trace-loader.mjs");
@@ -1469,6 +1483,149 @@ test("runCli scan reuses a linked shared index across git worktrees", async () =
       process.env.AGENTIFY_SHARED_STORE_PATH = previousSharedStorePath;
     }
   }
+});
+
+test("runCli link --auto migrates reusable local artifacts and preserves local-only state", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-shared-migrate-"));
+  const root = path.join(parent, "primary");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  await fs.mkdir(path.join(root, ".agentify", "cache", "nested"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "semantic"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "context"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "runs"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "session"), { recursive: true });
+  await fs.mkdir(path.join(root, ".agentify", "work"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agentify", "index.db"), "local index\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "cache", "nested", "blob.txt"), "local cache\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "semantic", "facts.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "context", "ctx.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "runs", "run.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "session", "session.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "work", "scratch.txt"), "scratch\n", "utf8");
+
+  const result = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--json"]));
+    return JSON.parse(output.join("\n"));
+  });
+
+  assert.deepEqual(result.migration.migrated.map((item) => item.artifact).sort(), ["cache", "context", "index.db", "semantic"]);
+  await assert.doesNotReject(() => fs.access(path.join(result.project_store, "index.db")));
+  await assert.doesNotReject(() => fs.access(path.join(result.project_store, "cache", "nested", "blob.txt")));
+  await assert.doesNotReject(() => fs.access(path.join(result.project_store, "semantic", "facts.json")));
+  await assert.doesNotReject(() => fs.access(path.join(result.project_store, "context", "ctx.json")));
+  await assert.rejects(() => fs.access(path.join(result.project_store, "runs", "run.json")), { code: "ENOENT" });
+  await assert.rejects(() => fs.access(path.join(result.project_store, "session", "session.json")), { code: "ENOENT" });
+  await assert.rejects(() => fs.access(path.join(result.project_store, "work", "scratch.txt")), { code: "ENOENT" });
+
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "index.db")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".agentify", "runs", "run.json")));
+});
+
+test("runCli link --auto keeps existing shared artifacts unless local-to-shared migration is forced", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-shared-migrate-force-"));
+  const root = path.join(parent, "primary");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+  await fs.writeFile(path.join(root, ".agentify", "index.db"), "local-v1\n", "utf8");
+
+  const initial = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    return JSON.parse(output.join("\n"));
+  });
+  await fs.writeFile(path.join(initial.project_store, "index.db"), "shared-v1\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentify", "index.db"), "local-v2\n", "utf8");
+
+  const skipped = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--json"]));
+    return JSON.parse(output.join("\n"));
+  });
+  assert.equal(await fs.readFile(path.join(initial.project_store, "index.db"), "utf8"), "shared-v1\n");
+  assert.ok(skipped.migration.warnings.some((warning) => warning.includes("Shared store already has reusable artifacts")));
+
+  await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=local-to-shared", "--json"]));
+  });
+  assert.equal(await fs.readFile(path.join(initial.project_store, "index.db"), "utf8"), "local-v2\n");
+});
+
+test("runCli cache clean targets local, shared, and all stores without crossing boundaries", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cache-clean-stores-"));
+  const root = path.join(parent, "primary");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const link = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    return JSON.parse(output.join("\n"));
+  });
+  const localCacheFile = path.join(root, ".agentify", "cache", "local.txt");
+  const sharedCacheFile = path.join(link.project_store, "cache", "shared.txt");
+  await fs.mkdir(path.dirname(localCacheFile), { recursive: true });
+  await fs.mkdir(path.dirname(sharedCacheFile), { recursive: true });
+  await fs.writeFile(localCacheFile, "local\n", "utf8");
+  await fs.writeFile(sharedCacheFile, "shared\n", "utf8");
+
+  const statusOutput = await captureConsoleLog(() => runCli(["cache", "status", "--root", root, "--json"]));
+  const status = JSON.parse(statusOutput.join("\n"));
+  assert.equal(status.store, "shared");
+  assert.equal(status.cache_root, path.join(link.project_store, "cache"));
+
+  await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--local", "--json"]));
+  await assert.rejects(() => fs.access(localCacheFile), { code: "ENOENT" });
+  await assert.doesNotReject(() => fs.access(sharedCacheFile));
+
+  await fs.writeFile(localCacheFile, "local\n", "utf8");
+  const dryRun = await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--shared", "--dry-run", "--json"]));
+  const dryRunResult = JSON.parse(dryRun.join("\n"));
+  assert.equal(dryRunResult.cleaned[0].store, "shared");
+  assert.equal(dryRunResult.cleaned[0].removed, 1);
+  await assert.doesNotReject(() => fs.access(localCacheFile));
+  await assert.doesNotReject(() => fs.access(sharedCacheFile));
+
+  await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--shared", "--json"]));
+  await assert.doesNotReject(() => fs.access(localCacheFile));
+  await assert.rejects(() => fs.access(sharedCacheFile), { code: "ENOENT" });
+
+  await fs.writeFile(sharedCacheFile, "shared\n", "utf8");
+  await assert.rejects(
+    () => runCli(["cache", "clean", "--root", root, "--all"]),
+    /cache clean --all requires --yes/,
+  );
+  await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--all", "--yes", "--json"]));
+  await assert.rejects(() => fs.access(localCacheFile), { code: "ENOENT" });
+  await assert.rejects(() => fs.access(sharedCacheFile), { code: "ENOENT" });
+});
+
+test("runCli cache clean refuses shared deletion when shared store locks exist", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cache-clean-locks-"));
+  const root = path.join(parent, "primary");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const link = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    return JSON.parse(output.join("\n"));
+  });
+  const sharedCacheFile = path.join(link.project_store, "cache", "shared.txt");
+  await fs.mkdir(path.dirname(sharedCacheFile), { recursive: true });
+  await fs.writeFile(sharedCacheFile, "shared\n", "utf8");
+  await fs.writeFile(path.join(link.project_store, "locks", "active-session.lock"), "{}\n", "utf8");
+
+  await assert.rejects(
+    () => runCli(["cache", "clean", "--root", root, "--shared"]),
+    /Refusing to clean shared cache while shared store locks are present/,
+  );
+  await assert.doesNotReject(() => fs.access(sharedCacheFile));
 });
 
 test("runCli link rejects unrelated git repositories without writing a pointer", async () => {

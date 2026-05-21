@@ -122,3 +122,32 @@ export async function cacheStatus(cacheRoot) {
 
   return { entries: moduleCount, blobs: blobCount, totalSize };
 }
+
+export async function hasSharedStoreLocks(locksRoot) {
+  if (!locksRoot || !(await exists(locksRoot))) {
+    return false;
+  }
+  const entries = await fs.readdir(locksRoot);
+  return entries.length > 0;
+}
+
+export async function cleanCache(cacheRoot, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  if (!(await exists(cacheRoot))) {
+    return { removed: 0, removed_paths: [], dry_run: dryRun };
+  }
+
+  const entries = await fs.readdir(cacheRoot);
+  const removedPaths = entries.map((entry) => path.join(cacheRoot, entry));
+  if (!dryRun) {
+    for (const target of removedPaths) {
+      await fs.rm(target, { recursive: true, force: true });
+    }
+  }
+
+  return {
+    removed: removedPaths.length,
+    removed_paths: removedPaths,
+    dry_run: dryRun,
+  };
+}

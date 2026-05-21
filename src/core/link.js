@@ -21,6 +21,7 @@ import {
 } from "./project-store.js";
 
 const execFileAsync = promisify(execFile);
+const MIGRATABLE_SHARED_ARTIFACTS = ["index.db", "cache", "semantic", "context"];
 
 async function runGit(targetPath, args) {
   try {
@@ -95,6 +96,98 @@ function createStoreMetadata({ identity, existing }) {
     created_by_agentify_version: base.created_by_agentify_version || VERSION,
     last_used_by_agentify_version: VERSION,
   };
+}
+
+function normalizeMigrationMode(raw) {
+  const value = raw === true || raw === undefined || raw === null
+    ? "auto"
+    : String(raw).trim().toLowerCase();
+  if (value === "auto" || value === "local-to-shared" || value === "none") {
+    return value;
+  }
+  throw new Error("--migrate must be one of: auto, local-to-shared, none");
+}
+
+async function copyArtifact(source, target) {
+  const stat = await fs.stat(source);
+  await ensureDir(path.dirname(target));
+  if (stat.isDirectory()) {
+    await fs.cp(source, target, { recursive: true, force: true });
+  } else if (stat.isFile()) {
+    await fs.copyFile(source, target);
+  }
+}
+
+async function planSharedArtifactMigration({ root, projectStore, mode, dryRun }) {
+  const localPaths = resolveLocalAgentifyPaths(root);
+  const localRoot = localPaths.runtimeRoot;
+  const result = {
+    mode,
+    dry_run: Boolean(dryRun),
+    migrated: [],
+    skipped: [],
+    warnings: [],
+  };
+
+  if (mode === "none") {
+    result.skipped.push({ reason: "migration_disabled" });
+    return result;
+  }
+
+  const candidates = [];
+  for (const name of MIGRATABLE_SHARED_ARTIFACTS) {
+    const source = path.join(localRoot, name);
+    const target = path.join(projectStore, name);
+    const sourceExists = await exists(source);
+    const targetExists = await exists(target);
+    candidates.push({ name, source, target, sourceExists, targetExists });
+  }
+
+  const sharedHasArtifacts = candidates.some((candidate) => candidate.targetExists);
+  const forceLocalToShared = mode === "local-to-shared";
+
+  if (sharedHasArtifacts && !forceLocalToShared) {
+    if (candidates.some((candidate) => candidate.sourceExists)) {
+      result.warnings.push("Shared store already has reusable artifacts; keeping shared artifacts. Use --migrate=local-to-shared to overwrite them from this worktree.");
+    }
+    for (const candidate of candidates) {
+      if (candidate.sourceExists) {
+        result.skipped.push({
+          artifact: candidate.name,
+          source: candidate.source,
+          target: candidate.target,
+          reason: candidate.targetExists ? "shared_exists" : "shared_store_not_empty",
+        });
+      }
+    }
+    return result;
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.sourceExists) {
+      continue;
+    }
+    if (candidate.targetExists && !forceLocalToShared) {
+      result.skipped.push({
+        artifact: candidate.name,
+        source: candidate.source,
+        target: candidate.target,
+        reason: "shared_exists",
+      });
+      continue;
+    }
+    if (!dryRun) {
+      await copyArtifact(candidate.source, candidate.target);
+    }
+    result.migrated.push({
+      artifact: candidate.name,
+      source: candidate.source,
+      target: candidate.target,
+      action: dryRun ? "would_copy" : "copied",
+    });
+  }
+
+  return result;
 }
 
 async function linkFromCanonical(root, options) {
@@ -189,6 +282,13 @@ async function linkAuto(root, options) {
     await options.prepareTarget(resolvedRoot);
   }
 
+  const migration = await planSharedArtifactMigration({
+    root: resolvedRoot,
+    projectStore,
+    mode: normalizeMigrationMode(options.migrate),
+    dryRun: options.dryRun,
+  });
+
   const payload = createAutoLinkPayload({ identity, projectStore });
   let changed = true;
   let existingPayload = null;
@@ -243,6 +343,7 @@ async function linkAuto(root, options) {
     repo_key: identity.repoKey,
     shared_artifacts: describeSharedArtifacts(),
     local_artifacts: describeLocalArtifacts(),
+    migration,
     linked: true,
     changed: changed && !options.dryRun,
     dry_run: Boolean(options.dryRun),
