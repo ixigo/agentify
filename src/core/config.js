@@ -50,6 +50,11 @@ const DEFAULT_CONFIG = {
     maxAgeDays: 7,
     maxSizeMb: 100,
   },
+  runtime: {
+    store: "local",
+    sharedStorePath: null,
+    worktreeAutoLink: false,
+  },
   context: {
     mode: CONTEXT_MODE_DEFAULT,
     routedDefaultProvider: null,
@@ -256,6 +261,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     context: config.context,
     cleanup: config.cleanup,
     context: config.context,
+    runtime: config.runtime,
     session: config.session,
     planner: config.planner,
     semantic: config.semantic,
