@@ -413,6 +413,7 @@ Dynamic completions use the current repo. Providers and installed skills appear 
 | --- | --- |
 | `--provider <local\|codex\|claude\|gemini\|opencode>` | Choose provider. `skill install` also accepts comma lists and `all`. |
 | `--strict <true\|false>` | Fail closed on validation issues |
+| `--shared-store` | With `init`, use the default shared worktree store and auto-link this checkout |
 | `--languages <auto\|ts\|python\|go\|rust\|dotnet\|java\|kotlin\|swift>` | Override language detection |
 | `--dry-run` | Report planned changes without writing |
 | `--docs` | Generate docs during refresh (on by default; `--docs=false` to skip) |
