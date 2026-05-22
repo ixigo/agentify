@@ -79,6 +79,49 @@ export async function getGitIdentity(root) {
   };
 }
 
+export async function detectGitWorktree(root) {
+  const topLevel = await runGit(root, ["rev-parse", "--show-toplevel"]);
+  if (!topLevel) {
+    return {
+      isGitRepo: false,
+      isLinkedWorktree: false,
+      topLevel: null,
+      gitDir: null,
+      commonDir: null,
+    };
+  }
+
+  const rawGitDir = await runGit(root, ["rev-parse", "--git-dir"]);
+  const rawCommonDir = await runGit(root, ["rev-parse", "--git-common-dir"]);
+  if (!rawGitDir || !rawCommonDir) {
+    return {
+      isGitRepo: true,
+      isLinkedWorktree: false,
+      topLevel: path.resolve(topLevel),
+      gitDir: null,
+      commonDir: null,
+    };
+  }
+
+  const resolvedTopLevel = path.resolve(topLevel);
+  const gitDir = path.isAbsolute(rawGitDir)
+    ? rawGitDir
+    : path.resolve(resolvedTopLevel, rawGitDir);
+  const commonDir = path.isAbsolute(rawCommonDir)
+    ? rawCommonDir
+    : path.resolve(resolvedTopLevel, rawCommonDir);
+  const realGitDir = await realpathIfPossible(gitDir);
+  const realCommonDir = await realpathIfPossible(commonDir);
+
+  return {
+    isGitRepo: true,
+    isLinkedWorktree: realGitDir !== realCommonDir,
+    topLevel: resolvedTopLevel,
+    gitDir: realGitDir,
+    commonDir: realCommonDir,
+  };
+}
+
 function isValidLinkPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return false;
