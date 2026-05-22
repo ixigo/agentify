@@ -6,13 +6,14 @@ import { ensureDir, ensurePrivateDir, exists, writeJson, writePrivateJson, write
 import { getHeadCommit } from "./git.js";
 import { stripLeadingAgentifyHeader, updateFileHeader } from "./headers.js";
 import { ensureAgentifyGitignore } from "./gitignore.js";
+import { getIndexFreshness, writeIndexMeta } from "./index-freshness.js";
 import { createProvider, renderModuleMarkdown, summarizeModule } from "./provider.js";
 import { runProjectTests } from "./project-tests.js";
 import { ensureProjectStore, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./project-store.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
-import { acquireLock } from "./lock.js";
+import { acquireLock, acquireProjectStoreLock } from "./lock.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { getArtifact, removeArtifact, upsertArtifact } from "./db/artifact-store.js";
@@ -441,15 +442,27 @@ export async function runScan(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("scan: starting deterministic repository scan");
 
-  const lock = await acquireLock(root, "scan");
+  const ghostRunId = (config.ghost || config.ghostMode)
+    ? (options.ghostRunId || `ghost_${Date.now()}`)
+    : null;
+  const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
+  const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
+  const legacyLock = await acquireLock(root, "scan");
+  if (!legacyLock.acquired) {
+    return emitLockContention("scan", legacyLock, progress, config, options);
+  }
+
+  const lock = await acquireProjectStoreLock(artifactPaths, "index-refresh");
   if (!lock.acquired) {
+    await legacyLock.release();
     return emitLockContention("scan", lock, progress, config, options);
   }
 
   try {
-    return await _runScanInner(root, config, options, progress);
+    return await _runScanInner(root, config, options, progress, { artifactRoot, artifactPaths });
   } finally {
     await lock.release();
+    await legacyLock.release();
   }
 }
 
@@ -483,45 +496,45 @@ async function emitLockContention(phase, lock, progress, config, options) {
   return result;
 }
 
-async function _runScanInner(root, config, options, progress) {
-  const ghostRunId = (config.ghost || config.ghostMode)
-    ? (options.ghostRunId || `ghost_${Date.now()}`)
-    : null;
-  const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
-  const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
-
+async function _runScanInner(root, config, options, progress, resolvedArtifacts = {}) {
+  const artifactRoot = resolvedArtifacts.artifactRoot || resolveArtifactRoot(root, config, options.ghostRunId || null);
+  const artifactPaths = resolvedArtifacts.artifactPaths || await resolveArtifactPaths(root, config, { artifactRoot });
   await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths });
   const headCommit = await getHeadCommit(root);
-  if (!config.dryRun && artifactPaths.mode === "shared" && await exists(artifactPaths.indexDb)) {
+  const freshness = !config.dryRun ? await getIndexFreshness(root, artifactPaths) : null;
+  if (!config.dryRun && freshness?.index_status === "warm") {
     try {
       const db = openIndexDatabase(artifactPaths, { readOnly: true });
       try {
-        const meta = getRepoMeta(db);
-        if (meta.head_commit === headCommit) {
-          const result = {
-            command: options.commandName || "scan",
-            status: "reused",
-            reused_index: true,
-            index_path: artifactPaths.indexDb,
-            wrote: [],
-          };
-          progress.log("scan: reused warm shared index");
-          progress.setCommand(options.commandName || "scan");
-          progress.setScan(result);
-          if (!options.skipOutput && (config.json || !config._suppressProgress)) {
-            progress.json(result);
-          }
-          if (!options.skipFinalize) {
-            await progress.finalize();
-          }
-          return result;
+        getRepoMeta(db);
+        const result = {
+          command: options.commandName || "scan",
+          status: "reused",
+          index_status: "warm",
+          refresh_mode: "reuse",
+          reused_index: true,
+          index_path: artifactPaths.indexDb,
+          wrote: [],
+        };
+        progress.log("scan: reused warm index");
+        progress.setCommand(options.commandName || "scan");
+        progress.setScan(result);
+        if (!options.skipOutput && (config.json || !config._suppressProgress)) {
+          progress.json(result);
         }
+        if (!options.skipFinalize) {
+          await progress.finalize();
+        }
+        return result;
       } finally {
         closeIndexDatabase(db);
       }
     } catch {
       // Fall through and rebuild an unreadable or stale shared index.
     }
+  }
+  if (!config.dryRun && freshness?.refresh_mode === "incremental") {
+    progress.log(`scan: refreshing changed index inputs (${freshness.changed_files.length} file(s))`);
   }
   const snapshot = options.scanSnapshot || await buildRepositoryIndex(root, config);
   progress.log(`scan: analyzed ${snapshot.files.length} files and detected ${snapshot.modules.length} modules`);
@@ -540,15 +553,19 @@ async function _runScanInner(root, config, options, progress) {
     } finally {
       closeIndexDatabase(db);
     }
+    await writeIndexMeta(root, artifactPaths, snapshot, freshness || await getIndexFreshness(root, artifactPaths));
   }
   progress.log("scan: wrote SQLite index and repo guidance");
 
   const result = {
     command: options.commandName || "scan",
+    index_status: freshness?.refresh_mode === "incremental" ? "incremental" : "rebuilt",
+    refresh_mode: freshness?.refresh_mode || "full",
+    changed_files: freshness?.changed_files || [],
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
-    wrote: config.dryRun ? [] : [".agentify/index.db", "docs/repo-map.md"],
+    wrote: config.dryRun ? [] : [".agentify/index.db", ".agentify/index.meta.json", "docs/repo-map.md"],
   };
   progress.setCommand(options.commandName || "scan");
   progress.setScan(result);
@@ -1318,6 +1335,8 @@ export async function runUpdate(root, config, options = {}) {
   }
   const finalOutput = {
     command: commandName,
+    index_status: scanResult?.index_status || (scanResult?.reused_index ? "warm" : "rebuilt"),
+    scan: scanResult || null,
     validation: result,
     tests,
     ...(options.preflight ? { repo_sync: options.preflight } : {}),

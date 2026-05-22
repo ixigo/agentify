@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { acquireLock } from "../src/core/lock.js";
+import { acquireLock, acquireProjectStoreLock } from "../src/core/lock.js";
 
 test("acquireLock refuses to steal a stale lock from a live owner on the same host", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-live-"));
@@ -49,4 +49,26 @@ test("acquireLock reclaims a stale lock when the recorded owner is gone", async 
   assert.equal(lockData.operation, "doc");
   await result.release();
   await assert.rejects(() => fs.access(path.join(root, ".agentify", ".lock")));
+});
+
+test("acquireProjectStoreLock writes named shared-store lock files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-store-lock-"));
+  const locksRoot = path.join(root, "locks");
+
+  const first = await acquireProjectStoreLock({ locksRoot }, "index-refresh");
+  assert.equal(first.acquired, true);
+  const lockPath = path.join(locksRoot, "index.lock");
+  const lockData = JSON.parse(await fs.readFile(lockPath, "utf8"));
+  assert.equal(lockData.pid, process.pid);
+  assert.equal(lockData.hostname, os.hostname());
+  assert.equal(lockData.operation, "index-refresh");
+  assert.ok(lockData.created_at);
+
+  const second = await acquireProjectStoreLock({ locksRoot }, "index-refresh");
+  assert.equal(second.acquired, false);
+  assert.equal(second.holder.pid, process.pid);
+  assert.match(second.message, /Lock held by PID/);
+
+  await first.release();
+  await assert.rejects(() => fs.access(lockPath));
 });

@@ -167,6 +167,28 @@ export async function getHeadCommit(root) {
   }
 }
 
+export async function getHeadTree(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd: root,
+    });
+    return stdout.trim();
+  } catch {
+    return "nogit";
+  }
+}
+
+export async function getCurrentBranch(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["branch", "--show-current"], {
+      cwd: root,
+    });
+    return stdout.trim() || "HEAD";
+  } catch {
+    return "nogit";
+  }
+}
+
 export async function getChangedFiles(root) {
   try {
     const { stdout } = await execFileAsync(

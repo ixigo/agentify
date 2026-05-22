@@ -26,6 +26,7 @@ import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemo
 import { runDoctor } from "./core/toolchain.js";
 import { cleanCache, garbageCollect, cacheStatus, hasSharedStoreLocks } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
+import { acquireProjectStoreLock } from "./core/lock.js";
 import { runAfk } from "./core/afk.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { runSemanticRefresh } from "./core/semantic.js";
@@ -1263,7 +1264,16 @@ export async function runCli(argv, runtime = {}) {
         const cacheRoot = config._agentifyPaths.cacheRoot;
         if (subcommand === "gc") {
           const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
-          const result = await garbageCollect(cacheRoot, maxAge);
+          const lock = await acquireProjectStoreLock(config._agentifyPaths, "cache-gc");
+          if (!lock.acquired) {
+            throw new Error(lock.message || "Cache garbage collection lock is already held");
+          }
+          let result;
+          try {
+            result = await garbageCollect(cacheRoot, maxAge);
+          } finally {
+            await lock.release();
+          }
           success(`Garbage collected ${result.removed} blob(s).`);
         } else if (subcommand === "status") {
           const status = buildCacheStatus(config._agentifyPaths, await cacheStatus(cacheRoot));
