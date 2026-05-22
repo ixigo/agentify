@@ -249,6 +249,7 @@ Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitign
 | Use RTK output compression guidance | `agentify run --rtk "your task"` |
 | Create an AFK implementation plan | `agentify afk create "your task"` |
 | Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
+| Use Git worktrees with shared Agentify artifacts | [Worktree guide](#using-agentify-with-git-worktrees-worktrunk-tmux-and-codex) |
 | Routed retrieval mode | `agentify run --context-mode routed "your task"` |
 | Inject selected context | `agentify run --with-context "your task"` |
 | Start a durable session | `agentify sess run --name "<stream>"` |
@@ -278,6 +279,139 @@ agentify sess resume --session <id> "write tests from the prepared compacted con
 Reported `prompt_bytes` and `session_context_bytes` are UTF-8 byte estimates for Agentify-managed material — **not** a provider token count or a guarantee about live provider context size.
 
 Routed artifacts are local/generated under `.agentify/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test, provider, and generic wrapped-command subprocess envs by default. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.*` / `providerEnv.*` when needed.
+
+---
+
+## Using Agentify with Git worktrees, Worktrunk, tmux, and Codex
+
+Use shared runtime mode when a repo is set up for parallel AI work. The current worktree keeps active sessions, scratch files, and temporary state local; expensive repo-level artifacts move to a shared project store so a new branch or tmux pane does not rebuild the same index from scratch.
+
+### Recommended Setup
+
+```bash
+wt switch my-task
+agentify link --auto
+agentify up
+codex
+```
+
+`wt switch my-task` creates or opens the task worktree. `agentify link --auto` writes `<worktree>/.agentify/link.json` so this worktree points at the shared Agentify project store for the same Git repository. `agentify up` refreshes the shared artifacts and leaves branch-local runtime state in the current worktree.
+
+### Config Setup
+
+Commit this in `.agentify.yaml` for repos where shared worktree reuse should be the normal setup:
+
+```yaml
+runtime:
+  store: shared
+  worktreeAutoLink: true
+```
+
+Use `shared` for repositories that are routinely opened in multiple Git worktrees, Worktrunk tasks, or tmux panes. Use `local` when every checkout should keep an independent `.agentify/` runtime. Use `auto` when you want Agentify to prefer shared mode in Git worktrees while keeping simple single-checkout repos local.
+
+### What Is Shared Vs. Local
+
+| Artifact | Location in Local Mode | Location in Shared Mode | Rationale |
+|---|---|---|---|
+| `index.db` | `.agentify/index.db` | `<projectStore>/index.db` | Expensive repo-level artifact |
+| `cache/` | `.agentify/cache/` | `<projectStore>/cache/` | Reusable generated data |
+| `semantic/` | `.agentify/semantic/` | `<projectStore>/semantic/` | Reusable repo-level facts |
+| `context/` | `.agentify/context/` | `<projectStore>/context/` | Reusable context cache, if metadata-valid |
+| `repo-map/` | `.agentify/repo-map/` | `<projectStore>/repo-map/` | Expensive and repo-level |
+| `embeddings/` | `.agentify/embeddings/` | `<projectStore>/embeddings/` | Expensive and reusable |
+| `runs/` | `.agentify/runs/` | `<worktree>/.agentify/runs/` | Active execution state |
+| `session/` | `.agentify/session/` | `<worktree>/.agentify/session/` | Branch/task-specific |
+| `work/` | `.agentify/work/` | `<worktree>/.agentify/work/` | Scratch state |
+| `tmp/` | `.agentify/tmp/` | `<worktree>/.agentify/tmp/` | Process-local temp data |
+| `link.json` | N/A | `<worktree>/.agentify/link.json` | Worktree attachment metadata |
+| `store.json` | N/A | `<projectStore>/store.json` | Shared store metadata |
+| `index.meta.json` | `.agentify/index.meta.json` | `<projectStore>/index.meta.json` | Index freshness metadata |
+
+### Troubleshooting
+
+**Cache not reused**
+
+Run:
+
+```bash
+agentify link --status
+agentify cache status
+```
+
+The most common causes are a dirty working tree, an index schema mismatch, or a changed `HEAD`/tree compared with the shared `index.meta.json`. Run `agentify up` after resolving local changes or after upgrading Agentify.
+
+**Link invalid or corrupt**
+
+Inspect the status first:
+
+```bash
+agentify link --status
+```
+
+If the link points at the wrong store or cannot be parsed, remove only the pointer and re-link:
+
+```bash
+rm .agentify/link.json
+agentify link --auto
+```
+
+**Store stale**
+
+Refresh the shared artifacts from the current worktree:
+
+```bash
+agentify up
+```
+
+For cache cleanup, dry-run first and target the shared store explicitly:
+
+```bash
+agentify cache clean --shared --dry-run
+agentify cache clean --shared --yes
+```
+
+**Worktree belongs to another repo**
+
+This means the existing link metadata was created for a different Git common directory. Use it as a safety signal: verify you are in the intended checkout, then recreate the link from this worktree.
+
+```bash
+agentify link --status
+rm .agentify/link.json
+agentify link --auto
+```
+
+**Reset shared store**
+
+Prefer targeted cache cleanup:
+
+```bash
+agentify cache clean --shared --dry-run
+agentify cache clean --shared --yes
+agentify up
+```
+
+If the shared store itself must be removed, find the `Project store` with `agentify link --status`, close other agents using the same repo, delete that project-store directory manually, then run `agentify link --auto` and `agentify up` again.
+
+### Migration From Manual Symlink Workaround
+
+If `.agentify` is a symlink, do not run `rm -rf .agentify`; that can remove the symlink target. Use this sequence from the worktree:
+
+```bash
+rm .agentify
+mkdir .agentify
+agentify link --auto
+agentify up
+```
+
+If `.agentify` is a real directory, move or back it up first when it contains session data you still need. `agentify link --auto` can migrate reusable shared artifacts, but branch-local `runs/`, `session/`, `work/`, and `tmp/` should stay local to the worktree.
+
+### Rollout Cheatsheet
+
+| Mode | Use When | Setup |
+| --- | --- | --- |
+| `local` | Single checkout, isolated experiment, or a repo where worktrees must not share generated artifacts | Keep `runtime.store: local` or omit `runtime` |
+| `shared` | Default for parallel AI work with Git worktrees, Worktrunk, tmux panes, or repeated Codex sessions on the same repo | Commit `runtime.store: shared` and run `agentify link --auto` |
+| `auto` | Mixed repos where worktrees should share but ordinary single-checkout use should stay simple | Commit `runtime.store: auto` with `worktreeAutoLink: true` |
 
 ---
 
@@ -316,6 +450,7 @@ Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan
 | Run a bounded task | `agentify run "your task"` |
 | Create an AFK implementation plan | `agentify afk create "your task"` |
 | Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
+| Use Git worktrees with shared Agentify artifacts | [Worktree guide](#using-agentify-with-git-worktrees-worktrunk-tmux-and-codex) |
 | Run with routed retrieval | `agentify run --context-mode routed "your task"` |
 | Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
 | Start durable multi-run work | `agentify sess run --name "<stream>"` |
