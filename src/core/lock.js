@@ -6,6 +6,10 @@ import process from "node:process";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
 
 const LOCK_STALE_MS = 300000;
+const LOCK_NAMES = {
+  "index-refresh": "index.lock",
+  "cache-gc": "cache-gc.lock",
+};
 
 function isProcessAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) {
@@ -21,20 +25,20 @@ function isProcessAlive(pid) {
 }
 
 function canReclaimLock(existing) {
-  if (!existing || typeof existing.acquired_at !== "number") {
+  const acquiredAt = existing?.acquired_at || Date.parse(existing?.created_at || "");
+  if (!existing || !Number.isFinite(acquiredAt)) {
     return false;
   }
 
-  if (Date.now() - existing.acquired_at <= LOCK_STALE_MS) {
+  if (Date.now() - acquiredAt <= LOCK_STALE_MS) {
     return false;
   }
 
-  return !(existing.host === os.hostname() && isProcessAlive(existing.pid));
+  const host = existing.host || existing.hostname;
+  return !(host === os.hostname() && isProcessAlive(existing.pid));
 }
 
-export async function acquireLock(root, operation) {
-  const lockPath = resolveLocalAgentifyPaths(root).lockPath;
-
+async function acquireLockFile(lockPath, operation) {
   try {
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
   } catch {
@@ -43,7 +47,9 @@ export async function acquireLock(root, operation) {
 
   const lockData = {
     pid: process.pid,
+    hostname: os.hostname(),
     operation,
+    created_at: new Date().toISOString(),
     acquired_at: Date.now(),
     host: os.hostname(),
   };
@@ -52,7 +58,28 @@ export async function acquireLock(root, operation) {
     const handle = await fs.open(lockPath, "wx");
     await handle.writeFile(JSON.stringify(lockData));
     await handle.close();
-    return { acquired: true, release: () => fs.unlink(lockPath).catch(() => {}) };
+    let released = false;
+    const release = async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+        process.off(signal, signalHandlers.get(signal));
+      }
+      await fs.unlink(lockPath).catch(() => {});
+    };
+    const signalHandlers = new Map();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      const handler = () => {
+        release().finally(() => {
+          process.kill(process.pid, signal);
+        });
+      };
+      signalHandlers.set(signal, handler);
+      process.once(signal, handler);
+    }
+    return { acquired: true, lock_path: lockPath, release };
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
 
@@ -60,15 +87,26 @@ export async function acquireLock(root, operation) {
       const existing = JSON.parse(await fs.readFile(lockPath, "utf8"));
       if (canReclaimLock(existing)) {
         await fs.unlink(lockPath);
-        return acquireLock(root, operation);
+        return acquireLockFile(lockPath, operation);
       }
       return {
         acquired: false,
+        lock_path: lockPath,
         holder: existing,
-        message: `Lock held by PID ${existing.pid} for '${existing.operation}' since ${new Date(existing.acquired_at).toISOString()}`,
+        message: `Lock held by PID ${existing.pid} for '${existing.operation}' since ${existing.created_at || new Date(existing.acquired_at).toISOString()}`,
       };
     } catch {
-      return { acquired: false, message: "Lock exists but is unreadable" };
+      return { acquired: false, lock_path: lockPath, message: "Lock exists but is unreadable" };
     }
   }
+}
+
+export async function acquireLock(root, operation) {
+  const lockPath = resolveLocalAgentifyPaths(root).lockPath;
+  return acquireLockFile(lockPath, operation);
+}
+
+export async function acquireProjectStoreLock(agentifyPaths, operation) {
+  const fileName = LOCK_NAMES[operation] || `${operation}.lock`;
+  return acquireLockFile(path.join(agentifyPaths.locksRoot, fileName), operation);
 }

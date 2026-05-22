@@ -1485,6 +1485,80 @@ test("runCli scan reuses a linked shared index across git worktrees", async () =
   }
 });
 
+test("runCli up reports warm index status from index metadata", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-warm-up-"));
+  const root = path.join(parent, "repo");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await initGitRepo(root);
+
+  const previousSharedStorePath = process.env.AGENTIFY_SHARED_STORE_PATH;
+  process.env.AGENTIFY_SHARED_STORE_PATH = sharedBase;
+  try {
+    await runCli(["link", "--root", root, "--auto"]);
+    await runCli(["up", "--root", root, "--docs=false", "--json"]);
+
+    const link = JSON.parse(await fs.readFile(path.join(root, ".agentify", "link.json"), "utf8"));
+    const metaPath = path.join(link.project_store, "index.meta.json");
+    const meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
+    assert.equal(meta.schema_version, 1);
+    assert.equal(meta.agentify_index_schema, "1.1");
+    assert.equal(meta.repo_key, link.repo_key);
+    assert.match(meta.indexed_head, /^[a-f0-9]{40}$/);
+    assert.match(meta.indexed_tree, /^[a-f0-9]{40}$/);
+    assert.match(meta.indexed_branch, /^(main|master)$/);
+    assert.deepEqual(meta.dirty_files_snapshot, [".agentignore", ".agentify.yaml", ".gitignore", ".guardrails"].sort());
+    assert.equal(meta.file_fingerprints["src/index.js"].sha1.length, 40);
+
+    const output = await captureConsoleLog(() => runCli(["up", "--root", root, "--docs=false", "--json"]));
+    const result = JSON.parse(output.join("\n"));
+    assert.equal(result.index_status, "warm");
+    assert.equal(result.scan.reused_index, true);
+    assert.equal(result.scan.refresh_mode, "reuse");
+  } finally {
+    if (previousSharedStorePath === undefined) {
+      delete process.env.AGENTIFY_SHARED_STORE_PATH;
+    } else {
+      process.env.AGENTIFY_SHARED_STORE_PATH = previousSharedStorePath;
+    }
+  }
+});
+
+test("runCli scan marks small committed diffs as incremental refreshes", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-incremental-scan-"));
+  const root = path.join(parent, "repo");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await initGitRepo(root);
+
+  const previousSharedStorePath = process.env.AGENTIFY_SHARED_STORE_PATH;
+  process.env.AGENTIFY_SHARED_STORE_PATH = sharedBase;
+  try {
+    await runCli(["link", "--root", root, "--auto"]);
+    await runCli(["scan", "--root", root]);
+
+    await fs.writeFile(path.join(root, "src", "index.js"), "export const answer = 43;\n", "utf8");
+    await execFileAsync("git", ["-C", root, "add", "src/index.js"]);
+    await execFileAsync("git", ["-C", root, "commit", "-m", "change answer"]);
+
+    const output = await captureConsoleLog(() => runCli(["scan", "--root", root, "--json"]));
+    const result = JSON.parse(output.join("\n"));
+    assert.equal(result.index_status, "incremental");
+    assert.equal(result.refresh_mode, "incremental");
+    assert.deepEqual(result.changed_files, ["src/index.js"]);
+  } finally {
+    if (previousSharedStorePath === undefined) {
+      delete process.env.AGENTIFY_SHARED_STORE_PATH;
+    } else {
+      process.env.AGENTIFY_SHARED_STORE_PATH = previousSharedStorePath;
+    }
+  }
+});
+
 test("runCli link --auto migrates reusable local artifacts and preserves local-only state", async () => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-shared-migrate-"));
   const root = path.join(parent, "primary");
