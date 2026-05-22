@@ -26,7 +26,9 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
-  command("init", "Create baseline Agentify artifacts"),
+  command("init", "Create baseline Agentify artifacts", {
+    flags: [flag("--shared-store", { description: "Enable shared worktree store and auto-link this checkout" })],
+  }),
   command("index", "Build the SQLite repository index"),
   command("scan", "Alias for index"),
   command("doc", "Generate docs, metadata, and key-file headers"),

@@ -106,6 +106,28 @@ async function captureConsoleLog(fn) {
   return output;
 }
 
+async function captureStderr(fn) {
+  const chunks = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = function write(chunk, encoding, callback) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+
+  return chunks.join("").replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 async function withEnv(name, value, fn) {
   const previous = process.env[name];
   process.env[name] = value;
@@ -1442,6 +1464,95 @@ test("runCli link preserves existing branch-local policy files", async () => {
   assert.match(gitignore, /^\.agentify\/$/m);
   assert.match(gitignore, /^AGENTIFY\.md$/m);
   await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", "link.json")));
+});
+
+test("runCli up auto-links a git worktree when runtime.worktreeAutoLink is enabled", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-autolink-"));
+  const primary = path.join(parent, "primary");
+  const linked = path.join(parent, "linked");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(path.join(primary, "src"), { recursive: true });
+  await fs.writeFile(path.join(primary, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(primary, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await fs.writeFile(path.join(primary, ".agentify.yaml"), [
+    "provider: local",
+    "runtime:",
+    "  store: local",
+    "  worktreeAutoLink: true",
+    "",
+  ].join("\n"), "utf8");
+  await initGitRepo(primary);
+  await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "autolink-worktree", linked]);
+
+  await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
+    await captureConsoleLog(() => runCli(["up", "--root", linked, "--docs=false", "--json"]));
+  });
+
+  const link = JSON.parse(await fs.readFile(path.join(linked, ".agentify", "link.json"), "utf8"));
+  assert.equal(link.kind, "agentify-linked-project");
+  assert.equal(link.schema_version, 2);
+  assert.equal(link.project_store.startsWith(sharedBase), true);
+});
+
+test("runCli init --shared-store writes shared runtime config and links the checkout", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-shared-"));
+  const root = path.join(parent, "repo");
+  const sharedBase = path.join(parent, "shared-store");
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await initGitRepo(root);
+
+  const output = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () =>
+    captureConsoleLog(() => runCli(["init", "--root", root, "--shared-store", "--json"]))
+  );
+  const payload = JSON.parse(output.join("\n"));
+  const config = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
+  const link = JSON.parse(await fs.readFile(path.join(root, ".agentify", "link.json"), "utf8"));
+
+  assert.match(config, /runtime:\n(?:.*\n)*?  store: shared/);
+  assert.match(config, /  worktreeAutoLink: true/);
+  assert.equal(payload.shared_store.project_store, link.project_store);
+  assert.equal(link.project_store.startsWith(sharedBase), true);
+});
+
+test("runCli prints the worktree link hint once and respects suppression", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-worktree-hint-"));
+  const primary = path.join(parent, "primary");
+  const linked = path.join(parent, "linked");
+  const suppressed = path.join(parent, "suppressed");
+  await fs.mkdir(path.join(primary, "src"), { recursive: true });
+  await fs.writeFile(path.join(primary, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(primary, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await fs.writeFile(path.join(primary, ".agentify.yaml"), "provider: local\n", "utf8");
+  await initGitRepo(primary);
+  await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "hint-worktree", linked]);
+  await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "hint-suppressed-worktree", suppressed]);
+
+  const first = await captureStderr(() => runCli(["scan", "--root", linked]));
+  const second = await captureStderr(() => runCli(["scan", "--root", linked]));
+  const suppressedOutput = await withEnv("AGENTIFY_NO_WORKTREE_HINT", "1", async () =>
+    captureStderr(() => runCli(["scan", "--root", suppressed]))
+  );
+
+  assert.match(first, /Detected Git worktree\. To reuse repo maps across worktrees, run:/);
+  assert.match(first, /agentify link --auto/);
+  assert.doesNotMatch(second, /Detected Git worktree/);
+  assert.doesNotMatch(suppressedOutput, /Detected Git worktree/);
+  await assert.doesNotReject(() => fs.access(path.join(linked, ".agentify", ".worktree-hint")));
+  await assert.rejects(() => fs.access(path.join(suppressed, ".agentify", ".worktree-hint")), { code: "ENOENT" });
+});
+
+test("runCli does not print a worktree hint for the main checkout in local mode", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-no-worktree-hint-"));
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, "src", "index.js"), "export const answer = 42;\n", "utf8");
+  await initGitRepo(root);
+
+  const output = await captureStderr(() => runCli(["scan", "--root", root]));
+
+  assert.doesNotMatch(output, /Detected Git worktree/);
+  await assert.rejects(() => fs.access(path.join(root, ".agentify", ".worktree-hint")), { code: "ENOENT" });
 });
 
 test("runCli scan reuses a linked shared index across git worktrees", async () => {

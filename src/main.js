@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -37,13 +38,15 @@ import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, re
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
-import { resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./core/project-store.js";
+import { detectGitWorktree, readLink, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./core/project-store.js";
 import {
   CONTEXT_MODE_DEFAULT,
   normalizeContextMode,
   toPlannerContextMode,
 } from "./core/context-mode.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
+
+const WORKTREE_RUNTIME_COMMANDS = new Set(["up", "scan", "index", "run", "sess", "afk", "check"]);
 
 async function ensureLinkTargetPolicy(root, config) {
   await writeDefaultConfig(root, config, { dryRun: config.dryRun });
@@ -105,6 +108,74 @@ function renderLinkStatus(result) {
   if (result.store_meta) {
     log(`Store created:   ${result.store_meta.created_at || "?"}`);
     log(`Store last used: ${result.store_meta.last_used_at || "?"}`);
+  }
+}
+
+function isSharedStoreInit(args, command) {
+  return command === "init" && args.sharedStore === true;
+}
+
+function enableSharedStoreConfig(config) {
+  config.runtime = {
+    ...(config.runtime || {}),
+    store: "shared",
+    worktreeAutoLink: true,
+  };
+}
+
+async function maybeWriteWorktreeHint(root, config) {
+  if (config.json || config.dryRun || process.env.AGENTIFY_NO_WORKTREE_HINT === "1") {
+    return;
+  }
+
+  const markerPath = path.join(root, ".agentify", ".worktree-hint");
+  try {
+    await fs.access(markerPath);
+    return;
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  await fs.mkdir(path.dirname(markerPath), { recursive: true });
+  await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
+  log("Detected Git worktree. To reuse repo maps across worktrees, run:");
+  log("  agentify link --auto");
+}
+
+async function maybePrepareWorktreeRuntime(root, config, command) {
+  if (!WORKTREE_RUNTIME_COMMANDS.has(command)) {
+    return;
+  }
+
+  const localPaths = resolveLocalAgentifyPaths(root);
+  const link = await readLink(localPaths.linkPath);
+  if (link.present) {
+    return;
+  }
+
+  const worktree = await detectGitWorktree(root);
+  if (!worktree.isLinkedWorktree) {
+    return;
+  }
+
+  if (config.runtime?.worktreeAutoLink === true) {
+    const result = await linkProject(root, {
+      auto: true,
+      migrate: "auto",
+      dryRun: config.dryRun,
+      config,
+      prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
+    });
+    if (!config.json && result.changed) {
+      log(`Linked Git worktree to shared Agentify store: ${result.project_store}`);
+    }
+    return;
+  }
+
+  if (String(config.runtime?.store || "local").trim().toLowerCase() === "local") {
+    await maybeWriteWorktreeHint(root, config);
   }
 }
 
@@ -189,6 +260,7 @@ const BOOLEAN_FLAGS = new Set([
   "auto",
   "status",
   "force",
+  "sharedStore",
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
@@ -633,6 +705,10 @@ export async function runCli(argv, runtime = {}) {
 
   const root = path.resolve(String(args.root || process.cwd()));
   const config = await loadConfig(root, args);
+  if (isSharedStoreInit(args, command)) {
+    enableSharedStoreConfig(config);
+  }
+  await maybePrepareWorktreeRuntime(root, config, command);
   config._agentifyPaths = await resolveAgentifyPaths(root, config);
 
   if (args.json) {
@@ -650,6 +726,17 @@ export async function runCli(argv, runtime = {}) {
       case "init":
         await writeDefaultConfig(root, config, { dryRun: config.dryRun });
         await ensureBaselineArtifacts(root, config);
+        let sharedStoreLink = null;
+        if (isSharedStoreInit(args, command)) {
+          sharedStoreLink = await linkProject(root, {
+            auto: true,
+            migrate: args.migrate,
+            dryRun: config.dryRun,
+            config,
+            prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
+          });
+          config._agentifyPaths = await resolveAgentifyPaths(root, config);
+        }
         const skillInstallHint = buildSkillInstallHint(config.provider, "project");
         if (config.json) {
           console.log(JSON.stringify({
@@ -657,10 +744,18 @@ export async function runCli(argv, runtime = {}) {
             root,
             dry_run: Boolean(config.dryRun),
             wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", `.agentify`, ".agentify/runs", ".agentify/work", "docs/modules"],
+            shared_store: sharedStoreLink ? {
+              link_path: sharedStoreLink.link_path,
+              project_store: sharedStoreLink.project_store,
+              changed: sharedStoreLink.changed,
+            } : null,
             skill_install_hint: skillInstallHint,
           }, null, 2));
         } else {
           success("Initialized agentify artifacts");
+          if (sharedStoreLink) {
+            log(`Shared store: ${sharedStoreLink.project_store}`);
+          }
           log(skillInstallHint.message);
         }
         return;
