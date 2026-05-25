@@ -317,6 +317,7 @@ agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
 agentify skill install azure-devops-triage --provider codex --scope project
+agentify skill install figma-ui-build --provider codex --scope project
 agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma UI Build"
+  short_description: "Build Figma nodes with visual eval"
+  default_prompt: "Use $figma-ui-build to fetch a Figma node, implement it with local UI patterns, and validate with $ui-screenshot-eval."

@@ -377,6 +377,7 @@ Built-in skills:
 - `azure-devops-triage` (alias: `ado-triage`)
 - `copy-mode`
 - `copy-pr`
+- `figma-ui-build` (aliases: `figma-to-ui`, `figma-ui-eval`)
 - `grill-me`
 - `improve-codebase-architecture`
 - `gh-autopilot` (alias: `gh-issue-autopilot`)
@@ -413,9 +414,11 @@ agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
 agentify skill install azure-devops-triage --provider codex --scope project
+agentify skill install figma-ui-build --provider codex --scope project
 agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 
+Figma UI build reads `FIGMA_TOKEN` or `FIGMA_ACCESS_TOKEN`, stores Figma artifacts under `.figma-ui-build/`, and hands visual validation to `ui-screenshot-eval`.
 UI screenshot eval requires Playwright in the target frontend repo. It captures full-page and scoped screenshots around a stable `data-testid` and writes artifacts under `.agentify/ui-eval/`.
 
 Example GitLab issue and merge request requests after installing the skill:

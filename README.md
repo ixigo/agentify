@@ -135,6 +135,7 @@ agentify skill install caveman --provider codex --scope project   # terse output
 agentify skill install glab-autopilot --provider codex --scope project
 agentify skill install gitlab-triage --provider codex --scope project
 agentify skill install ado-autopilot --provider codex --scope project
+agentify skill install figma-ui-build --provider codex --scope project
 agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 
@@ -143,6 +144,7 @@ should succeed in the target repository before the skill mutates issues or
 merge requests.
 Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
 UI screenshot eval uses Playwright from the target frontend repo and stores before/after artifacts under `.agentify/ui-eval/`.
+Figma UI build fetches Figma node artifacts into `.figma-ui-build/`, recommends local component matches, and then uses `ui-screenshot-eval` for the visual validation loop.
 
 </details>
 

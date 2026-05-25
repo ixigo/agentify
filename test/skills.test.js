@@ -71,6 +71,8 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("gh-issue-killer").name, "issue-killer");
   assert.deepEqual(resolveBuiltinSkill("azure-devops-autopilot").name, "ado-autopilot");
   assert.deepEqual(resolveBuiltinSkill("ado-triage").name, "azure-devops-triage");
+  assert.deepEqual(resolveBuiltinSkill("figma-to-ui").name, "figma-ui-build");
+  assert.deepEqual(resolveBuiltinSkill("figma-ui-eval").name, "figma-ui-build");
   assert.deepEqual(resolveBuiltinSkill("playwright-ui-eval").name, "ui-screenshot-eval");
   assert.deepEqual(resolveBuiltinSkill("visual-ui-eval").name, "ui-screenshot-eval");
   assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
@@ -278,6 +280,26 @@ test("installBuiltinSkill copies ui screenshot eval helper into project scope", 
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(captureScriptPath), true);
+});
+
+test("installBuiltinSkill copies figma ui build helper into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-figma-ui-"));
+  const result = await installBuiltinSkill(root, {
+    name: "figma-to-ui",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const basePath = path.join(root, ".codex", "skills", "figma-ui-build");
+  const skillPath = path.join(basePath, "SKILL.md");
+  const uiPath = path.join(basePath, "agents", "openai.yaml");
+  const helperPath = path.join(basePath, "scripts", "figma-ui-build.mjs");
+
+  assert.equal(result.skill.name, "figma-ui-build");
+  assert.equal(result.results[0].status, "installed");
+  assert.equal(await exists(skillPath), true);
+  assert.equal(await exists(uiPath), true);
+  assert.equal(await exists(helperPath), true);
 });
 
 test("installBuiltinSkill installs canonical skill name for alias across all providers", async () => {

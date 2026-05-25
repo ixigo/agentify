@@ -60,6 +60,12 @@ const BUILTIN_SKILLS = [
       "Edit and improve articles by restructuring sections, improving clarity, and tightening prose.",
   },
   {
+    name: "figma-ui-build",
+    aliases: ["figma-to-ui", "figma-ui-eval"],
+    description:
+      "Build frontend UI from a Figma node by fetching design metadata/screenshots, matching local UI patterns, and validating through ui-screenshot-eval.",
+  },
+  {
     name: "git-guardrails-claude-code",
     aliases: [],
     description:
