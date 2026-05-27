@@ -63,7 +63,7 @@ const BUILTIN_SKILLS = [
     name: "figma-ui-build",
     aliases: ["figma-to-ui", "figma-ui-eval"],
     description:
-      "Build frontend UI from a Figma node by fetching design metadata/screenshots, matching local UI patterns, and validating through ui-screenshot-eval.",
+      "Build frontend UI from a Figma node using a user-provided node image, cached design metadata, local UI pattern matching, and ui-screenshot-eval validation.",
   },
   {
     name: "git-guardrails-claude-code",

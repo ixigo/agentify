@@ -23,6 +23,11 @@ Options:
   --storybook-id <id>               Storybook story id
   --framework <name>                react|next|vue|unknown
   --output <dir>                    Default: .figma-ui-build/<timestamp>
+  --reference-image <png-or-jpg>    Required visual reference supplied by the user
+  --raw-node <json>                 Existing Figma node JSON; skips Figma API
+  --cache-dir <dir>                 Default: <project-root>/.figma-ui-build/cache
+  --refresh                         Ignore cached Figma node metadata
+  --retries <count>                 Default: 2 for Figma API metadata requests
   --implementation-screenshot <png> Existing implementation screenshot path
   --eval-skill <name>               Default: ui-screenshot-eval
   --dry-run                         Fetch/analyze only; do not run eval command
@@ -149,27 +154,123 @@ export async function readFigmaToken() {
   return null;
 }
 
-async function fetchJson(url, token) {
-  const response = await fetch(url, {
-    headers: {
-      "X-Figma-Token": token,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Figma API returned ${response.status}. Check token permissions and file access.`);
-  }
-
-  return response.json();
+function parseInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-async function downloadFile(url, outPath) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Could not download Figma image. HTTP ${response.status}.`);
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function retryDelayMs(response, attempt, args) {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number.parseInt(retryAfter, 10);
+    if (Number.isFinite(seconds)) {
+      return Math.min(seconds * 1000, 15_000);
+    }
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(outPath, bytes);
+  const baseDelay = parseInteger(args["retry-delay-ms"], 1000);
+  return Math.min(baseDelay * 2 ** attempt, 15_000);
+}
+
+async function fetchJson(url, token, args = {}) {
+  const retries = parseInteger(args.retries, 2);
+  let lastStatus = 0;
+  let lastText = "";
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const response = await fetch(url, {
+      headers: {
+        "X-Figma-Token": token,
+      },
+    });
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    lastStatus = response.status;
+    lastText = await response.text().catch(() => "");
+    if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+      await sleep(retryDelayMs(response, attempt, args));
+      continue;
+    }
+
+    break;
+  }
+
+  const rateLimitHint = lastStatus === 429
+    ? " Figma rate limited the request; wait before retrying, use cached metadata, or pass --raw-node to skip the API."
+    : "";
+  const detail = lastText ? ` ${lastText.slice(0, 200)}` : "";
+  throw new Error(`Figma API returned ${lastStatus}. Check token permissions and file access.${rateLimitHint}${detail}`);
+}
+
+function safeCacheName(value) {
+  return String(value || "").replace(/[^a-z0-9_.-]+/gi, "_");
+}
+
+function referenceImageName(inputPath) {
+  const extension = path.extname(inputPath).toLowerCase();
+  if (![".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
+    throw new Error("Reference image must be a png, jpg, jpeg, or webp file.");
+  }
+  return `reference${extension}`;
+}
+
+async function copyReferenceImage(inputPath, runDir) {
+  if (!inputPath) {
+    throw new Error("Provide a user-supplied node picture with --reference-image. The helper no longer exports node images from Figma.");
+  }
+  const absoluteInput = path.resolve(inputPath);
+  if (!(await pathExists(absoluteInput))) {
+    throw new Error(`Reference image was not found: ${absoluteInput}`);
+  }
+  const outputPath = path.join(runDir, referenceImageName(absoluteInput));
+  await fs.copyFile(absoluteInput, outputPath);
+  return outputPath;
+}
+
+async function readJsonFile(filePath) {
+  return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
+
+async function fetchFigmaNodeWithCache({ parsed, tokenInfo, projectRoot, args }) {
+  if (args["raw-node"]) {
+    return {
+      rawNode: await readJsonFile(path.resolve(args["raw-node"])),
+      source: "raw-node",
+      cachePath: "",
+    };
+  }
+
+  const cacheDir = path.resolve(args["cache-dir"] || path.join(projectRoot, DEFAULT_OUTPUT_DIR, "cache"));
+  const cachePath = path.join(cacheDir, `${safeCacheName(parsed.fileKey)}-${safeCacheName(parsed.nodeId)}.raw.json`);
+  if (!args.refresh && await pathExists(cachePath)) {
+    return {
+      rawNode: await readJsonFile(cachePath),
+      source: "cache",
+      cachePath,
+    };
+  }
+
+  if (!tokenInfo) {
+    throw new Error("FIGMA_TOKEN not found in env, ~/.zshrc, ~/.bashrc, ~/.profile, or ~/.config/fish/config.fish.");
+  }
+
+  const nodeUrl = `https://api.figma.com/v1/files/${parsed.fileKey}/nodes?ids=${encodeURIComponent(parsed.nodeId)}`;
+  const rawNode = await fetchJson(nodeUrl, tokenInfo.token, args);
+  await fs.mkdir(cacheDir, { recursive: true });
+  await fs.writeFile(cachePath, `${JSON.stringify(rawNode, null, 2)}\n`);
+  return {
+    rawNode,
+    source: "figma-api",
+    cachePath,
+  };
 }
 
 function colorToCss(color, opacity = 1) {
@@ -306,6 +407,7 @@ export function normalizeFigmaNode(raw, parsed, screenshotPath) {
     visibleText,
     rawNodePath: "figma-node.raw.json",
     screenshotPath: path.basename(screenshotPath),
+    referenceImagePath: path.basename(screenshotPath),
   };
 }
 
@@ -432,7 +534,7 @@ function writeImplementationPlan({ spec, matches, args }) {
     `2. Reuse existing tokens, utility classes, and component primitives.`,
     `3. Add a stable data-testid to the Figma node root implementation.`,
     `4. Run the app or Storybook target.`,
-    `5. Use ui-screenshot-eval to capture the implementation and compare it with figma.png.`,
+    `5. Use ui-screenshot-eval to capture the implementation and compare it with the provided reference image.`,
     ``,
   ].filter((line) => line !== "");
   return `${lines.join("\n")}\n`;
@@ -442,7 +544,8 @@ function buildUiEvalPayload({ runDir, spec, args }) {
   const implementationScreenshot = args["implementation-screenshot"] || path.join(runDir, "implementation.png");
   return {
     evalSkill: args["eval-skill"] || "ui-screenshot-eval",
-    figmaScreenshot: path.join(runDir, "figma.png"),
+    referenceScreenshot: spec.referenceImagePath ? path.join(runDir, spec.referenceImagePath) : "",
+    figmaScreenshot: spec.referenceImagePath ? path.join(runDir, spec.referenceImagePath) : "",
     implementationScreenshot,
     figmaSpec: path.join(runDir, "figma-spec.json"),
     codebaseMatches: path.join(runDir, "component-matches.json"),
@@ -516,27 +619,19 @@ async function main() {
     return;
   }
 
-  if (!tokenInfo) {
-    throw new Error("FIGMA_TOKEN not found in env, ~/.zshrc, ~/.bashrc, ~/.profile, or ~/.config/fish/config.fish.");
-  }
-
   const projectRoot = path.resolve(args["project-root"] || ".");
   const runDir = path.resolve(args.output || path.join(DEFAULT_OUTPUT_DIR, timestamp()));
   await fs.mkdir(runDir, { recursive: true });
 
-  const nodeUrl = `https://api.figma.com/v1/files/${parsed.fileKey}/nodes?ids=${encodeURIComponent(parsed.nodeId)}`;
-  const imageUrl = `https://api.figma.com/v1/images/${parsed.fileKey}?ids=${encodeURIComponent(parsed.nodeId)}&format=png&scale=2`;
-  const rawNode = await fetchJson(nodeUrl, tokenInfo.token);
-  const imageResponse = await fetchJson(imageUrl, tokenInfo.token);
-  const imageDownloadUrl = imageResponse.images?.[parsed.nodeId];
-  if (!imageDownloadUrl) {
-    throw new Error(`Figma image export did not return a URL for node ${parsed.nodeId}.`);
-  }
-
   const rawPath = path.join(runDir, "figma-node.raw.json");
-  const screenshotPath = path.join(runDir, "figma.png");
+  const screenshotPath = await copyReferenceImage(args["reference-image"] || args["node-image"], runDir);
+  const { rawNode, source: nodeSource, cachePath } = await fetchFigmaNodeWithCache({
+    parsed,
+    tokenInfo,
+    projectRoot,
+    args,
+  });
   await fs.writeFile(rawPath, `${JSON.stringify(rawNode, null, 2)}\n`);
-  await downloadFile(imageDownloadUrl, screenshotPath);
 
   const spec = normalizeFigmaNode(rawNode, parsed, screenshotPath);
   const specPath = path.join(runDir, "figma-spec.json");
@@ -563,10 +658,12 @@ async function main() {
     ok: true,
     runDir,
     parsed,
-    tokenSource: tokenInfo.source,
-    tokenMasked: maskToken(tokenInfo.token),
+    tokenSource: tokenInfo?.source || "",
+    tokenMasked: tokenInfo ? maskToken(tokenInfo.token) : "",
+    figmaNodeSource: nodeSource,
+    figmaNodeCache: cachePath,
     figmaSpec: specPath,
-    figmaScreenshot: screenshotPath,
+    referenceScreenshot: screenshotPath,
     componentMatches: matchesPath,
     implementationPlan: planPath,
     uiEvalInput: payloadPath,

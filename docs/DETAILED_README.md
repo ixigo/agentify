@@ -418,7 +418,7 @@ agentify skill install figma-ui-build --provider codex --scope project
 agentify skill install ui-screenshot-eval --provider codex --scope project
 ```
 
-Figma UI build reads `FIGMA_TOKEN` or `FIGMA_ACCESS_TOKEN`, stores Figma artifacts under `.figma-ui-build/`, and hands visual validation to `ui-screenshot-eval`.
+Figma UI build uses a user-provided node picture as the visual reference, reads `FIGMA_TOKEN` or `FIGMA_ACCESS_TOKEN` only when cached metadata is missing or refreshed, stores artifacts under `.figma-ui-build/`, and hands visual validation to `ui-screenshot-eval`.
 UI screenshot eval requires Playwright in the target frontend repo. It captures full-page and scoped screenshots around a stable `data-testid` and writes artifacts under `.agentify/ui-eval/`.
 
 Example GitLab issue and merge request requests after installing the skill:

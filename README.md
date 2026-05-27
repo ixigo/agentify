@@ -144,7 +144,7 @@ should succeed in the target repository before the skill mutates issues or
 merge requests.
 Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
 UI screenshot eval uses Playwright from the target frontend repo and stores before/after artifacts under `.agentify/ui-eval/`.
-Figma UI build fetches Figma node artifacts into `.figma-ui-build/`, recommends local component matches, and then uses `ui-screenshot-eval` for the visual validation loop.
+Figma UI build uses a user-provided Figma node picture plus cached node metadata in `.figma-ui-build/`, recommends local component matches, and then uses `ui-screenshot-eval` for the visual validation loop.
 
 </details>
 
