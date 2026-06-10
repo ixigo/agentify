@@ -71,22 +71,32 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
   }
 
   const dbPath = path.join(root, ".agentify", "index.db");
-  const sqlite = require("node:sqlite");
-  const OriginalDatabaseSync = sqlite.DatabaseSync;
+  let sqlite;
+  try {
+    sqlite = require("node:sqlite");
+  } catch {
+    sqlite = null;
+  }
+  const OriginalDatabaseSync = sqlite?.DatabaseSync;
   const betterSqlitePath = require.resolve("better-sqlite3");
   const betterSqliteCache = require.cache[betterSqlitePath];
   const originalBetterSqlite = betterSqliteCache?.exports;
 
   // Simulate the narrow case where the source cannot be opened read-only but its copied snapshot can be read.
-  sqlite.DatabaseSync = function DatabaseSync(filename, options) {
-    if (filename === dbPath && options?.readOnly) {
-      throw new Error("simulated read-only source open failure");
-    }
-    return new OriginalDatabaseSync(filename, options);
-  };
+  if (sqlite) {
+    sqlite.DatabaseSync = function DatabaseSync(filename, options) {
+      if (filename === dbPath && options?.readOnly) {
+        throw new Error("simulated node:sqlite source open failure");
+      }
+      return new OriginalDatabaseSync(filename, options);
+    };
+  }
   if (betterSqliteCache) {
-    betterSqliteCache.exports = function BetterSqlite3() {
-      throw new Error("simulated better-sqlite3 source open failure");
+    betterSqliteCache.exports = function BetterSqlite3(filename, options) {
+      if (filename === dbPath && options?.readonly) {
+        throw new Error("simulated better-sqlite3 source open failure");
+      }
+      return new originalBetterSqlite(filename, options);
     };
   }
 
@@ -112,7 +122,9 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
       }
     }
   } finally {
-    sqlite.DatabaseSync = OriginalDatabaseSync;
+    if (sqlite) {
+      sqlite.DatabaseSync = OriginalDatabaseSync;
+    }
     if (betterSqliteCache) {
       betterSqliteCache.exports = originalBetterSqlite;
     }

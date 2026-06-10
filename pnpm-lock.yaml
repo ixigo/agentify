@@ -4,16 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  agentify: 'link:'
-
 importers:
 
   .:
     dependencies:
-      agentify:
-        specifier: 'link:'
-        version: 'link:'
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
