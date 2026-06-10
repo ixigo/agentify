@@ -8,7 +8,12 @@ import { checkSchema, SCHEMA_VERSIONS } from "./schema.js";
 const CONTEXT_RUNTIME_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 function assertRuntimeId(value, label) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 160 || !CONTEXT_RUNTIME_ID_PATTERN.test(value)) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 160 ||
+    !CONTEXT_RUNTIME_ID_PATTERN.test(value)
+  ) {
     throw new Error(`Invalid ${label}`);
   }
   return value;

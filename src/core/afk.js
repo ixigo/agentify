@@ -68,10 +68,12 @@ export function slugifyAfkTask(value) {
 }
 
 function slugifyAfkSlug(value) {
-  return buildCompactSlug(String(value || "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter(Boolean));
+  return buildCompactSlug(
+    String(value || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/g)
+      .filter(Boolean),
+  );
 }
 
 function buildCompactSlug(tokens) {
@@ -101,7 +103,9 @@ function frontmatterError(message) {
 }
 
 function parseFrontmatter(markdown) {
-  const normalized = String(markdown || "").replace(/\r\n/g, "\n").trim();
+  const normalized = String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .trim();
   if (!normalized.startsWith("---\n")) {
     throw frontmatterError("missing YAML frontmatter");
   }
@@ -159,8 +163,12 @@ export function validateAfkPlanMarkdown(markdown) {
 }
 
 function stripAfkExecutionHandoff(markdown) {
-  const normalized = String(markdown || "").replace(/\r\n/g, "\n").trim();
-  const handoffPattern = new RegExp(`\\n##\\s+${AFK_EXECUTION_HANDOFF_SECTION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n[\\s\\S]*$`);
+  const normalized = String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+  const handoffPattern = new RegExp(
+    `\\n##\\s+${AFK_EXECUTION_HANDOFF_SECTION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n[\\s\\S]*$`,
+  );
   return normalized.replace(handoffPattern, "").trim();
 }
 
@@ -192,7 +200,9 @@ function stripTranscriptPromptPrefix(line) {
 }
 
 function extractLooseAfkPlanMarkdown(output) {
-  const lines = String(output || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = String(output || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
   let best = "";
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -211,7 +221,10 @@ function extractLooseAfkPlanMarkdown(output) {
     }
 
     const candidate = candidateLines.join("\n").trim();
-    if (new RegExp(`^type:\\s*["']?${AFK_PLAN_TYPE}["']?\\s*$`, "m").test(candidate) && candidate.includes("# AFK Plan:")) {
+    if (
+      new RegExp(`^type:\\s*["']?${AFK_PLAN_TYPE}["']?\\s*$`, "m").test(candidate) &&
+      candidate.includes("# AFK Plan:")
+    ) {
       best = candidate;
     }
   }
@@ -225,19 +238,14 @@ function extractLooseAfkPlanMarkdown(output) {
     return "";
   }
 
-  return [
-    "---",
-    best.slice(0, bodyStart).trim(),
-    "---",
-    "",
-    best.slice(bodyStart).trim(),
-  ].join("\n");
+  return ["---", best.slice(0, bodyStart).trim(), "---", "", best.slice(bodyStart).trim()].join("\n");
 }
 
 export function extractAfkPlanMarkdown(output) {
   const normalized = String(output || "").replace(/\r\n/g, "\n");
-  const fenced = [...normalized.matchAll(/```(?:md|markdown)?\s*\n([\s\S]*?type:\s*["']?agentify-afk-plan["']?[\s\S]*?)\n```/gi)]
-    .map((match) => match[1].trim());
+  const fenced = [
+    ...normalized.matchAll(/```(?:md|markdown)?\s*\n([\s\S]*?type:\s*["']?agentify-afk-plan["']?[\s\S]*?)\n```/gi),
+  ].map((match) => match[1].trim());
   if (fenced.length > 0) {
     return stripMarkdownFence(fenced.at(-1));
   }
@@ -371,22 +379,24 @@ async function createAfkWorktree(root, slug) {
 }
 
 function isAfkCommitCandidate(filePath) {
-  const normalized = String(filePath || "").replaceAll(path.sep, "/").replace(/^\.\//, "");
-  return Boolean(normalized)
-    && !normalized.startsWith(".agentify/")
-    && !normalized.startsWith(".current_session/")
-    && normalized !== "agentify-report.html"
-    && normalized !== "output.txt"
-    && normalized !== "AGENTIFY.md"
-    && !normalized.endsWith("/AGENTIFY.md")
-    && !normalized.startsWith("docs/modules/")
-    && normalized !== "docs/repo-map.md";
+  const normalized = String(filePath || "")
+    .replaceAll(path.sep, "/")
+    .replace(/^\.\//, "");
+  return (
+    Boolean(normalized) &&
+    !normalized.startsWith(".agentify/") &&
+    !normalized.startsWith(".current_session/") &&
+    normalized !== "agentify-report.html" &&
+    normalized !== "output.txt" &&
+    normalized !== "AGENTIFY.md" &&
+    !normalized.endsWith("/AGENTIFY.md") &&
+    !normalized.startsWith("docs/modules/") &&
+    normalized !== "docs/repo-map.md"
+  );
 }
 
 async function commitAfkChanges(root, slug, task) {
-  const files = (await getChangedFiles(root))
-    .map((file) => file.path)
-    .filter(isAfkCommitCandidate);
+  const files = (await getChangedFiles(root)).map((file) => file.path).filter(isAfkCommitCandidate);
   if (files.length === 0) {
     return null;
   }
@@ -425,7 +435,9 @@ export async function runAfkCreate(root, config, args) {
   if (result.exitCode !== 0) {
     const rawPath = await findAvailablePlanPath(root, slug, ".raw.md");
     await writeText(rawPath, `${output.trim()}\n`);
-    throw new Error(`AFK provider command failed with exit code ${result.exitCode}. Raw provider output was saved to ${relative(root, rawPath)}.`);
+    throw new Error(
+      `AFK provider command failed with exit code ${result.exitCode}. Raw provider output was saved to ${relative(root, rawPath)}.`,
+    );
   }
 
   const extracted = extractAfkPlanMarkdown(output);
@@ -442,15 +454,22 @@ export async function runAfkCreate(root, config, args) {
   const runCommand = `agentify afk run ${relative(root, planPath)}`;
   const savedPlanMarkdown = appendAfkExecutionHandoff(plan.markdown, runCommand);
   await writeText(planPath, `${savedPlanMarkdown}\n`);
-  await writePrivateText(path.join(resolveLocalAgentifyPaths(root).sessionRoot, sessionId, "afk-create.json"), `${JSON.stringify({
-    schema_version: "1.0",
-    type: "agentify-afk-create",
-    session_id: sessionId,
-    provider,
-    task,
-    plan_path: relative(root, planPath),
-    created_at: nowIso(),
-  }, null, 2)}\n`);
+  await writePrivateText(
+    path.join(resolveLocalAgentifyPaths(root).sessionRoot, sessionId, "afk-create.json"),
+    `${JSON.stringify(
+      {
+        schema_version: "1.0",
+        type: "agentify-afk-create",
+        session_id: sessionId,
+        provider,
+        task,
+        plan_path: relative(root, planPath),
+        created_at: nowIso(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 
   return {
     command: "afk create",
@@ -460,7 +479,8 @@ export async function runAfkCreate(root, config, args) {
     plan_path: relative(root, planPath),
     session_id: sessionId,
     run_command: runCommand,
-    next_step_hint: "Before running the command, use /compact or /clear in the current provider session so execution starts with a clean prompt.",
+    next_step_hint:
+      "Before running the command, use /compact or /clear in the current provider session so execution starts with a clean prompt.",
   };
 }
 
@@ -513,7 +533,9 @@ export async function runAfkRun(root, config, args) {
     }
     const defaultBranch = await getDefaultBranch(root);
     if (["main", "master", defaultBranch].includes(branch) && args.noCommit !== true) {
-      throw new Error("afk run --current-worktree will not auto-commit on the default/protected branch. Use the default isolated worktree flow or pass --no-commit.");
+      throw new Error(
+        "afk run --current-worktree will not auto-commit on the default/protected branch. Use the default isolated worktree flow or pass --no-commit.",
+      );
     }
   } else {
     const created = await createAfkWorktree(root, slug);
@@ -606,7 +628,9 @@ function printAfkRunResult(result, config) {
     log(`${bold("Commit")}: ${dim(result.commit)}`);
   }
   if (result.tests?.command) {
-    log(`${bold("Tests")}: ${dim(`${result.tests.status} (${result.tests.command} ${result.tests.args?.join(" ") || ""})`)}`);
+    log(
+      `${bold("Tests")}: ${dim(`${result.tests.status} (${result.tests.command} ${result.tests.args?.join(" ") || ""})`)}`,
+    );
   }
   if (result.cleanup?.command) {
     log(`${bold("Cleanup")}: ${dim(result.cleanup.command)}`);

@@ -41,83 +41,95 @@ function captureStdout(fn) {
   };
 }
 
-test("runCli scan exits non-zero and emits a blocked JSON payload when the lock is held", captureStdout(async (captured) => {
-  const root = await setupBlockedRepo("agentify-scan-blocked-");
+test(
+  "runCli scan exits non-zero and emits a blocked JSON payload when the lock is held",
+  captureStdout(async (captured) => {
+    const root = await setupBlockedRepo("agentify-scan-blocked-");
 
-  await runCli(["scan", "--root", root, "--json"]);
+    await runCli(["scan", "--root", root, "--json"]);
 
-  assert.equal(process.exitCode, 1, "scan should exit non-zero on lock contention");
+    assert.equal(process.exitCode, 1, "scan should exit non-zero on lock contention");
 
-  const dbExists = await fs.access(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false);
-  assert.equal(dbExists, false, "scan must not write the index when blocked");
+    const dbExists = await fs
+      .access(path.join(root, ".agentify", "index.db"))
+      .then(() => true)
+      .catch(() => false);
+    assert.equal(dbExists, false, "scan must not write the index when blocked");
 
-  const payloads = captured
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const blocked = payloads.find((value) => value && value.status === "blocked");
-  assert.ok(blocked, "scan should emit a structured JSON payload on contention");
-  assert.equal(blocked.command, "scan");
-  assert.equal(blocked.reason, "lock_contention");
-  assert.equal(blocked.phase, "scan");
-  assert.ok(blocked.holder, "blocked payload should include the lock holder");
-  assert.match(blocked.message, /Lock held by PID/);
-}));
+    const payloads = captured
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    const blocked = payloads.find((value) => value && value.status === "blocked");
+    assert.ok(blocked, "scan should emit a structured JSON payload on contention");
+    assert.equal(blocked.command, "scan");
+    assert.equal(blocked.reason, "lock_contention");
+    assert.equal(blocked.phase, "scan");
+    assert.ok(blocked.holder, "blocked payload should include the lock holder");
+    assert.match(blocked.message, /Lock held by PID/);
+  }),
+);
 
-test("runCli doc exits non-zero and emits a blocked JSON payload when the lock is held", captureStdout(async (captured) => {
-  const root = await setupBlockedRepo("agentify-doc-blocked-");
+test(
+  "runCli doc exits non-zero and emits a blocked JSON payload when the lock is held",
+  captureStdout(async (captured) => {
+    const root = await setupBlockedRepo("agentify-doc-blocked-");
 
-  await runCli(["doc", "--root", root, "--json"]);
+    await runCli(["doc", "--root", root, "--json"]);
 
-  assert.equal(process.exitCode, 1, "doc should exit non-zero on lock contention");
+    assert.equal(process.exitCode, 1, "doc should exit non-zero on lock contention");
 
-  const payloads = captured
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const blocked = payloads.find((value) => value && value.status === "blocked");
-  assert.ok(blocked, "doc should emit a structured JSON payload on contention");
-  assert.equal(blocked.command, "doc");
-  assert.equal(blocked.reason, "lock_contention");
-  assert.equal(blocked.phase, "doc");
-}));
+    const payloads = captured
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    const blocked = payloads.find((value) => value && value.status === "blocked");
+    assert.ok(blocked, "doc should emit a structured JSON payload on contention");
+    assert.equal(blocked.command, "doc");
+    assert.equal(blocked.reason, "lock_contention");
+    assert.equal(blocked.phase, "doc");
+  }),
+);
 
-test("runCli up exits non-zero, reports the blocked phase, and does not claim scan completion", captureStdout(async (captured) => {
-  const root = await setupBlockedRepo("agentify-up-blocked-");
+test(
+  "runCli up exits non-zero, reports the blocked phase, and does not claim scan completion",
+  captureStdout(async (captured) => {
+    const root = await setupBlockedRepo("agentify-up-blocked-");
 
-  await runCli(["up", "--root", root, "--json"]);
+    await runCli(["up", "--root", root, "--json"]);
 
-  assert.equal(process.exitCode, 1, "up should exit non-zero when scan is blocked");
+    assert.equal(process.exitCode, 1, "up should exit non-zero when scan is blocked");
 
-  const allOutput = captured.join("\n");
-  assert.ok(
-    !/scan complete/.test(allOutput),
-    "up must not log 'scan complete' when scan was skipped due to a held lock",
-  );
+    const allOutput = captured.join("\n");
+    assert.ok(
+      !/scan complete/.test(allOutput),
+      "up must not log 'scan complete' when scan was skipped due to a held lock",
+    );
 
-  const payloads = captured
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const blocked = payloads.find((value) => value && value.status === "blocked");
-  assert.ok(blocked, "up should emit a structured JSON payload on contention");
-  assert.equal(blocked.command, "up");
-  assert.equal(blocked.reason, "lock_contention");
-  assert.equal(blocked.blocked_phase, "scan");
-  assert.ok(blocked.holder, "up blocked payload should include the lock holder");
-}));
+    const payloads = captured
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    const blocked = payloads.find((value) => value && value.status === "blocked");
+    assert.ok(blocked, "up should emit a structured JSON payload on contention");
+    assert.equal(blocked.command, "up");
+    assert.equal(blocked.reason, "lock_contention");
+    assert.equal(blocked.blocked_phase, "scan");
+    assert.ok(blocked.holder, "up blocked payload should include the lock holder");
+  }),
+);

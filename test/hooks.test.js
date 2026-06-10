@@ -23,7 +23,10 @@ test("installHooks writes a valid post-merge refresh command", async () => {
 
   const postMerge = await fs.readFile(path.join(root, ".git", "hooks", "post-merge"), "utf8");
   assert.match(postMerge, /Refreshes index, docs, and metadata after merge/);
-  assert.match(postMerge, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
+  assert.match(
+    postMerge,
+    /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/,
+  );
   assert.doesNotMatch(postMerge, /--skip-finalize/);
 });
 
@@ -33,7 +36,11 @@ test("installed post-merge hook refreshes scan and local docs", async () => {
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-bin-"));
   const logPath = path.join(root, "hook.log");
   await fs.mkdir(hooksDir, { recursive: true });
-  await fs.writeFile(path.join(binDir, "agentify"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AGENTIFY_HOOK_LOG\"\n", "utf8");
+  await fs.writeFile(
+    path.join(binDir, "agentify"),
+    '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGENTIFY_HOOK_LOG"\n',
+    "utf8",
+  );
   await fs.chmod(path.join(binDir, "agentify"), 0o755);
 
   await installHooks(root);
@@ -47,10 +54,7 @@ test("installed post-merge hook refreshes scan and local docs", async () => {
   });
 
   const calls = (await fs.readFile(logPath, "utf8")).trim().split("\n");
-  assert.deepEqual(calls, [
-    "scan --json",
-    "doc --provider local --json",
-  ]);
+  assert.deepEqual(calls, ["scan --json", "doc --provider local --json"]);
 });
 
 test("installHooks writes a hook-friendly pre-commit body", async () => {
@@ -68,7 +72,8 @@ test("installHooks upgrades a legacy managed pre-commit body in place", async ()
   const hooksDir = path.join(root, ".git", "hooks");
   await fs.mkdir(hooksDir, { recursive: true });
 
-  const legacy = "#!/bin/sh\n# @agentify pre-commit hook\n# Validates freshness and safety before commit\nagentify check\n";
+  const legacy =
+    "#!/bin/sh\n# @agentify pre-commit hook\n# Validates freshness and safety before commit\nagentify check\n";
   await fs.writeFile(path.join(hooksDir, "pre-commit"), legacy);
 
   const { installed } = await installHooks(root);

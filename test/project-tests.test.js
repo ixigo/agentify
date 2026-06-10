@@ -39,12 +39,19 @@ async function installFakeExecutable(binDir, name, script) {
 
 test("detectTestCommand prefers the declared package manager", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-command-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    packageManager: "pnpm@9.0.0",
-    scripts: {
-      test: "vitest run",
-    },
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        packageManager: "pnpm@9.0.0",
+        scripts: {
+          test: "vitest run",
+        },
+      },
+      null,
+      2,
+    ),
+  );
 
   const result = await detectTestCommand(root);
 
@@ -53,11 +60,18 @@ test("detectTestCommand prefers the declared package manager", async () => {
 
 test("detectTestCommand falls back to lockfile detection", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-lockfile-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "jest",
-    },
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: "jest",
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.writeFile(path.join(root, "yarn.lock"), "");
 
   const result = await detectTestCommand(root);
@@ -214,17 +228,27 @@ test("runProjectTests does not leak host secrets to the test subprocess by defau
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-leak-"));
   const outputPath = path.join(root, "captured-env.txt");
   const scriptPath = path.join(root, "capture.js");
-  await fs.writeFile(scriptPath, `
+  await fs.writeFile(
+    scriptPath,
+    `
     const fs = require("node:fs");
     fs.writeFileSync(process.env.CAPTURE_OUT, JSON.stringify({
       sentinel: process.env.SENTINEL_SECRET ?? null,
       extra: process.env.AGENTIFY_EXTRA ?? null,
     }));
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-env-repro",
-    scripts: { test: "node capture.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-env-repro",
+        scripts: { test: "node capture.js" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const previous = process.env.SENTINEL_SECRET;
   process.env.SENTINEL_SECRET = "leaked-token-xyz";
@@ -249,17 +273,27 @@ test("runProjectTests does not leak host secrets to the test subprocess by defau
 test("runProjectTests ignores repo-configured full-env inheritance", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-repo-inherit-"));
   const outputPath = path.join(root, "captured-env.txt");
-  await fs.writeFile(path.join(root, "capture.js"), `
+  await fs.writeFile(
+    path.join(root, "capture.js"),
+    `
     const fs = require("node:fs");
     fs.writeFileSync(process.env.CAPTURE_OUT, JSON.stringify({
       sentinel: process.env.SENTINEL_SECRET ?? null,
       extra: process.env.AGENTIFY_EXTRA ?? null,
     }));
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-env-repo-inherit",
-    scripts: { test: "node capture.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-env-repo-inherit",
+        scripts: { test: "node capture.js" },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.writeFile(
     path.join(root, ".agentify.yaml"),
     [
@@ -315,14 +349,24 @@ test("runProjectTests forwards a configured passthrough variable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-env-pass-"));
   const outputPath = path.join(root, "captured-env.txt");
   const scriptPath = path.join(root, "capture.js");
-  await fs.writeFile(scriptPath, `
+  await fs.writeFile(
+    scriptPath,
+    `
     const fs = require("node:fs");
     fs.writeFileSync(process.env.CAPTURE_OUT, process.env.AGENTIFY_ALLOWED ?? "");
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-env-pass",
-    scripts: { test: "node capture.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-env-pass",
+        scripts: { test: "node capture.js" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const previous = process.env.AGENTIFY_ALLOWED;
   process.env.AGENTIFY_ALLOWED = "from-host-shell";
@@ -349,14 +393,24 @@ test("runProjectTests bounds captured stdout and stderr and reports truncation",
   const stdoutPayload = "a".repeat(1536);
   const stderrPayload = "b".repeat(1536);
 
-  await fs.writeFile(scriptPath, `
+  await fs.writeFile(
+    scriptPath,
+    `
     process.stdout.write(${JSON.stringify(stdoutPayload)});
     process.stderr.write(${JSON.stringify(stderrPayload)});
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-output-bound",
-    scripts: { test: "node emit-output.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-output-bound",
+        scripts: { test: "node emit-output.js" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const reporter = createReporter();
   const result = await runProjectTests(root, reporter, {
@@ -373,8 +427,14 @@ test("runProjectTests bounds captured stdout and stderr and reports truncation",
   assert.equal(reporter.tests.stderr_truncated, true);
   assert.match(reporter.logs.join("\n"), /stdout truncated to 1024 bytes/);
   assert.match(reporter.logs.join("\n"), /stderr truncated to 1024 bytes/);
-  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"), 1024);
-  assert.equal(Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"), 1024);
+  assert.equal(
+    Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stdout]").body, "utf8"),
+    1024,
+  );
+  assert.equal(
+    Buffer.byteLength(reporter.sections.find((section) => section.title === "[tests stderr]").body, "utf8"),
+    1024,
+  );
 });
 
 test("runProjectTests redacts secrets from captured stdout and stderr before reporting", async () => {
@@ -383,14 +443,24 @@ test("runProjectTests redacts secrets from captured stdout and stderr before rep
   const stdoutSecret = "sk-live-secret12345";
   const stderrSecret = "eyJhbGciOiJIUzI1NiJ9.secret";
 
-  await fs.writeFile(scriptPath, `
+  await fs.writeFile(
+    scriptPath,
+    `
     process.stdout.write("stdout context OPENAI_API_KEY=${stdoutSecret}\\n");
     process.stderr.write("stderr context Authorization: Bearer ${stderrSecret}\\n");
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-output-redaction",
-    scripts: { test: "node emit-secret-output.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-output-redaction",
+        scripts: { test: "node emit-secret-output.js" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const reporter = createReporter();
   const result = await runProjectTests(root, reporter);
@@ -409,10 +479,17 @@ test("runProjectTests redacts secrets from captured stdout and stderr before rep
 
 test("runProjectTests leaves the command unchanged when RTK is disabled", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-disabled-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-rtk-disabled",
-    scripts: { test: "node -e \"console.log('plain test')\"" },
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-rtk-disabled",
+        scripts: { test: "node -e \"console.log('plain test')\"" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const reporter = createReporter();
   const result = await runProjectTests(root, reporter);
@@ -427,11 +504,21 @@ test("runProjectTests wraps project tests with RTK when explicitly enabled", asy
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-enabled-"));
   const binDir = path.join(root, "bin");
   const capturePath = path.join(root, "rtk-argv.json");
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-rtk-enabled",
-    scripts: { test: "node -e \"console.log('wrapped test')\"" },
-  }, null, 2));
-  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-rtk-enabled",
+        scripts: { test: "node -e \"console.log('wrapped test')\"" },
+      },
+      null,
+      2,
+    ),
+  );
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
@@ -445,7 +532,8 @@ if (args[0] === "gain") {
 fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(args));
 console.log("compressed test output");
 process.exit(0);
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -468,11 +556,21 @@ process.exit(0);
 test("runProjectTests preserves non-zero RTK-wrapped test exits", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-fail-"));
   const binDir = path.join(root, "bin");
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-rtk-fail",
-    scripts: { test: "node -e \"process.exit(7)\"" },
-  }, null, 2));
-  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-rtk-fail",
+        scripts: { test: 'node -e "process.exit(7)"' },
+      },
+      null,
+      2,
+    ),
+  );
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
   console.log("rtk 0.39.0");
@@ -483,7 +581,8 @@ if (args[0] === "gain") {
   process.exit(0);
 }
 process.exit(7);
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -504,11 +603,21 @@ process.exit(7);
 test("runProjectTests still enforces timeout with RTK wrapping", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-timeout-"));
   const binDir = path.join(root, "bin");
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-rtk-timeout",
-    scripts: { test: "node -e \"setInterval(() => {}, 1000)\"" },
-  }, null, 2));
-  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-rtk-timeout",
+        scripts: { test: 'node -e "setInterval(() => {}, 1000)"' },
+      },
+      null,
+      2,
+    ),
+  );
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
   console.log("rtk 0.39.0");
@@ -519,7 +628,8 @@ if (args[0] === "gain") {
   process.exit(0);
 }
 setInterval(() => {}, 1000);
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -541,11 +651,21 @@ setInterval(() => {}, 1000);
 test("runProjectTests keeps output capture limits with RTK wrapping", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-rtk-output-bound-"));
   const binDir = path.join(root, "bin");
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-rtk-output-bound",
-    scripts: { test: "node -e \"console.log('unused')\"" },
-  }, null, 2));
-  await installFakeExecutable(binDir, "rtk", `#!/usr/bin/env node
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-rtk-output-bound",
+        scripts: { test: "node -e \"console.log('unused')\"" },
+      },
+      null,
+      2,
+    ),
+  );
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
   console.log("rtk 0.39.0");
@@ -557,7 +677,8 @@ if (args[0] === "gain") {
 }
 process.stdout.write("x".repeat(1536));
 process.stderr.write("y".repeat(1536));
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -580,14 +701,24 @@ test("runProjectTests times out a hanging test command", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-timeout-"));
   const scriptPath = path.join(root, "hang.js");
 
-  await fs.writeFile(scriptPath, `
+  await fs.writeFile(
+    scriptPath,
+    `
     process.stdout.write("started");
     setInterval(() => {}, 1000);
-  `);
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "agentify-timeout",
-    scripts: { test: "node hang.js" },
-  }, null, 2));
+  `,
+  );
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "agentify-timeout",
+        scripts: { test: "node hang.js" },
+      },
+      null,
+      2,
+    ),
+  );
 
   const reporter = createReporter();
   const started = Date.now();

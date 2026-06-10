@@ -226,7 +226,7 @@ export async function detectCapabilities(config = {}) {
   const tier1Ready = results.rg.available && results.fd.available;
   const tier2Ready = tier1Ready && results["ast-grep"].available && results["tree-sitter"].available;
   const providerEntries = await Promise.all(
-    EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root)])
+    EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root)]),
   );
 
   return {
@@ -291,7 +291,7 @@ async function buildSemanticDoctorReport(root, config) {
   const parseFailures = await discoverSemanticProjectParseFailures(root);
   const discoveredById = new Map(discoveredProjects.map((project) => [project.id, project]));
   const discoveredIds = new Set(discoveredById.keys());
-  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const agentifyPaths = config._agentifyPaths || (await resolveAgentifyPaths(root, config));
   const dbPath = agentifyPaths.indexDb;
   const indexPresent = await exists(dbPath);
   const failures = [];
@@ -410,12 +410,10 @@ async function buildSemanticDoctorReport(root, config) {
     });
   }
 
-  const healthyProjects = projects.filter((project) => (
-    project.indexed
-    && project.status === "ready"
-    && Number(project.coverage_ratio || 0) >= 1
-    && !project.stale
-  )).length;
+  const healthyProjects = projects.filter(
+    (project) =>
+      project.indexed && project.status === "ready" && Number(project.coverage_ratio || 0) >= 1 && !project.stale,
+  ).length;
 
   return {
     schema_version: "semantic-doctor-v1",
@@ -425,7 +423,9 @@ async function buildSemanticDoctorReport(root, config) {
     indexed_project_count: indexedProjects.length,
     healthy_project_count: healthyProjects,
     stale_project_count: projects.filter((project) => project.stale).length,
-    failing_project_count: failures.filter((failure) => ["analysis-failed", "parse-failed", "partial-coverage", "missing-snapshot"].includes(failure.category)).length,
+    failing_project_count: failures.filter((failure) =>
+      ["analysis-failed", "parse-failed", "partial-coverage", "missing-snapshot"].includes(failure.category),
+    ).length,
     discovered_projects: discoveredProjects.map((project) => ({
       project_id: project.id,
       config_path: project.configPath,
@@ -457,7 +457,9 @@ function renderSemanticDoctorReport(report) {
       `${project.symbol_count}/${project.surface_count}/${project.edge_count}`,
       project.trend_hints[0] || "",
     ]);
-    process.stderr.write(ui.table(["Project", "Status", "Freshness", "Files", "Symbols/Surfaces/Edges", "Hint"], rows) + "\n");
+    process.stderr.write(
+      ui.table(["Project", "Status", "Freshness", "Files", "Symbols/Surfaces/Edges", "Hint"], rows) + "\n",
+    );
   }
 
   if (report.failures.length > 0) {
@@ -494,27 +496,34 @@ export async function runDoctor(root, config, options = {}) {
       ...(semanticReport ? { semantic: semanticReport } : {}),
     };
     console.log(JSON.stringify(result, null, 2));
-    if (options.failOnStale && semanticReport && (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)) {
+    if (
+      options.failOnStale &&
+      semanticReport &&
+      (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)
+    ) {
       process.exitCode = AGENTIFY_EXIT_SEMANTIC_STALE;
     }
     return result;
   }
 
   const tierBadge =
-    caps.tier === 2 ? ui.green(`Tier ${caps.tier}`)
-    : caps.tier === 1 ? ui.yellow(`Tier ${caps.tier}`)
-    : ui.red(`Tier ${caps.tier}`);
+    caps.tier === 2
+      ? ui.green(`Tier ${caps.tier}`)
+      : caps.tier === 1
+        ? ui.yellow(`Tier ${caps.tier}`)
+        : ui.red(`Tier ${caps.tier}`);
 
   ui.log(`Capability tier: ${ui.bold(tierBadge)}`);
   ui.newline();
 
   const rows = [];
   for (const [name, info] of Object.entries(caps.tools)) {
-    const status = name === "rtk" && info.available && !info.verified
-      ? ui.yellow("CHECK")
-      : info.available
-      ? ui.green("OK")
-      : ui.red("MISSING");
+    const status =
+      name === "rtk" && info.available && !info.verified
+        ? ui.yellow("CHECK")
+        : info.available
+          ? ui.green("OK")
+          : ui.red("MISSING");
     const version = info.available
       ? name === "rtk" && !info.verified
         ? info.reason || info.version
@@ -527,17 +536,17 @@ export async function runDoctor(root, config, options = {}) {
   process.stderr.write(tbl + "\n");
   ui.newline();
 
-  const packageManagerStatus = caps.package_manager.available
-    ? ui.green("OK")
-    : ui.red("MISSING");
+  const packageManagerStatus = caps.package_manager.available ? ui.green("OK") : ui.red("MISSING");
   const packageManagerVersion = caps.package_manager.available
     ? caps.package_manager.version
     : ui.dim(caps.package_manager.install_hint);
   ui.log(ui.bold("Package Manager"));
-  process.stderr.write(ui.table(
-    ["Tool", "Status", "Version / Install"],
-    [[caps.package_manager.name, packageManagerStatus, packageManagerVersion]]
-  ) + "\n");
+  process.stderr.write(
+    ui.table(
+      ["Tool", "Status", "Version / Install"],
+      [[caps.package_manager.name, packageManagerStatus, packageManagerVersion]],
+    ) + "\n",
+  );
   ui.newline();
 
   ui.log(ui.bold("Provider CLIs"));
@@ -555,7 +564,7 @@ export async function runDoctor(root, config, options = {}) {
   if (semanticReport) {
     renderSemanticDoctorReport(semanticReport);
   } else if (config.semantic?.tsjs?.enabled && root) {
-    const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+    const agentifyPaths = config._agentifyPaths || (await resolveAgentifyPaths(root, config));
     const dbPath = agentifyPaths.indexDb;
     if (await exists(dbPath)) {
       const db = openIndexDatabase(agentifyPaths, { readOnly: true });
@@ -587,7 +596,11 @@ export async function runDoctor(root, config, options = {}) {
   }
 
   ui.newline();
-  if (options.failOnStale && semanticReport && (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)) {
+  if (
+    options.failOnStale &&
+    semanticReport &&
+    (semanticReport.stale_project_count > 0 || semanticReport.failures.length > 0)
+  ) {
     process.exitCode = AGENTIFY_EXIT_SEMANTIC_STALE;
   }
   return caps;

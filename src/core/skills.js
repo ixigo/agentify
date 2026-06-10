@@ -38,8 +38,7 @@ const BUILTIN_SKILLS = [
   {
     name: "caveman-compress",
     aliases: [],
-    description:
-      "Placeholder for future memory-file compression using caveman-style input-token reduction.",
+    description: "Placeholder for future memory-file compression using caveman-style input-token reduction.",
   },
   {
     name: "design-an-interface",
@@ -56,8 +55,7 @@ const BUILTIN_SKILLS = [
   {
     name: "edit-article",
     aliases: [],
-    description:
-      "Edit and improve articles by restructuring sections, improving clarity, and tightening prose.",
+    description: "Edit and improve articles by restructuring sections, improving clarity, and tightening prose.",
   },
   {
     name: "figma-ui-build",
@@ -128,8 +126,7 @@ const BUILTIN_SKILLS = [
   {
     name: "obsidian-vault",
     aliases: [],
-    description:
-      "Search, create, and manage notes in an Obsidian vault with wikilinks and index notes.",
+    description: "Search, create, and manage notes in an Obsidian vault with wikilinks and index notes.",
   },
   {
     name: "qa",
@@ -176,8 +173,7 @@ const BUILTIN_SKILLS = [
   {
     name: "to-prd",
     aliases: [],
-    description:
-      "Turn the current conversation context into a PRD and submit it as a GitHub issue.",
+    description: "Turn the current conversation context into a PRD and submit it as a GitHub issue.",
   },
   {
     name: "triage-issue",
@@ -230,14 +226,12 @@ const BUILTIN_SKILLS = [
   {
     name: "write-a-skill",
     aliases: [],
-    description:
-      "Create new agent skills with proper structure, progressive disclosure, and bundled resources.",
+    description: "Create new agent skills with proper structure, progressive disclosure, and bundled resources.",
   },
   {
     name: "zoom-out",
     aliases: [],
-    description:
-      "Tell the agent to zoom out and provide broader context or a higher-level map of unfamiliar code.",
+    description: "Tell the agent to zoom out and provide broader context or a higher-level map of unfamiliar code.",
   },
 ];
 
@@ -258,7 +252,9 @@ function normalizeSkillName(value) {
 }
 
 function normalizeScope(value) {
-  const scope = String(value || "project").trim().toLowerCase();
+  const scope = String(value || "project")
+    .trim()
+    .toLowerCase();
   if (scope !== "project" && scope !== "user") {
     throw new Error('skill scope must be "project" or "user".');
   }
@@ -266,7 +262,9 @@ function normalizeScope(value) {
 }
 
 function normalizeProviderToken(value) {
-  const provider = String(value || "").trim().toLowerCase();
+  const provider = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!provider) {
     return "";
   }
@@ -275,7 +273,7 @@ function normalizeProviderToken(value) {
   }
   if (!SKILL_INSTALL_PROVIDERS.includes(provider)) {
     throw new Error(
-      `unsupported skill provider "${provider}". Supported providers: ${SKILL_INSTALL_PROVIDERS.join(", ")}, all`
+      `unsupported skill provider "${provider}". Supported providers: ${SKILL_INSTALL_PROVIDERS.join(", ")}, all`,
     );
   }
   return provider;
@@ -332,15 +330,25 @@ export function getSkillInstallBaseDir(rootDir, provider, scope = "project") {
     case "codex":
       return getHomeDir(rootDir, normalizedScope, path.join(".codex", "skills"), path.join(getCodexHome(), "skills"));
     case "claude":
-      return getHomeDir(rootDir, normalizedScope, path.join(".claude", "skills"), path.join(os.homedir(), ".claude", "skills"));
+      return getHomeDir(
+        rootDir,
+        normalizedScope,
+        path.join(".claude", "skills"),
+        path.join(os.homedir(), ".claude", "skills"),
+      );
     case "gemini":
-      return getHomeDir(rootDir, normalizedScope, path.join(".gemini", "skills"), path.join(os.homedir(), ".gemini", "skills"));
+      return getHomeDir(
+        rootDir,
+        normalizedScope,
+        path.join(".gemini", "skills"),
+        path.join(os.homedir(), ".gemini", "skills"),
+      );
     case "opencode":
       return getHomeDir(
         rootDir,
         normalizedScope,
         path.join(".opencode", "skills"),
-        path.join(os.homedir(), ".config", "opencode", "skills")
+        path.join(os.homedir(), ".config", "opencode", "skills"),
       );
     default:
       throw new Error(`unsupported skill provider "${provider}"`);
@@ -370,12 +378,10 @@ export function listBuiltinSkills() {
   }));
 }
 
-export function resolveSkillInstallTargets(rootDir, {
-  name,
-  provider,
-  scope = "project",
-  defaultProvider = "codex",
-} = {}) {
+export function resolveSkillInstallTargets(
+  rootDir,
+  { name, provider, scope = "project", defaultProvider = "codex" } = {},
+) {
   const skill = resolveBuiltinSkill(name);
   const normalizedScope = normalizeScope(scope);
   const providers = parseProviderSelection(provider, defaultProvider);
@@ -479,10 +485,10 @@ export async function installAllBuiltinSkills(rootDir, options = {}) {
 }
 
 export function buildSkillInstallHint(provider = "codex", scope = "project") {
-  const normalizedProvider = String(provider || "").trim().toLowerCase();
-  const installProvider = SKILL_INSTALL_PROVIDERS.includes(normalizedProvider)
-    ? normalizedProvider
-    : "codex";
+  const normalizedProvider = String(provider || "")
+    .trim()
+    .toLowerCase();
+  const installProvider = SKILL_INSTALL_PROVIDERS.includes(normalizedProvider) ? normalizedProvider : "codex";
   const installScope = normalizeScope(scope);
   const command = `agentify skill install all --provider ${installProvider} --scope ${installScope}`;
 
@@ -528,13 +534,15 @@ export async function syncProjectBuiltinSkills(rootDir, options = {}) {
 
   const results = [];
   for (const provider of providers) {
-    results.push(await installAllBuiltinSkills(rootDir, {
-      provider,
-      scope: "project",
-      force: true,
-      dryRun: options.dryRun,
-      defaultProvider: options.defaultProvider,
-    }));
+    results.push(
+      await installAllBuiltinSkills(rootDir, {
+        provider,
+        scope: "project",
+        force: true,
+        dryRun: options.dryRun,
+        defaultProvider: options.defaultProvider,
+      }),
+    );
   }
 
   return {

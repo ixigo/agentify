@@ -30,7 +30,9 @@ async function initGitRepo(root) {
 
 async function installFakeMemPalace(binDir, logPath) {
   const scriptPath = path.join(binDir, "mempalace");
-  await fs.writeFile(scriptPath, `#!/bin/sh
+  await fs.writeFile(
+    scriptPath,
+    `#!/bin/sh
 set -eu
 printf '%s\\n' "$*" >> "${logPath}"
 if [ "$1" = "mine" ]; then
@@ -56,7 +58,9 @@ EOF
   exit 0
 fi
 exit 1
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(scriptPath, 0o755);
   return scriptPath;
 }
@@ -117,36 +121,40 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   const db = openIndexDatabase(root);
   try {
     inTransaction(db, () => {
-      writeRepositoryIndex(db, {
-        generated_at: new Date().toISOString(),
-        repo: {
-          name: "agentify-session-caps",
-          root,
-          detected_stacks: [{ name: "ts", confidence: 1 }],
-          default_stack: "ts",
-          package_manager: "npm",
+      writeRepositoryIndex(
+        db,
+        {
+          generated_at: new Date().toISOString(),
+          repo: {
+            name: "agentify-session-caps",
+            root,
+            detected_stacks: [{ name: "ts", confidence: 1 }],
+            default_stack: "ts",
+            package_manager: "npm",
+          },
+          modules: Array.from({ length: 80 }, (_, index) => ({
+            id: `module-${index}`,
+            name: `module-${index}`,
+            root_path: `src/module-${index}`,
+            stack: "ts",
+            package_name: null,
+            slug: `module-${index}`,
+            doc_path: `docs/modules/module-${index}.md`,
+            fingerprint: `fp-${index}`,
+            entry_files: [],
+            key_files: [],
+          })),
+          files: [],
+          symbols: [],
+          imports: [],
+          tests: [],
+          commands: [],
         },
-        modules: Array.from({ length: 80 }, (_, index) => ({
-          id: `module-${index}`,
-          name: `module-${index}`,
-          root_path: `src/module-${index}`,
-          stack: "ts",
-          package_name: null,
-          slug: `module-${index}`,
-          doc_path: `docs/modules/module-${index}.md`,
-          fingerprint: `fp-${index}`,
-          entry_files: [],
-          key_files: [],
-        })),
-        files: [],
-        symbols: [],
-        imports: [],
-        tests: [],
-        commands: [],
-      }, {
-        headCommit: "nogit",
-        provider: "codex",
-      });
+        {
+          headCommit: "nogit",
+          provider: "codex",
+        },
+      );
     });
   } finally {
     closeIndexDatabase(db);
@@ -156,7 +164,7 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   const config = await loadConfig(root, {
     provider: "codex",
     sessionBootstrapMaxKb: 1,
-    sessionContextMaxKb: 1
+    sessionContextMaxKb: 1,
   });
   config.session.bootstrapMaxKb = 1;
   config.session.contextMaxKb = 1;
@@ -164,14 +172,18 @@ test("forkSession enforces bootstrap and context size caps", async () => {
   const parent = await forkSession(root, config, { name: "parent" });
   const largeChecklist = Array.from({ length: 24 }, (_, index) => ({
     done: index % 2 === 0,
-    text: `task-${index} ${"x".repeat(180)}`
+    text: `task-${index} ${"x".repeat(180)}`,
   }));
-  await fs.writeFile(path.join(parent.sessionDir, "checklist.json"), `${JSON.stringify(largeChecklist, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(parent.sessionDir, "checklist.json"),
+    `${JSON.stringify(largeChecklist, null, 2)}\n`,
+    "utf8",
+  );
 
   const result = await forkSession(root, config, {
     from: parent.sessionId,
     startHere: `- ${"read-this ".repeat(400)}`,
-    parentSummary: "summary ".repeat(800)
+    parentSummary: "summary ".repeat(800),
   });
   const resumed = await resumeSession(root, result.sessionId);
 
@@ -192,22 +204,26 @@ test("loadAutomaticSessionMemory reuses the parent transcript automatically", as
   const config = await loadConfig(root, { provider: "codex" });
   const parent = await forkSession(root, config, { name: "parent" });
   const paths = getSessionArtifactPaths(root, parent.sessionId);
-  await fs.writeFile(paths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Current task",
-    "Investigate why refresh after commits misses the new HEAD.",
-    "",
-    "> Provider response",
-    "The wrapped command updates HEAD before Agentify rescans, so the index still points at the old commit.",
-    "",
-    "> Current task",
-    "Choose the smallest fix.",
-    "",
-    "> Provider response",
-    "Refresh after the wrapped command commit lands, then validate against the new HEAD.",
-    ""
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    paths.transcriptPath,
+    [
+      "# Agentify Session Run",
+      "",
+      "> Current task",
+      "Investigate why refresh after commits misses the new HEAD.",
+      "",
+      "> Provider response",
+      "The wrapped command updates HEAD before Agentify rescans, so the index still points at the old commit.",
+      "",
+      "> Current task",
+      "Choose the smallest fix.",
+      "",
+      "> Provider response",
+      "Refresh after the wrapped command commit lands, then validate against the new HEAD.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
   const memory = await loadAutomaticSessionMemory(root, child.manifest, config);
@@ -232,16 +248,21 @@ test("appendRunSummary retries when the session lock is temporarily unreadable",
     fs.unlink(paths.lockPath).catch(() => {});
   }, 50);
   try {
-    const result = await appendRunSummary(root, session.sessionId, {
-      started_at: new Date().toISOString(),
-      ended_at: new Date().toISOString(),
-      task: "retry lock",
-      assistant_summary: "lock recovered",
-      exit_code: 0,
-      validation: "passed",
-      phase: "complete",
-      memory_backend: "none",
-    }, config);
+    const result = await appendRunSummary(
+      root,
+      session.sessionId,
+      {
+        started_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        task: "retry lock",
+        assistant_summary: "lock recovered",
+        exit_code: 0,
+        validation: "passed",
+        phase: "complete",
+        memory_backend: "none",
+      },
+      config,
+    );
 
     assert.ok(result);
     assert.equal(result.run_history.at(-1).assistant_summary, "lock recovered");
@@ -259,29 +280,37 @@ test("loadAutomaticSessionMemory searches older sessions when the direct parent 
   const config = await loadConfig(root, { provider: "codex" });
   const earlier = await forkSession(root, config, { name: "jsonl-decision" });
   const earlierPaths = getSessionArtifactPaths(root, earlier.sessionId);
-  await fs.writeFile(earlierPaths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Current task",
-    "Choose a durable transcript format for session memory.",
-    "",
-    "> Provider response",
-    "Use JSONL transcripts because they append cleanly and are easier for memory miners to ingest later.",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    earlierPaths.transcriptPath,
+    [
+      "# Agentify Session Run",
+      "",
+      "> Current task",
+      "Choose a durable transcript format for session memory.",
+      "",
+      "> Provider response",
+      "Use JSONL transcripts because they append cleanly and are easier for memory miners to ingest later.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   const parent = await forkSession(root, config, { name: "refresh-fix" });
   const parentPaths = getSessionArtifactPaths(root, parent.sessionId);
-  await fs.writeFile(parentPaths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Current task",
-    "Fix refresh after commits.",
-    "",
-    "> Provider response",
-    "Refresh after the wrapped command exits.",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    parentPaths.transcriptPath,
+    [
+      "# Agentify Session Run",
+      "",
+      "> Current task",
+      "Fix refresh after commits.",
+      "",
+      "> Provider response",
+      "Refresh after the wrapped command exits.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "new-task" });
   const emptyBinDir = path.join(root, "empty-bin");
@@ -291,7 +320,12 @@ test("loadAutomaticSessionMemory searches older sessions when the direct parent 
   process.env.PATH = emptyBinDir;
   process.env.AGENTIFY_MEMPALACE_CMD = path.join(root, "missing-mempalace");
   try {
-    const memory = await loadAutomaticSessionMemory(root, child.manifest, config, "why did we choose JSONL transcripts");
+    const memory = await loadAutomaticSessionMemory(
+      root,
+      child.manifest,
+      config,
+      "why did we choose JSONL transcripts",
+    );
 
     assert.equal(memory.backend, "local-session-search");
     assert.equal(memory.sourceSessionId, earlier.sessionId);
@@ -319,16 +353,20 @@ test("loadAutomaticRunMemory uses MemPalace automatically when the CLI is availa
   const config = await loadConfig(root, { provider: "codex" });
   const session = await forkSession(root, config, { name: "memory" });
   const paths = getSessionArtifactPaths(root, session.sessionId);
-  await fs.writeFile(paths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Current task",
-    "Pick a durable transcript format.",
-    "",
-    "> Provider response",
-    "Use JSONL transcripts because they are append-friendly for durable memory capture.",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    paths.transcriptPath,
+    [
+      "# Agentify Session Run",
+      "",
+      "> Current task",
+      "Pick a durable transcript format.",
+      "",
+      "> Provider response",
+      "Use JSONL transcripts because they are append-friendly for durable memory capture.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   const binDir = path.join(root, "bin");
   const logPath = path.join(root, "mempalace-calls.log");
@@ -363,7 +401,9 @@ async function installMemPalaceShim(binDir, searchStdout) {
   const stdoutPath = path.join(binDir, "search-stdout.txt");
   await fs.writeFile(stdoutPath, searchStdout, "utf8");
   const scriptPath = path.join(binDir, "mempalace");
-  await fs.writeFile(scriptPath, `#!/bin/sh
+  await fs.writeFile(
+    scriptPath,
+    `#!/bin/sh
 set -eu
 if [ "$1" = "mine" ]; then
   mkdir -p "\${MEMPALACE_PALACE_PATH}"
@@ -375,14 +415,18 @@ if [ "$1" = "search" ]; then
   exit 0
 fi
 exit 1
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(scriptPath, 0o755);
   return scriptPath;
 }
 
 async function installFailingMineMemPalaceShim(binDir) {
   const scriptPath = path.join(binDir, "mempalace");
-  await fs.writeFile(scriptPath, `#!/bin/sh
+  await fs.writeFile(
+    scriptPath,
+    `#!/bin/sh
 set -eu
 if [ "$1" = "mine" ]; then
   echo "mine failed" >&2
@@ -407,7 +451,9 @@ EOF
   exit 0
 fi
 exit 1
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(scriptPath, 0o755);
   return scriptPath;
 }
@@ -419,16 +465,20 @@ async function setupMemPalaceTestRepo() {
   const config = await loadConfig(root, { provider: "codex" });
   const session = await forkSession(root, config, { name: "memory" });
   const paths = getSessionArtifactPaths(root, session.sessionId);
-  await fs.writeFile(paths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Current task",
-    "Pick a transcript format.",
-    "",
-    "> Provider response",
-    "Use JSONL transcripts because they are append-friendly for durable memory capture.",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    paths.transcriptPath,
+    [
+      "# Agentify Session Run",
+      "",
+      "> Current task",
+      "Pick a transcript format.",
+      "",
+      "> Provider response",
+      "Use JSONL transcripts because they are append-friendly for durable memory capture.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   return { root, config };
 }
 
@@ -436,11 +486,14 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that reports a missing pal
   const { root, config } = await setupMemPalaceTestRepo();
   const binDir = path.join(root, "bin");
   await fs.mkdir(binDir, { recursive: true });
-  await installMemPalaceShim(binDir, [
-    "  No palace found at /tmp/agentify-test/.agentify/mempalace/palace",
-    "  Run: mempalace init <dir> then mempalace mine <dir>",
-    "",
-  ].join("\n"));
+  await installMemPalaceShim(
+    binDir,
+    [
+      "  No palace found at /tmp/agentify-test/.agentify/mempalace/palace",
+      "  Run: mempalace init <dir> then mempalace mine <dir>",
+      "",
+    ].join("\n"),
+  );
 
   const originalPath = process.env.PATH;
   const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
@@ -467,14 +520,17 @@ test("loadAutomaticRunMemory rejects MemPalace stdout that contains zero result 
   const { root, config } = await setupMemPalaceTestRepo();
   const binDir = path.join(root, "bin");
   await fs.mkdir(binDir, { recursive: true });
-  await installMemPalaceShim(binDir, [
-    "============================================================",
-    '  Results for: "transcript decision query"',
-    "  Wing: agentify",
-    "============================================================",
-    "",
-    "",
-  ].join("\n"));
+  await installMemPalaceShim(
+    binDir,
+    [
+      "============================================================",
+      '  Results for: "transcript decision query"',
+      "  Wing: agentify",
+      "============================================================",
+      "",
+      "",
+    ].join("\n"),
+  );
 
   const originalPath = process.env.PATH;
   const originalCmd = process.env.AGENTIFY_MEMPALACE_CMD;
@@ -505,12 +561,20 @@ test("loadAutomaticRunMemory preserves the previous MemPalace index when refresh
   await fs.mkdir(exportDir, { recursive: true });
   await fs.writeFile(path.join(palacePath, "last-good-index.txt"), "previous palace\n", "utf8");
   await fs.writeFile(path.join(exportDir, "last-good-export.md"), "previous export\n", "utf8");
-  await fs.writeFile(path.join(mempalaceDir, "session-sync.json"), `${JSON.stringify({
-    schema_version: "1.0",
-    fingerprint: "stale-fingerprint",
-    transcript_count: 1,
-    updated_at: "2026-01-01T00:00:00.000Z",
-  }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(mempalaceDir, "session-sync.json"),
+    `${JSON.stringify(
+      {
+        schema_version: "1.0",
+        fingerprint: "stale-fingerprint",
+        transcript_count: 1,
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 
   const binDir = path.join(root, "bin");
   await fs.mkdir(binDir, { recursive: true });
@@ -533,10 +597,13 @@ test("loadAutomaticRunMemory preserves the previous MemPalace index when refresh
     assert.match(memory.markdown, /previous good index still recalls JSONL transcript decisions/);
     assert.equal(await fs.readFile(path.join(palacePath, "last-good-index.txt"), "utf8"), "previous palace\n");
     assert.equal(await fs.readFile(path.join(exportDir, "last-good-export.md"), "utf8"), "previous export\n");
-    assert.ok(warnings.some((warning) => (
-      warning.code === "AGENTIFY_MEMPALACE_DEGRADED"
-      && /refresh failed; keeping the previous index/.test(warning.message)
-    )));
+    assert.ok(
+      warnings.some(
+        (warning) =>
+          warning.code === "AGENTIFY_MEMPALACE_DEGRADED" &&
+          /refresh failed; keeping the previous index/.test(warning.message),
+      ),
+    );
   } finally {
     process.off("warning", onWarning);
     process.env.PATH = originalPath;
@@ -569,7 +636,11 @@ test("loadAutomaticRunMemory exercises the real MemPalace CLI when available", a
     const memory = await loadAutomaticRunMemory(root, "JSONL transcript decision", config);
     assert.equal(memory.backend, "mempalace");
     assert.match(memory.markdown, /Backend: mempalace/);
-    assert.match(memory.markdown, /JSONL transcripts/i, "excerpt should contain the seeded term from the synthetic transcript");
+    assert.match(
+      memory.markdown,
+      /JSONL transcripts/i,
+      "excerpt should contain the seeded term from the synthetic transcript",
+    );
   } finally {
     if (originalCmd === undefined) {
       delete process.env.AGENTIFY_MEMPALACE_CMD;
@@ -580,7 +651,9 @@ test("loadAutomaticRunMemory exercises the real MemPalace CLI when available", a
 });
 
 test("normalizeInteractiveCapture strips script noise and ANSI sequences", () => {
-  const normalized = normalizeInteractiveCapture("\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n");
+  const normalized = normalizeInteractiveCapture(
+    "\u0004\u0008\u0008Script started on now\n\u001b[31mhello\u001b[0m\r\nScript done on later\n",
+  );
   assert.equal(normalized, "hello");
 });
 
@@ -644,10 +717,7 @@ test("resumeSession rejects manifests whose session_id does not match the direct
   manifest.session_id = "sess_forged_id";
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
-  await assert.rejects(
-    () => resumeSession(root, created.sessionId),
-    /does not match requested id/,
-  );
+  await assert.rejects(() => resumeSession(root, created.sessionId), /does not match requested id/);
 });
 
 test("forkSession rejects path-like parent ids and mismatched parent manifests", async () => {
@@ -671,8 +741,5 @@ test("forkSession rejects path-like parent ids and mismatched parent manifests",
   parentManifest.session_id = "sess_forged_parent";
   await fs.writeFile(parentManifestPath, JSON.stringify(parentManifest, null, 2));
 
-  await assert.rejects(
-    () => forkSession(root, config, { from: parent.sessionId }),
-    /does not match requested id/,
-  );
+  await assert.rejects(() => forkSession(root, config, { from: parent.sessionId }), /does not match requested id/);
 });

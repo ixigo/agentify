@@ -77,16 +77,18 @@ function isTestFile(filePath) {
 
 function isConfigFile(filePath) {
   const base = path.basename(filePath).toLowerCase();
-  return base === "package.json"
-    || base === "tsconfig.json"
-    || /^tsconfig\..+\.json$/.test(base)
-    || base === "pnpm-workspace.yaml"
-    || base === "turbo.json"
-    || base === ".agentify.yaml"
-    || base === "pyproject.toml"
-    || base === "cargo.toml"
-    || base === "package.swift"
-    || /(config|settings|env)\./.test(base);
+  return (
+    base === "package.json" ||
+    base === "tsconfig.json" ||
+    /^tsconfig\..+\.json$/.test(base) ||
+    base === "pnpm-workspace.yaml" ||
+    base === "turbo.json" ||
+    base === ".agentify.yaml" ||
+    base === "pyproject.toml" ||
+    base === "cargo.toml" ||
+    base === "package.swift" ||
+    /(config|settings|env)\./.test(base)
+  );
 }
 
 function isModulePath(filePath, moduleRoot) {
@@ -102,7 +104,7 @@ function selectEntrypoints(files, stack) {
       ? [/__main__\.py$/, /main\.py$/]
       : stack === "dotnet"
         ? [/Program\.cs$/]
-      : stack === "java"
+        : stack === "java"
           ? [/Main\.java$/, /Application\.java$/, /MainActivity\.java$/]
           : stack === "kotlin"
             ? [/Main\.kt$/, /Application\.kt$/, /MainActivity\.kt$/]
@@ -110,15 +112,25 @@ function selectEntrypoints(files, stack) {
               ? [/cmd\/[^/]+\/main\.go$/, /main\.go$/]
               : stack === "rust"
                 ? [/src\/main\.rs$/, /src\/lib\.rs$/, /src\/bin\/.+\.rs$/]
-            : stack === "swift"
-              ? [/main\.swift$/, /AppDelegate\.swift$/, /SceneDelegate\.swift$/, /.+App\.swift$/]
-              : [/src\/index\.(ts|tsx|js|jsx|mjs|cjs)$/, /src\/main\.(ts|tsx|js|jsx|mjs|cjs)$/, /app\.(ts|tsx|js|jsx|mjs|cjs)$/, /server\.(ts|tsx|js|jsx|mjs|cjs)$/];
+                : stack === "swift"
+                  ? [/main\.swift$/, /AppDelegate\.swift$/, /SceneDelegate\.swift$/, /.+App\.swift$/]
+                  : [
+                      /src\/index\.(ts|tsx|js|jsx|mjs|cjs)$/,
+                      /src\/main\.(ts|tsx|js|jsx|mjs|cjs)$/,
+                      /app\.(ts|tsx|js|jsx|mjs|cjs)$/,
+                      /server\.(ts|tsx|js|jsx|mjs|cjs)$/,
+                    ];
 
   return files.filter((file) => patterns.some((pattern) => pattern.test(file))).slice(0, 12);
 }
 
 function computeModuleFingerprint(fileRows) {
-  return sha256(fileRows.map((row) => `${row.path}:${row.fingerprint}`).sort().join("\n"));
+  return sha256(
+    fileRows
+      .map((row) => `${row.path}:${row.fingerprint}`)
+      .sort()
+      .join("\n"),
+  );
 }
 
 function globToRegExp(pattern) {
@@ -209,10 +221,13 @@ async function detectTypeScriptModules(root, config, relFiles) {
   }
 
   const fallbackModules = await detectModules(root, config, "ts");
-  return withTypeScriptSourceFallbackModule(fallbackModules.map((moduleInfo) => ({
-    ...moduleInfo,
-    packageName: null,
-  })), relFiles);
+  return withTypeScriptSourceFallbackModule(
+    fallbackModules.map((moduleInfo) => ({
+      ...moduleInfo,
+      packageName: null,
+    })),
+    relFiles,
+  );
 }
 
 function findOwningModule(filePath, modules) {
@@ -232,11 +247,12 @@ function withTypeScriptSourceFallbackModule(modules, relFiles) {
     return sortedModules;
   }
 
-  const hasUnownedSrcSource = relFiles.some((filePath) => (
-    filePath.startsWith("src/")
-    && TS_EXTENSIONS.has(path.extname(filePath).toLowerCase())
-    && !findOwningModule(filePath, sortedModules)
-  ));
+  const hasUnownedSrcSource = relFiles.some(
+    (filePath) =>
+      filePath.startsWith("src/") &&
+      TS_EXTENSIONS.has(path.extname(filePath).toLowerCase()) &&
+      !findOwningModule(filePath, sortedModules),
+  );
 
   if (!hasUnownedSrcSource) {
     return sortedModules;
@@ -269,9 +285,8 @@ function uniqueModuleId(baseId, modules) {
 }
 
 function detectPackageManager(rootFiles, rootPackageJson) {
-  const declared = typeof rootPackageJson?.packageManager === "string"
-    ? rootPackageJson.packageManager.split("@")[0]
-    : null;
+  const declared =
+    typeof rootPackageJson?.packageManager === "string" ? rootPackageJson.packageManager.split("@")[0] : null;
   if (declared) {
     return declared;
   }
@@ -335,8 +350,12 @@ function collectExportedSymbols(sourceFile) {
   }
 
   function isExported(node) {
-    return Array.isArray(node.modifiers)
-      && node.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword);
+    return (
+      Array.isArray(node.modifiers) &&
+      node.modifiers.some(
+        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword || modifier.kind === ts.SyntaxKind.DefaultKeyword,
+      )
+    );
   }
 
   for (const node of sourceFile.statements) {
@@ -403,17 +422,17 @@ function collectTsSpecifiers(sourceFile) {
       }
     } else if (ts.isImportEqualsDeclaration(node)) {
       if (
-        ts.isExternalModuleReference(node.moduleReference)
-        && ts.isStringLiteralLike(node.moduleReference.expression)
+        ts.isExternalModuleReference(node.moduleReference) &&
+        ts.isStringLiteralLike(node.moduleReference.expression)
       ) {
         pushSpecifier(node.moduleReference.expression.text, "import");
       }
     } else if (ts.isCallExpression(node)) {
       if (
-        ts.isIdentifier(node.expression)
-        && node.expression.text === "require"
-        && node.arguments.length > 0
-        && ts.isStringLiteralLike(node.arguments[0])
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "require" &&
+        node.arguments.length > 0 &&
+        ts.isStringLiteralLike(node.arguments[0])
       ) {
         pushSpecifier(node.arguments[0].text, "require");
       }
@@ -472,12 +491,7 @@ function createTypeScriptCompilerOptions(root) {
 
 function resolveTsImport(root, compilerOptions, fromFile, specifier) {
   try {
-    const resolved = ts.resolveModuleName(
-      specifier,
-      path.join(root, fromFile),
-      compilerOptions,
-      ts.sys
-    ).resolvedModule;
+    const resolved = ts.resolveModuleName(specifier, path.join(root, fromFile), compilerOptions, ts.sys).resolvedModule;
 
     if (!resolved?.resolvedFileName) {
       return null;
@@ -657,7 +671,8 @@ function collectGenericSymbols(language, text) {
     case "kotlin":
       return collectRegexSymbols(text, [
         {
-          pattern: /^\s*(?:public|internal|private)?\s*(?:data\s+class|sealed\s+class|enum\s+class|class|interface|object)\s+([A-Za-z_]\w*)/gm,
+          pattern:
+            /^\s*(?:public|internal|private)?\s*(?:data\s+class|sealed\s+class|enum\s+class|class|interface|object)\s+([A-Za-z_]\w*)/gm,
           map(match, source) {
             return {
               name: match[1],
@@ -684,7 +699,8 @@ function collectGenericSymbols(language, text) {
     case "dotnet":
       return collectRegexSymbols(text, [
         {
-          pattern: /^\s*(?:public|internal|protected|private)?\s*(?:sealed\s+|static\s+|partial\s+)?(?:class|interface|enum|record|struct|delegate)\s+([A-Za-z_]\w*)/gm,
+          pattern:
+            /^\s*(?:public|internal|protected|private)?\s*(?:sealed\s+|static\s+|partial\s+)?(?:class|interface|enum|record|struct|delegate)\s+([A-Za-z_]\w*)/gm,
           map(match, source) {
             return {
               name: match[1],
@@ -807,7 +823,9 @@ async function readGoModuleName(root) {
 }
 
 function normalizeRepoPath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
+  return String(filePath || "")
+    .split(path.sep)
+    .join("/");
 }
 
 function stripLeadingSourceRoot(filePath) {
@@ -855,9 +873,8 @@ function resolvePythonImport(specifier, fromFile, repoFileSet, pythonModuleMap, 
     const dots = relativeMatch[1].length;
     const tail = relativeMatch[2].replace(/^\./, "");
     const packageSegments = pythonPackageNameForFile(fromFile).split(".").filter(Boolean);
-    const baseSegments = dots > 1
-      ? packageSegments.slice(0, Math.max(0, packageSegments.length - (dots - 1)))
-      : packageSegments;
+    const baseSegments =
+      dots > 1 ? packageSegments.slice(0, Math.max(0, packageSegments.length - (dots - 1))) : packageSegments;
     resolvedModule = [...baseSegments, ...tail.split(".").filter(Boolean)].join(".");
   }
 
@@ -883,15 +900,17 @@ function resolvePythonImport(specifier, fromFile, repoFileSet, pythonModuleMap, 
 }
 
 function chooseCanonicalFile(files) {
-  return [...files]
-    .filter((file) => !file.endsWith("_test.go"))
-    .sort((left, right) => {
-      const leftBase = path.posix.basename(left, path.posix.extname(left));
-      const rightBase = path.posix.basename(right, path.posix.extname(right));
-      const leftPriority = leftBase === "index" || leftBase === "main" || leftBase === "lib" ? -1 : 0;
-      const rightPriority = rightBase === "index" || rightBase === "main" || rightBase === "lib" ? -1 : 0;
-      return leftPriority - rightPriority || left.localeCompare(right);
-    })[0] || null;
+  return (
+    [...files]
+      .filter((file) => !file.endsWith("_test.go"))
+      .sort((left, right) => {
+        const leftBase = path.posix.basename(left, path.posix.extname(left));
+        const rightBase = path.posix.basename(right, path.posix.extname(right));
+        const leftPriority = leftBase === "index" || leftBase === "main" || leftBase === "lib" ? -1 : 0;
+        const rightPriority = rightBase === "index" || rightBase === "main" || rightBase === "lib" ? -1 : 0;
+        return leftPriority - rightPriority || left.localeCompare(right);
+      })[0] || null
+  );
 }
 
 function buildGoPackageMap(repoFiles, moduleName) {
@@ -991,11 +1010,8 @@ function resolveScopedImport(specifier, typeSymbolIndex, qualifiedTypeIndex, pac
 function rustModuleSegmentsForFile(filePath) {
   const normalized = normalizeRepoPath(filePath);
   const srcIndex = normalized.indexOf("/src/");
-  const withinSrc = srcIndex >= 0
-    ? normalized.slice(srcIndex + 5)
-    : normalized.startsWith("src/")
-      ? normalized.slice(4)
-      : normalized;
+  const withinSrc =
+    srcIndex >= 0 ? normalized.slice(srcIndex + 5) : normalized.startsWith("src/") ? normalized.slice(4) : normalized;
 
   if (withinSrc === "lib.rs" || withinSrc === "main.rs") {
     return [];
@@ -1023,10 +1039,7 @@ function buildRustCrateIndex(repoFileSet, modules) {
 function resolveRustModulePath(basePath, segments, repoFileSet) {
   for (let length = segments.length; length >= 1; length -= 1) {
     const prefix = segments.slice(0, length);
-    const candidates = [
-      `${basePath}/${prefix.join("/")}.rs`,
-      `${basePath}/${prefix.join("/")}/mod.rs`,
-    ];
+    const candidates = [`${basePath}/${prefix.join("/")}.rs`, `${basePath}/${prefix.join("/")}/mod.rs`];
     const match = candidates.find((candidate) => repoFileSet.has(candidate));
     if (match) {
       return match;
@@ -1038,10 +1051,7 @@ function resolveRustModulePath(basePath, segments, repoFileSet) {
 function resolveRustImport(specifier, kind, fromFile, repoFileSet, rustCrateIndex) {
   if (kind === "mod") {
     const baseDir = path.posix.dirname(normalizeRepoPath(fromFile));
-    const candidates = [
-      `${baseDir}/${specifier}.rs`,
-      `${baseDir}/${specifier}/mod.rs`,
-    ];
+    const candidates = [`${baseDir}/${specifier}.rs`, `${baseDir}/${specifier}/mod.rs`];
     return candidates.find((candidate) => repoFileSet.has(candidate)) || null;
   }
 
@@ -1108,7 +1118,7 @@ function resolveGenericImport(language, importInfo, fromFile, repoFileSet, resol
       fromFile,
       repoFileSet,
       resolutionContext.pythonModuleMap,
-      importInfo.members || []
+      importInfo.members || [],
     );
   }
   if (language === "rust") {
@@ -1117,7 +1127,7 @@ function resolveGenericImport(language, importInfo, fromFile, repoFileSet, resol
       importInfo.kind,
       fromFile,
       repoFileSet,
-      resolutionContext.rustCrateIndex
+      resolutionContext.rustCrateIndex,
     );
   }
   if (language === "go") {
@@ -1128,7 +1138,7 @@ function resolveGenericImport(language, importInfo, fromFile, repoFileSet, resol
       importInfo.specifier,
       resolutionContext.typeSymbolIndex,
       resolutionContext.qualifiedTypeIndex,
-      resolutionContext.packageIndex
+      resolutionContext.packageIndex,
     );
   }
   if (language === "swift") {
@@ -1160,7 +1170,10 @@ function inferRelatedPath(testPath, repoFileSet) {
 
   const baseName = path.basename(direct);
   const parentDir = path.dirname(direct);
-  const sibling = path.join(parentDir.replace(/\/tests?$/i, ""), baseName).split(path.sep).join("/");
+  const sibling = path
+    .join(parentDir.replace(/\/tests?$/i, ""), baseName)
+    .split(path.sep)
+    .join("/");
   return repoFileSet.has(sibling) ? sibling : null;
 }
 
@@ -1204,8 +1217,9 @@ function rankKeyFiles(fileRows, entryFiles, importRows) {
 
 async function buildModuleCommands(root, rootFiles, moduleInfo) {
   const rootPackageJson = await readJsonIfExists(path.join(root, "package.json"));
-  const packageJson = await readJsonIfExists(path.join(root, moduleInfo.rootPath, "package.json"))
-    || (moduleInfo.rootPath === "." ? rootPackageJson : null);
+  const packageJson =
+    (await readJsonIfExists(path.join(root, moduleInfo.rootPath, "package.json"))) ||
+    (moduleInfo.rootPath === "." ? rootPackageJson : null);
   if (!packageJson?.scripts) {
     return [];
   }
@@ -1235,9 +1249,10 @@ export async function buildRepositoryIndex(root, config) {
   const repoFiles = filePaths.slice().sort();
   const repoFileSet = new Set(repoFiles);
 
-  const detectedModules = defaultStack === "ts"
-    ? await detectTypeScriptModules(root, config, repoFiles)
-    : await detectModules(root, config, defaultStack);
+  const detectedModules =
+    defaultStack === "ts"
+      ? await detectTypeScriptModules(root, config, repoFiles)
+      : await detectModules(root, config, defaultStack);
 
   const moduleRows = detectedModules.map((moduleInfo) => ({
     ...moduleInfo,
@@ -1289,7 +1304,7 @@ export async function buildRepositoryIndex(root, config) {
         content,
         ts.ScriptTarget.Latest,
         true,
-        scriptKindForPath(filePath)
+        scriptKindForPath(filePath),
       );
       for (const spec of collectTsSpecifiers(sourceFile)) {
         const toPath = resolveTsImport(root, compilerOptions, filePath, spec.specifier);
@@ -1389,9 +1404,7 @@ export async function buildRepositoryIndex(root, config) {
 
   for (const moduleInfo of moduleRows) {
     const currentFiles = moduleFiles.get(moduleInfo.id) || [];
-    const sourcePaths = currentFiles
-      .filter((row) => isSourceFile(row.path))
-      .map((row) => row.path);
+    const sourcePaths = currentFiles.filter((row) => isSourceFile(row.path)).map((row) => row.path);
     const entryFiles = selectEntrypoints(sourcePaths, moduleInfo.stack);
     const moduleImportRows = importRows.filter((row) => row.from_module_id === moduleInfo.id);
     const keyFiles = rankKeyFiles(currentFiles, entryFiles, moduleImportRows);

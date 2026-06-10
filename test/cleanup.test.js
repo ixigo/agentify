@@ -8,7 +8,7 @@ import { loadConfig } from "../src/core/config.js";
 import { runClean } from "../src/core/cleanup.js";
 
 async function setOldMtime(targetPath, daysAgo) {
-  const date = new Date(Date.now() - (daysAgo * 86400000));
+  const date = new Date(Date.now() - daysAgo * 86400000);
   await fs.utimes(targetPath, date, date);
 }
 
@@ -23,17 +23,24 @@ test("runClean prunes orphaned Agentify artifacts and stale folders", async () =
   await fs.mkdir(path.join(root, "src", "payments"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "dead"), { recursive: true });
 
-  await fs.writeFile(path.join(root, ".agentify", "index.json"), JSON.stringify({
-    modules: [
+  await fs.writeFile(
+    path.join(root, ".agentify", "index.json"),
+    JSON.stringify(
       {
-        doc_path: "docs/modules/auth.md",
-        metadata_path: ".agentify/modules/auth.json"
+        modules: [
+          {
+            doc_path: "docs/modules/auth.md",
+            metadata_path: ".agentify/modules/auth.json",
+          },
+          {
+            doc_path: "src/payments/AGENTIFY.md",
+          },
+        ],
       },
-      {
-        doc_path: "src/payments/AGENTIFY.md"
-      }
-    ]
-  }, null, 2));
+      null,
+      2,
+    ),
+  );
   await fs.writeFile(path.join(root, "docs", "modules", "auth.md"), "# auth\n");
   await fs.writeFile(path.join(root, "docs", "modules", "dead.md"), "# dead\n");
   await fs.writeFile(path.join(root, "AGENTIFY.md"), "# repo\n");
@@ -64,12 +71,48 @@ test("runClean prunes orphaned Agentify artifacts and stale folders", async () =
   assert.ok(result.removed_paths.includes(".current_session/ghost_old"));
   assert.ok(result.removed_paths.includes(".agentify/session/broken"));
 
-  assert.equal(await fs.stat(path.join(root, "docs", "modules", "dead.md")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, "src", "dead", "AGENTIFY.md")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agentify", "modules", "dead.json")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agentify", "runs", "old.json")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".current_session", "ghost_old")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, ".agentify", "session", "broken")).then(() => true).catch(() => false), false);
+  assert.equal(
+    await fs
+      .stat(path.join(root, "docs", "modules", "dead.md"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, "src", "dead", "AGENTIFY.md"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, ".agentify", "modules", "dead.json"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, ".agentify", "runs", "old.json"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, ".current_session", "ghost_old"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, ".agentify", "session", "broken"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
 
   assert.equal(await fs.stat(path.join(root, "docs", "modules", "auth.md")).then(() => true), true);
   assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true), true);
@@ -87,22 +130,36 @@ test("runClean dry-run reports removals without deleting files", async () => {
   await fs.mkdir(path.join(root, ".agentify", "cache", "blobs", "aa"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "dead"), { recursive: true });
 
-  await fs.writeFile(path.join(root, ".agentify", "index.json"), JSON.stringify({
-    modules: []
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, ".agentify", "index.json"),
+    JSON.stringify(
+      {
+        modules: [],
+      },
+      null,
+      2,
+    ),
+  );
   await fs.writeFile(path.join(root, "docs", "modules", "dead.md"), "# dead\n");
   await fs.writeFile(path.join(root, "AGENTIFY.md"), "# repo\n");
   await fs.writeFile(path.join(root, "src", "dead", "AGENTIFY.md"), "# dead module\n");
   await fs.writeFile(path.join(root, ".agentify", "modules", "dead.json"), "{}\n");
   await fs.writeFile(path.join(root, ".agentify", "cache", "blobs", "aa", "aa.blob"), "blob\n");
-  await fs.writeFile(path.join(root, ".agentify", "cache", "manifest.json"), JSON.stringify({
-    modules: {
-      stale: {
-        blobs: ["aa"],
-        updated_at: new Date(Date.now() - (10 * 86400000)).toISOString()
-      }
-    }
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, ".agentify", "cache", "manifest.json"),
+    JSON.stringify(
+      {
+        modules: {
+          stale: {
+            blobs: ["aa"],
+            updated_at: new Date(Date.now() - 10 * 86400000).toISOString(),
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
 
   const config = await loadConfig(root, { provider: "local", dryRun: true });
   const result = await runClean(root, config);

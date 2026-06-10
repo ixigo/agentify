@@ -307,9 +307,13 @@ export async function syncConfigFile(root, config, { dryRun = false } = {}) {
     existed: Boolean(existing),
     changed,
     status: !existing
-      ? dryRun ? "would_create" : "created"
+      ? dryRun
+        ? "would_create"
+        : "created"
       : changed
-        ? dryRun ? "would_update" : "updated"
+        ? dryRun
+          ? "would_update"
+          : "updated"
         : "unchanged",
   };
 }

@@ -48,7 +48,7 @@ export function sanitizeManagerPlan(input, moduleIds) {
   const plan = {
     repo_summary: "",
     shared_conventions: [],
-    module_focus: []
+    module_focus: [],
   };
 
   if (input && typeof input.repo_summary === "string") {
@@ -68,7 +68,7 @@ export function sanitizeManagerPlan(input, moduleIds) {
       .slice(0, 100)
       .map((item) => ({
         module_id: item.module_id,
-        focus: clip(typeof item.focus === "string" ? item.focus.trim() : "", 320)
+        focus: clip(typeof item.focus === "string" ? item.focus.trim() : "", 320),
       }));
   }
 
@@ -84,11 +84,11 @@ export function sanitizeModuleResponse(input, moduleInfo, allowedKeyFiles) {
   const publicApi = sanitizePathList(input.public_api, moduleInfo.rootPath, 20, (item) => ({
     symbol: clip(ensureString(item?.symbol, "public_api.symbol"), 200),
     kind: ALLOWED_PUBLIC_API_KINDS.has(item?.kind) ? item.kind : "module",
-    path: ensureString(item?.path, "public_api.path")
+    path: ensureString(item?.path, "public_api.path"),
   }));
   const startHere = sanitizePathList(input.start_here, moduleInfo.rootPath, 5, (item) => ({
     path: ensureString(item?.path, "start_here.path"),
-    why: clip(ensureString(item?.why, "start_here.why"), 300)
+    why: clip(ensureString(item?.why, "start_here.why"), 300),
   }));
 
   const sideEffects = Array.isArray(input.side_effects)
@@ -108,17 +108,22 @@ export function sanitizeModuleResponse(input, moduleInfo, allowedKeyFiles) {
 
   const headerSummaries = Array.from(allowedKeyFiles).map((path) => ({
     path,
-    summary: headerMap.get(path) || summary
+    summary: headerMap.get(path) || summary,
   }));
 
   return {
     summary,
     public_api: publicApi,
-    start_here: startHere.length > 0 ? startHere : Array.from(allowedKeyFiles).slice(0, 3).map((path) => ({
-      path,
-      why: "High-signal file selected by Agentify key-file ranking."
-    })),
+    start_here:
+      startHere.length > 0
+        ? startHere
+        : Array.from(allowedKeyFiles)
+            .slice(0, 3)
+            .map((path) => ({
+              path,
+              why: "High-signal file selected by Agentify key-file ranking.",
+            })),
     side_effects: sideEffects.length > 0 ? sideEffects : ["none"],
-    header_summaries: headerSummaries
+    header_summaries: headerSummaries,
   };
 }

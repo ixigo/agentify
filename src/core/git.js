@@ -22,10 +22,7 @@ function toRootRelativePath(gitPath, rootPrefix) {
 
   if (!normalizedPath) return null;
   if (!normalizedPrefix) return normalizedPath;
-  if (
-    normalizedPath === normalizedPrefix ||
-    normalizedPath === `${normalizedPrefix}/`
-  ) {
+  if (normalizedPath === normalizedPrefix || normalizedPath === `${normalizedPrefix}/`) {
     return ".";
   }
 
@@ -47,10 +44,7 @@ function toGitRelativePath(filePath, rootPrefix) {
   if (!normalizedPrefix) {
     return normalizedPath;
   }
-  if (
-    normalizedPath === normalizedPrefix ||
-    normalizedPath.startsWith(`${normalizedPrefix}/`)
-  ) {
+  if (normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`)) {
     return normalizedPath;
   }
 
@@ -191,11 +185,7 @@ export async function getCurrentBranch(root) {
 
 export async function getChangedFiles(root) {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["status", "--porcelain=v1", "-z"],
-      { cwd: root }
-    );
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "-z"], { cwd: root });
     if (!stdout) return [];
 
     const context = await getGitContext(root);
@@ -215,18 +205,13 @@ export async function getChangedFiles(root) {
         i += 1;
 
         const sourcePath = toRootRelativePath(sourceGitPath, context.rootPrefix);
-        const destinationPath = toRootRelativePath(
-          destinationGitPath,
-          context.rootPrefix
-        );
+        const destinationPath = toRootRelativePath(destinationGitPath, context.rootPrefix);
         if (!sourcePath && !destinationPath) {
           continue;
         }
 
         const selectedPath = destinationPath ?? sourcePath;
-        const selectedGitPath = destinationPath
-          ? destinationGitPath
-          : sourceGitPath;
+        const selectedGitPath = destinationPath ? destinationGitPath : sourceGitPath;
 
         entries.push({
           status: statusCode.trim(),
@@ -258,11 +243,7 @@ export async function getChangedFiles(root) {
 
 export async function getChangedFilesSince(root, sinceCommit) {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["diff", "--name-status", "-z", sinceCommit, "HEAD"],
-      { cwd: root }
-    );
+    const { stdout } = await execFileAsync("git", ["diff", "--name-status", "-z", sinceCommit, "HEAD"], { cwd: root });
     if (!stdout) return [];
 
     const context = await getGitContext(root);
@@ -286,18 +267,13 @@ export async function getChangedFilesSince(root, sinceCommit) {
         i += 1;
 
         const sourcePath = toRootRelativePath(sourceGitPath, context.rootPrefix);
-        const destinationPath = toRootRelativePath(
-          destinationGitPath,
-          context.rootPrefix
-        );
+        const destinationPath = toRootRelativePath(destinationGitPath, context.rootPrefix);
         if (!sourcePath && !destinationPath) {
           continue;
         }
 
         const selectedPath = destinationPath ?? sourcePath;
-        const selectedGitPath = destinationPath
-          ? destinationGitPath
-          : sourceGitPath;
+        const selectedGitPath = destinationPath ? destinationGitPath : sourceGitPath;
 
         entries.push({
           status: statusCode,
@@ -354,7 +330,10 @@ export async function getFileContentsAtHead(root, filePaths) {
       requests.push({ filePath, spec: `HEAD:${gitPath}` });
     }
 
-    const contents = await runCatFileBatch(root, requests.map((request) => request.spec));
+    const contents = await runCatFileBatch(
+      root,
+      requests.map((request) => request.spec),
+    );
     for (let i = 0; i < requests.length; i += 1) {
       result.set(requests[i].filePath, contents[i] ?? null);
     }

@@ -43,9 +43,7 @@ function createExecMock({ repoRoot, initialBinaries = [], auth = {}, gitReady = 
       const [cmd, ...args] = argv;
 
       if (cmd === "git") {
-        return gitReady
-          ? ok(`${repoRoot}\n`)
-          : fail("fatal: not a git repository");
+        return gitReady ? ok(`${repoRoot}\n`) : fail("fatal: not a git repository");
       }
 
       if (cmd === "brew" && args[0] === "--version") {
@@ -168,7 +166,7 @@ test("runBootstrapCommand blocks when Homebrew is missing", async () => {
         progressEnabled: false,
         cwd: root,
       },
-    )
+    ),
   );
 
   assert.equal(result.status, "blocked");
@@ -195,7 +193,7 @@ test("runBootstrapCommand blocks when target is not inside a git repository", as
         progressEnabled: false,
         cwd: root,
       },
-    )
+    ),
   );
 
   assert.equal(result.status, "blocked");
@@ -222,7 +220,7 @@ test("runBootstrapCommand bootstraps a repo and persists provider", async () => 
         progressEnabled: false,
         cwd: root,
       },
-    )
+    ),
   );
 
   const config = await loadConfig(root);
@@ -264,7 +262,7 @@ test("runBootstrapCommand bootstraps the exact requested root inside a larger gi
         progressEnabled: false,
         cwd: targetRoot,
       },
-    )
+    ),
   );
 
   const config = await loadConfig(targetRoot);
@@ -296,7 +294,7 @@ test("runBootstrapCommand reports login required when auth cannot be verified", 
         env: {},
         homeDir: root,
       },
-    )
+    ),
   );
 
   assert.equal(result.status, "login_required");

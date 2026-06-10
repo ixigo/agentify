@@ -23,7 +23,9 @@ function bytes(value) {
 }
 
 function cleanInline(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function truncateBytes(value, maxBytes) {
@@ -45,16 +47,20 @@ function truncateBytes(value, maxBytes) {
 }
 
 function normalizeToken(value) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9_./-]+/g, "");
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_./-]+/g, "");
 }
 
 function tokenizeTask(task) {
-  return Array.from(new Set(
-    String(task || "")
-      .split(/\s+/)
-      .map(normalizeToken)
-      .filter((token) => token.length >= 2)
-  ));
+  return Array.from(
+    new Set(
+      String(task || "")
+        .split(/\s+/)
+        .map(normalizeToken)
+        .filter((token) => token.length >= 2),
+    ),
+  );
 }
 
 function createPlannerBudget(config) {
@@ -77,7 +83,8 @@ function createExecutionBudget(config) {
   const planner = config?.planner || {};
   const maxAdditionalReadsBeforeEdit = planner.maxAdditionalReadsBeforeEdit ?? planner.max_additional_reads_before_edit;
   const maxWidenings = planner.maxWidenings ?? planner.max_widenings;
-  const editAfterSelectedContextUnlessBlocked = planner.editAfterSelectedContextUnlessBlocked ?? planner.edit_after_selected_context_unless_blocked;
+  const editAfterSelectedContextUnlessBlocked =
+    planner.editAfterSelectedContextUnlessBlocked ?? planner.edit_after_selected_context_unless_blocked;
   return normalizeExecutionBudget({
     max_additional_reads_before_edit: maxAdditionalReadsBeforeEdit,
     max_widenings: maxWidenings,
@@ -244,7 +251,7 @@ function scoreFile(fileInfo, taskText, tokens, changedPaths, symbolMatchesByFile
     });
   }
 
-  const moduleScore = fileInfo.module_id ? (moduleScoreById.get(fileInfo.module_id) || 0) : 0;
+  const moduleScore = fileInfo.module_id ? moduleScoreById.get(fileInfo.module_id) || 0 : 0;
   if (moduleScore > 0) {
     const moduleBoost = Math.max(8, Math.min(30, Math.round(moduleScore / 6)));
     score += moduleBoost;
@@ -261,10 +268,9 @@ function scoreFile(fileInfo, taskText, tokens, changedPaths, symbolMatchesByFile
 function scoreSymbol(symbolInfo, taskText, tokens) {
   let score = 0;
   const reasons = [];
-  const terms = Array.from(new Set([
-    normalizeToken(symbolInfo.name),
-    normalizeToken(symbolInfo.alias || ""),
-  ].filter(Boolean)));
+  const terms = Array.from(
+    new Set([normalizeToken(symbolInfo.name), normalizeToken(symbolInfo.alias || "")].filter(Boolean)),
+  );
   const semanticSymbol = symbolInfo.source && symbolInfo.source !== "structural";
   const matchComponent = semanticSymbol ? "semantic_contribution" : "lexical_token_match";
   const codePrefix = semanticSymbol ? "semantic.symbol" : "lexical.symbol";
@@ -290,7 +296,10 @@ function scoreSymbol(symbolInfo, taskText, tokens) {
       }
     }
   }
-  if (taskText.includes(String(symbolInfo.name || "").toLowerCase()) || taskText.includes(String(symbolInfo.alias || "").toLowerCase())) {
+  if (
+    taskText.includes(String(symbolInfo.name || "").toLowerCase()) ||
+    taskText.includes(String(symbolInfo.alias || "").toLowerCase())
+  ) {
     score += 90;
     pushReason(reasons, `task mentions symbol ${symbolInfo.name}`, 90, {
       code: `${codePrefix}.mentioned`,
@@ -422,11 +431,13 @@ function normalizeCommandType(commandType) {
 
 function commandStage(commandInfo) {
   const commandType = normalizeCommandType(commandInfo.command_type);
-  return COMMAND_TYPE_STAGES[commandType] || {
-    rank: 99,
-    label: commandType,
-    guidance: "additional verification check",
-  };
+  return (
+    COMMAND_TYPE_STAGES[commandType] || {
+      rank: 99,
+      label: commandType,
+      guidance: "additional verification check",
+    }
+  );
 }
 
 function compareVerificationCommands(left, right) {
@@ -434,10 +445,12 @@ function compareVerificationCommands(left, right) {
   const rightStage = commandStage(right);
   const leftArgs = Array.isArray(left.args) ? left.args : [];
   const rightArgs = Array.isArray(right.args) ? right.args : [];
-  return leftStage.rank - rightStage.rank
-    || String(left.module_id || "").localeCompare(String(right.module_id || ""))
-    || left.command.localeCompare(right.command)
-    || leftArgs.join(" ").localeCompare(rightArgs.join(" "));
+  return (
+    leftStage.rank - rightStage.rank ||
+    String(left.module_id || "").localeCompare(String(right.module_id || "")) ||
+    left.command.localeCompare(right.command) ||
+    leftArgs.join(" ").localeCompare(rightArgs.join(" "))
+  );
 }
 
 function commandIdentity(commandInfo) {
@@ -486,8 +499,11 @@ function limitVerificationCommands(commands, limit) {
   for (const moduleCommands of groupedByModule.values()) {
     const uncoveredTypeCommand = moduleCommands.find((commandInfo) => {
       const commandType = normalizeCommandType(commandInfo.command_type);
-      return !selected.some((selectedInfo) => normalizeCommandType(selectedInfo.command_type) === commandType
-        && String(selectedInfo.module_id || "") === String(commandInfo.module_id || ""));
+      return !selected.some(
+        (selectedInfo) =>
+          normalizeCommandType(selectedInfo.command_type) === commandType &&
+          String(selectedInfo.module_id || "") === String(commandInfo.module_id || ""),
+      );
     });
     pushCommand(uncoveredTypeCommand || moduleCommands[0]);
   }
@@ -516,9 +532,7 @@ function formatLimitedList(values, limit) {
   }
 
   const visible = safeValues.slice(0, limit);
-  const suffix = safeValues.length > visible.length
-    ? ` (+${safeValues.length - visible.length} more)`
-    : "";
+  const suffix = safeValues.length > visible.length ? ` (+${safeValues.length - visible.length} more)` : "";
   return `${visible.join(", ")}${suffix}`;
 }
 
@@ -531,9 +545,7 @@ function formatTopReasons(reasons, limit) {
     .filter((reasonInfo) => reasonInfo.reason)
     .sort((left, right) => right.points - left.points || left.reason.localeCompare(right.reason))
     .slice(0, limit)
-    .map((reasonInfo) => reasonInfo.points > 0
-      ? `${reasonInfo.reason} (+${reasonInfo.points})`
-      : reasonInfo.reason);
+    .map((reasonInfo) => (reasonInfo.points > 0 ? `${reasonInfo.reason} (+${reasonInfo.points})` : reasonInfo.reason));
 
   return ranked.length > 0 ? ranked.join("; ") : "none";
 }
@@ -544,16 +556,18 @@ function renderModuleContext(modules) {
     return "- none";
   }
 
-  return safeModules.map((item) => {
-    const line = [
-      `- ${item.id} (${item.root_path})`,
-      `score=${item.score}`,
-      `reasons: ${formatTopReasons(item.reasons, 3)}`,
-      `depends_on: ${formatLimitedList(item.depends_on || [], 5)}`,
-      `used_by: ${formatLimitedList(item.used_by || [], 5)}`,
-    ].join("; ");
-    return truncateBytes(line, 420);
-  }).join("\n");
+  return safeModules
+    .map((item) => {
+      const line = [
+        `- ${item.id} (${item.root_path})`,
+        `score=${item.score}`,
+        `reasons: ${formatTopReasons(item.reasons, 3)}`,
+        `depends_on: ${formatLimitedList(item.depends_on || [], 5)}`,
+        `used_by: ${formatLimitedList(item.used_by || [], 5)}`,
+      ].join("; ");
+      return truncateBytes(line, 420);
+    })
+    .join("\n");
 }
 
 function renderChangedFiles(changedFiles) {
@@ -573,9 +587,7 @@ function renderChangedFiles(changedFiles) {
     const status = cleanInline(item.status || "changed");
     const filePath = cleanInline(item.path);
     const origPath = cleanInline(item.origPath);
-    const renameInfo = origPath && origPath !== filePath
-      ? ` (from ${origPath})`
-      : "";
+    const renameInfo = origPath && origPath !== filePath ? ` (from ${origPath})` : "";
     return truncateBytes(`- ${status} ${filePath}${renameInfo}`, 220);
   });
 
@@ -592,20 +604,21 @@ function renderSelectedFileRoutes(files) {
     return "- none";
   }
 
-  return safeFiles.map((item) => {
-    const reasons = Array.isArray(item.reasons)
-      ? item.reasons.map((reason) => cleanInline(reason?.reason || reason)).filter(Boolean)
-      : [];
-    const reasonText = reasons.length > 0 ? `; reasons: ${formatLimitedList(reasons, 3)}` : "";
-    return truncateBytes(`- ${cleanInline(item.path)}${reasonText}`, 320);
-  }).join("\n");
+  return safeFiles
+    .map((item) => {
+      const reasons = Array.isArray(item.reasons)
+        ? item.reasons.map((reason) => cleanInline(reason?.reason || reason)).filter(Boolean)
+        : [];
+      const reasonText = reasons.length > 0 ? `; reasons: ${formatLimitedList(reasons, 3)}` : "";
+      return truncateBytes(`- ${cleanInline(item.path)}${reasonText}`, 320);
+    })
+    .join("\n");
 }
 
 export function renderExecutionPrompt(plan, options = {}) {
   const contextMode = toPlannerContextMode(options.contextMode || plan.context?.mode, { fallback: "selected" });
-  const includeSource = options.includeSource !== undefined
-    ? options.includeSource !== false
-    : plan.context?.source_included !== false;
+  const includeSource =
+    options.includeSource !== undefined ? options.includeSource !== false : plan.context?.source_included !== false;
   const routedWithoutSource = contextMode === "routed" && !includeSource;
   const executionBudget = normalizeExecutionBudget(plan.execution_budget);
   const editStartRule = executionBudget.edit_after_selected_context_unless_blocked
@@ -613,19 +626,30 @@ export function renderExecutionPrompt(plan, options = {}) {
     : "Use judgment on when to start editing, while still respecting the discovery limits below.";
   const moduleLines = renderModuleContext(plan.selected_modules);
   const changedFileLines = renderChangedFiles(plan.changed_files);
-  const symbolLines = plan.selected_symbols.length > 0
-    ? plan.selected_symbols.map((item) => `- ${item.name} (${item.kind}) in ${item.file_path}`).join("\n")
-    : "- none";
-  const fileBlocks = plan.selected_files.length > 0
-    ? plan.selected_files.map((item) => `FILE: ${item.path}\nREASONS: ${item.reasons.map((reason) => reason.reason).join("; ")}\n\`\`\`\n${item.excerpt}\n\`\`\``).join("\n\n")
-    : "No source files selected.";
+  const symbolLines =
+    plan.selected_symbols.length > 0
+      ? plan.selected_symbols.map((item) => `- ${item.name} (${item.kind}) in ${item.file_path}`).join("\n")
+      : "- none";
+  const fileBlocks =
+    plan.selected_files.length > 0
+      ? plan.selected_files
+          .map(
+            (item) =>
+              `FILE: ${item.path}\nREASONS: ${item.reasons.map((reason) => reason.reason).join("; ")}\n\`\`\`\n${item.excerpt}\n\`\`\``,
+          )
+          .join("\n\n")
+      : "No source files selected.";
   const routedFileRoutes = renderSelectedFileRoutes(plan.selected_files);
-  const testLines = plan.related_tests.length > 0
-    ? plan.related_tests.map((item) => `- ${item.file_path}${item.related_path ? ` (targets ${item.related_path})` : ""}`).join("\n")
-    : "- none";
-  const commandLines = plan.verification_commands.length > 0
-    ? [...plan.verification_commands].sort(compareVerificationCommands).map(formatVerificationCommand).join("\n")
-    : "- none";
+  const testLines =
+    plan.related_tests.length > 0
+      ? plan.related_tests
+          .map((item) => `- ${item.file_path}${item.related_path ? ` (targets ${item.related_path})` : ""}`)
+          .join("\n")
+      : "- none";
+  const commandLines =
+    plan.verification_commands.length > 0
+      ? [...plan.verification_commands].sort(compareVerificationCommands).map(formatVerificationCommand).join("\n")
+      : "- none";
   const contextRule = routedWithoutSource
     ? "Routed context is active: do not inject or request full source upfront. Use only bounded retrieval commands: `agentify context search ...` and `agentify context fetch <path> --symbol <name>` or `--lines A:B`."
     : "Use the selected file slices below before running new discovery commands.";
@@ -694,9 +718,7 @@ function legacyReason(reason) {
 function stripExplainReasonMetadata(item) {
   return {
     ...item,
-    reasons: item.reasons
-      .filter((reason) => reason.legacy !== false)
-      .map(legacyReason),
+    reasons: item.reasons.filter((reason) => reason.legacy !== false).map(legacyReason),
   };
 }
 
@@ -747,13 +769,10 @@ function preparePlanForOutput(plan, { explain = false, contextMode = "selected",
   const context = {
     mode: toPlannerContextMode(contextMode, { fallback: "selected" }),
     source_included: includeSource !== false,
-    source_policy: includeSource !== false
-      ? "selected_file_slices_included"
-      : "routed_bounded_retrieval_only",
+    source_policy: includeSource !== false ? "selected_file_slices_included" : "routed_bounded_retrieval_only",
   };
-  const selectedFiles = includeSource !== false
-    ? plan.selected_files
-    : plan.selected_files.map(stripSelectedFileSource);
+  const selectedFiles =
+    includeSource !== false ? plan.selected_files : plan.selected_files.map(stripSelectedFileSource);
 
   if (explain) {
     return {
@@ -787,21 +806,20 @@ function formatSignedPoints(points) {
 }
 
 function renderScoreComponents(scoreBreakdown) {
-  return PLAN_EXPLAIN_COMPONENTS
-    .map((component) => `${PLAN_EXPLAIN_COMPONENT_LABELS[component]}=${scoreBreakdown.components[component]}`)
-    .join(", ");
+  return PLAN_EXPLAIN_COMPONENTS.map(
+    (component) => `${PLAN_EXPLAIN_COMPONENT_LABELS[component]}=${scoreBreakdown.components[component]}`,
+  ).join(", ");
 }
 
 function renderExplanationItem(label, title, item) {
-  const lines = [
-    `- ${label}: ${title}`,
-    `  score: ${item.score}; ${renderScoreComponents(item.score_breakdown)}`,
-  ];
+  const lines = [`- ${label}: ${title}`, `  score: ${item.score}; ${renderScoreComponents(item.score_breakdown)}`];
   if (item.score_breakdown.unexplained !== 0) {
     lines.push(`  unexplained: ${item.score_breakdown.unexplained}`);
   }
   for (const reason of item.reasons) {
-    lines.push(`  ${formatSignedPoints(reason.points)} ${reason.code} (${PLAN_EXPLAIN_COMPONENT_LABELS[reason.component]}): ${reason.reason}`);
+    lines.push(
+      `  ${formatSignedPoints(reason.points)} ${reason.code} (${PLAN_EXPLAIN_COMPONENT_LABELS[reason.component]}): ${reason.reason}`,
+    );
   }
   return lines.join("\n");
 }
@@ -853,9 +871,10 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
   const tokens = tokenizeTask(taskText);
   const changedFiles = await getChangedFiles(root);
   const changedPaths = new Set(changedFiles.map((item) => item.path));
-  const agentifyPaths = options.artifactPaths
-    || (options.artifactRoot ? await resolveAgentifyPaths(options.artifactRoot, config) : config._agentifyPaths)
-    || await resolveAgentifyPaths(root, config);
+  const agentifyPaths =
+    options.artifactPaths ||
+    (options.artifactRoot ? await resolveAgentifyPaths(options.artifactRoot, config) : config._agentifyPaths) ||
+    (await resolveAgentifyPaths(root, config));
   const db = openIndexDatabase(agentifyPaths, { readOnly: true });
 
   try {
@@ -990,7 +1009,12 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
         break;
       }
       try {
-        const excerpt = await readFileExcerpt(root, fileInfo.path, relatedSymbols, Math.min(remainingBudget, config?.budgets?.perFile || 8000));
+        const excerpt = await readFileExcerpt(
+          root,
+          fileInfo.path,
+          relatedSymbols,
+          Math.min(remainingBudget, config?.budgets?.perFile || 8000),
+        );
         if (!excerpt) {
           continue;
         }
@@ -1017,9 +1041,10 @@ export async function buildExecutionPlan(root, config, task, options = {}) {
       })
       .slice(0, budgets.maxTests);
 
-    const verificationCommands = limitVerificationCommands(dedupeCommands(
-      commands.filter((commandInfo) => !commandInfo.module_id || moduleIds.has(commandInfo.module_id))
-    ), 6);
+    const verificationCommands = limitVerificationCommands(
+      dedupeCommands(commands.filter((commandInfo) => !commandInfo.module_id || moduleIds.has(commandInfo.module_id))),
+      6,
+    );
 
     const selectedSymbols = symbolScores.filter((symbolInfo) => selectedFilePaths.has(symbolInfo.file_path));
     const confidence = computeConfidence(moduleScores, selectedFiles, selectedSymbols);

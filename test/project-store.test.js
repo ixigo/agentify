@@ -77,11 +77,7 @@ test("resolveAgentifyPaths uses shared store when configured", async () => {
   await initGitRepo(root);
 
   const sharedBase = path.join(parent, "shared");
-  const paths = await resolveAgentifyPaths(
-    root,
-    { runtime: { store: "shared", sharedStorePath: sharedBase } },
-    {},
-  );
+  const paths = await resolveAgentifyPaths(root, { runtime: { store: "shared", sharedStorePath: sharedBase } }, {});
   assert.equal(paths.mode, "shared");
   assert.equal(paths.linked, false);
   assert.ok(paths.repoKey, "repo key should be populated in shared mode");
@@ -232,10 +228,7 @@ test("link --status reports link mode and presence", async () => {
 
 test("link --auto outside a git repo throws a clear error", async () => {
   const root = await mkTempDir("agentify-link-nogit-");
-  await assert.rejects(
-    () => linkProject(root, { auto: true, config: {}, env: {} }),
-    /not inside a Git repository/i,
-  );
+  await assert.rejects(() => linkProject(root, { auto: true, config: {}, env: {} }), /not inside a Git repository/i);
 });
 
 test("describe helpers expose stable artifact categories", () => {

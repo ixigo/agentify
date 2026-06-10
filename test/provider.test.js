@@ -7,39 +7,43 @@ import path from "node:path";
 import { createProvider, parseCodexJsonl, ProviderExecutionError, runChild } from "../src/core/provider.js";
 
 test("parseCodexJsonl extracts token usage from turn.completed", () => {
-  const usage = parseCodexJsonl([
-    '{"type":"thread.started","thread_id":"abc"}',
-    '{"type":"turn.started"}',
-    '{"type":"item.completed","item":{"id":"1","type":"agent_message","text":"{\\"ok\\":true}"}}',
-    '{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":30,"output_tokens":45}}'
-  ].join("\n"));
+  const usage = parseCodexJsonl(
+    [
+      '{"type":"thread.started","thread_id":"abc"}',
+      '{"type":"turn.started"}',
+      '{"type":"item.completed","item":{"id":"1","type":"agent_message","text":"{\\"ok\\":true}"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":30,"output_tokens":45}}',
+    ].join("\n"),
+  );
 
   assert.deepEqual(usage, {
     input_tokens: 120,
     output_tokens: 45,
-    total_tokens: 165
+    total_tokens: 165,
   });
 });
 
 test("runChild times out stalled provider subprocesses", async () => {
   await assert.rejects(
-    () => runChild("node", ["-e", "setInterval(() => {}, 1000);"], {
-      timeoutMs: 50,
-    }),
+    () =>
+      runChild("node", ["-e", "setInterval(() => {}, 1000);"], {
+        timeoutMs: 50,
+      }),
     /timed out after 50ms/,
   );
 });
 
 test("runChild closes provider stdin when prompt is passed through argv", async () => {
-  const result = await runChild("node", [
-    "-e",
+  const result = await runChild(
+    "node",
     [
-      "process.stdin.resume();",
-      "process.stdin.on('end', () => process.stdout.write('stdin closed'));",
-    ].join(""),
-  ], {
-    timeoutMs: 1000,
-  });
+      "-e",
+      ["process.stdin.resume();", "process.stdin.on('end', () => process.stdout.write('stdin closed'));"].join(""),
+    ],
+    {
+      timeoutMs: 1000,
+    },
+  );
 
   assert.equal(result.stdout, "stdin closed");
 });
@@ -52,24 +56,28 @@ test("runChild sanitizes provider subprocess env by default", async () => {
   process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
 
   try {
-    const result = await runChild(process.execPath, [
-      "-e",
+    const result = await runChild(
+      process.execPath,
       [
-        "process.stdout.write(JSON.stringify({",
-        "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
-        "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
-        "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
-        "}));",
-      ].join(""),
-    ], {
-      providerEnv: {
-        passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
-        extra: {
-          AGENTIFY_PROVIDER_EXTRA: "extra-value",
+        "-e",
+        [
+          "process.stdout.write(JSON.stringify({",
+          "secret: process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET || null,",
+          "allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,",
+          "extra: process.env.AGENTIFY_PROVIDER_EXTRA || null",
+          "}));",
+        ].join(""),
+      ],
+      {
+        providerEnv: {
+          passthrough: ["AGENTIFY_PROVIDER_ALLOWED"],
+          extra: {
+            AGENTIFY_PROVIDER_EXTRA: "extra-value",
+          },
         },
+        timeoutMs: 1000,
       },
-      timeoutMs: 1000,
-    });
+    );
 
     assert.deepEqual(JSON.parse(result.stdout), {
       secret: null,
@@ -106,21 +114,25 @@ test("runChild preserves standard proxy env by default", async () => {
   process.env.no_proxy = "example.test";
 
   try {
-    const result = await runChild(process.execPath, [
-      "-e",
+    const result = await runChild(
+      process.execPath,
       [
-        "process.stdout.write(JSON.stringify({",
-        "HTTP_PROXY: process.env.HTTP_PROXY || null,",
-        "HTTPS_PROXY: process.env.HTTPS_PROXY || null,",
-        "NO_PROXY: process.env.NO_PROXY || null,",
-        "http_proxy: process.env.http_proxy || null,",
-        "https_proxy: process.env.https_proxy || null,",
-        "no_proxy: process.env.no_proxy || null",
-        "}));",
-      ].join(""),
-    ], {
-      timeoutMs: 1000,
-    });
+        "-e",
+        [
+          "process.stdout.write(JSON.stringify({",
+          "HTTP_PROXY: process.env.HTTP_PROXY || null,",
+          "HTTPS_PROXY: process.env.HTTPS_PROXY || null,",
+          "NO_PROXY: process.env.NO_PROXY || null,",
+          "http_proxy: process.env.http_proxy || null,",
+          "https_proxy: process.env.https_proxy || null,",
+          "no_proxy: process.env.no_proxy || null",
+          "}));",
+        ].join(""),
+      ],
+      {
+        timeoutMs: 1000,
+      },
+    );
 
     assert.deepEqual(JSON.parse(result.stdout), {
       HTTP_PROXY: "http://proxy.local:8080",
@@ -169,7 +181,9 @@ test("codex provider removes its temp directory after successful execution", asy
   const codexPath = path.join(binDir, "codex");
   const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
 
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -184,7 +198,9 @@ process.stdout.write(JSON.stringify({
   type: "turn.completed",
   usage: { input_tokens: 4, output_tokens: 2 }
 }) + "\\n");
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -206,7 +222,7 @@ process.stdout.write(JSON.stringify({
     assert.deepEqual(result.tokenUsage, {
       input_tokens: 4,
       output_tokens: 2,
-      total_tokens: 6
+      total_tokens: 6,
     });
     const tempDir = await fs.readFile(tempDirRecordPath, "utf8");
     assert.match(tempDir, /agentify-codex-/);
@@ -223,7 +239,9 @@ test("codex provider still succeeds when temp cleanup fails after successful exe
   const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
   let tempDir = null;
 
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -234,7 +252,9 @@ fs.writeFileSync(outputPath, JSON.stringify({
   shared_conventions: [],
   module_focus: [{ module_id: "auth", focus: "Keep auth simple." }]
 }));
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -276,7 +296,9 @@ test("codex provider removes its temp directory after failed execution", async (
   const codexPath = path.join(binDir, "codex");
   const tempDirRecordPath = path.join(root, "codex-temp-dir.txt");
 
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -284,7 +306,9 @@ const outputPath = process.argv[process.argv.indexOf("--output-last-message") + 
 fs.writeFileSync(path.join(process.cwd(), "codex-temp-dir.txt"), path.dirname(outputPath));
 process.stderr.write("codex fixture failed");
 process.exit(7);
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -293,15 +317,16 @@ process.exit(7);
   try {
     const provider = createProvider("codex");
     await assert.rejects(
-      () => provider.buildManagerPlan({
-        repoName: "agentify-fixture",
-        root,
-        defaultStack: "ts",
-        stacks: [{ name: "ts", confidence: 1 }],
-        entrypoints: [],
-        modules: [{ id: "auth", rootPath: "src/auth" }],
-        sampleFiles: [],
-      }),
+      () =>
+        provider.buildManagerPlan({
+          repoName: "agentify-fixture",
+          root,
+          defaultStack: "ts",
+          stacks: [{ name: "ts", confidence: 1 }],
+          entrypoints: [],
+          modules: [{ id: "auth", rootPath: "src/auth" }],
+          sampleFiles: [],
+        }),
       (error) => {
         assert.equal(error instanceof ProviderExecutionError, true);
         assert.equal(error.provider, "codex");
@@ -327,15 +352,16 @@ test("external provider manager planning surfaces unavailable provider failures"
 
   try {
     await assert.rejects(
-      () => provider.buildManagerPlan({
-        repoName: "agentify-fixture",
-        root: process.cwd(),
-        defaultStack: "ts",
-        stacks: [{ name: "ts", confidence: 1 }],
-        entrypoints: [],
-        modules: [{ id: "auth", rootPath: "src/auth" }],
-        sampleFiles: [],
-      }),
+      () =>
+        provider.buildManagerPlan({
+          repoName: "agentify-fixture",
+          root: process.cwd(),
+          defaultStack: "ts",
+          stacks: [{ name: "ts", confidence: 1 }],
+          entrypoints: [],
+          modules: [{ id: "auth", rootPath: "src/auth" }],
+          sampleFiles: [],
+        }),
       (error) => {
         assert.equal(error instanceof ProviderExecutionError, true);
         assert.equal(error.code, "AGENTIFY_PROVIDER_EXECUTION_FAILED");
@@ -362,25 +388,26 @@ test("external provider module generation surfaces unavailable provider failures
 
   try {
     await assert.rejects(
-      () => provider.generateModuleArtifacts(
-        { id: "auth", name: "auth", rootPath: "src/auth", stack: "ts", slug: "auth" },
-        {
-          root: process.cwd(),
-          files: [{ path: "src/auth/index.ts", content: "export const login = () => true;" }],
-          semantic: null,
-          keyFiles: ["src/auth/index.ts"],
-          dependsOn: [],
-          usedBy: [],
-          now: "2026-04-06T00:00:00.000Z",
-          headCommit: "deadbeef",
-          managerPlan: {
-            repo_summary: "",
-            shared_conventions: [],
-            module_focus: []
+      () =>
+        provider.generateModuleArtifacts(
+          { id: "auth", name: "auth", rootPath: "src/auth", stack: "ts", slug: "auth" },
+          {
+            root: process.cwd(),
+            files: [{ path: "src/auth/index.ts", content: "export const login = () => true;" }],
+            semantic: null,
+            keyFiles: ["src/auth/index.ts"],
+            dependsOn: [],
+            usedBy: [],
+            now: "2026-04-06T00:00:00.000Z",
+            headCommit: "deadbeef",
+            managerPlan: {
+              repo_summary: "",
+              shared_conventions: [],
+              module_focus: [],
+            },
+            managerFocus: "",
           },
-          managerFocus: ""
-        },
-      ),
+        ),
       (error) => {
         assert.equal(error instanceof ProviderExecutionError, true);
         assert.equal(error.code, "AGENTIFY_PROVIDER_EXECUTION_FAILED");
@@ -409,7 +436,9 @@ test("gemini provider execution preserves the readiness credential home", async 
 
   await fs.mkdir(loginHome, { recursive: true });
   await fs.mkdir(shellHome, { recursive: true });
-  await fs.writeFile(geminiPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    geminiPath,
+    `#!/usr/bin/env node
 const payload = {
   response: JSON.stringify({
     repo_summary: \`HOME=\${process.env.HOME};GEMINI_CLI_HOME=\${process.env.GEMINI_CLI_HOME || ""}\`,
@@ -425,7 +454,9 @@ const payload = {
   }
 };
 process.stdout.write(JSON.stringify(payload));
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(geminiPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -452,7 +483,7 @@ process.stdout.write(JSON.stringify(payload));
     assert.deepEqual(result.tokenUsage, {
       input_tokens: 4,
       output_tokens: 2,
-      total_tokens: 6
+      total_tokens: 6,
     });
   } finally {
     if (previousPath === undefined) {

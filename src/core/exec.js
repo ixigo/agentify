@@ -7,7 +7,12 @@ import { runScan, runDoc } from "./commands.js";
 import { buildGenericWrappedCommandEnv, buildProviderEnv } from "./provider-env.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
-import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
+import {
+  finalizeSessionMemoryRun,
+  normalizeInteractiveCapture,
+  prepareSessionMemoryRun,
+  redactSensitiveText,
+} from "./session-memory.js";
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import * as ui from "./ui.js";
 
@@ -51,11 +56,7 @@ function getSnapshotKey(file) {
 }
 
 function getTrackedDirtyPaths(files) {
-  return [...new Set(
-    files
-      .filter((file) => file?.path && file.status !== "??")
-      .map((file) => file.path)
-  )];
+  return [...new Set(files.filter((file) => file?.path && file.status !== "??").map((file) => file.path))];
 }
 
 async function hashFile(root, filePath) {
@@ -86,7 +87,7 @@ async function captureDirtyFileDigests(root, files) {
   }
 
   const digestEntries = await Promise.all(
-    filePaths.map(async (filePath) => [filePath, await hashFile(root, filePath)])
+    filePaths.map(async (filePath) => [filePath, await hashFile(root, filePath)]),
   );
   return new Map(digestEntries);
 }
@@ -194,9 +195,7 @@ function summarizeProviderCommand(argv) {
     executable,
     argc,
     argv_redacted: true,
-    display: executable
-      ? `${executable} [argv redacted; argc=${argc}]`
-      : `[argv redacted; argc=${argc}]`,
+    display: executable ? `${executable} [argv redacted; argc=${argc}]` : `[argv redacted; argc=${argc}]`,
   };
 }
 
@@ -271,7 +270,8 @@ function buildExecutionTelemetry({
   flags,
 }) {
   const changedFiles = summarizeChangedFiles(agentChanges || []);
-  const captureMode = commandResult?.captureMode || flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
+  const captureMode =
+    commandResult?.captureMode || flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
   const transcript = commandResult?.interactiveTranscript || result.interactiveTranscript || "";
   const rawLogPath = commandResult?.rawInteractiveLogPath || result.rawInteractiveLogPath || null;
 
@@ -312,14 +312,14 @@ function buildExecutionTelemetry({
 function runWrappedCommand(argv, options) {
   return new Promise((resolve, reject) => {
     const captureMode = options.captureOutputMode || "inherit";
-    const command = captureMode === "pty"
-      ? buildScriptCommand(argv, options.capturePath)
-      : { cmd: argv[0], args: argv.slice(1) };
-    const stdio = captureMode === "pipe"
-      ? ["inherit", "pipe", "pipe"]
-      : captureMode === "pty" && !process.stdin.isTTY
-        ? ["ignore", "inherit", "inherit"]
-        : "inherit";
+    const command =
+      captureMode === "pty" ? buildScriptCommand(argv, options.capturePath) : { cmd: argv[0], args: argv.slice(1) };
+    const stdio =
+      captureMode === "pipe"
+        ? ["inherit", "pipe", "pipe"]
+        : captureMode === "pty" && !process.stdin.isTTY
+          ? ["ignore", "inherit", "inherit"]
+          : "inherit";
     const stdoutCapture = createBoundedCaptureBuffer(options.captureBufferMaxBytes || 0);
     const stderrCapture = createBoundedCaptureBuffer(options.captureBufferMaxBytes || 0);
     const child = spawn(command.cmd, command.args, {
@@ -402,9 +402,10 @@ export async function runExec(root, config, agentCommand, flags) {
   const commandLabel = flags.providerEnvMode === "generic" ? "wrapped command" : "provider command";
   progress.log(`${commandName}: starting ${commandLabel}`);
   const captureOutputMode = flags.captureOutputMode || (flags.captureOutput ? "pipe" : "inherit");
-  const commandEnv = flags.providerEnvMode === "generic"
-    ? buildGenericWrappedCommandEnv(config.providerEnv)
-    : buildProviderEnv(config.providerEnv);
+  const commandEnv =
+    flags.providerEnvMode === "generic"
+      ? buildGenericWrappedCommandEnv(config.providerEnv)
+      : buildProviderEnv(config.providerEnv);
 
   const preHeadCommit = await getHeadCommit(root);
   const preFiles = await getChangedFiles(root);
@@ -440,11 +441,17 @@ export async function runExec(root, config, agentCommand, flags) {
       });
     } else {
       if (preparedSessionMemory) {
-        await finalizeSessionMemoryRun(root, flags.sessionRecord, preparedSessionMemory, {
-          phase: "spawn-error",
-          exitCode: 1,
-          stderr: error.message,
-        }, config);
+        await finalizeSessionMemoryRun(
+          root,
+          flags.sessionRecord,
+          preparedSessionMemory,
+          {
+            phase: "spawn-error",
+            exitCode: 1,
+            stderr: error.message,
+          },
+          config,
+        );
       }
       const finishedAt = new Date();
       const result = {
@@ -481,9 +488,8 @@ export async function runExec(root, config, agentCommand, flags) {
   const postFiles = await getChangedFiles(root);
   const postFileDigests = await captureDirtyFileDigests(root, postFiles);
   const headChanged = postHeadCommit !== preHeadCommit;
-  const committedChanges = headChanged && preHeadCommit !== "nogit"
-    ? await getChangedFilesSince(root, preHeadCommit)
-    : [];
+  const committedChanges =
+    headChanged && preHeadCommit !== "nogit" ? await getChangedFilesSince(root, preHeadCommit) : [];
   const agentChanges = combineChanges(
     diffSnapshots(preFiles, postFiles, preFileDigests, postFileDigests),
     committedChanges,

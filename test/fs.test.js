@@ -59,7 +59,7 @@ test("private fs helpers create restrictive directories and files independent of
   await ensurePrivateDir(dir);
   await writePrivateJson(jsonPath, { ok: true });
   await writePrivateText(textPath, "secret\n");
-  await appendPrivateText(appendPath, "{\"ok\":true}\n");
+  await appendPrivateText(appendPath, '{"ok":true}\n');
 
   assert.equal(await modeOf(dir), PRIVATE_DIR_MODE);
   assert.equal(await modeOf(jsonPath), PRIVATE_FILE_MODE);
@@ -159,7 +159,11 @@ test("walkFiles skips gitignored transient directories when respecting ignores",
   await fs.writeFile(path.join(root, ".gitignore"), "*.tmp\n", "utf8");
   await fs.mkdir(path.join(root, ".tmp", "e2e", "repos", "fixture"), { recursive: true });
   await fs.mkdir(path.join(root, "src"), { recursive: true });
-  await fs.writeFile(path.join(root, ".tmp", "e2e", "repos", "fixture", "index.js"), "export const fixture = true;\n", "utf8");
+  await fs.writeFile(
+    path.join(root, ".tmp", "e2e", "repos", "fixture", "index.js"),
+    "export const fixture = true;\n",
+    "utf8",
+  );
   await fs.writeFile(path.join(root, "src", "index.js"), "export const visible = true;\n", "utf8");
 
   const files = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file)).sort();

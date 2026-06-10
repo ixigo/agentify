@@ -43,9 +43,7 @@ function hasColor() {
 }
 
 function supportsUnicode() {
-  return process.platform !== "win32"
-    || Boolean(process.env.WT_SESSION)
-    || process.env.TERM_PROGRAM === "vscode";
+  return process.platform !== "win32" || Boolean(process.env.WT_SESSION) || process.env.TERM_PROGRAM === "vscode";
 }
 
 function isInteractiveStream(stream) {
@@ -126,10 +124,16 @@ export function label(key, value) {
 export async function createSpinner(text) {
   if (isSilent() || !process.stderr.isTTY) {
     return {
-      start() { return this; },
+      start() {
+        return this;
+      },
       stop() {},
-      success(msg) { if (!isSilent()) process.stderr.write(`  ${pc.green("+")} ${msg || text}\n`); },
-      error(msg) { process.stderr.write(`  ${pc.red("x")} ${msg || text}\n`); },
+      success(msg) {
+        if (!isSilent()) process.stderr.write(`  ${pc.green("+")} ${msg || text}\n`);
+      },
+      error(msg) {
+        process.stderr.write(`  ${pc.red("x")} ${msg || text}\n`);
+      },
       message: text,
     };
   }
@@ -185,14 +189,10 @@ export function formatFailure(failure) {
   if (typeof failure === "string") {
     return hasColor() ? `  ${pc.red("x")} ${failure}` : `  x ${failure}`;
   }
-  const cat = hasColor()
-    ? pc.bgRed(pc.white(pc.bold(` ${failure.category} `)))
-    : `[${failure.category}]`;
+  const cat = hasColor() ? pc.bgRed(pc.white(pc.bold(` ${failure.category} `))) : `[${failure.category}]`;
   const filePath = hasColor() ? pc.bold(failure.path) : failure.path;
   const msg = failure.message;
-  const rem = failure.remediation
-    ? `\n      ${hasColor() ? pc.dim(failure.remediation) : failure.remediation}`
-    : "";
+  const rem = failure.remediation ? `\n      ${hasColor() ? pc.dim(failure.remediation) : failure.remediation}` : "";
   return `  ${cat} ${filePath}\n      ${msg}${rem}`;
 }
 

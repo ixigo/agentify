@@ -1,9 +1,7 @@
 export const DEFAULT_CAPTURE_MAX_KB = 48;
 
 export function normalizeCaptureMaxBytes(maxKb, fallbackKb = DEFAULT_CAPTURE_MAX_KB) {
-  const normalizedKb = Number.isFinite(Number(maxKb)) && Number(maxKb) > 0
-    ? Number(maxKb)
-    : fallbackKb;
+  const normalizedKb = Number.isFinite(Number(maxKb)) && Number(maxKb) > 0 ? Number(maxKb) : fallbackKb;
   return Math.floor(normalizedKb * 1024);
 }
 

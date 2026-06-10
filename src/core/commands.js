@@ -16,12 +16,7 @@ import { acquireLock, acquireProjectStoreLock } from "./lock.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { getArtifact, removeArtifact, upsertArtifact } from "./db/artifact-store.js";
-import {
-  loadFiles,
-  loadModuleDependencies,
-  loadModules,
-  writeRepositoryIndex,
-} from "./db/structural-store.js";
+import { loadFiles, loadModuleDependencies, loadModules, writeRepositoryIndex } from "./db/structural-store.js";
 import { loadSemanticModuleContext } from "./db/semantic-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
 import { applySemanticHeaders, isSemanticEnabled, runSemanticRefresh, writeSemanticRepoMap } from "./semantic.js";
@@ -54,16 +49,19 @@ export async function mapWithConcurrency(items, concurrency, mapper, options = {
 }
 
 function renderAgentifyMd({ index, metadataByModule, runReport, managerPlan }) {
-  const detectedStacks = index.repo.detected_stacks.map((stack) => `- \`${stack.name}\` (${stack.confidence})`).join("\n");
-  const moduleBlocks = index.modules.map((moduleInfo) => {
-    const metadata = metadataByModule.get(moduleInfo.id);
-    const startHere = metadata?.start_here?.length
-      ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n")
-      : "- No start-here guidance available.";
-    const publicApi = metadata?.public_api?.length
-      ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
-      : "- No public API identified.";
-    return `## ${moduleInfo.name}
+  const detectedStacks = index.repo.detected_stacks
+    .map((stack) => `- \`${stack.name}\` (${stack.confidence})`)
+    .join("\n");
+  const moduleBlocks = index.modules
+    .map((moduleInfo) => {
+      const metadata = metadataByModule.get(moduleInfo.id);
+      const startHere = metadata?.start_here?.length
+        ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n")
+        : "- No start-here guidance available.";
+      const publicApi = metadata?.public_api?.length
+        ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
+        : "- No public API identified.";
+      return `## ${moduleInfo.name}
 
 - Root: \`${moduleInfo.root_path}\`
 - Doc: \`${moduleInfo.doc_path}\`
@@ -78,7 +76,8 @@ ${startHere}
 
 ### Public Surface
 ${publicApi}`;
-  }).join("\n\n");
+    })
+    .join("\n\n");
 
   const sharedConventions = managerPlan?.shared_conventions?.length
     ? managerPlan.shared_conventions.map((item) => `- ${item}`).join("\n")
@@ -226,7 +225,7 @@ export async function ensureBaselineArtifacts(root, config, options = {}) {
   if (config.dryRun) {
     return;
   }
-  const agentifyPaths = options.paths || await resolveArtifactPaths(root, config, { artifactRoot: root });
+  const agentifyPaths = options.paths || (await resolveArtifactPaths(root, config, { artifactRoot: root }));
   await ensureDir(agentifyPaths.runtimeRoot);
   await ensurePrivateDir(agentifyPaths.runsRoot);
   await ensureDir(agentifyPaths.workRoot);
@@ -267,15 +266,15 @@ function buildRenderableIndex(root, meta, modules) {
       name: meta.repo_name || path.basename(root),
       root,
       detected_stacks: meta.detected_stacks || [],
-      default_stack: meta.default_stack || "ts"
+      default_stack: meta.default_stack || "ts",
     },
     index: {
       generated_at: meta.generated_at || null,
       head_commit: meta.head_commit || "unknown",
       generator: {
         agentify_version: "0.2.0",
-        provider: meta.provider || "local"
-      }
+        provider: meta.provider || "local",
+      },
     },
     modules: modules.map((moduleInfo) => ({
       id: moduleInfo.id,
@@ -286,13 +285,13 @@ function buildRenderableIndex(root, meta, modules) {
       tags: [moduleInfo.stack],
       fingerprint: moduleInfo.fingerprint,
       entry_files: moduleInfo.entry_files,
-      key_files: moduleInfo.key_files
+      key_files: moduleInfo.key_files,
     })),
     entrypoints: modules.flatMap((moduleInfo) => moduleInfo.entry_files || []),
     symbol_index_hint: {
       enabled: true,
-      note: "symbol spans are stored in .agentify/index.db"
-    }
+      note: "symbol spans are stored in .agentify/index.db",
+    },
   };
 }
 
@@ -343,14 +342,11 @@ function scoreRepoContextFile(file, signals) {
   if (base === "readme.md") score += 80;
   if (base === "package.json") score += 80;
   if (/^tsconfig(\..+)?\.json$/.test(base)) score += 65;
-  if ([
-    "pnpm-workspace.yaml",
-    "turbo.json",
-    "pyproject.toml",
-    "cargo.toml",
-    "package.swift",
-    ".agentify.yaml",
-  ].includes(base)) {
+  if (
+    ["pnpm-workspace.yaml", "turbo.json", "pyproject.toml", "cargo.toml", "package.swift", ".agentify.yaml"].includes(
+      base,
+    )
+  ) {
     score += 65;
   }
   if (/^(index|main|app|server|cli)\./.test(base)) score += 55;
@@ -368,7 +364,8 @@ function selectRepoContextFiles(indexData, config) {
 
   return [...indexData.files]
     .sort((left, right) => {
-      const scoreDelta = scoreRepoContextFile(right, { entryFiles, keyFiles }) - scoreRepoContextFile(left, { entryFiles, keyFiles });
+      const scoreDelta =
+        scoreRepoContextFile(right, { entryFiles, keyFiles }) - scoreRepoContextFile(left, { entryFiles, keyFiles });
       return scoreDelta || left.localeCompare(right);
     })
     .slice(0, limit);
@@ -397,14 +394,15 @@ function computeManagerPlanFingerprint(repoContext) {
     ...repoContext.stacks.map((item) => `stack:${item.name}:${item.confidence}`),
     ...repoContext.entrypoints.map((item) => `entry:${item}`),
     ...repoContext.modules.map((item) => `module:${item.id}:${item.rootPath}`),
-    ...repoContext.sampleFiles.map((item) => `file:${item.path}:${crypto.createHash("sha256").update(item.content).digest("hex")}`),
+    ...repoContext.sampleFiles.map(
+      (item) => `file:${item.path}:${crypto.createHash("sha256").update(item.content).digest("hex")}`,
+    ),
   ]);
 }
 
 export function computeModuleFingerprint(files) {
   return computeFingerprintFromEntries(
-    files
-    .map((f) => `${f.path}:${crypto.createHash("sha256").update(f.content).digest("hex")}`)
+    files.map((f) => `${f.path}:${crypto.createHash("sha256").update(f.content).digest("hex")}`),
   );
 }
 
@@ -432,9 +430,7 @@ export async function runScan(root, config, options = {}) {
   const progress = options.reporter || createRunReporter(root);
   progress.log("scan: starting deterministic repository scan");
 
-  const ghostRunId = (config.ghost || config.ghostMode)
-    ? (options.ghostRunId || `ghost_${Date.now()}`)
-    : null;
+  const ghostRunId = config.ghost || config.ghostMode ? options.ghostRunId || `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
   const legacyLock = await acquireLock(root, "scan");
@@ -488,7 +484,7 @@ async function emitLockContention(phase, lock, progress, config, options) {
 
 async function _runScanInner(root, config, options, progress, resolvedArtifacts = {}) {
   const artifactRoot = resolvedArtifacts.artifactRoot || resolveArtifactRoot(root, config, options.ghostRunId || null);
-  const artifactPaths = resolvedArtifacts.artifactPaths || await resolveArtifactPaths(root, config, { artifactRoot });
+  const artifactPaths = resolvedArtifacts.artifactPaths || (await resolveArtifactPaths(root, config, { artifactRoot }));
   await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths });
   const headCommit = await getHeadCommit(root);
   const freshness = !config.dryRun ? await getIndexFreshness(root, artifactPaths) : null;
@@ -526,7 +522,7 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
   if (!config.dryRun && freshness?.refresh_mode === "incremental") {
     progress.log(`scan: refreshing changed index inputs (${freshness.changed_files.length} file(s))`);
   }
-  const snapshot = options.scanSnapshot || await buildRepositoryIndex(root, config);
+  const snapshot = options.scanSnapshot || (await buildRepositoryIndex(root, config));
   progress.log(`scan: analyzed ${snapshot.files.length} files and detected ${snapshot.modules.length} modules`);
 
   if (!config.dryRun) {
@@ -543,7 +539,7 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
     } finally {
       closeIndexDatabase(db);
     }
-    await writeIndexMeta(root, artifactPaths, snapshot, freshness || await getIndexFreshness(root, artifactPaths));
+    await writeIndexMeta(root, artifactPaths, snapshot, freshness || (await getIndexFreshness(root, artifactPaths)));
   }
   progress.log("scan: wrote SQLite index and repo guidance");
 
@@ -569,10 +565,7 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
 }
 
 function createDependencyMap(modules, imports) {
-  const byModule = new Map(modules.map((moduleInfo) => [
-    moduleInfo.id,
-    { dependsOn: new Set(), usedBy: new Set() },
-  ]));
+  const byModule = new Map(modules.map((moduleInfo) => [moduleInfo.id, { dependsOn: new Set(), usedBy: new Set() }]));
 
   for (const edge of imports) {
     if (!edge.from_module_id || !edge.to_module_id || edge.from_module_id === edge.to_module_id) {
@@ -618,14 +611,16 @@ function prioritizeModuleFiles(moduleInfo, fileRows) {
   const entryFiles = new Set(moduleInfo.entry_files || []);
   return [...fileRows]
     .sort((left, right) => {
-      const leftScore = (keyFiles.has(left.path) ? 40 : 0)
-        + (entryFiles.has(left.path) ? 30 : 0)
-        + (left.is_test ? -10 : 0)
-        + (left.is_config ? 6 : 0);
-      const rightScore = (keyFiles.has(right.path) ? 40 : 0)
-        + (entryFiles.has(right.path) ? 30 : 0)
-        + (right.is_test ? -10 : 0)
-        + (right.is_config ? 6 : 0);
+      const leftScore =
+        (keyFiles.has(left.path) ? 40 : 0) +
+        (entryFiles.has(left.path) ? 30 : 0) +
+        (left.is_test ? -10 : 0) +
+        (left.is_config ? 6 : 0);
+      const rightScore =
+        (keyFiles.has(right.path) ? 40 : 0) +
+        (entryFiles.has(right.path) ? 30 : 0) +
+        (right.is_test ? -10 : 0) +
+        (right.is_config ? 6 : 0);
       return rightScore - leftScore || left.path.localeCompare(right.path);
     })
     .map((fileInfo) => fileInfo.path);
@@ -668,7 +663,9 @@ async function buildManagerPlanWithFallback(provider, fallbackProvider, repoCont
       throw error;
     }
     const detail = providerErrorDetail(error);
-    progress.log(`doc: provider "${provider.name}" failed during manager planning (${detail}); using deterministic local plan`);
+    progress.log(
+      `doc: provider "${provider.name}" failed during manager planning (${detail}); using deterministic local plan`,
+    );
     const fallbackResult = await fallbackProvider.buildManagerPlan(repoContext);
     return {
       ...fallbackResult,
@@ -694,15 +691,19 @@ async function generateModuleArtifactsWithWatchdog(provider, fallbackProvider, m
       provider.generateModuleArtifacts(moduleInfo, context),
       new Promise((_, reject) => {
         timeout = setTimeout(() => {
-          reject(new Error(
-            `timed out after ${timeoutMs}ms. Increase providerTimeoutMs or rerun with --provider local for deterministic docs.`
-          ));
+          reject(
+            new Error(
+              `timed out after ${timeoutMs}ms. Increase providerTimeoutMs or rerun with --provider local for deterministic docs.`,
+            ),
+          );
         }, timeoutMs);
-      })
+      }),
     ]);
   } catch (error) {
     const detail = providerErrorDetail(error);
-    progress.log(`doc: provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}; using deterministic local docs`);
+    progress.log(
+      `doc: provider "${provider.name}" failed while generating module "${moduleInfo.id}" (${moduleInfo.rootPath}): ${detail}; using deterministic local docs`,
+    );
     const fallbackResult = await fallbackProvider.generateModuleArtifacts(moduleInfo, context);
     return withLocalFallbackStatus(fallbackResult, provider.name, detail);
   } finally {
@@ -715,7 +716,7 @@ async function generateModuleArtifactsWithWatchdog(provider, fallbackProvider, m
 async function removeRepoMapIfModuleDocsIncomplete(artifactRoot, modules) {
   const missingDocs = [];
   for (const moduleInfo of modules) {
-    if (!await exists(path.join(artifactRoot, moduleInfo.doc_path))) {
+    if (!(await exists(path.join(artifactRoot, moduleInfo.doc_path)))) {
       missingDocs.push(moduleInfo.doc_path);
     }
   }
@@ -749,9 +750,7 @@ export async function runDoc(root, config, options = {}) {
 }
 
 async function _runDocInner(root, config, options, progress) {
-  const ghostRunId = (config.ghost || config.ghostMode)
-    ? (options.ghostRunId || `ghost_${Date.now()}`)
-    : null;
+  const ghostRunId = config.ghost || config.ghostMode ? options.ghostRunId || `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
 
@@ -764,7 +763,7 @@ async function _runDocInner(root, config, options, progress) {
   const scanSnapshot = options.scanSnapshot || null;
 
   if (!config.dryRun && (scanSnapshot || !(await exists(dbPath)))) {
-    const snapshot = scanSnapshot || await buildRepositoryIndex(root, config);
+    const snapshot = scanSnapshot || (await buildRepositoryIndex(root, config));
     const writeDb = openIndexDatabase(artifactPaths);
     try {
       inTransaction(writeDb, () => {
@@ -799,7 +798,12 @@ async function _runDocInner(root, config, options, progress) {
       db = openIndexDatabase(artifactPaths);
       indexData = createDbSnapshot(root, db);
     } else {
-      indexData = createIndexDataFromSnapshot(root, await buildRepositoryIndex(root, config), headCommit, config.provider);
+      indexData = createIndexDataFromSnapshot(
+        root,
+        await buildRepositoryIndex(root, config),
+        headCommit,
+        config.provider,
+      );
     }
   } else {
     db = openIndexDatabase(artifactPaths);
@@ -832,37 +836,40 @@ async function _runDocInner(root, config, options, progress) {
       entrypoints: indexData.modules.flatMap((moduleInfo) => moduleInfo.entry_files || []),
       modules: indexData.modules.map((moduleInfo) => ({
         id: moduleInfo.id,
-        rootPath: moduleInfo.root_path
+        rootPath: moduleInfo.root_path,
       })),
-      sampleFiles: repoContextFiles
+      sampleFiles: repoContextFiles,
     };
     const managerFingerprint = computeManagerPlanFingerprint(repoContext);
-    const cachedPlan = !config.dryRun && db
-      ? getArtifact(db, getManagerPlanArtifactKey())
-      : null;
-    const managerPlan = cachedPlan?.fingerprint === managerFingerprint ? cachedPlan.payload?.plan || cachedPlan.payload : null;
+    const cachedPlan = !config.dryRun && db ? getArtifact(db, getManagerPlanArtifactKey()) : null;
+    const managerPlan =
+      cachedPlan?.fingerprint === managerFingerprint ? cachedPlan.payload?.plan || cachedPlan.payload : null;
     const managerResult = managerPlan
       ? {
           plan: managerPlan,
           tokenUsage: {
             input_tokens: 0,
             output_tokens: 0,
-            total_tokens: 0
-          }
+            total_tokens: 0,
+          },
         }
       : await buildManagerPlanWithFallback(provider, fallbackProvider, repoContext, progress);
     cachedManagerPlan = Boolean(managerPlan);
 
     inputTokens += managerResult.tokenUsage.input_tokens;
     outputTokens += managerResult.tokenUsage.output_tokens;
-    progress.log(`doc: manager plan ready for ${indexData.modules.length} modules${cachedManagerPlan ? " (cache hit)" : ""}`);
+    progress.log(
+      `doc: manager plan ready for ${indexData.modules.length} modules${cachedManagerPlan ? " (cache hit)" : ""}`,
+    );
     progress.percent("doc", 20, `manager plan ready for ${indexData.modules.length} modules`);
 
     const preparedModules = [];
-    const fileRowsByModule = new Map(indexData.modules.map((moduleInfo) => [
-      moduleInfo.id,
-      (indexData.fileRows || loadFiles(db, moduleInfo.id)).filter((fileInfo) => fileInfo.module_id === moduleInfo.id),
-    ]));
+    const fileRowsByModule = new Map(
+      indexData.modules.map((moduleInfo) => [
+        moduleInfo.id,
+        (indexData.fileRows || loadFiles(db, moduleInfo.id)).filter((fileInfo) => fileInfo.module_id === moduleInfo.id),
+      ]),
+    );
     for (const moduleInfo of indexData.modules) {
       const prioritizedFiles = prioritizeModuleFiles(moduleInfo, fileRowsByModule.get(moduleInfo.id) || []);
       const boundedFiles = await readFilesWithBudget(root, prioritizedFiles.slice(0, config.maxFilesPerModule), {
@@ -870,24 +877,17 @@ async function _runDocInner(root, config, options, progress) {
         totalBudget: config.budgets?.perModule || 32000,
       });
       const fingerprint = computeModuleFingerprint(boundedFiles);
-      const cachedArtifact = !config.dryRun && db
-        ? getArtifact(db, getModuleArtifactKey(moduleInfo.id))
-        : null;
-      const moduleDocExists = !config.dryRun
-        ? await exists(path.join(artifactRoot, moduleInfo.doc_path))
-        : false;
+      const cachedArtifact = !config.dryRun && db ? getArtifact(db, getModuleArtifactKey(moduleInfo.id)) : null;
+      const moduleDocExists = !config.dryRun ? await exists(path.join(artifactRoot, moduleInfo.doc_path)) : false;
       if (cachedArtifact?.fingerprint === fingerprint && !moduleDocExists && db) {
         removeArtifact(db, getModuleArtifactKey(moduleInfo.id));
       }
-      const reusableArtifact = cachedArtifact?.fingerprint === fingerprint && moduleDocExists
-        ? cachedArtifact.payload
-        : null;
+      const reusableArtifact =
+        cachedArtifact?.fingerprint === fingerprint && moduleDocExists ? cachedArtifact.payload : null;
       const moduleDeps = indexData.dependencyMap
         ? indexData.dependencyMap.get(moduleInfo.id)
         : loadModuleDependencies(db, moduleInfo.id);
-      const semanticContext = semanticEnabled && db
-        ? loadSemanticModuleContext(db, moduleInfo.id)
-        : null;
+      const semanticContext = semanticEnabled && db ? loadSemanticModuleContext(db, moduleInfo.id) : null;
       preparedModules.push({
         moduleInfo,
         fingerprint,
@@ -903,8 +903,8 @@ async function _runDocInner(root, config, options, progress) {
           managerPlan: managerResult.plan,
           managerFocus: managerResult.plan.module_focus.find((item) => item.module_id === moduleInfo.id)?.focus || "",
           now,
-          headCommit
-        }
+          headCommit,
+        },
       });
     }
     const totalPreparedFiles = preparedModules.reduce((sum, item) => sum + item.context.files.length, 0);
@@ -917,69 +917,89 @@ async function _runDocInner(root, config, options, progress) {
       preparedModules,
       config.moduleConcurrency,
       async ({ moduleInfo, context, fingerprint, cachedArtifact }) => {
-      if (cachedArtifact) {
-        const refreshedMetadata = withFreshness({
-          ...cachedArtifact.metadata,
-          module: {
-            ...(cachedArtifact.metadata?.module || {}),
-            id: moduleInfo.id,
-            name: moduleInfo.name,
-            root_path: moduleInfo.rootPath,
-            stack: moduleInfo.stack,
-          },
-          summary: summarizeModule(moduleInfo, context.files.map((item) => item.path), context.semantic),
-          docs: [moduleInfo.doc_path],
-          tags: Array.from(new Set([...(cachedArtifact.metadata?.tags || []), moduleInfo.stack])),
-        }, {
-          now,
-          headCommit,
-          fingerprint,
-        });
+        if (cachedArtifact) {
+          const refreshedMetadata = withFreshness(
+            {
+              ...cachedArtifact.metadata,
+              module: {
+                ...(cachedArtifact.metadata?.module || {}),
+                id: moduleInfo.id,
+                name: moduleInfo.name,
+                root_path: moduleInfo.rootPath,
+                stack: moduleInfo.stack,
+              },
+              summary: summarizeModule(
+                moduleInfo,
+                context.files.map((item) => item.path),
+                context.semantic,
+              ),
+              docs: [moduleInfo.doc_path],
+              tags: Array.from(new Set([...(cachedArtifact.metadata?.tags || []), moduleInfo.stack])),
+            },
+            {
+              now,
+              headCommit,
+              fingerprint,
+            },
+          );
+          return {
+            moduleInfo,
+            fingerprint,
+            reused: true,
+            result: {
+              markdown: renderModuleMarkdown(moduleInfo, refreshedMetadata),
+              metadata: refreshedMetadata,
+              headers: context.keyFiles.map((file) => ({
+                path: file,
+                summary: refreshedMetadata.summary,
+              })),
+              tokenUsage: {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+              },
+            },
+          };
+        }
+
+        const result = await generateModuleArtifactsWithWatchdog(
+          provider,
+          fallbackProvider,
+          moduleInfo,
+          context,
+          config,
+          progress,
+        );
         return {
           moduleInfo,
           fingerprint,
-          reused: true,
+          reused: false,
           result: {
-            markdown: renderModuleMarkdown(moduleInfo, refreshedMetadata),
-            metadata: refreshedMetadata,
-            headers: context.keyFiles.map((file) => ({
-              path: file,
-              summary: refreshedMetadata.summary,
-            })),
-            tokenUsage: {
-              input_tokens: 0,
-              output_tokens: 0,
-              total_tokens: 0
-            }
-          }
+            ...result,
+            metadata: withFreshness(result.metadata, {
+              now,
+              headCommit,
+              fingerprint,
+            }),
+          },
         };
-      }
-
-      const result = await generateModuleArtifactsWithWatchdog(provider, fallbackProvider, moduleInfo, context, config, progress);
-      return {
-        moduleInfo,
-        fingerprint,
-        reused: false,
-        result: {
-          ...result,
-          metadata: withFreshness(result.metadata, {
-            now,
-            headCommit,
-            fingerprint,
-          }),
-        }
-      };
       },
       {
         onProgress: async ({ moduleInfo, reused }) => {
           completedModules += 1;
-          processedFiles += preparedModules.find((item) => item.moduleInfo.id === moduleInfo.id)?.preparedFileCount || 0;
-          const percent = totalPreparedFiles > 0 ? Math.min(100, Math.round((processedFiles / totalPreparedFiles) * 100)) : Math.round((completedModules / Math.max(preparedModules.length, 1)) * 100);
-          progress.log(`doc: completed ${completedModules}/${preparedModules.length} modules, approx ${percent}% of bounded context processed${reused ? " (cache hit)" : ""}`);
+          processedFiles +=
+            preparedModules.find((item) => item.moduleInfo.id === moduleInfo.id)?.preparedFileCount || 0;
+          const percent =
+            totalPreparedFiles > 0
+              ? Math.min(100, Math.round((processedFiles / totalPreparedFiles) * 100))
+              : Math.round((completedModules / Math.max(preparedModules.length, 1)) * 100);
+          progress.log(
+            `doc: completed ${completedModules}/${preparedModules.length} modules, approx ${percent}% of bounded context processed${reused ? " (cache hit)" : ""}`,
+          );
           const stagePercent = 25 + Math.round((completedModules / Math.max(preparedModules.length, 1)) * 70);
           progress.percent("doc", stagePercent, `completed ${completedModules}/${preparedModules.length} modules`);
-        }
-      }
+        },
+      },
     );
 
     const plannedHeaders = [];
@@ -991,7 +1011,7 @@ async function _runDocInner(root, config, options, progress) {
         input_tokens: result.tokenUsage.input_tokens,
         output_tokens: result.tokenUsage.output_tokens,
         total_tokens: result.tokenUsage.total_tokens,
-        cache_hit: reused
+        cache_hit: reused,
       });
       inputTokens += result.tokenUsage.input_tokens;
       outputTokens += result.tokenUsage.output_tokens;
@@ -1035,7 +1055,13 @@ async function _runDocInner(root, config, options, progress) {
             }
           } else {
             for (const header of result.headers) {
-              const update = await updateFileHeader(root, moduleInfo.name, header.path, header.summary, moduleInfo.stack);
+              const update = await updateFileHeader(
+                root,
+                moduleInfo.name,
+                header.path,
+                header.summary,
+                moduleInfo.stack,
+              );
               if (update.changed) {
                 filesWithHeaders += 1;
               }
@@ -1066,71 +1092,74 @@ async function _runDocInner(root, config, options, progress) {
     const moduleProviderStatuses = generatedModules
       .map((item) => item.result?.metadata?.provider_status)
       .filter(Boolean);
-    const fallbackModuleCount = moduleProviderStatuses
-      .filter((status) => status.status === "fallback" && status.mode === "deterministic-local")
-      .length;
+    const fallbackModuleCount = moduleProviderStatuses.filter(
+      (status) => status.status === "fallback" && status.mode === "deterministic-local",
+    ).length;
     const managerFallback = managerResult.fallback || null;
-    const providerStatus = moduleProviderStatuses.length > 0
-      && moduleProviderStatuses.every((status) => status.status === "fallback" && status.mode === "deterministic-local" && !status.requested_provider)
-      ? {
-          status: "fallback",
-          provider: "local",
-          mode: "deterministic-local"
-        }
-      : provider.name === "local"
+    const providerStatus =
+      moduleProviderStatuses.length > 0 &&
+      moduleProviderStatuses.every(
+        (status) => status.status === "fallback" && status.mode === "deterministic-local" && !status.requested_provider,
+      )
         ? {
             status: "fallback",
-            provider: provider.name,
-            mode: "deterministic-local"
+            provider: "local",
+            mode: "deterministic-local",
           }
-        : fallbackModuleCount > 0 || managerFallback
+        : provider.name === "local"
           ? {
-              status: "partial_fallback",
+              status: "fallback",
               provider: provider.name,
-              mode: "provider-backed-with-local-fallback",
-              fallback_provider: "local",
-              fallback_modules: fallbackModuleCount,
-              manager_fallback: Boolean(managerFallback)
+              mode: "deterministic-local",
             }
-          : {
-            status: "success",
-            provider: provider.name,
-            mode: "provider-backed"
-          };
+          : fallbackModuleCount > 0 || managerFallback
+            ? {
+                status: "partial_fallback",
+                provider: provider.name,
+                mode: "provider-backed-with-local-fallback",
+                fallback_provider: "local",
+                fallback_modules: fallbackModuleCount,
+                manager_fallback: Boolean(managerFallback),
+              }
+            : {
+                status: "success",
+                provider: provider.name,
+                mode: "provider-backed",
+              };
 
     const runReport = {
-    run_id: `${Date.now()}`,
-    started_at: now,
-    finished_at: new Date().toISOString(),
-    provider: provider.name,
-    provider_model: provider.providerModel,
-    provider_status: providerStatus,
-    token_usage: {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      total_tokens: inputTokens + outputTokens,
-      by_module: [
-        {
-          module_id: "__manager__",
-          input_tokens: managerResult.tokenUsage.input_tokens,
-          output_tokens: managerResult.tokenUsage.output_tokens,
-          total_tokens: managerResult.tokenUsage.total_tokens
-        },
-        ...byModule
-      ],
-      note: "token counts are best-effort and depend on provider support"
-    },
-    results: {
-      modules_processed: indexData.modules.length,
-      cached_manager_plan: cachedManagerPlan,
-      cached_modules: cachedModules,
-      files_with_headers: filesWithHeaders,
-      docs_written: docsWritten
-    },
-    validation: {
-      passed: true,
-      failures: []
-    }
+      run_id: `${Date.now()}`,
+      started_at: now,
+      finished_at: new Date().toISOString(),
+      provider: provider.name,
+      provider_model: provider.providerModel,
+      provider_status: providerStatus,
+      token_usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        by_module: [
+          {
+            module_id: "__manager__",
+            input_tokens: managerResult.tokenUsage.input_tokens,
+            output_tokens: managerResult.tokenUsage.output_tokens,
+            total_tokens: managerResult.tokenUsage.total_tokens,
+          },
+          ...byModule,
+        ],
+        note: "token counts are best-effort and depend on provider support",
+      },
+      results: {
+        modules_processed: indexData.modules.length,
+        cached_manager_plan: cachedManagerPlan,
+        cached_modules: cachedModules,
+        files_with_headers: filesWithHeaders,
+        docs_written: docsWritten,
+      },
+      validation: {
+        passed: true,
+        failures: [],
+      },
     };
 
     if (config.tokenReport && !config.dryRun) {
@@ -1147,12 +1176,15 @@ async function _runDocInner(root, config, options, progress) {
         },
         updatedAt: now,
       });
-      await writeText(path.join(artifactRoot, "AGENTIFY.md"), renderAgentifyMd({
-        index: indexData.index,
-        metadataByModule,
-        runReport,
-        managerPlan: managerResult.plan,
-      }));
+      await writeText(
+        path.join(artifactRoot, "AGENTIFY.md"),
+        renderAgentifyMd({
+          index: indexData.index,
+          metadataByModule,
+          runReport,
+          managerPlan: managerResult.plan,
+        }),
+      );
     }
 
     if ((config.ghost || config.ghostMode) && !config.dryRun) {
@@ -1181,7 +1213,9 @@ async function _runDocInner(root, config, options, progress) {
       docs_written: docsWritten,
       provider_status: runReport.provider_status,
       token_usage: runReport.token_usage,
-      wrote: config.dryRun ? [] : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agentify/index.db", ".agentify/runs/*.json"],
+      wrote: config.dryRun
+        ? []
+        : ["AGENTIFY.md", "<module-root>/AGENTIFY.md", ".agentify/index.db", ".agentify/runs/*.json"],
     };
     progress.setCommand("doc");
     progress.setDoc(result);
@@ -1264,20 +1298,32 @@ async function emitBlockedUpdate(commandName, phase, phaseResult, progress, opti
 
 export async function runUpdate(root, config, options = {}) {
   const commandName = options.commandName || "up";
-  const ghostRunId = (config.ghost || config.ghostMode) ? `ghost_${Date.now()}` : null;
+  const ghostRunId = config.ghost || config.ghostMode ? `ghost_${Date.now()}` : null;
   const artifactRoot = resolveArtifactRoot(root, config, ghostRunId);
   const artifactPaths = await resolveArtifactPaths(root, config, { artifactRoot });
   const progress = createRunReporter(artifactRoot);
   const scanSnapshot = config.dryRun ? await buildRepositoryIndex(root, config) : null;
   progress.setCommand(commandName);
   progress.percent(commandName, 0, "starting");
-  const scanResult = await runScan(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+  const scanResult = await runScan(root, config, {
+    reporter: progress,
+    skipFinalize: true,
+    skipOutput: true,
+    ghostRunId,
+    scanSnapshot,
+  });
   if (scanResult?.status === "blocked") {
     return emitBlockedUpdate(commandName, "scan", scanResult, progress, options);
   }
   progress.percent(commandName, 33, "scan complete");
   if (config.docs) {
-    const docResult = await runDoc(root, config, { reporter: progress, skipFinalize: true, skipOutput: true, ghostRunId, scanSnapshot });
+    const docResult = await runDoc(root, config, {
+      reporter: progress,
+      skipFinalize: true,
+      skipOutput: true,
+      ghostRunId,
+      scanSnapshot,
+    });
     if (docResult?.status === "blocked") {
       return emitBlockedUpdate(commandName, "doc", docResult, progress, options);
     }
@@ -1293,7 +1339,11 @@ export async function runUpdate(root, config, options = {}) {
     skipCodeBodyChanges: options.skipCodeBodyChanges === true,
   });
   progress.setValidation(result);
-  progress.percent(commandName, 100, result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`);
+  progress.percent(
+    commandName,
+    100,
+    result.passed ? "validation passed" : `validation failed with ${result.failures.length} issue(s)`,
+  );
   const testResult = await runProjectTests(root, progress, { config });
   const tests = summarizeTestResult(testResult);
   if (config.tokenReport && !config.dryRun) {
@@ -1311,15 +1361,15 @@ export async function runUpdate(root, config, options = {}) {
         output_tokens: 0,
         total_tokens: 0,
         by_module: [],
-        note: "token counts are best-effort and depend on provider support"
+        note: "token counts are best-effort and depend on provider support",
       },
       results: {
         modules_processed: meta.module_count || 0,
         files_with_headers: 0,
-        docs_written: 0
+        docs_written: 0,
       },
       validation: result,
-      tests
+      tests,
     };
     await writeRunReport(artifactRoot, runReport, { paths: artifactPaths });
   }

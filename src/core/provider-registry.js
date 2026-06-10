@@ -112,7 +112,7 @@ async function probeGeminiAuth(runtime) {
   if (runtime.env.GOOGLE_API_KEY) {
     return { state: "ready", detail: "GOOGLE_API_KEY set", nextStep: null };
   }
-  if (runtime.env.GOOGLE_APPLICATION_CREDENTIALS && await exists(runtime.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+  if (runtime.env.GOOGLE_APPLICATION_CREDENTIALS && (await exists(runtime.env.GOOGLE_APPLICATION_CREDENTIALS))) {
     return { state: "ready", detail: "application default credentials configured", nextStep: null };
   }
 
@@ -238,9 +238,15 @@ export const PROVIDER_DEFINITIONS = {
 };
 
 export const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFINITIONS);
-export const EXECUTABLE_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].executable);
-export const BOOTSTRAP_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].bootstrap);
-export const SKILL_INSTALL_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].skillInstall);
+export const EXECUTABLE_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter(
+  (provider) => PROVIDER_DEFINITIONS[provider].executable,
+);
+export const BOOTSTRAP_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter(
+  (provider) => PROVIDER_DEFINITIONS[provider].bootstrap,
+);
+export const SKILL_INSTALL_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter(
+  (provider) => PROVIDER_DEFINITIONS[provider].skillInstall,
+);
 
 export function getProviderDefinition(provider) {
   return PROVIDER_DEFINITIONS[provider] || null;

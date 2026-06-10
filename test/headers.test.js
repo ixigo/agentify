@@ -10,7 +10,7 @@ test("applyHeaderToSource inserts a JSDoc header", () => {
     moduleName: "demo",
     summary: "Demo summary",
     relativePath: "src/demo.ts",
-    stack: "ts"
+    stack: "ts",
   });
   const next = applyHeaderToSource(source, header);
 
@@ -70,7 +70,7 @@ import Foundation
     moduleName: "App",
     summary: "Updated iOS entrypoint summary",
     relativePath: "App/AppDelegate.swift",
-    stack: "dotnet"
+    stack: "dotnet",
   });
   const next = applyHeaderToSource(source, header);
 
@@ -93,7 +93,7 @@ export const value = 1;
     moduleName: "demo",
     summary: "Fresh summary",
     relativePath: "src/demo.ts",
-    stack: "ts"
+    stack: "ts",
   });
 
   const next = applyHeaderToSource(source, header);
@@ -129,7 +129,7 @@ test("applyHeaderToSource preserves CRLF line endings", () => {
     moduleName: "demo",
     summary: "CRLF summary",
     relativePath: "src/demo.ts",
-    stack: "ts"
+    stack: "ts",
   });
 
   const next = applyHeaderToSource(source, header);

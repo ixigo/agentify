@@ -9,7 +9,12 @@ import { runExec } from "./core/exec.js";
 import { writeHandoffBundle } from "./core/handoff.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import { linkProject } from "./core/link.js";
-import { buildRoutedPrompt, fetchContext, normalizeContextMode as normalizeSessionContextMode, searchContext } from "./core/context.js";
+import {
+  buildRoutedPrompt,
+  fetchContext,
+  normalizeContextMode as normalizeSessionContextMode,
+  searchContext,
+} from "./core/context.js";
 import {
   queryCallers,
   queryChanged,
@@ -22,7 +27,14 @@ import {
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
-import { forkSession, listSessions, maybePrepareChildSession, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
+import {
+  forkSession,
+  listSessions,
+  maybePrepareChildSession,
+  resolveSessionProvider,
+  resumeSession,
+  validateSessionId,
+} from "./core/session.js";
 import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
 import { cleanCache, garbageCollect, cacheStatus, hasSharedStoreLocks } from "./core/cache.js";
@@ -35,15 +47,16 @@ import { runIssueKiller } from "./core/issue-killer.js";
 import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
 import { runRepoSync } from "./core/repo-sync.js";
 import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, resolveRtkConfig } from "./core/rtk.js";
-import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
+import {
+  buildSkillInstallHint,
+  installAllBuiltinSkills,
+  installBuiltinSkill,
+  listBuiltinSkills,
+} from "./core/skills.js";
 import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
 import { detectGitWorktree, readLink, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./core/project-store.js";
-import {
-  CONTEXT_MODE_DEFAULT,
-  normalizeContextMode,
-  toPlannerContextMode,
-} from "./core/context-mode.js";
+import { CONTEXT_MODE_DEFAULT, normalizeContextMode, toPlannerContextMode } from "./core/context-mode.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
 
 const WORKTREE_RUNTIME_COMMANDS = new Set(["up", "scan", "index", "run", "sess", "afk", "check"]);
@@ -174,7 +187,11 @@ async function maybePrepareWorktreeRuntime(root, config, command) {
     return;
   }
 
-  if (String(config.runtime?.store || "local").trim().toLowerCase() === "local") {
+  if (
+    String(config.runtime?.store || "local")
+      .trim()
+      .toLowerCase() === "local"
+  ) {
     await maybeWriteWorktreeHint(root, config);
   }
 }
@@ -264,8 +281,10 @@ const BOOLEAN_FLAGS = new Set([
 ]);
 
 const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
-const NO_TASK_PROVIDER_INSTRUCTION = "No task was provided. Do not infer a task or continue prior work. Use this context only to orient yourself, then ask the user what task they want to work on before making changes.";
-const RESUME_PROVIDER_INSTRUCTION = "Resume mode is active. Use the previous provider or Agentify session context for continuity. If the next step is unclear, ask the user what to do next before making changes.";
+const NO_TASK_PROVIDER_INSTRUCTION =
+  "No task was provided. Do not infer a task or continue prior work. Use this context only to orient yourself, then ask the user what task they want to work on before making changes.";
+const RESUME_PROVIDER_INSTRUCTION =
+  "Resume mode is active. Use the previous provider or Agentify session context for continuity. If the next step is unclear, ask the user what to do next before making changes.";
 const CAVEMAN_FLAG_VALUES = new Set([
   "lite",
   "full",
@@ -292,7 +311,11 @@ function hasOwn(obj, key) {
 }
 
 function isProviderStickyCommand(command, subcommand) {
-  return command === "run" || command === "exec" || (command === "sess" && ["run", "resume", "fork"].includes(subcommand || ""));
+  return (
+    command === "run" ||
+    command === "exec" ||
+    (command === "sess" && ["run", "resume", "fork"].includes(subcommand || ""))
+  );
 }
 
 function normalizeProvider(value) {
@@ -347,21 +370,21 @@ function isMissingIndexError(error) {
 }
 
 function isInvalidIndexDatabaseError(error) {
-  return error instanceof Error && (
-    error.code === "AGENTIFY_INDEX_DATABASE_INVALID"
-    || /invalid index database at /.test(error.message)
+  return (
+    error instanceof Error &&
+    (error.code === "AGENTIFY_INDEX_DATABASE_INVALID" || /invalid index database at /.test(error.message))
   );
 }
 
 function createMissingIndexGuidance(root) {
   return new Error(
-    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`
+    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`,
   );
 }
 
 function createInvalidIndexGuidance(root) {
   return new Error(
-    `Agentify index unreadable for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" to rebuild it before using plan/query/context commands.`
+    `Agentify index unreadable for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" to rebuild it before using plan/query/context commands.`,
   );
 }
 
@@ -403,13 +426,13 @@ export function getSessionCaptureSettings(usingTemplateCommand, providerOptions)
 
   return providerOptions.interactive
     ? {
-      captureOutputMode: "pty",
-      captureMode: "interactive-pty",
-    }
+        captureOutputMode: "pty",
+        captureMode: "interactive-pty",
+      }
     : {
-      captureOutputMode: "pipe",
-      captureMode: "captured-pipe",
-    };
+        captureOutputMode: "pipe",
+        captureMode: "captured-pipe",
+      };
 }
 
 function getPromptFromArgs(args, startIndex) {
@@ -425,14 +448,17 @@ function resolveRunTask(args, startIndex) {
 }
 
 export function resolveRunContextMode(args = {}, config = {}) {
-  return normalizeContextMode(
-    hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
-    { fallback: CONTEXT_MODE_DEFAULT },
-  );
+  return normalizeContextMode(hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode, {
+    fallback: CONTEXT_MODE_DEFAULT,
+  });
 }
 
 function buildRoutedExecutionPrompt(task, memoryMarkdown = "", options = {}) {
-  return applyCavemanPreamble([buildRoutedPrompt(task, memoryMarkdown), options.rtkInstruction].filter(Boolean).join("\n\n"), options.caveman, { promptKind: options.promptKind });
+  return applyCavemanPreamble(
+    [buildRoutedPrompt(task, memoryMarkdown), options.rtkInstruction].filter(Boolean).join("\n\n"),
+    options.caveman,
+    { promptKind: options.promptKind },
+  );
 }
 
 export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = {}) {
@@ -477,11 +503,7 @@ export function buildNoTaskRunPrompt(memoryMarkdown = "", options = {}) {
 
 export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
   const task = buildRunPrompt(userPrompt);
-  const sections = [
-    "You are continuing an Agentify session.",
-    "",
-    bootstrap.trim(),
-  ];
+  const sections = ["You are continuing an Agentify session.", "", bootstrap.trim()];
   if (memoryMarkdown.trim()) {
     sections.push("", memoryMarkdown.trim());
   }
@@ -521,24 +543,28 @@ export async function prepareSessionLaunch(root, config, args, sessionResult, ta
   const usingTemplateCommand = !args._exec?.length;
   const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
   const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const contextMode = normalizeSessionContextMode(hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT);
+  const contextMode = normalizeSessionContextMode(
+    hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT,
+  );
   const subcommand = args._?.[1] || "run";
   const resumeMode = subcommand === "resume" || args.resume === true;
-  const rtkInstruction = usingTemplateCommand
-    ? await resolveRtkPromptInstruction(root, config, args, provider)
-    : "";
-  const sessionInstruction = task
-    || (resumeMode ? DEFAULT_SESSION_TASK : NO_TASK_PROVIDER_INSTRUCTION);
-  const prompt = contextMode === "routed"
-    ? buildRoutedExecutionPrompt(`${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman, rtkInstruction })
-    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman, resume: resumeMode, rtkInstruction });
+  const rtkInstruction = usingTemplateCommand ? await resolveRtkPromptInstruction(root, config, args, provider) : "";
+  const sessionInstruction = task || (resumeMode ? DEFAULT_SESSION_TASK : NO_TASK_PROVIDER_INSTRUCTION);
+  const prompt =
+    contextMode === "routed"
+      ? buildRoutedExecutionPrompt(
+          `${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`,
+          memoryContext.markdown,
+          { caveman, rtkInstruction },
+        )
+      : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, {
+          caveman,
+          resume: resumeMode,
+          rtkInstruction,
+        });
   const agentCommand = args._exec?.length
     ? args._exec
-    : buildProviderTemplateCommand(
-      provider,
-      prompt,
-      providerOptions,
-    );
+    : buildProviderTemplateCommand(provider, prompt, providerOptions);
   const sessionRecord = {
     sessionId: sessionResult.manifest.session_id,
     provider,
@@ -679,10 +705,10 @@ export async function runCli(argv, _runtime = {}) {
   }
 
   if (command === "update") {
-    throw new Error("command \"update\" was removed. Use \"up\".");
+    throw new Error('command "update" was removed. Use "up".');
   }
   if (command === "validate") {
-    throw new Error("command \"validate\" was removed. Use \"check\".");
+    throw new Error('command "validate" was removed. Use "check".');
   }
   if (command === "this") {
     await runBootstrapCommand(args);
@@ -742,18 +768,37 @@ export async function runCli(argv, _runtime = {}) {
         }
         const skillInstallHint = buildSkillInstallHint(config.provider, "project");
         if (config.json) {
-          console.log(JSON.stringify({
-            command: "init",
-            root,
-            dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", `.agentify`, ".agentify/runs", ".agentify/work", "docs/modules"],
-            shared_store: sharedStoreLink ? {
-              link_path: sharedStoreLink.link_path,
-              project_store: sharedStoreLink.project_store,
-              changed: sharedStoreLink.changed,
-            } : null,
-            skill_install_hint: skillInstallHint,
-          }, null, 2));
+          console.log(
+            JSON.stringify(
+              {
+                command: "init",
+                root,
+                dry_run: Boolean(config.dryRun),
+                wrote: config.dryRun
+                  ? []
+                  : [
+                      ".agentify.yaml",
+                      ".gitignore",
+                      ".agentignore",
+                      ".guardrails",
+                      `.agentify`,
+                      ".agentify/runs",
+                      ".agentify/work",
+                      "docs/modules",
+                    ],
+                shared_store: sharedStoreLink
+                  ? {
+                      link_path: sharedStoreLink.link_path,
+                      project_store: sharedStoreLink.project_store,
+                      changed: sharedStoreLink.changed,
+                    }
+                  : null,
+                skill_install_hint: skillInstallHint,
+              },
+              null,
+              2,
+            ),
+          );
         } else {
           success("Initialized agentify artifacts");
           if (sharedStoreLink) {
@@ -826,7 +871,9 @@ export async function runCli(argv, _runtime = {}) {
           }
           return;
         }
-        throw new Error(`Unknown worktree subcommand: ${subcommand}. Try \`agentify worktree attach\` or \`agentify worktree status\`.`);
+        throw new Error(
+          `Unknown worktree subcommand: ${subcommand}. Try \`agentify worktree attach\` or \`agentify worktree status\`.`,
+        );
       }
 
       case "index":
@@ -885,15 +932,17 @@ export async function runCli(argv, _runtime = {}) {
         };
         const noTaskInteractiveLaunch = !task && usingTemplateCommand && providerOptions.interactive === true;
         if (!task && !noTaskInteractiveLaunch && !args._exec?.length) {
-          throw new Error('agentify run requires a task when not launching an interactive provider. Pass one as `agentify run "task"`.');
+          throw new Error(
+            'agentify run requires a task when not launching an interactive provider. Pass one as `agentify run "task"`.',
+          );
         }
         const contextMode = resolveRunContextMode(args, config);
-        const usesManagedContext = usingTemplateCommand && (
-          contextMode === "routed"
-          || providerOptions.interactive !== true
-          || args.withContext === true
-          || args.explainPlan === true
-        );
+        const usesManagedContext =
+          usingTemplateCommand &&
+          (contextMode === "routed" ||
+            providerOptions.interactive !== true ||
+            args.withContext === true ||
+            args.explainPlan === true);
         const includeSource = contextMode !== "routed" || args.withContext === true;
         let memoryContext;
         let plan;
@@ -901,14 +950,15 @@ export async function runCli(argv, _runtime = {}) {
           memoryContext = noTaskInteractiveLaunch
             ? await loadAutomaticRunMemory(root, "", config)
             : usesManagedContext
-            ? await loadAutomaticRunMemory(root, task, config)
-            : { markdown: "" };
-          plan = usesManagedContext && task
-            ? await buildExecutionPlan(root, config, task, {
-              contextMode: toPlannerContextMode(contextMode),
-              includeSource,
-            })
-            : null;
+              ? await loadAutomaticRunMemory(root, task, config)
+              : { markdown: "" };
+          plan =
+            usesManagedContext && task
+              ? await buildExecutionPlan(root, config, task, {
+                  contextMode: toPlannerContextMode(contextMode),
+                  includeSource,
+                })
+              : null;
         } catch (error) {
           throwWithIndexGuidance(error, root);
         }
@@ -919,25 +969,30 @@ export async function runCli(argv, _runtime = {}) {
           ? await resolveRtkPromptInstruction(root, config, args, config.provider)
           : "";
         const prompt = noTaskInteractiveLaunch
-          ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession, rtkInstruction })
+          ? buildNoTaskRunPrompt(memoryContext.markdown, {
+              caveman,
+              resume: providerOptions.continueSession,
+              rtkInstruction,
+            })
           : usesManagedContext
-          ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman, rtkInstruction })
-          : !task && args._exec?.length
-          ? ""
-          : buildMinimalRunPrompt(task, { caveman, rtkInstruction });
+            ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman, rtkInstruction })
+            : !task && args._exec?.length
+              ? ""
+              : buildMinimalRunPrompt(task, { caveman, rtkInstruction });
         const agentCommand = args._exec?.length
           ? args._exec
-          : buildProviderTemplateCommand(
-            config.provider,
-            prompt,
-            providerOptions,
-          );
+          : buildProviderTemplateCommand(config.provider, prompt, providerOptions);
 
-        await runExec(root, config, agentCommand, getExecFlags(args, {
-          commandName: "run",
-          providerEnvMode: usingTemplateCommand ? "provider" : "generic",
-          skipCodeBodyChanges: true,
-        }));
+        await runExec(
+          root,
+          config,
+          agentCommand,
+          getExecFlags(args, {
+            commandName: "run",
+            providerEnvMode: usingTemplateCommand ? "provider" : "generic",
+            skipCodeBodyChanges: true,
+          }),
+        );
         return;
       }
 
@@ -993,11 +1048,16 @@ export async function runCli(argv, _runtime = {}) {
         if (agentCommand.length === 0) {
           throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
         }
-        await runExec(root, config, agentCommand, getExecFlags(args, {
-          commandName: "exec",
-          providerEnvMode: "generic",
-          skipCodeBodyChanges: true,
-        }));
+        await runExec(
+          root,
+          config,
+          agentCommand,
+          getExecFlags(args, {
+            commandName: "exec",
+            providerEnvMode: "generic",
+            skipCodeBodyChanges: true,
+          }),
+        );
         return;
       }
 
@@ -1027,13 +1087,19 @@ export async function runCli(argv, _runtime = {}) {
         const task = getPromptFromArgs(args, promptStartIndex);
         const result = await writeHandoffBundle(root, config, sessionId, task);
         if (config.json) {
-          console.log(JSON.stringify({
-            command: "handoff",
-            session_id: sessionId,
-            markdown_path: result.relativeMarkdownPath,
-            json_path: result.relativeJsonPath,
-            bundle: result.bundle,
-          }, null, 2));
+          console.log(
+            JSON.stringify(
+              {
+                command: "handoff",
+                session_id: sessionId,
+                markdown_path: result.relativeMarkdownPath,
+                json_path: result.relativeJsonPath,
+                bundle: result.bundle,
+              },
+              null,
+              2,
+            ),
+          );
         } else {
           success(`Handoff written for ${sessionId}`);
           log(`Markdown: ${dim(result.relativeMarkdownPath)}`);
@@ -1070,7 +1136,9 @@ export async function runCli(argv, _runtime = {}) {
             if (!args.file) throw new Error("query impacts requires --file <path>");
             result = await queryImpacts(root, args.file, { ...queryOptions, depth: args.depth });
           } else {
-            throw new Error("query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts");
+            throw new Error(
+              "query requires a subcommand: owner, deps, changed, search, def, refs, callers, or impacts",
+            );
           }
         } catch (error) {
           throwWithIndexGuidance(error, root);
@@ -1132,9 +1200,9 @@ export async function runCli(argv, _runtime = {}) {
           const result = installingAll
             ? await installAllBuiltinSkills(root, installOptions)
             : await installBuiltinSkill(root, {
-              ...installOptions,
-              name: skillName,
-            });
+                ...installOptions,
+                name: skillName,
+              });
 
           if (config.json) {
             console.log(JSON.stringify(result, null, 2));
@@ -1384,8 +1452,10 @@ export async function runCli(argv, _runtime = {}) {
         } else if (subcommand === "clean") {
           const targets = cacheCleanTargets(root, config._agentifyPaths, args);
           const touchesShared = targets.some((target) => target.shared);
-          if (touchesShared && !config.dryRun && await hasSharedStoreLocks(config._agentifyPaths.locksRoot)) {
-            throw new Error(`Refusing to clean shared cache while shared store locks are present: ${config._agentifyPaths.locksRoot}`);
+          if (touchesShared && !config.dryRun && (await hasSharedStoreLocks(config._agentifyPaths.locksRoot))) {
+            throw new Error(
+              `Refusing to clean shared cache while shared store locks are present: ${config._agentifyPaths.locksRoot}`,
+            );
           }
 
           const cleaned = [];

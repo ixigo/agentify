@@ -7,9 +7,7 @@ export const CONTEXT_MODE_HELP_LABEL = `<${CONTEXT_MODE_PRIMARY_VALUES.join("|")
 export const CONTEXT_MODE_DESCRIPTION = "Use compact prompts or routed bounded retrieval prompts";
 
 function readContextMode(value, fallback) {
-  const raw = value === undefined || value === null || value === false
-    ? fallback
-    : value;
+  const raw = value === undefined || value === null || value === false ? fallback : value;
   return {
     raw,
     mode: String(raw).trim().toLowerCase(),
@@ -22,7 +20,9 @@ export function normalizeContextMode(value, { fallback = CONTEXT_MODE_DEFAULT } 
   if (CONTEXT_MODE_PRIMARY_VALUES.includes(normalized)) {
     return normalized;
   }
-  throw new Error(`--context-mode must be "compact" or "routed" ("direct" is accepted as an alias for "compact"), received "${raw}".`);
+  throw new Error(
+    `--context-mode must be "compact" or "routed" ("direct" is accepted as an alias for "compact"), received "${raw}".`,
+  );
 }
 
 export function toPlannerContextMode(value, { fallback = CONTEXT_MODE_DEFAULT } = {}) {

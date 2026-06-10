@@ -41,7 +41,7 @@ export async function garbageCollect(cacheRoot, maxAgeDays = 7, options = {}) {
   const manifest = await readJson(manifestPath);
   const nextManifest = {
     ...manifest,
-    modules: { ...(manifest.modules || {}) }
+    modules: { ...(manifest.modules || {}) },
   };
   const referencedHashes = new Set();
   const cutoff = Date.now() - maxAgeDays * 86400000;

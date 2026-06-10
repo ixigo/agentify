@@ -98,12 +98,7 @@ test("loadConfig allows explicit flag opt-in for project test full-env inheritan
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-test-env-flag-"));
   await fs.writeFile(
     path.join(root, ".agentify.yaml"),
-    [
-      "tests:",
-      "  env:",
-      "    inherit: true",
-      "",
-    ].join("\n"),
+    ["tests:", "  env:", "    inherit: true", ""].join("\n"),
     "utf8",
   );
 

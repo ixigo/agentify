@@ -71,9 +71,7 @@ const DEFAULT_PROVIDER_PASSTHROUGH_ENV = Object.freeze([
 ]);
 
 function normalizeEnvConfig(providerEnvConfig = {}) {
-  return providerEnvConfig && typeof providerEnvConfig === "object"
-    ? providerEnvConfig
-    : {};
+  return providerEnvConfig && typeof providerEnvConfig === "object" ? providerEnvConfig : {};
 }
 
 function applyExtraEnv(env, envConfig) {

@@ -1,9 +1,6 @@
 import { fromJson, normalizeRows, toJson } from "./utils.js";
 import { setRepoMeta } from "./metadata-store.js";
-import {
-  clearStructuralSearchIndex,
-  rebuildStructuralSearchIndex,
-} from "./search-store.js";
+import { clearStructuralSearchIndex, rebuildStructuralSearchIndex } from "./search-store.js";
 
 export function clearIndexedState(db) {
   clearStructuralSearchIndex(db);
@@ -19,7 +16,10 @@ export function clearIndexedState(db) {
 }
 
 export function loadModules(db) {
-  return normalizeRows(db.prepare(`
+  return normalizeRows(
+    db
+      .prepare(
+        `
     SELECT
       m.id,
       m.name,
@@ -48,7 +48,10 @@ export function loadModules(db) {
       m.entry_files_json,
       m.key_files_json
     ORDER BY m.root_path
-  `).all()).map((row) => ({
+  `,
+      )
+      .all(),
+  ).map((row) => ({
     ...row,
     rootPath: row.root_path,
     packageName: row.package_name,
@@ -98,7 +101,7 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       moduleInfo.doc_path,
       moduleInfo.fingerprint,
       toJson(moduleInfo.entry_files || []),
-      toJson(moduleInfo.key_files || [])
+      toJson(moduleInfo.key_files || []),
     );
   }
 
@@ -125,7 +128,7 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       fileInfo.is_test,
       fileInfo.is_config,
       fileInfo.is_entrypoint,
-      fileInfo.is_key_file
+      fileInfo.is_key_file,
     );
   }
 
@@ -148,7 +151,7 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       symbolInfo.kind,
       symbolInfo.exported,
       symbolInfo.start_line,
-      symbolInfo.end_line
+      symbolInfo.end_line,
     );
   }
 
@@ -169,7 +172,7 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       importInfo.specifier,
       importInfo.kind,
       importInfo.from_module_id || null,
-      importInfo.to_module_id || null
+      importInfo.to_module_id || null,
     );
   }
 
@@ -182,12 +185,7 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
     ) VALUES (?, ?, ?, ?)
   `);
   for (const testInfo of snapshot.tests) {
-    insertTest.run(
-      testInfo.file_path,
-      testInfo.module_id || null,
-      testInfo.framework,
-      testInfo.related_path || null
-    );
+    insertTest.run(testInfo.file_path, testInfo.module_id || null, testInfo.framework, testInfo.related_path || null);
   }
 
   const insertCommand = db.prepare(`
@@ -203,11 +201,12 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       commandInfo.module_id || null,
       commandInfo.command_type,
       commandInfo.command,
-      toJson(commandInfo.args || [])
+      toJson(commandInfo.args || []),
     );
   }
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO index_events (
       indexed_at,
       head_commit,
@@ -216,13 +215,14 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       symbol_count,
       import_count
     ) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
+  `,
+  ).run(
     snapshot.generated_at,
     headCommit,
     snapshot.files.length,
     snapshot.modules.length,
     snapshot.symbols.length,
-    snapshot.imports.length
+    snapshot.imports.length,
   );
 
   rebuildStructuralSearchIndex(db);
@@ -230,68 +230,116 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
 
 export function loadFiles(db, moduleId = null) {
   const rows = moduleId
-    ? normalizeRows(db.prepare(`
+    ? normalizeRows(
+        db
+          .prepare(
+            `
         SELECT path, module_id, language, size_bytes, fingerprint, is_test, is_config, is_entrypoint, is_key_file
         FROM files
         WHERE module_id = ?
         ORDER BY path
-      `).all(moduleId))
-    : normalizeRows(db.prepare(`
+      `,
+          )
+          .all(moduleId),
+      )
+    : normalizeRows(
+        db
+          .prepare(
+            `
         SELECT path, module_id, language, size_bytes, fingerprint, is_test, is_config, is_entrypoint, is_key_file
         FROM files
         ORDER BY path
-      `).all());
+      `,
+          )
+          .all(),
+      );
 
   return rows;
 }
 
 export function loadSymbols(db, moduleId = null) {
   const rows = moduleId
-    ? normalizeRows(db.prepare(`
+    ? normalizeRows(
+        db
+          .prepare(
+            `
         SELECT symbol_id, module_id, file_path, name, kind, exported, start_line, end_line
         FROM symbols
         WHERE module_id = ?
         ORDER BY file_path, start_line
-      `).all(moduleId))
-    : normalizeRows(db.prepare(`
+      `,
+          )
+          .all(moduleId),
+      )
+    : normalizeRows(
+        db
+          .prepare(
+            `
         SELECT symbol_id, module_id, file_path, name, kind, exported, start_line, end_line
         FROM symbols
         ORDER BY file_path, start_line
-      `).all());
+      `,
+          )
+          .all(),
+      );
 
   return rows;
 }
 
 export function loadTests(db, moduleId = null) {
   const rows = moduleId
-    ? normalizeRows(db.prepare(`
+    ? normalizeRows(
+        db
+          .prepare(
+            `
         SELECT file_path, module_id, framework, related_path
         FROM tests
         WHERE module_id = ?
         ORDER BY file_path
-      `).all(moduleId))
-    : normalizeRows(db.prepare(`
+      `,
+          )
+          .all(moduleId),
+      )
+    : normalizeRows(
+        db
+          .prepare(
+            `
         SELECT file_path, module_id, framework, related_path
         FROM tests
         ORDER BY file_path
-      `).all());
+      `,
+          )
+          .all(),
+      );
 
   return rows;
 }
 
 export function loadCommands(db, moduleId = null) {
   const rows = moduleId
-    ? normalizeRows(db.prepare(`
+    ? normalizeRows(
+        db
+          .prepare(
+            `
         SELECT module_id, command_type, command, args_json
         FROM commands
         WHERE module_id = ?
         ORDER BY command_type, command
-      `).all(moduleId))
-    : normalizeRows(db.prepare(`
+      `,
+          )
+          .all(moduleId),
+      )
+    : normalizeRows(
+        db
+          .prepare(
+            `
         SELECT module_id, command_type, command, args_json
         FROM commands
         ORDER BY module_id, command_type, command
-      `).all());
+      `,
+          )
+          .all(),
+      );
 
   return rows.map((row) => ({
     ...row,
@@ -300,31 +348,48 @@ export function loadCommands(db, moduleId = null) {
 }
 
 export function loadModuleDependencies(db, moduleId) {
-  const dependsOn = normalizeRows(db.prepare(`
+  const dependsOn = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT DISTINCT to_module_id AS module_id
     FROM imports
     WHERE from_module_id = ?
       AND to_module_id IS NOT NULL
       AND to_module_id != ?
     ORDER BY to_module_id
-  `).all(moduleId, moduleId)).map((row) => row.module_id);
+  `,
+      )
+      .all(moduleId, moduleId),
+  ).map((row) => row.module_id);
 
-  const usedBy = normalizeRows(db.prepare(`
+  const usedBy = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT DISTINCT from_module_id AS module_id
     FROM imports
     WHERE to_module_id = ?
       AND from_module_id IS NOT NULL
       AND from_module_id != ?
     ORDER BY from_module_id
-  `).all(moduleId, moduleId)).map((row) => row.module_id);
+  `,
+      )
+      .all(moduleId, moduleId),
+  ).map((row) => row.module_id);
 
   return { dependsOn, usedBy };
 }
 
 export function searchIndex(db, term, limit = 20) {
-  const pattern = `%${String(term || "").trim().toLowerCase()}%`;
+  const pattern = `%${String(term || "")
+    .trim()
+    .toLowerCase()}%`;
   return {
-    modules: normalizeRows(db.prepare(`
+    modules: normalizeRows(
+      db
+        .prepare(
+          `
       SELECT id, name, root_path, stack
       FROM query_search_fts search
       JOIN modules ON modules.id = search.entity_id
@@ -332,8 +397,14 @@ export function searchIndex(db, term, limit = 20) {
         AND search.search_text LIKE ?
       ORDER BY root_path
       LIMIT ?
-    `).all(pattern, limit)),
-    files: normalizeRows(db.prepare(`
+    `,
+        )
+        .all(pattern, limit),
+    ),
+    files: normalizeRows(
+      db
+        .prepare(
+          `
       SELECT path, module_id, language, is_test, is_config
       FROM query_search_fts search
       JOIN files ON files.path = search.entity_id
@@ -341,8 +412,14 @@ export function searchIndex(db, term, limit = 20) {
         AND search.search_text LIKE ?
       ORDER BY path
       LIMIT ?
-    `).all(pattern, limit)),
-    symbols: normalizeRows(db.prepare(`
+    `,
+        )
+        .all(pattern, limit),
+    ),
+    symbols: normalizeRows(
+      db
+        .prepare(
+          `
       SELECT name, kind, file_path, module_id, exported
       FROM query_search_fts search
       JOIN symbols ON symbols.symbol_id = CAST(search.entity_id AS INTEGER)
@@ -350,6 +427,9 @@ export function searchIndex(db, term, limit = 20) {
         AND search.search_text LIKE ?
       ORDER BY file_path, start_line
       LIMIT ?
-    `).all(pattern, limit)),
+    `,
+        )
+        .all(pattern, limit),
+    ),
   };
 }

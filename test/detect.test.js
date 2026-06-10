@@ -33,10 +33,7 @@ test("detectModules uses src subfolders for TS modules", async () => {
   });
 
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "ts");
-  assert.deepEqual(
-    modules.map((item) => item.rootPath).sort(),
-    ["src/auth", "src/payments"]
-  );
+  assert.deepEqual(modules.map((item) => item.rootPath).sort(), ["src/auth", "src/payments"]);
 });
 
 test("detectModules identifies Python package modules", async () => {
@@ -52,10 +49,13 @@ test("detectModules identifies Python package modules", async () => {
 
 test("detectStacks identifies Kotlin Android repo", async () => {
   const root = await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, "settings.gradle.kts"), "include(\":app\")\n");
+    await fs.writeFile(path.join(dir, "settings.gradle.kts"), 'include(":app")\n');
     await fs.writeFile(path.join(dir, "build.gradle.kts"), "plugins {}\n");
     await fs.mkdir(path.join(dir, "app", "src", "main", "kotlin", "com", "demo"), { recursive: true });
-    await fs.writeFile(path.join(dir, "app", "src", "main", "kotlin", "com", "demo", "MainActivity.kt"), "class MainActivity\n");
+    await fs.writeFile(
+      path.join(dir, "app", "src", "main", "kotlin", "com", "demo", "MainActivity.kt"),
+      "class MainActivity\n",
+    );
   });
 
   const stacks = await detectStacks(root, { languages: "auto" });
@@ -64,7 +64,7 @@ test("detectStacks identifies Kotlin Android repo", async () => {
 
 test("detectModules identifies Gradle modules for Kotlin repos", async () => {
   const root = await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, "settings.gradle.kts"), "include(\":app\", \":feature:payments\")\n");
+    await fs.writeFile(path.join(dir, "settings.gradle.kts"), 'include(":app", ":feature:payments")\n');
     await fs.mkdir(path.join(dir, "app"), { recursive: true });
     await fs.mkdir(path.join(dir, "feature", "payments"), { recursive: true });
     await fs.writeFile(path.join(dir, "app", "build.gradle.kts"), "plugins {}\n");
@@ -72,17 +72,14 @@ test("detectModules identifies Gradle modules for Kotlin repos", async () => {
   });
 
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "kotlin");
-  assert.deepEqual(
-    modules.map((item) => item.rootPath).sort(),
-    ["app", "feature/payments"]
-  );
+  assert.deepEqual(modules.map((item) => item.rootPath).sort(), ["app", "feature/payments"]);
 });
 
 test("detectStacks identifies Swift repo", async () => {
   const root = await withTempDir(async (dir) => {
     await fs.writeFile(path.join(dir, "Package.swift"), "// swift-tools-version: 5.9\n");
     await fs.mkdir(path.join(dir, "Sources", "App"), { recursive: true });
-    await fs.writeFile(path.join(dir, "Sources", "App", "main.swift"), "print(\"hi\")\n");
+    await fs.writeFile(path.join(dir, "Sources", "App", "main.swift"), 'print("hi")\n');
   });
 
   const stacks = await detectStacks(root, { languages: "auto" });
@@ -99,10 +96,7 @@ test("detectModules identifies Swift package modules", async () => {
   });
 
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "swift");
-  assert.deepEqual(
-    modules.map((item) => item.rootPath).sort(),
-    ["Sources/Core", "Sources/UI"]
-  );
+  assert.deepEqual(modules.map((item) => item.rootPath).sort(), ["Sources/Core", "Sources/UI"]);
 });
 
 test("detectStacks identifies Go repo", async () => {
@@ -128,15 +122,12 @@ test("detectModules identifies Go package modules", async () => {
   });
 
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "go");
-  assert.deepEqual(
-    modules.map((item) => item.rootPath).sort(),
-    ["cmd/server", "internal/auth", "pkg/billing"]
-  );
+  assert.deepEqual(modules.map((item) => item.rootPath).sort(), ["cmd/server", "internal/auth", "pkg/billing"]);
 });
 
 test("detectStacks identifies Rust repo", async () => {
   const root = await withTempDir(async (dir) => {
-    await fs.writeFile(path.join(dir, "Cargo.toml"), "[package]\nname = \"agentify-rust\"\nversion = \"0.1.0\"\n");
+    await fs.writeFile(path.join(dir, "Cargo.toml"), '[package]\nname = "agentify-rust"\nversion = "0.1.0"\n');
     await fs.mkdir(path.join(dir, "src"), { recursive: true });
     await fs.writeFile(path.join(dir, "src", "lib.rs"), "pub fn parse_token() -> String { String::new() }\n");
   });
@@ -147,21 +138,17 @@ test("detectStacks identifies Rust repo", async () => {
 
 test("detectModules identifies Rust workspace crates", async () => {
   const root = await withTempDir(async (dir) => {
-    await fs.writeFile(
-      path.join(dir, "Cargo.toml"),
-      "[workspace]\nmembers = [\"crates/core\", \"crates/api\"]\n",
-      "utf8",
-    );
+    await fs.writeFile(path.join(dir, "Cargo.toml"), '[workspace]\nmembers = ["crates/core", "crates/api"]\n', "utf8");
     await fs.mkdir(path.join(dir, "crates", "core", "src"), { recursive: true });
     await fs.mkdir(path.join(dir, "crates", "api", "src"), { recursive: true });
     await fs.writeFile(
       path.join(dir, "crates", "core", "Cargo.toml"),
-      "[package]\nname = \"agentify-core\"\nversion = \"0.1.0\"\n",
+      '[package]\nname = "agentify-core"\nversion = "0.1.0"\n',
       "utf8",
     );
     await fs.writeFile(
       path.join(dir, "crates", "api", "Cargo.toml"),
-      "[package]\nname = \"agentify-api\"\nversion = \"0.1.0\"\n",
+      '[package]\nname = "agentify-api"\nversion = "0.1.0"\n',
       "utf8",
     );
     await fs.writeFile(path.join(dir, "crates", "core", "src", "lib.rs"), "pub fn parse_token() {}\n");
@@ -169,8 +156,5 @@ test("detectModules identifies Rust workspace crates", async () => {
   });
 
   const modules = await detectModules(root, { moduleStrategy: "auto" }, "rust");
-  assert.deepEqual(
-    modules.map((item) => item.rootPath).sort(),
-    ["crates/api", "crates/core"]
-  );
+  assert.deepEqual(modules.map((item) => item.rootPath).sort(), ["crates/api", "crates/core"]);
 });

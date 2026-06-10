@@ -17,7 +17,10 @@ const MAX_RISKS = 12;
 const RECENT_SESSION_LIMIT = 8;
 
 function normalizePath(value) {
-  return String(value || "").split(path.sep).join("/").replace(/^\.\//, "");
+  return String(value || "")
+    .split(path.sep)
+    .join("/")
+    .replace(/^\.\//, "");
 }
 
 function uniqueSorted(items) {
@@ -25,7 +28,11 @@ function uniqueSorted(items) {
 }
 
 function byPathThenLine(left, right) {
-  return left.file_path.localeCompare(right.file_path) || left.start_line - right.start_line || left.name.localeCompare(right.name);
+  return (
+    left.file_path.localeCompare(right.file_path) ||
+    left.start_line - right.start_line ||
+    left.name.localeCompare(right.name)
+  );
 }
 
 function normalizeChangedEntry(entry) {
@@ -132,7 +139,9 @@ async function loadTouchedSymbolNeighborhood(root, touchedFiles, agentifyPaths) 
   const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const symbolsByFile = new Map();
-    for (const symbolInfo of loadSymbols(db).filter((item) => touched.has(item.file_path)).sort(byPathThenLine)) {
+    for (const symbolInfo of loadSymbols(db)
+      .filter((item) => touched.has(item.file_path))
+      .sort(byPathThenLine)) {
       if (!symbolsByFile.has(symbolInfo.file_path)) {
         symbolsByFile.set(symbolInfo.file_path, []);
       }
@@ -194,7 +203,7 @@ async function scanRisks(root, filePaths) {
 
 function extractTouchedPathsFromBundle(bundle) {
   const touched = Array.isArray(bundle?.touched_files) ? bundle.touched_files : [];
-  return uniqueSorted(touched.map((item) => typeof item === "string" ? item : item?.path));
+  return uniqueSorted(touched.map((item) => (typeof item === "string" ? item : item?.path)));
 }
 
 async function loadSessionTouchedPaths(root, sessionId) {
@@ -251,7 +260,12 @@ function buildNextActions(bundle) {
     actions.push("Review conflict hints before editing overlapping files.");
   }
   if (bundle.top_ranked_context.files.length > 0) {
-    actions.push(`Start with ${bundle.top_ranked_context.files.slice(0, 3).map((item) => item.path).join(", ")}.`);
+    actions.push(
+      `Start with ${bundle.top_ranked_context.files
+        .slice(0, 3)
+        .map((item) => item.path)
+        .join(", ")}.`,
+    );
   }
   if (bundle.unresolved_risks.length > 0) {
     actions.push(`Resolve or explicitly defer ${bundle.unresolved_risks.length} TODO/risk item(s).`);
@@ -259,33 +273,59 @@ function buildNextActions(bundle) {
   if (bundle.recommended_tests.commands.length > 0) {
     actions.push(`Run ${renderCommand(bundle.recommended_tests.commands[0])}.`);
   } else if (bundle.recommended_tests.files.length > 0) {
-    actions.push(`Run tests covering ${bundle.recommended_tests.files.slice(0, 3).map((item) => item.file_path).join(", ")}.`);
+    actions.push(
+      `Run tests covering ${bundle.recommended_tests.files
+        .slice(0, 3)
+        .map((item) => item.file_path)
+        .join(", ")}.`,
+    );
   }
   return actions;
 }
 
 function renderHandoffMarkdown(bundle) {
-  const contextFiles = bundle.top_ranked_context.files.length > 0
-    ? bundle.top_ranked_context.files.map((item) => `- ${item.path}${item.reasons.length > 0 ? ` (${item.reasons.join("; ")})` : ""}`).join("\n")
-    : "- none";
-  const touched = bundle.touched_files.length > 0
-    ? bundle.touched_files.map((item) => `- ${item.path} [${item.status}; ${Array.isArray(item.source) ? item.source.join(", ") : item.source}]`).join("\n")
-    : "- none";
-  const symbols = bundle.touched_symbol_neighborhood.length > 0
-    ? bundle.touched_symbol_neighborhood.flatMap((fileInfo) => [
-      `- ${fileInfo.file_path}`,
-      ...fileInfo.symbols.map((symbol) => `  - ${symbol.name} (${symbol.kind}) lines ${symbol.start_line}-${symbol.end_line}`),
-    ]).join("\n")
-    : "- none";
-  const tests = bundle.recommended_tests.commands.length > 0
-    ? bundle.recommended_tests.commands.map((item) => `- ${renderCommand(item)}`).join("\n")
-    : bundle.recommended_tests.files.map((item) => `- ${item.file_path}`).join("\n") || "- none";
-  const risks = bundle.unresolved_risks.length > 0
-    ? bundle.unresolved_risks.map((item) => `- ${item.file_path}:${item.line} ${item.tag} ${item.text}`.trim()).join("\n")
-    : "- none";
-  const conflicts = bundle.conflict_hints.length > 0
-    ? bundle.conflict_hints.map((item) => `- ${item.severity}: ${item.session_id} overlaps ${item.overlap_files.join(", ")}`).join("\n")
-    : "- none";
+  const contextFiles =
+    bundle.top_ranked_context.files.length > 0
+      ? bundle.top_ranked_context.files
+          .map((item) => `- ${item.path}${item.reasons.length > 0 ? ` (${item.reasons.join("; ")})` : ""}`)
+          .join("\n")
+      : "- none";
+  const touched =
+    bundle.touched_files.length > 0
+      ? bundle.touched_files
+          .map(
+            (item) =>
+              `- ${item.path} [${item.status}; ${Array.isArray(item.source) ? item.source.join(", ") : item.source}]`,
+          )
+          .join("\n")
+      : "- none";
+  const symbols =
+    bundle.touched_symbol_neighborhood.length > 0
+      ? bundle.touched_symbol_neighborhood
+          .flatMap((fileInfo) => [
+            `- ${fileInfo.file_path}`,
+            ...fileInfo.symbols.map(
+              (symbol) => `  - ${symbol.name} (${symbol.kind}) lines ${symbol.start_line}-${symbol.end_line}`,
+            ),
+          ])
+          .join("\n")
+      : "- none";
+  const tests =
+    bundle.recommended_tests.commands.length > 0
+      ? bundle.recommended_tests.commands.map((item) => `- ${renderCommand(item)}`).join("\n")
+      : bundle.recommended_tests.files.map((item) => `- ${item.file_path}`).join("\n") || "- none";
+  const risks =
+    bundle.unresolved_risks.length > 0
+      ? bundle.unresolved_risks
+          .map((item) => `- ${item.file_path}:${item.line} ${item.tag} ${item.text}`.trim())
+          .join("\n")
+      : "- none";
+  const conflicts =
+    bundle.conflict_hints.length > 0
+      ? bundle.conflict_hints
+          .map((item) => `- ${item.severity}: ${item.session_id} overlaps ${item.overlap_files.join(", ")}`)
+          .join("\n")
+      : "- none";
 
   return `# Agentify Handoff
 
@@ -323,13 +363,14 @@ ${conflicts}
 export async function buildHandoffBundle(root, config, sessionId, task = "") {
   const session = await resumeSession(root, sessionId);
   const manifest = session.manifest;
-  const resolvedTask = String(task || "").trim()
-    || manifest.name
-    || session.context?.run_history?.at?.(-1)?.task
-    || "Continue this session from the latest repository state.";
+  const resolvedTask =
+    String(task || "").trim() ||
+    manifest.name ||
+    session.context?.run_history?.at?.(-1)?.task ||
+    "Continue this session from the latest repository state.";
   const touchedFiles = await collectTouchedFiles(root, manifest);
   const currentHead = await getHeadCommit(root);
-  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const agentifyPaths = config._agentifyPaths || (await resolveAgentifyPaths(root, config));
   let plan = null;
   const planWarnings = [];
 
@@ -365,7 +406,7 @@ export async function buildHandoffBundle(root, config, sessionId, task = "") {
     recommended_tests: summarizeTests(plan),
     unresolved_risks: [
       ...planWarnings.map((message) => ({ file_path: null, line: null, tag: "RISK", text: message })),
-      ...await scanRisks(root, [...touchedFiles.map((item) => item.path), ...selectedRiskPaths]),
+      ...(await scanRisks(root, [...touchedFiles.map((item) => item.path), ...selectedRiskPaths])),
     ].slice(0, MAX_RISKS),
     conflict_hints: await collectConflictHints(root, sessionId, touchedFiles),
     next_actions: [],

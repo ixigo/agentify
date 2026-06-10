@@ -25,8 +25,16 @@ async function readPackageJson() {
 }
 
 function assertNoPlaceholderUrl(value, fieldName) {
-  assert.doesNotMatch(value, /github\.com\/(?:owner|user|your-org|org|example|acme)\/(?:repo|project|package|agentify)/i, `${fieldName} must not use a placeholder GitHub URL`);
-  assert.doesNotMatch(value, /example\.com|localhost|127\.0\.0\.1/i, `${fieldName} must not use a placeholder or local URL`);
+  assert.doesNotMatch(
+    value,
+    /github\.com\/(?:owner|user|your-org|org|example|acme)\/(?:repo|project|package|agentify)/i,
+    `${fieldName} must not use a placeholder GitHub URL`,
+  );
+  assert.doesNotMatch(
+    value,
+    /example\.com|localhost|127\.0\.0\.1/i,
+    `${fieldName} must not use a placeholder or local URL`,
+  );
 }
 
 function assertPortableDependencySpec(name, spec, groupName) {
@@ -34,7 +42,7 @@ function assertPortableDependencySpec(name, spec, groupName) {
   assert.doesNotMatch(
     spec,
     /^(?:file|link|portal|workspace):|^(?:\/|[A-Za-z]:[\\/])/,
-    `${groupName}.${name} must use a registry-portable version range, not ${spec}`
+    `${groupName}.${name} must use a registry-portable version range, not ${spec}`,
   );
 }
 
@@ -91,8 +99,16 @@ test("publish dependencies and workspace metadata are portable", async () => {
       continue;
     }
 
-    assert.doesNotMatch(contents, /\bagentify:\s*(?:link|file|portal|workspace):/i, `${relativePath} must not pin agentify to a local self-link`);
-    assert.doesNotMatch(contents, /(?:link|file|portal):(?:~|\/|[A-Za-z]:[\\/])/i, `${relativePath} must not include machine-local dependency links`);
+    assert.doesNotMatch(
+      contents,
+      /\bagentify:\s*(?:link|file|portal|workspace):/i,
+      `${relativePath} must not pin agentify to a local self-link`,
+    );
+    assert.doesNotMatch(
+      contents,
+      /(?:link|file|portal):(?:~|\/|[A-Za-z]:[\\/])/i,
+      `${relativePath} must not include machine-local dependency links`,
+    );
   }
 });
 

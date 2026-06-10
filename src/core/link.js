@@ -43,9 +43,7 @@ async function resolveGitWorktree(targetPath) {
   const requestedPath = path.resolve(targetPath);
   const topLevel = path.resolve(await runGit(requestedPath, ["rev-parse", "--show-toplevel"]));
   const rawCommonDir = await runGit(requestedPath, ["rev-parse", "--git-common-dir"]);
-  const gitCommonDir = path.isAbsolute(rawCommonDir)
-    ? rawCommonDir
-    : path.resolve(topLevel, rawCommonDir);
+  const gitCommonDir = path.isAbsolute(rawCommonDir) ? rawCommonDir : path.resolve(topLevel, rawCommonDir);
 
   return {
     root: topLevel,
@@ -98,9 +96,7 @@ function createStoreMetadata({ identity, existing }) {
 }
 
 function normalizeMigrationMode(raw) {
-  const value = raw === true || raw === undefined || raw === null
-    ? "auto"
-    : String(raw).trim().toLowerCase();
+  const value = raw === true || raw === undefined || raw === null ? "auto" : String(raw).trim().toLowerCase();
   if (value === "auto" || value === "local-to-shared" || value === "none") {
     return value;
   }
@@ -147,7 +143,9 @@ async function planSharedArtifactMigration({ root, projectStore, mode, dryRun })
 
   if (sharedHasArtifacts && !forceLocalToShared) {
     if (candidates.some((candidate) => candidate.sourceExists)) {
-      result.warnings.push("Shared store already has reusable artifacts; keeping shared artifacts. Use --migrate=local-to-shared to overwrite them from this worktree.");
+      result.warnings.push(
+        "Shared store already has reusable artifacts; keeping shared artifacts. Use --migrate=local-to-shared to overwrite them from this worktree.",
+      );
     }
     for (const candidate of candidates) {
       if (candidate.sourceExists) {
@@ -198,7 +196,9 @@ async function linkFromCanonical(root, options) {
   const current = await resolveGitWorktree(root);
   const canonical = await resolveGitWorktree(from);
   if (current.gitCommonDir !== canonical.gitCommonDir) {
-    throw new Error("Cannot link unrelated repositories: target and canonical worktree do not share the same git common dir");
+    throw new Error(
+      "Cannot link unrelated repositories: target and canonical worktree do not share the same git common dir",
+    );
   }
 
   const payload = createFromLinkPayload({ canonical, current });
@@ -250,8 +250,8 @@ async function linkAuto(root, options) {
   const identity = await getGitIdentity(resolvedRoot);
   if (!identity) {
     const error = new Error(
-      "Cannot create a shared worktree store because this directory is not inside a Git repository. "
-      + "Use local mode, or run this command from a Git worktree."
+      "Cannot create a shared worktree store because this directory is not inside a Git repository. " +
+        "Use local mode, or run this command from a Git worktree.",
     );
     error.code = "AGENTIFY_LINK_NOT_GIT";
     throw error;
@@ -267,10 +267,10 @@ async function linkAuto(root, options) {
   if (paths.linked && paths.linkPayload && Number(paths.linkPayload.schema_version) === LINK_SCHEMA_VERSION) {
     if (paths.linkPayload.git_common_dir && paths.linkPayload.git_common_dir !== identity.commonDir && !options.force) {
       const error = new Error(
-        "This worktree is linked to a different Git repository.\n"
-        + `  Current Git common dir: ${identity.commonDir}\n`
-        + `  Linked Git common dir:  ${paths.linkPayload.git_common_dir}\n`
-        + "Refusing to reuse shared Agentify store. Pass --force only if this repository was moved."
+        "This worktree is linked to a different Git repository.\n" +
+          `  Current Git common dir: ${identity.commonDir}\n` +
+          `  Linked Git common dir:  ${paths.linkPayload.git_common_dir}\n` +
+          "Refusing to reuse shared Agentify store. Pass --force only if this repository was moved.",
       );
       error.code = "AGENTIFY_LINK_REPO_MISMATCH";
       throw error;
@@ -296,17 +296,18 @@ async function linkAuto(root, options) {
     try {
       existingPayload = await readJson(linkPath);
       if (
-        existingPayload
-        && existingPayload.kind === LINK_KIND
-        && Number(existingPayload.schema_version) === LINK_SCHEMA_VERSION
-        && existingPayload.project_store === payload.project_store
-        && existingPayload.git_common_dir === payload.git_common_dir
-        && existingPayload.repo_key === payload.repo_key
+        existingPayload &&
+        existingPayload.kind === LINK_KIND &&
+        Number(existingPayload.schema_version) === LINK_SCHEMA_VERSION &&
+        existingPayload.project_store === payload.project_store &&
+        existingPayload.git_common_dir === payload.git_common_dir &&
+        existingPayload.repo_key === payload.repo_key
       ) {
         changed = false;
         // Preserve created_at when refreshing.
         payload.created_at = existingPayload.created_at || payload.created_at;
-        payload.created_by_agentify_version = existingPayload.created_by_agentify_version || payload.created_by_agentify_version;
+        payload.created_by_agentify_version =
+          existingPayload.created_by_agentify_version || payload.created_by_agentify_version;
       }
     } catch {
       existingPayload = null;
@@ -351,13 +352,9 @@ async function linkAuto(root, options) {
 
 function pickAutoStorePath(identity, options) {
   const env = options?.env || process.env;
-  const explicit = env.AGENTIFY_SHARED_STORE_PATH
-    || options?.config?.runtime?.sharedStorePath
-    || null;
+  const explicit = env.AGENTIFY_SHARED_STORE_PATH || options?.config?.runtime?.sharedStorePath || null;
   if (explicit) {
-    const expanded = explicit.startsWith("~/")
-      ? path.join(process.env.HOME || "", explicit.slice(2))
-      : explicit;
+    const expanded = explicit.startsWith("~/") ? path.join(process.env.HOME || "", explicit.slice(2)) : explicit;
     return path.join(path.resolve(expanded), identity.repoKey);
   }
   return path.join(process.env.HOME || "", ".cache", "agentify", identity.repoKey);

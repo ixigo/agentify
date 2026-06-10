@@ -41,10 +41,8 @@ const REMEDIATION_HINTS = {
     "Only recognized Agentify paths (.agentify/, docs/, generated AGENTIFY.md files, provider skill dirs, .guardrails, .agentignore, .gitignore) and code files with header-only changes are allowed. Run 'git checkout -- <path>' to revert.",
   [FAILURE_CATEGORIES.CODE_BODY_CHANGED]:
     "Agentify only modifies @agentify headers. If you edited this file intentionally, commit it separately before running agentify.",
-  [FAILURE_CATEGORIES.FRESHNESS_STALE]:
-    "Run 'agentify scan' followed by 'agentify doc' to refresh.",
-  [FAILURE_CATEGORIES.INSPECTION_ERROR]:
-    "The file may have been deleted or is unreadable. Run 'git status' to verify.",
+  [FAILURE_CATEGORIES.FRESHNESS_STALE]: "Run 'agentify scan' followed by 'agentify doc' to refresh.",
+  [FAILURE_CATEGORIES.INSPECTION_ERROR]: "The file may have been deleted or is unreadable. Run 'git status' to verify.",
 };
 
 function createFailure(category, filePath, message) {
@@ -81,15 +79,11 @@ export function validateHeaderOnlyChange(before, after, filePath, headerWindow =
 
 async function validateFreshness(root, failures, options = {}) {
   const targetRoot = options.artifactRoot || root;
-  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(targetRoot, options.config || {});
+  const agentifyPaths = options.artifactPaths || (await resolveAgentifyPaths(targetRoot, options.config || {}));
   const indexPath = agentifyPaths.indexDb;
   if (!(await exists(indexPath))) {
     failures.push(
-      createFailure(
-        FAILURE_CATEGORIES.FRESHNESS_STALE,
-        ".agentify/index.db",
-        "missing .agentify/index.db"
-      )
+      createFailure(FAILURE_CATEGORIES.FRESHNESS_STALE, ".agentify/index.db", "missing .agentify/index.db"),
     );
     return;
   }
@@ -102,8 +96,8 @@ async function validateFreshness(root, failures, options = {}) {
         createFailure(
           FAILURE_CATEGORIES.FRESHNESS_STALE,
           ".agentify/index.db",
-          `stale index head_commit: expected ${headCommit}, found ${meta.head_commit || "unknown"}`
-        )
+          `stale index head_commit: expected ${headCommit}, found ${meta.head_commit || "unknown"}`,
+        ),
       );
     }
 
@@ -115,10 +109,9 @@ async function validateFreshness(root, failures, options = {}) {
         exists: await exists(path.join(targetRoot, moduleInfo.doc_path)),
       });
     }
-    const requireModuleDocs = options.config?.docs !== false && (
-      await exists(path.join(targetRoot, "AGENTIFY.md"))
-      || moduleDocStates.some((state) => state.exists)
-    );
+    const requireModuleDocs =
+      options.config?.docs !== false &&
+      ((await exists(path.join(targetRoot, "AGENTIFY.md"))) || moduleDocStates.some((state) => state.exists));
     for (const { moduleInfo, exists: docExists } of moduleDocStates) {
       const docPath = moduleInfo.doc_path;
       if (!docExists) {
@@ -129,8 +122,8 @@ async function validateFreshness(root, failures, options = {}) {
           createFailure(
             FAILURE_CATEGORIES.FRESHNESS_STALE,
             docPath,
-            `indexed module ${moduleInfo.id} is missing generated doc ${docPath}`
-          )
+            `indexed module ${moduleInfo.id} is missing generated doc ${docPath}`,
+          ),
         );
         continue;
       }
@@ -139,8 +132,8 @@ async function validateFreshness(root, failures, options = {}) {
           createFailure(
             FAILURE_CATEGORIES.FRESHNESS_STALE,
             docPath,
-            `module ${moduleInfo.id} is missing a fingerprint in the DB index`
-          )
+            `module ${moduleInfo.id} is missing a fingerprint in the DB index`,
+          ),
         );
       }
     }
@@ -153,8 +146,8 @@ async function validateFreshness(root, failures, options = {}) {
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
               ".agentify/index.db",
-              `semantic project ${projectInfo.project_id} is ${projectInfo.status}`
-            )
+              `semantic project ${projectInfo.project_id} is ${projectInfo.status}`,
+            ),
           );
         }
         if (Number(projectInfo.coverage_ratio || 0) < 1) {
@@ -162,8 +155,8 @@ async function validateFreshness(root, failures, options = {}) {
             createFailure(
               FAILURE_CATEGORIES.FRESHNESS_STALE,
               ".agentify/index.db",
-              `semantic project ${projectInfo.project_id} has partial coverage`
-            )
+              `semantic project ${projectInfo.project_id} has partial coverage`,
+            ),
           );
         }
       }
@@ -184,11 +177,7 @@ async function validateChangedFiles(root, config, failures, options = {}) {
 
     if (!isAllowedPath(relPath)) {
       failures.push(
-        createFailure(
-          FAILURE_CATEGORIES.UNSAFE_PATH,
-          relPath,
-          `Changed file outside allowlist: ${relPath}`
-        )
+        createFailure(FAILURE_CATEGORIES.UNSAFE_PATH, relPath, `Changed file outside allowlist: ${relPath}`),
       );
       continue;
     }
@@ -198,7 +187,10 @@ async function validateChangedFiles(root, config, failures, options = {}) {
     codeEntries.push(entry);
   }
 
-  const headContents = await getFileContentsAtHead(root, codeEntries.map((entry) => entry.path));
+  const headContents = await getFileContentsAtHead(
+    root,
+    codeEntries.map((entry) => entry.path),
+  );
   for (const entry of codeEntries) {
     const relPath = entry.path;
     try {
@@ -210,17 +202,13 @@ async function validateChangedFiles(root, config, failures, options = {}) {
           createFailure(
             FAILURE_CATEGORIES.CODE_BODY_CHANGED,
             relPath,
-            `File body changed beyond header region in ${relPath}`
-          )
+            `File body changed beyond header region in ${relPath}`,
+          ),
         );
       }
     } catch (error) {
       failures.push(
-        createFailure(
-          FAILURE_CATEGORIES.INSPECTION_ERROR,
-          relPath,
-          `Unable to read ${relPath}: ${error.message}`
-        )
+        createFailure(FAILURE_CATEGORIES.INSPECTION_ERROR, relPath, `Unable to read ${relPath}: ${error.message}`),
       );
     }
   }
@@ -241,13 +229,7 @@ export async function validateRepo(root, config, options = {}) {
     .filter((file) => file.startsWith(".agentify/") || file.startsWith("docs/"))
     .filter((file) => !isAllowedPath(file));
   for (const file of unsafeGeneratedFiles) {
-    failures.push(
-      createFailure(
-        FAILURE_CATEGORIES.UNSAFE_PATH,
-        file,
-        `generated file in unsafe location: ${file}`
-      )
-    );
+    failures.push(createFailure(FAILURE_CATEGORIES.UNSAFE_PATH, file, `generated file in unsafe location: ${file}`));
   }
 
   return {

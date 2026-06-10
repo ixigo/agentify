@@ -7,13 +7,19 @@ import { createInterface } from "node:readline/promises";
 import { ensureBaselineArtifacts } from "./commands.js";
 import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./config.js";
 import { exists } from "./fs.js";
-import { BOOTSTRAP_PROVIDER_NAMES, getProviderBootstrap, getProviderDefinition, stripAnsi } from "./provider-registry.js";
+import {
+  BOOTSTRAP_PROVIDER_NAMES,
+  getProviderBootstrap,
+  getProviderDefinition,
+  stripAnsi,
+} from "./provider-registry.js";
 import { buildSkillInstallHint } from "./skills.js";
 import * as ui from "./ui.js";
 
 export const BOOTSTRAP_PROVIDERS = BOOTSTRAP_PROVIDER_NAMES;
 
-const HOMEBREW_INSTALL_COMMAND = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+const HOMEBREW_INSTALL_COMMAND =
+  '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
 
 const MACOS_REQUIRED_TOOLS = [
   {
@@ -55,7 +61,9 @@ const NODE_INSTALL = {
 };
 
 function normalizeBootstrapProvider(value) {
-  const provider = String(value || "").trim().toLowerCase();
+  const provider = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!provider) {
     throw new Error(`provider is required. Supported providers: ${BOOTSTRAP_PROVIDERS.join(", ")}`);
   }
@@ -213,9 +221,7 @@ async function promptForRoot(defaultRoot, prompts) {
 
 export async function resolveBootstrapInputs(args, runtime = {}) {
   const canPrompt = runtime.canPrompt ?? (!args.json && process.stdin.isTTY && process.stderr.isTTY);
-  const prompts = canPrompt
-    ? createPromptAdapter(runtime)
-    : { close() {} };
+  const prompts = canPrompt ? createPromptAdapter(runtime) : { close() {} };
 
   try {
     const provider = args.provider
@@ -225,7 +231,9 @@ export async function resolveBootstrapInputs(args, runtime = {}) {
         : null;
 
     if (!provider) {
-      throw new Error(`agentify this requires --provider in non-interactive mode. Supported providers: ${BOOTSTRAP_PROVIDERS.join(", ")}`);
+      throw new Error(
+        `agentify this requires --provider in non-interactive mode. Supported providers: ${BOOTSTRAP_PROVIDERS.join(", ")}`,
+      );
     }
 
     const requestedRoot = args.root
@@ -253,7 +261,7 @@ export async function buildBootstrapInstallPlan(provider, runtime = {}) {
 
   const installPlan = [];
   for (const step of MACOS_REQUIRED_TOOLS) {
-    if (!await stepInstalled(step, mergedRuntime)) {
+    if (!(await stepInstalled(step, mergedRuntime))) {
       installPlan.push({ ...step, target: "tool" });
     }
   }
@@ -263,11 +271,11 @@ export async function buildBootstrapInstallPlan(provider, runtime = {}) {
     throw new Error(`unsupported provider "${provider}"`);
   }
 
-  if (providerStep.install[0] === "npm" && !await stepInstalled(NODE_INSTALL, mergedRuntime)) {
+  if (providerStep.install[0] === "npm" && !(await stepInstalled(NODE_INSTALL, mergedRuntime))) {
     installPlan.push({ ...NODE_INSTALL, target: "tool" });
   }
 
-  if (!await stepInstalled(providerStep, mergedRuntime)) {
+  if (!(await stepInstalled(providerStep, mergedRuntime))) {
     installPlan.push({ ...providerStep, target: "provider" });
   }
 
@@ -344,7 +352,7 @@ export async function runBootstrapCommand(args, runtime = {}) {
 
   progress.update(30, "verifying repository and prerequisites");
 
-  if (!await exists(requestedRoot)) {
+  if (!(await exists(requestedRoot))) {
     const result = buildBlockedResult({
       provider,
       requestedRoot,
@@ -366,7 +374,9 @@ export async function runBootstrapCommand(args, runtime = {}) {
     if (canPrompt) {
       const prompts = createPromptAdapter(mergedRuntime);
       try {
-        const wantsCommand = await prompts.confirm("Homebrew is required on macOS and is not installed. Show install command?");
+        const wantsCommand = await prompts.confirm(
+          "Homebrew is required on macOS and is not installed. Show install command?",
+        );
         if (wantsCommand) {
           ui.log(HOMEBREW_INSTALL_COMMAND);
         }

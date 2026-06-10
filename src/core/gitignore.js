@@ -16,29 +16,19 @@ export const AGENTIFY_GITIGNORE_PATTERNS = [
   "agentify-report.html",
 ];
 
-const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [
-  ".agents/",
-  ".agentify/work/",
-];
+const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [".agents/", ".agentify/work/"];
 
 const AGENTIFY_GITIGNORE_HEADER =
   "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.";
 
 function getManagedGitignoreLines() {
-  return [
-    AGENTIFY_GITIGNORE_HEADER,
-    ...AGENTIFY_GITIGNORE_PATTERNS,
-  ];
+  return [AGENTIFY_GITIGNORE_HEADER, ...AGENTIFY_GITIGNORE_PATTERNS];
 }
 
 export function renderAgentifyGitignoreBlock(preservedLines = []) {
-  return [
-    AGENTIFY_GITIGNORE_START,
-    ...getManagedGitignoreLines(),
-    ...preservedLines,
-    AGENTIFY_GITIGNORE_END,
-    "",
-  ].join("\n");
+  return [AGENTIFY_GITIGNORE_START, ...getManagedGitignoreLines(), ...preservedLines, AGENTIFY_GITIGNORE_END, ""].join(
+    "\n",
+  );
 }
 
 function normalizeText(text) {
@@ -46,10 +36,9 @@ function normalizeText(text) {
 }
 
 function collectPreservedBlockLines(blockText) {
-  const managedLines = new Set([
-    ...getManagedGitignoreLines(),
-    ...LEGACY_AGENTIFY_GITIGNORE_PATTERNS,
-  ].map((line) => line.trim()));
+  const managedLines = new Set(
+    [...getManagedGitignoreLines(), ...LEGACY_AGENTIFY_GITIGNORE_PATTERNS].map((line) => line.trim()),
+  );
   const seen = new Set();
   const preserved = [];
 
@@ -109,10 +98,15 @@ export async function ensureAgentifyGitignore(root, { dryRun = false } = {}) {
     path: gitignorePath,
     existed: existing !== null,
     changed,
-    status: existing === null
-      ? dryRun ? "would_create" : "created"
-      : changed
-        ? dryRun ? "would_update" : "updated"
-        : "unchanged",
+    status:
+      existing === null
+        ? dryRun
+          ? "would_create"
+          : "created"
+        : changed
+          ? dryRun
+            ? "would_update"
+            : "updated"
+          : "unchanged",
   };
 }

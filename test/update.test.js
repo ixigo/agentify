@@ -26,11 +26,18 @@ async function initGitRepo(root) {
 
 async function createRepoWithScriptedTest(prefix, exitCode) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "node test-result.js"
-    }
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: "node test-result.js",
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.writeFile(path.join(root, "test-result.js"), `process.exit(${exitCode});\n`);
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
@@ -55,9 +62,7 @@ async function createInitializedRepoWithSourceEdit(prefix) {
 
 async function readLatestRunReport(root, commandName) {
   const runDir = path.join(root, ".agentify", "runs");
-  const runFiles = (await fs.readdir(runDir))
-    .filter((file) => file.endsWith(`-${commandName}.json`))
-    .sort();
+  const runFiles = (await fs.readdir(runDir)).filter((file) => file.endsWith(`-${commandName}.json`)).sort();
   assert.ok(runFiles.length > 0, `expected a persisted ${commandName} run report`);
   return JSON.parse(await fs.readFile(path.join(runDir, runFiles.at(-1)), "utf8"));
 }
@@ -119,7 +124,7 @@ test("validateRepo allows tracked header-only code changes", async () => {
     moduleName: "auth",
     summary: "Authentication entrypoints refreshed",
     relativePath: "src/auth/index.ts",
-    stack: "ts"
+    stack: "ts",
   });
   const current = await fs.readFile(filePath, "utf8");
   await fs.writeFile(filePath, applyHeaderToSource(current, header), "utf8");
@@ -148,7 +153,7 @@ test("validateRepo batches HEAD content reads for changed code files", async () 
       moduleName: "auth",
       summary: `${fileName} refreshed`,
       relativePath: `src/auth/${fileName}`,
-      stack: "ts"
+      stack: "ts",
     });
     await fs.writeFile(filePath, applyHeaderToSource(current, header), "utf8");
   }
@@ -157,25 +162,29 @@ test("validateRepo batches HEAD content reads for changed code files", async () 
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-wrapper-"));
   const logPath = path.join(binDir, "git.log");
   const wrapperPath = path.join(binDir, "git");
-  await fs.writeFile(wrapperPath, [
-    "#!/usr/bin/env node",
-    "import fs from \"node:fs\";",
-    "import { spawnSync } from \"node:child_process\";",
-    "",
-    "const args = process.argv.slice(2);",
-    "fs.appendFileSync(process.env.AGENTIFY_GIT_LOG, `${JSON.stringify(args)}\\n`);",
-    "if (args[0] === \"show\") {",
-    "  process.exit(42);",
-    "}",
-    "",
-    "const result = spawnSync(process.env.AGENTIFY_REAL_GIT, args, { stdio: \"inherit\" });",
-    "if (result.error) {",
-    "  console.error(result.error.message);",
-    "  process.exit(1);",
-    "}",
-    "process.exit(result.status ?? 0);",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    wrapperPath,
+    [
+      "#!/usr/bin/env node",
+      'import fs from "node:fs";',
+      'import { spawnSync } from "node:child_process";',
+      "",
+      "const args = process.argv.slice(2);",
+      "fs.appendFileSync(process.env.AGENTIFY_GIT_LOG, `${JSON.stringify(args)}\\n`);",
+      'if (args[0] === "show") {',
+      "  process.exit(42);",
+      "}",
+      "",
+      'const result = spawnSync(process.env.AGENTIFY_REAL_GIT, args, { stdio: "inherit" });',
+      "if (result.error) {",
+      "  console.error(result.error.message);",
+      "  process.exit(1);",
+      "}",
+      "process.exit(result.status ?? 0);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await fs.chmod(wrapperPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -195,7 +204,10 @@ test("validateRepo batches HEAD content reads for changed code files", async () 
 
     assert.equal(result.passed, true);
     assert.equal(calls.filter((args) => args[0] === "cat-file" && args[1] === "--batch").length, 1);
-    assert.equal(calls.some((args) => args[0] === "show"), false);
+    assert.equal(
+      calls.some((args) => args[0] === "show"),
+      false,
+    );
   } finally {
     if (previousPath === undefined) {
       delete process.env.PATH;
@@ -302,7 +314,9 @@ test("runUpdate default validation flags ordinary tracked source edits", async (
   try {
     process.exitCode = undefined;
     const finalOutput = await runUpdate(root, config);
-    const codeBodyFailures = finalOutput.validation.failures.filter((failure) => failure.category === "code-body-changed");
+    const codeBodyFailures = finalOutput.validation.failures.filter(
+      (failure) => failure.category === "code-body-changed",
+    );
 
     assert.equal(finalOutput.validation.passed, false);
     assert.equal(codeBodyFailures.length, 1);
@@ -320,7 +334,9 @@ test("runUpdate hook mode allows ordinary tracked source edits", async () => {
   try {
     process.exitCode = undefined;
     const finalOutput = await runUpdate(root, config, { skipCodeBodyChanges: true });
-    const codeBodyFailures = finalOutput.validation.failures.filter((failure) => failure.category === "code-body-changed");
+    const codeBodyFailures = finalOutput.validation.failures.filter(
+      (failure) => failure.category === "code-body-changed",
+    );
 
     assert.equal(finalOutput.validation.passed, true);
     assert.equal(codeBodyFailures.length, 0);
@@ -350,21 +366,31 @@ test("validateRepo allows project-scoped skill installations", async () => {
 
 test("runUpdate emits percentage progress logs", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-progress-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "node --test"
-    }
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: "node --test",
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "test"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
-  await fs.writeFile(path.join(root, "test", "pass.test.js"), `import test from "node:test";
+  await fs.writeFile(
+    path.join(root, "test", "pass.test.js"),
+    `import test from "node:test";
 import assert from "node:assert/strict";
 
 test("passes", () => {
   assert.equal(1, 1);
 });
-`);
+`,
+  );
 
   const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: true });
   const stderrChunks = [];
@@ -372,10 +398,10 @@ test("passes", () => {
   const originalWrite = process.stderr.write.bind(process.stderr);
   const originalLog = console.log;
 
-  process.stderr.write = ((chunk, encoding, callback) => {
+  process.stderr.write = (chunk, encoding, callback) => {
     stderrChunks.push(String(chunk));
     return originalWrite(chunk, encoding, callback);
-  });
+  };
   console.log = (...args) => {
     stdoutMessages.push(args);
   };
@@ -407,7 +433,13 @@ test("runUpdate in ghost mode reuses a single artifact root", async () => {
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
   await initGitRepo(root);
 
-  const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, ghost: true, docs: true });
+  const config = await loadConfig(root, {
+    provider: "local",
+    dryRun: false,
+    tokenReport: false,
+    ghost: true,
+    docs: true,
+  });
   await runUpdate(root, config);
 
   const sessionRoot = path.join(root, ".current_session");
@@ -423,28 +455,56 @@ test("runUpdate in ghost mode reuses a single artifact root", async () => {
   assert.equal(await fs.stat(path.join(artifactRoot, "ghost-report.json")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "output.txt")).then(() => true), true);
   assert.equal(await fs.stat(path.join(artifactRoot, "agentify-report.html")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, "output.txt")).then(() => true).catch(() => false), false);
-  assert.equal(await fs.stat(path.join(root, "agentify-report.html")).then(() => true).catch(() => false), false);
+  assert.equal(
+    await fs
+      .stat(path.join(root, ".agentify", "index.db"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, "output.txt"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
+  assert.equal(
+    await fs
+      .stat(path.join(root, "agentify-report.html"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
 });
 
 test("runUpdate with json emits only the final payload", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-json-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "node --test"
-    }
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: "node --test",
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "test"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
-  await fs.writeFile(path.join(root, "test", "pass.test.js"), `import test from "node:test";
+  await fs.writeFile(
+    path.join(root, "test", "pass.test.js"),
+    `import test from "node:test";
 import assert from "node:assert/strict";
 
 test("passes", () => {
   assert.equal(1, 1);
 });
-`);
+`,
+  );
 
   const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, json: true });
   config._suppressProgress = true;
@@ -518,7 +578,10 @@ test("runUpdate persists test metadata for passing and failing up and sync run r
   try {
     for (const testCase of cases) {
       process.exitCode = undefined;
-      const root = await createRepoWithScriptedTest(`agentify-${testCase.commandName}-persist-tests-`, testCase.exitCode);
+      const root = await createRepoWithScriptedTest(
+        `agentify-${testCase.commandName}-persist-tests-`,
+        testCase.exitCode,
+      );
       const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: true, json: true });
       const originalLog = console.log;
       console.log = () => {};
@@ -551,27 +614,43 @@ test("runUpdate persists test metadata for passing and failing up and sync run r
 
 test("runUpdate skips docs and headers by default unless docs=true is explicitly set", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-update-default-docs-off-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "node --test"
-    }
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: "node --test",
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "test"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
-  await fs.writeFile(path.join(root, "test", "pass.test.js"), `import test from "node:test";
+  await fs.writeFile(
+    path.join(root, "test", "pass.test.js"),
+    `import test from "node:test";
 import assert from "node:assert/strict";
 
 test("passes", () => {
   assert.equal(1, 1);
 });
-`);
+`,
+  );
 
   const config = await loadConfig(root, { provider: "local", dryRun: false, tokenReport: false, docs: false });
   await runUpdate(root, config);
 
   assert.equal(await fs.stat(path.join(root, ".agentify", "index.db")).then(() => true), true);
-  assert.equal(await fs.stat(path.join(root, "AGENTIFY.md")).then(() => true).catch(() => false), false);
+  assert.equal(
+    await fs
+      .stat(path.join(root, "AGENTIFY.md"))
+      .then(() => true)
+      .catch(() => false),
+    false,
+  );
   const source = await fs.readFile(path.join(root, "src", "auth", "index.ts"), "utf8");
   assert.doesNotMatch(source, /@agentify/);
 });
@@ -613,7 +692,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
   assert.deepEqual(docResult?.provider_status, {
     status: "fallback",
     provider: "local",
-    mode: "deterministic-local"
+    mode: "deterministic-local",
   });
 
   const runDir = path.join(root, ".agentify", "runs");
@@ -624,7 +703,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
   assert.deepEqual(latestRun.provider_status, {
     status: "fallback",
     provider: "local",
-    mode: "deterministic-local"
+    mode: "deterministic-local",
   });
   const db = openIndexDatabase(root);
   try {
@@ -636,7 +715,7 @@ test("runDoc reuses cached module artifacts when bounded content is unchanged", 
     assert.deepEqual(moduleArtifact?.payload?.metadata?.provider_status, {
       status: "fallback",
       provider: "local",
-      mode: "deterministic-local"
+      mode: "deterministic-local",
     });
     assert.match(moduleArtifact?.payload?.metadata?.freshness?.content_fingerprint || "", /^[a-f0-9]{64}$/);
   } finally {
@@ -701,10 +780,7 @@ test("runDoc removes module-doc cache entries written before a failed doc run", 
   await fs.rm(path.join(root, "src", "payments"), { recursive: true, force: true });
   await fs.writeFile(path.join(root, "src", "payments"), "not a directory\n", "utf8");
 
-  await assert.rejects(
-    () => runDoc(root, config, { skipOutput: true }),
-    /EEXIST|ENOTDIR|not a directory/
-  );
+  await assert.rejects(() => runDoc(root, config, { skipOutput: true }), /EEXIST|ENOTDIR|not a directory/);
 
   const db = openIndexDatabase(root);
   try {
@@ -727,9 +803,13 @@ test("runDoc falls back to deterministic module docs when an external provider s
   await fs.writeFile(path.join(root, "src", "auth", "index.ts"), "export const login = () => true;\n");
 
   const codexPath = path.join(binDir, "codex");
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 setInterval(() => {}, 1000);
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -770,11 +850,20 @@ setInterval(() => {}, 1000);
       assert.equal(artifact.payload.metadata.provider_status.status, "fallback");
       assert.equal(artifact.payload.metadata.provider_status.provider, "local");
       assert.equal(artifact.payload.metadata.provider_status.requested_provider, "codex");
-      assert.match(artifact.payload.metadata.provider_status.reason, /timed out|failed during module artifact generation/);
+      assert.match(
+        artifact.payload.metadata.provider_status.reason,
+        /timed out|failed during module artifact generation/,
+      );
     } finally {
       closeIndexDatabase(fallbackDb);
     }
-    assert.equal(await fs.stat(path.join(root, ".agentify", ".lock")).then(() => true).catch(() => false), false);
+    assert.equal(
+      await fs
+        .stat(path.join(root, ".agentify", ".lock"))
+        .then(() => true)
+        .catch(() => false),
+      false,
+    );
   } finally {
     if (previousPath === undefined) {
       delete process.env.PATH;

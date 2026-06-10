@@ -26,14 +26,17 @@ async function syncBaselineArtifacts(root, config) {
   const gitignore = await ensureAgentifyGitignore(root, { dryRun: config.dryRun });
   await ensureBaselineArtifacts(root, config);
 
-  return [gitignore, ...BASELINE_ARTIFACTS.map((relativePath) => {
-    const existed = before.get(relativePath);
-    return {
-      path: path.join(root, relativePath),
-      existed,
-      status: existed ? "unchanged" : config.dryRun ? "would_create" : "created",
-    };
-  })];
+  return [
+    gitignore,
+    ...BASELINE_ARTIFACTS.map((relativePath) => {
+      const existed = before.get(relativePath);
+      return {
+        path: path.join(root, relativePath),
+        existed,
+        status: existed ? "unchanged" : config.dryRun ? "would_create" : "created",
+      };
+    }),
+  ];
 }
 
 function logSyncSummary(result) {

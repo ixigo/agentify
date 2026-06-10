@@ -32,7 +32,9 @@ function octalMode(stats) {
 }
 
 function explainDetails(db, sql, ...params) {
-  return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params)
+  return db
+    .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+    .all(...params)
     .map((row) => String(row.detail || ""))
     .join("\n");
 }
@@ -64,7 +66,8 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-fallback-"));
   const writeDb = openIndexDatabase(root);
   try {
-    writeDb.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
+    writeDb
+      .prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
       .run("fixture_marker", JSON.stringify("source"));
   } finally {
     closeIndexDatabase(writeDb);
@@ -96,8 +99,7 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
     db = openIndexDatabase(root, { readOnly: true });
     tempDir = db.__agentifyTempDir;
     assert.ok(tempDir);
-    const marker = db.prepare("SELECT value_json FROM repo_meta WHERE key = ?")
-      .get("fixture_marker");
+    const marker = db.prepare("SELECT value_json FROM repo_meta WHERE key = ?").get("fixture_marker");
     assert.equal(marker.value_json, JSON.stringify("source"));
 
     const snapshotPath = path.join(tempDir, "index.db");
@@ -106,7 +108,10 @@ test("openIndexDatabase read-only fallback snapshots valid databases without ini
 
     for (const suffix of ["-wal", "-shm"]) {
       const sidecarPath = `${snapshotPath}${suffix}`;
-      const exists = await fs.access(sidecarPath).then(() => true).catch(() => false);
+      const exists = await fs
+        .access(sidecarPath)
+        .then(() => true)
+        .catch(() => false);
       if (exists) {
         assert.equal(octalMode(await fs.stat(sidecarPath)), "600");
       }
@@ -155,8 +160,7 @@ test("openIndexDatabase read-only rejects unsupported index schema version", asy
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-readonly-"));
   const db = openIndexDatabase(root);
   try {
-    db.prepare("UPDATE repo_meta SET value_json = ? WHERE key = 'schema_version'")
-      .run(JSON.stringify("0.1"));
+    db.prepare("UPDATE repo_meta SET value_json = ? WHERE key = 'schema_version'").run(JSON.stringify("0.1"));
   } finally {
     closeIndexDatabase(db);
   }
@@ -171,74 +175,86 @@ test("structural store writes and searches repository index data", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-structural-"));
   const db = openIndexDatabase(root);
   try {
-    writeRepositoryIndex(db, {
-      repo: {
-        name: "fixture",
-        root,
-        detected_stacks: ["ts"],
-        default_stack: "ts",
-        package_manager: "pnpm",
+    writeRepositoryIndex(
+      db,
+      {
+        repo: {
+          name: "fixture",
+          root,
+          detected_stacks: ["ts"],
+          default_stack: "ts",
+          package_manager: "pnpm",
+        },
+        generated_at: "2026-04-27T00:00:00.000Z",
+        modules: [
+          {
+            id: "app",
+            name: "App",
+            root_path: "src",
+            stack: "ts",
+            package_name: "fixture",
+            slug: "app",
+            doc_path: "docs/modules/app.md",
+            fingerprint: "module-fingerprint",
+            entry_files: ["src/index.ts"],
+            key_files: ["src/index.ts"],
+          },
+        ],
+        files: [
+          {
+            path: "src/index.ts",
+            module_id: "app",
+            language: "typescript",
+            size_bytes: 42,
+            fingerprint: "file-fingerprint",
+            is_test: 0,
+            is_config: 0,
+            is_entrypoint: 1,
+            is_key_file: 1,
+          },
+          {
+            path: "src/index.test.ts",
+            module_id: "app",
+            language: "typescript",
+            size_bytes: 21,
+            fingerprint: "test-fingerprint",
+            is_test: 1,
+            is_config: 0,
+            is_entrypoint: 0,
+            is_key_file: 0,
+          },
+        ],
+        symbols: [
+          {
+            module_id: "app",
+            file_path: "src/index.ts",
+            name: "startApp",
+            kind: "function",
+            exported: 1,
+            start_line: 1,
+            end_line: 3,
+          },
+        ],
+        imports: [],
+        tests: [
+          {
+            file_path: "src/index.test.ts",
+            module_id: "app",
+            framework: "node:test",
+            related_path: "src/index.ts",
+          },
+        ],
+        commands: [
+          {
+            module_id: "app",
+            command_type: "test",
+            command: "pnpm",
+            args: ["test"],
+          },
+        ],
       },
-      generated_at: "2026-04-27T00:00:00.000Z",
-      modules: [{
-        id: "app",
-        name: "App",
-        root_path: "src",
-        stack: "ts",
-        package_name: "fixture",
-        slug: "app",
-        doc_path: "docs/modules/app.md",
-        fingerprint: "module-fingerprint",
-        entry_files: ["src/index.ts"],
-        key_files: ["src/index.ts"],
-      }],
-      files: [
-        {
-          path: "src/index.ts",
-          module_id: "app",
-          language: "typescript",
-          size_bytes: 42,
-          fingerprint: "file-fingerprint",
-          is_test: 0,
-          is_config: 0,
-          is_entrypoint: 1,
-          is_key_file: 1,
-        },
-        {
-          path: "src/index.test.ts",
-          module_id: "app",
-          language: "typescript",
-          size_bytes: 21,
-          fingerprint: "test-fingerprint",
-          is_test: 1,
-          is_config: 0,
-          is_entrypoint: 0,
-          is_key_file: 0,
-        },
-      ],
-      symbols: [{
-        module_id: "app",
-        file_path: "src/index.ts",
-        name: "startApp",
-        kind: "function",
-        exported: 1,
-        start_line: 1,
-        end_line: 3,
-      }],
-      imports: [],
-      tests: [{
-        file_path: "src/index.test.ts",
-        module_id: "app",
-        framework: "node:test",
-        related_path: "src/index.ts",
-      }],
-      commands: [{
-        module_id: "app",
-        command_type: "test",
-        command: "pnpm",
-        args: ["test"],
-      }],
-    }, { headCommit: "abc123", provider: "local" });
+      { headCommit: "abc123", provider: "local" },
+    );
 
     assert.equal(loadModules(db)[0].id, "app");
     assert.equal(loadFiles(db, "app").length, 2);
@@ -246,7 +262,9 @@ test("structural store writes and searches repository index data", async () => {
     assert.equal(searchIndex(db, "start").symbols[0].name, "startApp");
     assert.equal(searchIndex(db, "APP").symbols[0].name, "startApp");
 
-    const plan = explainDetails(db, `
+    const plan = explainDetails(
+      db,
+      `
       SELECT name, kind, file_path, module_id, exported
       FROM query_search_fts search
       JOIN symbols ON symbols.symbol_id = CAST(search.entity_id AS INTEGER)
@@ -254,7 +272,10 @@ test("structural store writes and searches repository index data", async () => {
         AND search.search_text LIKE ? ESCAPE '\\'
       ORDER BY file_path, start_line
       LIMIT ?
-    `, "%start%", 20);
+    `,
+      "%start%",
+      20,
+    );
     assert.match(plan, /VIRTUAL TABLE/i);
     assert.doesNotMatch(plan, /SCAN symbols/i);
   } finally {
@@ -310,53 +331,63 @@ test("semantic store replaces snapshots and loads focused semantic facts", async
         public_fingerprint: "public",
         refreshed_at: "2026-04-27T00:00:00.000Z",
       },
-      files: [{
-        project_id: "tsconfig-json",
-        file_path: "src/app/dashboard/page.tsx",
-        domain: "runtime",
-        is_header_target: 1,
-      }],
-      externalPackages: [{
-        project_id: "tsconfig-json",
-        package_name: "react",
-        usage_count: 1,
-      }],
-      symbols: [{
-        symbol_id: "symbol-dashboard",
-        project_id: "tsconfig-json",
-        file_path: "src/app/dashboard/page.tsx",
-        name: "DashboardPage",
-        display_name: "DashboardPage",
-        kind: "function",
-        export_name: "default",
-        start_line: 1,
-        end_line: 5,
-        is_exported: 1,
-        is_default: 1,
-        domain: "runtime",
-      }],
-      surfaces: [{
-        surface_id: "surface-dashboard",
-        project_id: "tsconfig-json",
-        file_path: "src/app/dashboard/page.tsx",
-        symbol_id: "symbol-dashboard",
-        kind: "route",
-        role: "page",
-        surface_key: "/dashboard",
-        display_name: "Dashboard",
-        domain: "runtime",
-        is_header_target: 1,
-      }],
-      symbolEdges: [{
-        project_id: "tsconfig-json",
-        from_symbol_id: "symbol-dashboard",
-        from_file_path: "src/app/dashboard/page.tsx",
-        to_external_package: "react",
-        edge_kind: "import",
-        edge_domain: "runtime",
-        confidence: 1,
-        source: "test",
-      }],
+      files: [
+        {
+          project_id: "tsconfig-json",
+          file_path: "src/app/dashboard/page.tsx",
+          domain: "runtime",
+          is_header_target: 1,
+        },
+      ],
+      externalPackages: [
+        {
+          project_id: "tsconfig-json",
+          package_name: "react",
+          usage_count: 1,
+        },
+      ],
+      symbols: [
+        {
+          symbol_id: "symbol-dashboard",
+          project_id: "tsconfig-json",
+          file_path: "src/app/dashboard/page.tsx",
+          name: "DashboardPage",
+          display_name: "DashboardPage",
+          kind: "function",
+          export_name: "default",
+          start_line: 1,
+          end_line: 5,
+          is_exported: 1,
+          is_default: 1,
+          domain: "runtime",
+        },
+      ],
+      surfaces: [
+        {
+          surface_id: "surface-dashboard",
+          project_id: "tsconfig-json",
+          file_path: "src/app/dashboard/page.tsx",
+          symbol_id: "symbol-dashboard",
+          kind: "route",
+          role: "page",
+          surface_key: "/dashboard",
+          display_name: "Dashboard",
+          domain: "runtime",
+          is_header_target: 1,
+        },
+      ],
+      symbolEdges: [
+        {
+          project_id: "tsconfig-json",
+          from_symbol_id: "symbol-dashboard",
+          from_file_path: "src/app/dashboard/page.tsx",
+          to_external_package: "react",
+          edge_kind: "import",
+          edge_domain: "runtime",
+          confidence: 1,
+          source: "test",
+        },
+      ],
     });
 
     assert.equal(listSemanticProjects(db)[0].status, "ready");
@@ -365,7 +396,9 @@ test("semantic store replaces snapshots and loads focused semantic facts", async
     assert.equal(loadSemanticFileContext(db, "src/app/dashboard/page.tsx").exports[0].export_name, "default");
     assert.equal(searchSemanticIndex(db, "dashboard").semantic_surfaces[0].surface_key, "/dashboard");
 
-    const plan = explainDetails(db, `
+    const plan = explainDetails(
+      db,
+      `
       SELECT surface_id, project_id, file_path, kind, role, surface_key, display_name
       FROM query_search_fts search
       JOIN semantic_surfaces ON semantic_surfaces.surface_id = search.entity_id
@@ -373,7 +406,10 @@ test("semantic store replaces snapshots and loads focused semantic facts", async
         AND search.search_text LIKE ? ESCAPE '\\'
       ORDER BY file_path, kind, role
       LIMIT ?
-    `, "%dashboard%", 20);
+    `,
+      "%dashboard%",
+      20,
+    );
     assert.match(plan, /VIRTUAL TABLE/i);
     assert.doesNotMatch(plan, /SCAN semantic_surfaces/i);
   } finally {

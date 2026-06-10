@@ -25,7 +25,7 @@ async function withFixture(setup) {
   await writeFile(
     root,
     "package.json",
-    JSON.stringify({ name: "risk-fixture", scripts: { test: "node --test" } }, null, 2)
+    JSON.stringify({ name: "risk-fixture", scripts: { test: "node --test" } }, null, 2),
   );
   await setup(root);
   const config = await loadConfig(root, { provider: "local", dryRun: false });
@@ -41,13 +41,13 @@ test("buildRiskReport marks shared dependency changes high risk and prioritizes 
       await writeFile(
         fixtureRoot,
         `src/${name}.ts`,
-        "import { core } from './core';\nexport function run() { return core(); }\n"
+        "import { core } from './core';\nexport function run() { return core(); }\n",
       );
     }
     await writeFile(
       fixtureRoot,
       "src/core.test.ts",
-      "import { core } from './core';\nimport assert from 'node:assert/strict';\nassert.equal(core(), true);\n"
+      "import { core } from './core';\nimport assert from 'node:assert/strict';\nassert.equal(core(), true);\n",
     );
   });
 
@@ -66,7 +66,11 @@ test("buildRiskReport marks shared dependency changes high risk and prioritizes 
 test("buildRiskReport keeps unresolved structural imports in impact graph", async () => {
   const root = await withFixture(async (fixtureRoot) => {
     await writeFile(fixtureRoot, "src/domain.ts", "export function domain() { return true; }\n");
-    await writeFile(fixtureRoot, "src/runtime.ts", "import { domain } from './domain';\nexport const value = domain();\n");
+    await writeFile(
+      fixtureRoot,
+      "src/runtime.ts",
+      "import { domain } from './domain';\nexport const value = domain();\n",
+    );
   });
   const db = openIndexDatabase(root);
   try {
@@ -85,7 +89,9 @@ test("buildRiskReport keeps unresolved structural imports in impact graph", asyn
     changedFiles: [{ status: "R", path: "src/domain-v2.ts", origPath: "src/domain.ts" }],
   });
 
-  assert.ok(renameReport.impacted.files.some((fileInfo) => fileInfo.path === "src/runtime.ts" && fileInfo.distance === 1));
+  assert.ok(
+    renameReport.impacted.files.some((fileInfo) => fileInfo.path === "src/runtime.ts" && fileInfo.distance === 1),
+  );
 });
 
 test("buildRiskReport keeps isolated test-only changes low risk", async () => {
@@ -94,7 +100,7 @@ test("buildRiskReport keeps isolated test-only changes low risk", async () => {
     await writeFile(
       fixtureRoot,
       "src/core.test.ts",
-      "import { core } from './core';\nimport assert from 'node:assert/strict';\nassert.equal(core(), true);\n"
+      "import { core } from './core';\nimport assert from 'node:assert/strict';\nassert.equal(core(), true);\n",
     );
   });
 
@@ -104,7 +110,10 @@ test("buildRiskReport keeps isolated test-only changes low risk", async () => {
 
   assert.equal(report.risk.level, "low");
   assert.ok(report.risk.score < 35);
-  assert.deepEqual(report.impacted.files.map((fileInfo) => fileInfo.path), ["src/core.test.ts"]);
+  assert.deepEqual(
+    report.impacted.files.map((fileInfo) => fileInfo.path),
+    ["src/core.test.ts"],
+  );
 });
 
 test("buildRiskReport follows semantic graph neighborhoods when structural imports are absent", async () => {
@@ -168,17 +177,19 @@ test("buildRiskReport follows semantic graph neighborhoods when structural impor
         },
       ],
       surfaces: [],
-      symbolEdges: [{
-        project_id: "tsconfig-json",
-        from_symbol_id: "runtime-symbol",
-        to_symbol_id: "domain-symbol",
-        from_file_path: "src/runtime.ts",
-        to_file_path: "src/domain.ts",
-        edge_kind: "call",
-        edge_domain: "runtime",
-        confidence: 1,
-        source: "test",
-      }],
+      symbolEdges: [
+        {
+          project_id: "tsconfig-json",
+          from_symbol_id: "runtime-symbol",
+          to_symbol_id: "domain-symbol",
+          from_file_path: "src/runtime.ts",
+          to_file_path: "src/domain.ts",
+          edge_kind: "call",
+          edge_domain: "runtime",
+          confidence: 1,
+          source: "test",
+        },
+      ],
     });
   } finally {
     closeIndexDatabase(db);
@@ -230,9 +241,6 @@ test("runCli risk rejects --since without a non-blank value", async () => {
     ["risk", "--since", ""],
     ["risk", "--since=   "],
   ]) {
-    await assert.rejects(
-      () => runCli(argv),
-      /risk --since requires a commit or ref value/,
-    );
+    await assert.rejects(() => runCli(argv), /risk --since requires a commit or ref value/);
   }
 });

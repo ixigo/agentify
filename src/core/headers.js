@@ -14,11 +14,11 @@ function detectCommentSyntax(filePath) {
     return "python";
   }
   if (
-    filePath.endsWith(".cs")
-    || filePath.endsWith(".java")
-    || filePath.endsWith(".kt")
-    || filePath.endsWith(".kts")
-    || filePath.endsWith(".swift")
+    filePath.endsWith(".cs") ||
+    filePath.endsWith(".java") ||
+    filePath.endsWith(".kt") ||
+    filePath.endsWith(".kts") ||
+    filePath.endsWith(".swift")
   ) {
     return "csharp";
   }
@@ -54,7 +54,7 @@ export function splitLicense(text, eol = "\n") {
     if (/copyright|license/i.test(licenseLines.join("\n"))) {
       return {
         prefix: `${licenseLines.join(eol)}${eol}`,
-        rest: lines.slice(index).join(eol)
+        rest: lines.slice(index).join(eol),
       };
     }
   }
@@ -62,16 +62,15 @@ export function splitLicense(text, eol = "\n") {
 }
 
 export function stripLeadingAgentifyHeader(text) {
-  const match = text.match(/^((?:[ \t]*\r?\n)*)(?:\/\*\*\s*@agentify[\s\S]*?\*\/|\/\*\s*@agentify[\s\S]*?\*\/|"""@agentify[\s\S]*?""")(?:\r?\n){1,2}/);
+  const match = text.match(
+    /^((?:[ \t]*\r?\n)*)(?:\/\*\*\s*@agentify[\s\S]*?\*\/|\/\*\s*@agentify[\s\S]*?\*\/|"""@agentify[\s\S]*?""")(?:\r?\n){1,2}/,
+  );
   return match ? `${match[1]}${text.slice(match[0].length)}` : text;
 }
 
 export function renderHeader({ moduleName, summary, relativePath, stack, eol = "\n" }) {
   const summaryPayload = summary && typeof summary === "object" ? summary : { summary };
-  const summaryLines = [
-    `module: ${moduleName}`,
-    `path: ${relativePath}`,
-  ];
+  const summaryLines = [`module: ${moduleName}`, `path: ${relativePath}`];
 
   if (summaryPayload.schema) {
     summaryLines.push(`schema: ${summaryPayload.schema}`);
@@ -103,32 +102,14 @@ export function renderHeader({ moduleName, summary, relativePath, stack, eol = "
   summaryLines.push(`summary: ${summaryPayload.summary || ""}`);
 
   if (stack === "python") {
-    return [
-      "\"\"\"@agentify",
-      ...summaryLines,
-      "\"\"\"",
-      "",
-      ""
-    ].join(eol);
+    return ['"""@agentify', ...summaryLines, '"""', "", ""].join(eol);
   }
 
   if (stack === "dotnet") {
-    return [
-      "/* @agentify",
-      ...summaryLines.map((line) => ` * ${line}`),
-      " */",
-      "",
-      ""
-    ].join(eol);
+    return ["/* @agentify", ...summaryLines.map((line) => ` * ${line}`), " */", "", ""].join(eol);
   }
 
-  return [
-    "/** @agentify",
-    ...summaryLines.map((line) => ` * ${line}`),
-    " */",
-    "",
-    ""
-  ].join(eol);
+  return ["/** @agentify", ...summaryLines.map((line) => ` * ${line}`), " */", "", ""].join(eol);
 }
 
 export function applyHeaderToSource(source, header) {
@@ -154,7 +135,7 @@ export async function updateFileHeader(root, moduleName, filePath, summary, stac
     summary,
     relativePath: relative(root, absolutePath),
     stack: stack || (syntax === "jsdoc" ? "ts" : syntax === "python" ? "python" : "dotnet"),
-    eol: detectEol(source)
+    eol: detectEol(source),
   });
   const next = applyHeaderToSource(source, header);
   if (next === source) {

@@ -9,7 +9,9 @@ function sha1(value) {
 }
 
 function normalize(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
+  return String(filePath || "")
+    .split(path.sep)
+    .join("/");
 }
 
 function isRepoOwned(root, filePath) {
@@ -23,8 +25,10 @@ function isTsJsFile(filePath) {
 }
 
 function isSupportPath(filePath) {
-  return /(^|\/)(__tests__|__mocks__|fixtures?|examples?|stories)\//i.test(filePath)
-    || /\.(test|spec|stories)\.[^.]+$/i.test(filePath);
+  return (
+    /(^|\/)(__tests__|__mocks__|fixtures?|examples?|stories)\//i.test(filePath) ||
+    /\.(test|spec|stories)\.[^.]+$/i.test(filePath)
+  );
 }
 
 function shouldTreatAsOwned(filePath) {
@@ -110,7 +114,8 @@ function inferRouteSurface(filePath) {
   }
 
   if (appIndex >= 0) {
-    const routeSegments = segments.slice(appIndex + 1, -1)
+    const routeSegments = segments
+      .slice(appIndex + 1, -1)
       .filter((segment) => !segment.startsWith("(") && !segment.startsWith("@"));
     let surfaceKey = `/${routeSegments.join("/")}`.replace(/\/+/g, "/");
     if (surfaceKey === "/") {
@@ -195,8 +200,10 @@ function collectProjectFiles(root, parsed) {
 }
 
 function isExportedDeclaration(node) {
-  return (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0
-    || (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Default) !== 0;
+  return (
+    (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0 ||
+    (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Default) !== 0
+  );
 }
 
 function isSourceFileWithJsx(sourceFile) {
@@ -262,12 +269,7 @@ function resolveModuleTarget(root, sourceFile, specifier, options) {
   }
 
   try {
-    const resolved = ts.resolveModuleName(
-      specifier,
-      sourceFile.fileName,
-      options,
-      ts.sys
-    ).resolvedModule;
+    const resolved = ts.resolveModuleName(specifier, sourceFile.fileName, options, ts.sys).resolvedModule;
     if (!resolved?.resolvedFileName) {
       return null;
     }
@@ -351,16 +353,18 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
       const routeKey = `${routeSurface.kind}:${routeSurface.surfaceKey}:${routeSurface.role}:${filePath}`;
       if (!routeSurfaceKeys.has(routeKey)) {
         routeSurfaceKeys.add(routeKey);
-        surfaces.push(createProjectSurface(
-          projectId,
-          filePath,
-          routeSurface.kind,
-          routeSurface.role,
-          routeSurface.surfaceKey,
-          routeSurface.displayName,
-          null,
-          routeSurface.isHeaderTarget
-        ));
+        surfaces.push(
+          createProjectSurface(
+            projectId,
+            filePath,
+            routeSurface.kind,
+            routeSurface.role,
+            routeSurface.surfaceKey,
+            routeSurface.displayName,
+            null,
+            routeSurface.isHeaderTarget,
+          ),
+        );
       }
     }
 
@@ -407,16 +411,18 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
                 ? "component"
                 : null;
         if (role) {
-          surfaces.push(createProjectSurface(
-            projectId,
-            filePath,
-            role === "component" ? "react-component" : `react-${role}`,
-            role,
-            name,
-            name,
-            symbolId,
-            true
-          ));
+          surfaces.push(
+            createProjectSurface(
+              projectId,
+              filePath,
+              role === "component" ? "react-component" : `react-${role}`,
+              role,
+              name,
+              name,
+              symbolId,
+              true,
+            ),
+          );
         }
       }
     }
@@ -426,7 +432,11 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
         pushSymbol(statement, isExportedDeclaration(statement));
       } else if (ts.isClassDeclaration(statement) && statement.name) {
         pushSymbol(statement, isExportedDeclaration(statement));
-      } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      } else if (
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isTypeAliasDeclaration(statement) ||
+        ts.isEnumDeclaration(statement)
+      ) {
         pushSymbol(statement, isExportedDeclaration(statement));
       } else if (ts.isVariableStatement(statement)) {
         const exported = isExportedDeclaration(statement);
@@ -495,15 +505,19 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
     }
 
     function visit(node) {
-      if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isMethodDeclaration(node) || ts.isVariableDeclaration(node)) {
+      if (
+        ts.isFunctionDeclaration(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isVariableDeclaration(node)
+      ) {
         withDeclaration(node, () => ts.forEachChild(node, visit));
         return;
       }
 
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-        const specifier = node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)
-          ? node.moduleSpecifier.text
-          : null;
+        const specifier =
+          node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier) ? node.moduleSpecifier.text : null;
         const domain = node.isTypeOnly ? "type" : "runtime";
         const internalTarget = resolveModuleTarget(root, sourceFile, specifier, parsed.options);
         if (internalTarget) {
@@ -596,10 +610,12 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
   }
 
   const fileCount = repoFiles.length;
-  const resolvedContentFingerprint = contentFingerprint || await computeContentFingerprint(root, repoFiles);
+  const resolvedContentFingerprint = contentFingerprint || (await computeContentFingerprint(root, repoFiles));
 
   const publicEntries = [
-    ...symbols.filter((symbol) => symbol.is_exported).map((symbol) => `export:${symbol.file_path}:${symbol.export_name}:${symbol.kind}`),
+    ...symbols
+      .filter((symbol) => symbol.is_exported)
+      .map((symbol) => `export:${symbol.file_path}:${symbol.export_name}:${symbol.kind}`),
     ...surfaces.map((surface) => `surface:${surface.kind}:${surface.surface_key}:${surface.role}:${surface.file_path}`),
   ];
 
@@ -626,16 +642,19 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
       project_id: projectId,
       file_path: filePath,
       domain: isSupportPath(filePath) ? "support" : "runtime",
-      is_header_target: surfaces.some((surface) => surface.file_path === filePath && surface.is_header_target)
-        || exportsByFile.get(filePath)?.length > 0
-        ? 1
-        : 0,
+      is_header_target:
+        surfaces.some((surface) => surface.file_path === filePath && surface.is_header_target) ||
+        exportsByFile.get(filePath)?.length > 0
+          ? 1
+          : 0,
     })),
-    externalPackages: Array.from(externalPackages).sort().map((packageName) => ({
-      project_id: projectId,
-      package_name: packageName,
-      usage_count: symbolEdges.filter((edge) => edge.to_external_package === packageName).length,
-    })),
+    externalPackages: Array.from(externalPackages)
+      .sort()
+      .map((packageName) => ({
+        project_id: projectId,
+        package_name: packageName,
+        usage_count: symbolEdges.filter((edge) => edge.to_external_package === packageName).length,
+      })),
     symbols,
     surfaces,
     symbolEdges,
@@ -648,12 +667,14 @@ async function main() {
   if (Array.isArray(payload.projects)) {
     const snapshots = [];
     for (const item of payload.projects) {
-      snapshots.push(await analyzeProject(
-        root,
-        item.project,
-        item.analyzerVersion || payload.analyzerVersion || "semantic-tsjs-v1",
-        item.contentFingerprint || null
-      ));
+      snapshots.push(
+        await analyzeProject(
+          root,
+          item.project,
+          item.analyzerVersion || payload.analyzerVersion || "semantic-tsjs-v1",
+          item.contentFingerprint || null,
+        ),
+      );
     }
     process.stdout.write(`${JSON.stringify(snapshots, null, 2)}\n`);
     return;
@@ -663,7 +684,7 @@ async function main() {
     root,
     payload.project,
     payload.analyzerVersion || "semantic-tsjs-v1",
-    payload.contentFingerprint || null
+    payload.contentFingerprint || null,
   );
   process.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`);
 }

@@ -38,4 +38,3 @@ test("local provider remains validation-only and local-runtime only", () => {
   assert.equal(definition.bootstrap, null);
   assert.equal(definition.runtime.kind, "local");
 });
-

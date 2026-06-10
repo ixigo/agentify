@@ -31,10 +31,7 @@ function openWithNodeSqlite(filename, options = {}) {
   process.emitWarning = function wrappedEmitWarning(warning, ...args) {
     const message = typeof warning === "string" ? warning : warning?.message;
     const warningType = typeof args[0] === "string" ? args[0] : warning?.name;
-    if (
-      warningType === "ExperimentalWarning"
-      && String(message || "").includes("SQLite is an experimental feature")
-    ) {
+    if (warningType === "ExperimentalWarning" && String(message || "").includes("SQLite is an experimental feature")) {
       return;
     }
     return originalEmitWarning.call(process, warning, ...args);
@@ -86,14 +83,12 @@ function createIndexSnapshot(dbPath) {
 }
 
 function getErrorReason(error) {
-  return error instanceof Error && error.message
-    ? `: ${error.message}`
-    : "";
+  return error instanceof Error && error.message ? `: ${error.message}` : "";
 }
 
 function createInvalidIndexDatabaseError(dbPath, cause) {
   const error = new Error(
-    `invalid index database at ${dbPath}${getErrorReason(cause)}. Rebuild the index with "agentify scan" or "agentify up".`
+    `invalid index database at ${dbPath}${getErrorReason(cause)}. Rebuild the index with "agentify scan" or "agentify up".`,
   );
   error.code = "AGENTIFY_INDEX_DATABASE_INVALID";
   error.cause = cause;
@@ -102,9 +97,11 @@ function createInvalidIndexDatabaseError(dbPath, cause) {
 
 function shouldUseReadOnlySnapshotFallback(error) {
   const message = error instanceof Error ? error.message : "";
-  return error?.code === "SQLITE_READONLY"
-    || error?.errcode === 1544
-    || /attempt to write a readonly database|read-?only database/i.test(message);
+  return (
+    error?.code === "SQLITE_READONLY" ||
+    error?.errcode === 1544 ||
+    /attempt to write a readonly database|read-?only database/i.test(message)
+  );
 }
 
 function openDatabaseFile(dbPath, options = {}) {
@@ -369,10 +366,14 @@ function configureIndexConnection(db, implementation, { readOnly }) {
   `);
   createSearchSchema(db);
 
-  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
-    .run("schema_version", toJson(DB_SCHEMA_VERSION));
-  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
-    .run("db_driver", toJson(implementation.name));
+  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)").run(
+    "schema_version",
+    toJson(DB_SCHEMA_VERSION),
+  );
+  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)").run(
+    "db_driver",
+    toJson(implementation.name),
+  );
   if (!readOnly) {
     refreshSearchIndexIfNeeded(db);
   }

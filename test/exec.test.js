@@ -28,11 +28,9 @@ async function addLocalSubmodule(root, submodulePath) {
   const source = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-submodule-source-"));
   await fs.writeFile(path.join(source, "readme.md"), "v1\n", "utf8");
   await initGitRepo(source);
-  await execFileAsync(
-    "git",
-    ["-c", "protocol.file.allow=always", "submodule", "add", source, submodulePath],
-    { cwd: root }
-  );
+  await execFileAsync("git", ["-c", "protocol.file.allow=always", "submodule", "add", source, submodulePath], {
+    cwd: root,
+  });
   await execFileAsync("git", ["commit", "-am", `add ${submodulePath}`], { cwd: root });
 }
 
@@ -168,11 +166,16 @@ test("runExec generic wrapped commands require explicit provider credential pass
   process.env.OPENAI_API_KEY = "openai-secret";
 
   try {
-    const result = await runExec(root, config, [process.execPath, "-e", "process.stdout.write(process.env.OPENAI_API_KEY || '')"], {
-      captureOutput: true,
-      providerEnvMode: "generic",
-      skipRefresh: true,
-    });
+    const result = await runExec(
+      root,
+      config,
+      [process.execPath, "-e", "process.stdout.write(process.env.OPENAI_API_KEY || '')"],
+      {
+        captureOutput: true,
+        providerEnvMode: "generic",
+        skipRefresh: true,
+      },
+    );
 
     assert.equal(result.exitCode, 0);
     assert.equal(result.stdout, "openai-secret");
@@ -258,7 +261,10 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
   assert.equal(result.skippedRefresh, undefined);
   assert.equal(afterDocMtime > beforeDocMtime, true);
   assert.equal(result.validation?.passed, true);
-  assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), false);
+  assert.equal(
+    result.validation?.failures.some((failure) => failure.category === "code-body-changed"),
+    false,
+  );
   assert.equal(result.executionTelemetry.phase, "complete");
   assert.equal(result.executionTelemetry.provider, "local");
   assert.equal(result.executionTelemetry.changed_files_count, 1);
@@ -266,7 +272,12 @@ test("runExec hook-friendly validation allows wrapped source edits", async () =>
 
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
-  const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+  const telemetryPath = path.join(
+    root,
+    ".agentify",
+    "runs",
+    `${result.executionTelemetry.run_id}-execution-telemetry.json`,
+  );
   const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
   const telemetryJson = JSON.stringify(telemetry);
   assert.match(output, /execution: changed_files=1/);
@@ -329,17 +340,17 @@ test("runExec provider validation allows non-code app config edits", async () =>
   process.exitCode = undefined;
 
   try {
-    const result = await runExec(
-      root,
-      config,
-      ["node", "--input-type=module", "-e", script],
-      { skipCodeBodyChanges: true }
-    );
+    const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+      skipCodeBodyChanges: true,
+    });
 
     assert.equal(result.phase, "complete");
     assert.equal(result.exitCode, 0);
     assert.equal(result.validation?.passed, true);
-    assert.equal(result.validation?.failures.some((failure) => failure.path === ".env.development"), false);
+    assert.equal(
+      result.validation?.failures.some((failure) => failure.path === ".env.development"),
+      false,
+    );
   } finally {
     process.exitCode = originalExitCode;
   }
@@ -370,12 +381,10 @@ test("runExec hook-friendly validation still records failing commands after sour
   process.exitCode = undefined;
 
   try {
-    const result = await runExec(
-      root,
-      config,
-      ["node", "--input-type=module", "-e", script],
-      { failOnStale: true, skipCodeBodyChanges: true }
-    );
+    const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+      failOnStale: true,
+      skipCodeBodyChanges: true,
+    });
     const afterDocMtime = (await fs.stat(docPath)).mtimeMs;
 
     assert.equal(result.phase, "complete");
@@ -383,7 +392,10 @@ test("runExec hook-friendly validation still records failing commands after sour
     assert.equal(result.skippedRefresh, undefined);
     assert.equal(afterDocMtime > beforeDocMtime, true);
     assert.equal(result.validation?.passed, true);
-    assert.equal(result.validation?.failures.some((failure) => failure.category === "code-body-changed"), false);
+    assert.equal(
+      result.validation?.failures.some((failure) => failure.category === "code-body-changed"),
+      false,
+    );
   } finally {
     process.exitCode = originalExitCode;
   }
@@ -434,7 +446,7 @@ test("runExec writes MemPalace-compatible session memory artifacts when recordin
         },
         captureMode: "captured-pipe",
       },
-    }
+    },
   );
 
   const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
@@ -501,7 +513,12 @@ test("runExec preserves timeout state in telemetry, reports, and session memory"
       },
     });
 
-    const telemetryPath = path.join(root, ".agentify", "runs", `${result.executionTelemetry.run_id}-execution-telemetry.json`);
+    const telemetryPath = path.join(
+      root,
+      ".agentify",
+      "runs",
+      `${result.executionTelemetry.run_id}-execution-telemetry.json`,
+    );
     const telemetry = JSON.parse(await fs.readFile(telemetryPath, "utf8"));
     const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
     const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
@@ -577,7 +594,7 @@ test("runExec skips refresh when only Agentify session artifacts change", async 
         },
         captureMode: "captured-pipe",
       },
-    }
+    },
   );
 
   assert.equal(result.phase, "complete");
@@ -585,10 +602,7 @@ test("runExec skips refresh when only Agentify session artifacts change", async 
   assert.equal(result.skippedRefresh, true);
   assert.equal(result.executionTelemetry.changed_files_count, 0);
   assert.deepEqual(result.executionTelemetry.changed_paths, []);
-  await assert.rejects(
-    () => fs.access(path.join(root, "AGENTIFY.md")),
-    /ENOENT/
-  );
+  await assert.rejects(() => fs.access(path.join(root, "AGENTIFY.md")), /ENOENT/);
 });
 
 test("runExec redacts obvious secrets from session memory artifacts", async () => {
@@ -665,15 +679,10 @@ test("runExec bounds captured stdout and stderr to the configured capture limit"
   process.stderr.write = () => true;
 
   try {
-    const result = await runExec(
-      root,
-      config,
-      ["node", "--input-type=module", "-e", script],
-      {
-        captureOutput: true,
-        skipRefresh: true,
-      }
-    );
+    const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+      captureOutput: true,
+      skipRefresh: true,
+    });
 
     assert.equal(result.exitCode, 0);
     assert.equal(Buffer.byteLength(result.stdout, "utf8"), 1024);
@@ -700,28 +709,23 @@ test("runExec records redacted interactive provider output without retaining a r
       "-e",
       "process.stdout.write('interactive transcript\\nOPENAI_API_KEY=sk-pty-secret12345\\n')",
     ];
-    const result = await runExec(
-      root,
-      config,
-      command,
-      {
-        captureOutputMode: "pty",
-        sessionRecord: {
-          sessionId: session.sessionId,
-          provider,
-          prompt: `Continue the ${provider} interactive session.`,
-          task: `Verify PTY capture for ${provider}.`,
-          command,
-          memoryContext: {
-            sourceSessionId: null,
-            transcriptRelativePath: null,
-            excerpt: "",
-            markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
-          },
-          captureMode: "interactive-pty",
+    const result = await runExec(root, config, command, {
+      captureOutputMode: "pty",
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider,
+        prompt: `Continue the ${provider} interactive session.`,
+        task: `Verify PTY capture for ${provider}.`,
+        command,
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
         },
-      }
-    );
+        captureMode: "interactive-pty",
+      },
+    });
 
     const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
     const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
@@ -741,10 +745,7 @@ test("runExec records redacted interactive provider output without retaining a r
     assert.doesNotMatch(transcript, /Raw interactive log:/);
     assert.equal(launch.capture_mode, "interactive-pty");
     assert.equal(launch.raw_interactive_log_path, null);
-    await assert.rejects(
-      () => fs.access(path.join(session.sessionDir, "interactive.log")),
-      /ENOENT/
-    );
+    await assert.rejects(() => fs.access(path.join(session.sessionDir, "interactive.log")), /ENOENT/);
   }
 });
 
@@ -760,29 +761,24 @@ test("runExec writes a fallback transcript when PTY capture is unavailable", asy
   process.env.PATH = "";
 
   try {
-    const result = await runExec(
-      root,
-      config,
-      command,
-      {
-        captureOutputMode: "pty",
-        skipRefresh: true,
-        sessionRecord: {
-          sessionId: session.sessionId,
-          provider: "codex",
-          prompt: "Continue the interactive fallback session.",
-          task: "Verify interactive fallback transcript persistence.",
-          command,
-          memoryContext: {
-            sourceSessionId: null,
-            transcriptRelativePath: null,
-            excerpt: "",
-            markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
-          },
-          captureMode: "interactive-pty",
+    const result = await runExec(root, config, command, {
+      captureOutputMode: "pty",
+      skipRefresh: true,
+      sessionRecord: {
+        sessionId: session.sessionId,
+        provider: "codex",
+        prompt: "Continue the interactive fallback session.",
+        task: "Verify interactive fallback transcript persistence.",
+        command,
+        memoryContext: {
+          sourceSessionId: null,
+          transcriptRelativePath: null,
+          excerpt: "",
+          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
         },
-      }
-    );
+        captureMode: "interactive-pty",
+      },
+    });
 
     const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
     const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");
@@ -794,10 +790,7 @@ test("runExec writes a fallback transcript when PTY capture is unavailable", asy
     assert.match(transcript, /Capture mode used: interactive-fallback/);
     assert.equal(launch.capture_mode, "interactive-fallback");
     assert.equal(launch.raw_interactive_log_path, null);
-    await assert.rejects(
-      () => fs.access(path.join(session.sessionDir, "interactive.log")),
-      /ENOENT/
-    );
+    await assert.rejects(() => fs.access(path.join(session.sessionDir, "interactive.log")), /ENOENT/);
   } finally {
     process.env.PATH = originalPath;
   }
@@ -815,28 +808,23 @@ test("runExec finalizes session memory when the PTY recorder log is unavailable"
     `await fs.unlink(${JSON.stringify(path.join(session.sessionDir, "interactive.log"))});`,
     "process.stdout.write('transcript hidden in removed pty log\\n');",
   ].join("");
-  const result = await runExec(
-    root,
-    config,
-    ["node", "--input-type=module", "-e", script],
-    {
-      captureOutputMode: "pty",
-      sessionRecord: {
-        sessionId: session.sessionId,
-        provider: "codex",
-        prompt: "Continue the codex interactive session.",
-        task: "Verify PTY capture fallback finalization.",
-        command: ["node", "--input-type=module", "-e", script],
-        memoryContext: {
-          sourceSessionId: null,
-          transcriptRelativePath: null,
-          excerpt: "",
-          markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
-        },
-        captureMode: "interactive-pty",
+  const result = await runExec(root, config, ["node", "--input-type=module", "-e", script], {
+    captureOutputMode: "pty",
+    sessionRecord: {
+      sessionId: session.sessionId,
+      provider: "codex",
+      prompt: "Continue the codex interactive session.",
+      task: "Verify PTY capture fallback finalization.",
+      command: ["node", "--input-type=module", "-e", script],
+      memoryContext: {
+        sourceSessionId: null,
+        transcriptRelativePath: null,
+        excerpt: "",
+        markdown: "## Automatic Session Memory\nNo prior session transcript was available.\n",
       },
-    }
-  );
+      captureMode: "interactive-pty",
+    },
+  });
 
   const transcript = await fs.readFile(path.join(session.sessionDir, "transcript.md"), "utf8");
   const launches = await fs.readFile(path.join(session.sessionDir, "launches.jsonl"), "utf8");

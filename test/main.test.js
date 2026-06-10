@@ -11,7 +11,18 @@ import { CAVEMAN_PREAMBLE_MARKER, resolveCavemanLevel } from "../src/core/cavema
 import { isHelpRequest, isVersionRequest } from "../src/core/cli-fast-paths.js";
 import { CONTEXT_MODE_DESCRIPTION, CONTEXT_MODE_HELP_LABEL } from "../src/core/context-mode.js";
 import { forkSession as forkContextSession } from "../src/core/session.js";
-import { buildExecutionPrompt, buildMinimalRunPrompt, buildNoTaskRunPrompt, buildSessionPrompt, getProviderTemplateOptions, getSessionCaptureSettings, parseArgs, prepareSessionLaunch, resolveRunContextMode, runCli } from "../src/main.js";
+import {
+  buildExecutionPrompt,
+  buildMinimalRunPrompt,
+  buildNoTaskRunPrompt,
+  buildSessionPrompt,
+  getProviderTemplateOptions,
+  getSessionCaptureSettings,
+  parseArgs,
+  prepareSessionLaunch,
+  resolveRunContextMode,
+  runCli,
+} from "../src/main.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -26,17 +37,23 @@ async function initGitRepo(root) {
 
 async function installFakeCodex(binDir, capturePath) {
   const codexPath = path.join(binDir, "codex");
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(process.argv.slice(2)));
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
   return codexPath;
 }
 
 async function installFakeCodexEnvCapture(binDir, capturePath) {
   const codexPath = path.join(binDir, "codex");
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   argv: process.argv.slice(2),
@@ -44,7 +61,9 @@ fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   allowed: process.env.AGENTIFY_PROVIDER_ALLOWED || null,
   extra: process.env.AGENTIFY_PROVIDER_EXTRA || null
 }));
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
   return codexPath;
 }
@@ -147,7 +166,9 @@ async function runCliWithImportTrace(args) {
   const loaderPath = path.join(tempDir, "trace-loader.mjs");
   const tracePath = path.join(tempDir, "imports.log");
   await fs.writeFile(tracePath, "", "utf8");
-  await fs.writeFile(loaderPath, `
+  await fs.writeFile(
+    loaderPath,
+    `
 import fs from "node:fs";
 
 const tracePath = process.env.AGENTIFY_IMPORT_TRACE_PATH;
@@ -164,14 +185,11 @@ export async function resolve(specifier, context, nextResolve) {
   }
   return result;
 }
-`, "utf8");
+`,
+    "utf8",
+  );
 
-  const result = await execFileAsync(process.execPath, [
-    "--loader",
-    loaderPath,
-    "src/cli.js",
-    ...args,
-  ], {
+  const result = await execFileAsync(process.execPath, ["--loader", loaderPath, "src/cli.js", ...args], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -192,14 +210,7 @@ function extractHelpSection(help, heading, nextHeading) {
 }
 
 test("parseArgs normalizes dashed flags to camelCase", () => {
-  const args = parseArgs([
-    "doc",
-    "--provider",
-    "codex",
-    "--module-concurrency",
-    "6",
-    "--max-files-per-module=12"
-  ]);
+  const args = parseArgs(["doc", "--provider", "codex", "--module-concurrency", "6", "--max-files-per-module=12"]);
 
   assert.equal(args.provider, "codex");
   assert.equal(args.moduleConcurrency, 6);
@@ -207,24 +218,14 @@ test("parseArgs normalizes dashed flags to camelCase", () => {
 });
 
 test("parseArgs treats issue-killer bypass permissions as a boolean flag", () => {
-  const args = parseArgs([
-    "issue-killer",
-    "--bypass-permissions",
-    "--label",
-    "agentify-ready",
-  ]);
+  const args = parseArgs(["issue-killer", "--bypass-permissions", "--label", "agentify-ready"]);
 
   assert.equal(args.bypassPermissions, true);
   assert.equal(args.label, "agentify-ready");
 });
 
 test("parseArgs allows issue-killer bypass permissions to be disabled explicitly", () => {
-  const args = parseArgs([
-    "issue-killer",
-    "--bypass-permissions=false",
-    "--label",
-    "agentify-ready",
-  ]);
+  const args = parseArgs(["issue-killer", "--bypass-permissions=false", "--label", "agentify-ready"]);
 
   assert.equal(args.bypassPermissions, false);
   assert.equal(args.label, "agentify-ready");
@@ -236,7 +237,10 @@ test("parseArgs and config resolve context mode explicitly", () => {
   assert.equal(args.contextMode, "routed");
   assert.equal(resolveRunContextMode(args, { context: { mode: "compact" } }), "routed");
   assert.equal(resolveRunContextMode(parseArgs(["run", "--context-mode", "direct", "implement login"]), {}), "compact");
-  assert.equal(resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }), "compact");
+  assert.equal(
+    resolveRunContextMode(parseArgs(["run", "implement login"]), { context: { mode: "compact" } }),
+    "compact",
+  );
   assert.throws(
     () => resolveRunContextMode(parseArgs(["run", "--context-mode", "wide", "implement login"]), {}),
     /--context-mode must be "compact" or "routed" \("direct" is accepted as an alias for "compact"\)/,
@@ -254,8 +258,14 @@ test("help and docs share a single context-mode contract", async () => {
   assert.equal([...optionSection.matchAll(/--context-mode/g)].length, 1);
   assert.match(optionSection, new RegExp(`--context-mode\\s+${CONTEXT_MODE_HELP_LABEL.replace("|", "\\|")}`));
   assert.match(optionSection, new RegExp(CONTEXT_MODE_DESCRIPTION));
-  assert.match(readme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
-  assert.match(detailedReadme, /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./);
+  assert.match(
+    readme,
+    /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./,
+  );
+  assert.match(
+    detailedReadme,
+    /\| `--context-mode <compact\|routed>` \| Use compact prompts or routed bounded retrieval prompts\./,
+  );
   assert.doesNotMatch(`${optionSection}\n${readme}\n${detailedReadme}`, /<direct\|routed>/);
 });
 
@@ -279,7 +289,11 @@ test("README CLI reference includes every command and option from help", async (
   }
 
   for (const flag of flags) {
-    assert.match(readme, new RegExp(`\\| \`${flag.replace("[", "\\[").replace("]", "\\]")}`), `README is missing flag ${flag}`);
+    assert.match(
+      readme,
+      new RegExp(`\\| \`${flag.replace("[", "\\[").replace("]", "\\]")}`),
+      `README is missing flag ${flag}`,
+    );
   }
 });
 
@@ -382,29 +396,20 @@ test("getProviderTemplateOptions allows explicit non-interactive template runs",
 });
 
 test("getSessionCaptureSettings preserves inherited stdio for custom session commands", () => {
-  assert.deepEqual(
-    getSessionCaptureSettings(false, { interactive: false }),
-    {
-      captureOutputMode: "inherit",
-      captureMode: "interactive-inherit",
-    }
-  );
+  assert.deepEqual(getSessionCaptureSettings(false, { interactive: false }), {
+    captureOutputMode: "inherit",
+    captureMode: "interactive-inherit",
+  });
 
-  assert.deepEqual(
-    getSessionCaptureSettings(true, { interactive: false }),
-    {
-      captureOutputMode: "pipe",
-      captureMode: "captured-pipe",
-    }
-  );
+  assert.deepEqual(getSessionCaptureSettings(true, { interactive: false }), {
+    captureOutputMode: "pipe",
+    captureMode: "captured-pipe",
+  });
 
-  assert.deepEqual(
-    getSessionCaptureSettings(true, { interactive: true }),
-    {
-      captureOutputMode: "pty",
-      captureMode: "interactive-pty",
-    }
-  );
+  assert.deepEqual(getSessionCaptureSettings(true, { interactive: true }), {
+    captureOutputMode: "pty",
+    captureMode: "interactive-pty",
+  });
 });
 
 test("prepareSessionLaunch records interactive template sessions through PTY capture for Codex and Claude", async () => {
@@ -480,7 +485,7 @@ test("buildSessionPrompt injects automatic memory excerpts before the current ta
   const prompt = buildSessionPrompt(
     "# Session Context\n- Provider: codex",
     "Fix the failing refresh path.",
-    "## Automatic Session Memory\n- Source session: sess_parent\n\n> Current task\nRemember the earlier trade-off."
+    "## Automatic Session Memory\n- Source session: sess_parent\n\n> Current task\nRemember the earlier trade-off.",
   );
 
   assert.match(prompt, /Automatic Session Memory/);
@@ -491,7 +496,7 @@ test("buildSessionPrompt injects automatic memory excerpts before the current ta
 test("buildExecutionPrompt prepends automatic memory before a normal run prompt", () => {
   const prompt = buildExecutionPrompt(
     "Implement retry handling for checkout refresh.",
-    "## Automatic Session Memory\n- Backend: local-session-search\n- Source session: sess_parent"
+    "## Automatic Session Memory\n- Backend: local-session-search\n- Source session: sess_parent",
   );
 
   assert.match(prompt, /Automatic Session Memory/);
@@ -509,10 +514,7 @@ test("buildMinimalRunPrompt keeps interactive run prompts compact", () => {
 });
 
 test("buildMinimalRunPrompt rejects empty run tasks", () => {
-  assert.throws(
-    () => buildMinimalRunPrompt(""),
-    /requires a non-empty task/,
-  );
+  assert.throws(() => buildMinimalRunPrompt(""), /requires a non-empty task/);
 });
 
 test("buildNoTaskRunPrompt asks the provider to collect the task", () => {
@@ -544,7 +546,9 @@ test("buildExecutionPrompt excludes caveman preamble for commit-message prompts"
 });
 
 test("buildSessionPrompt prepends caveman preamble for session prompts", () => {
-  const prompt = buildSessionPrompt("# Session Context\n- Provider: codex", "Map checkout flow.", "", { caveman: "lite" });
+  const prompt = buildSessionPrompt("# Session Context\n- Provider: codex", "Map checkout flow.", "", {
+    caveman: "lite",
+  });
 
   assert.match(prompt, new RegExp(CAVEMAN_PREAMBLE_MARKER));
   assert.match(prompt, /Active level: lite\./);
@@ -611,15 +615,7 @@ test("runCli passes a minimal prompt to interactive codex run by default", async
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--skip-refresh",
-      "Implement login retries",
-    ]);
+    await runCli(["run", "--root", root, "--provider", "codex", "--skip-refresh", "Implement login retries"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -639,14 +635,18 @@ test("runCli launches provider run with sanitized provider env config", async ()
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-bin-"));
   const capturePath = path.join(root, "codex-env.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
-  await fs.writeFile(path.join(root, ".agentify.yaml"), [
-    "providerEnv:",
-    "  passthrough:",
-    "    - AGENTIFY_PROVIDER_ALLOWED",
-    "  extra:",
-    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "providerEnv:",
+      "  passthrough:",
+      "    - AGENTIFY_PROVIDER_ALLOWED",
+      "  extra:",
+      "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await initGitRepo(root);
   await installFakeCodexEnvCapture(binDir, capturePath);
 
@@ -657,15 +657,7 @@ test("runCli launches provider run with sanitized provider env config", async ()
   process.env.AGENTIFY_PROVIDER_SENTINEL_SECRET = "secret-value";
   process.env.AGENTIFY_PROVIDER_ALLOWED = "allowed-value";
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--skip-refresh",
-      "Inspect env",
-    ]);
+    await runCli(["run", "--root", root, "--provider", "codex", "--skip-refresh", "Inspect env"]);
   } finally {
     process.env.PATH = previousPath;
     if (previousSecret === undefined) {
@@ -691,14 +683,18 @@ test("runCli launches run passthrough commands without default provider credenti
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-run-generic-env-"));
   const capturePath = path.join(root, "generic-env.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
-  await fs.writeFile(path.join(root, ".agentify.yaml"), [
-    "providerEnv:",
-    "  passthrough:",
-    "    - AGENTIFY_PROVIDER_ALLOWED",
-    "  extra:",
-    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "providerEnv:",
+      "  passthrough:",
+      "    - AGENTIFY_PROVIDER_ALLOWED",
+      "  extra:",
+      "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await initGitRepo(root);
 
   const previousOpenAi = process.env.OPENAI_API_KEY;
@@ -748,14 +744,18 @@ test("runCli launches exec commands without default provider credentials", async
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-exec-generic-env-"));
   const capturePath = path.join(root, "generic-env.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
-  await fs.writeFile(path.join(root, ".agentify.yaml"), [
-    "providerEnv:",
-    "  passthrough:",
-    "    - AGENTIFY_PROVIDER_ALLOWED",
-    "  extra:",
-    "    AGENTIFY_PROVIDER_EXTRA: extra-value",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "providerEnv:",
+      "  passthrough:",
+      "    - AGENTIFY_PROVIDER_ALLOWED",
+      "  extra:",
+      "    AGENTIFY_PROVIDER_EXTRA: extra-value",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await initGitRepo(root);
 
   const previousOpenAi = process.env.OPENAI_API_KEY;
@@ -813,14 +813,7 @@ test("runCli launches interactive provider context without prompting when run ha
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--skip-refresh",
-    ], {
+    await runCli(["run", "--root", root, "--provider", "codex", "--skip-refresh"], {
       prompt: async (question) => {
         questions.push(question);
         return "This should not be called";
@@ -845,15 +838,7 @@ test("runCli rejects non-interactive bare run instead of inventing a task", asyn
   await initGitRepo(root);
 
   await assert.rejects(
-    () => runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--interactive=false",
-      "--skip-refresh",
-    ]),
+    () => runCli(["run", "--root", root, "--provider", "codex", "--interactive=false", "--skip-refresh"]),
     /requires a task when not launching an interactive provider/,
   );
 });
@@ -900,15 +885,7 @@ test("runCli supports --resume as provider session continuity alias", async () =
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--resume",
-      "--skip-refresh",
-    ]);
+    await runCli(["run", "--root", root, "--provider", "codex", "--resume", "--skip-refresh"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -996,7 +973,11 @@ test("runCli passes routed context guidance without source by context mode", asy
   const capturePath = path.join(root, "codex-argv.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
-  await fs.writeFile(path.join(root, "src", "login.js"), "export function login() { return 'source stays out'; }\n", "utf8");
+  await fs.writeFile(
+    path.join(root, "src", "login.js"),
+    "export function login() { return 'source stays out'; }\n",
+    "utf8",
+  );
   await initGitRepo(root);
   await installFakeCodex(binDir, capturePath);
   await runCli(["scan", "--root", root]);
@@ -1025,7 +1006,10 @@ test("runCli passes routed context guidance without source by context mode", asy
   assert.match(prompt, /Source included: false/);
   assert.match(prompt, /agentify context search <terms>/);
   assert.match(prompt, /agentify context fetch <path> --symbol <name>/);
-  assert.match(prompt, /Do not invoke nested `agentify plan`, `agentify query`, `agentify up`, `agentify doc`, or raw SQLite inspection/);
+  assert.match(
+    prompt,
+    /Do not invoke nested `agentify plan`, `agentify query`, `agentify up`, `agentify doc`, or raw SQLite inspection/,
+  );
   assert.doesNotMatch(prompt, /Selected file slices/);
   assert.doesNotMatch(prompt, /source stays out/);
 });
@@ -1036,7 +1020,11 @@ test("runCli lets --with-context explicitly include source in routed context mod
   const capturePath = path.join(root, "codex-argv.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
-  await fs.writeFile(path.join(root, "src", "login.js"), "export function login() { return 'explicit source included'; }\n", "utf8");
+  await fs.writeFile(
+    path.join(root, "src", "login.js"),
+    "export function login() { return 'explicit source included'; }\n",
+    "utf8",
+  );
   await initGitRepo(root);
   await installFakeCodex(binDir, capturePath);
   await runCli(["scan", "--root", root]);
@@ -1118,17 +1106,7 @@ test("runCli sess run without a task asks the provider to collect one", async ()
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "sess",
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--skip-refresh",
-      "--name",
-      "context-only",
-    ]);
+    await runCli(["sess", "run", "--root", root, "--provider", "codex", "--skip-refresh", "--name", "context-only"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -1152,27 +1130,23 @@ test("runCli supports session --resume as a sess resume alias", async () => {
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
   await installFakeCodex(binDir, capturePath);
-  const created = await forkContextSession(root, {
-    provider: "codex",
-    session: {
-      memoryPromptMaxKb: 4,
-      memoryResults: 3,
-      memoryTurns: 6,
+  const created = await forkContextSession(
+    root,
+    {
+      provider: "codex",
+      session: {
+        memoryPromptMaxKb: 4,
+        memoryResults: 3,
+        memoryTurns: 6,
+      },
     },
-  }, { name: "resume alias" });
+    { name: "resume alias" },
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "session",
-      "--resume",
-      "--session",
-      created.sessionId,
-      "--root",
-      root,
-      "--skip-refresh",
-    ]);
+    await runCli(["session", "--resume", "--session", created.sessionId, "--root", root, "--skip-refresh"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -1232,12 +1206,11 @@ test("runCli context commands search, fetch, compact, and status", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-context-cmd-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(root, "src"), { recursive: true });
-  await fs.writeFile(path.join(root, "src", "login.js"), [
-    "export function login() {",
-    "  return true;",
-    "}",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(root, "src", "login.js"),
+    ["export function login() {", "  return true;", "}", ""].join("\n"),
+    "utf8",
+  );
   await initGitRepo(root);
   await runCli(["scan", "--root", root]);
 
@@ -1251,10 +1224,14 @@ test("runCli context commands search, fetch, compact, and status", async () => {
     await runCli(["context", "fetch", "src/login.js", "--lines", "1:2", "--root", root]);
     const config = { provider: "codex", session: { emitMarkdownArtifacts: true } };
     const created = await forkContextSession(root, config, { name: "context commands" });
-    await fs.appendFile(path.join(created.sessionDir, "turns.jsonl"), `${JSON.stringify({
-      turn_type: "task",
-      content: "Index login context",
-    })}\n`, "utf8");
+    await fs.appendFile(
+      path.join(created.sessionDir, "turns.jsonl"),
+      `${JSON.stringify({
+        turn_type: "task",
+        content: "Index login context",
+      })}\n`,
+      "utf8",
+    );
     await runCli(["context", "compact", "--session", created.sessionId, "--root", root]);
     await runCli(["context", "status", "--session", created.sessionId, "--root", root]);
   } finally {
@@ -1274,33 +1251,33 @@ test("runCli supports skill install with provider all", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-"));
   await runCli(["skill", "install", "god-mode", "--root", root, "--provider", "all", "--scope", "project"]);
 
-  await assert.doesNotReject(() =>
-    fs.access(path.join(root, ".claude", "skills", "worktree-autopilot", "SKILL.md"))
-  );
-  await assert.doesNotReject(() =>
-    fs.access(path.join(root, ".opencode", "skills", "worktree-autopilot", "SKILL.md"))
-  );
+  await assert.doesNotReject(() => fs.access(path.join(root, ".claude", "skills", "worktree-autopilot", "SKILL.md")));
+  await assert.doesNotReject(() => fs.access(path.join(root, ".opencode", "skills", "worktree-autopilot", "SKILL.md")));
 });
 
 test("runCli supports skill install all for codex project scope", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-skill-all-codex-"));
   await runCli(["skill", "install", "all", "--root", root, "--provider", "codex", "--scope", "project"]);
 
-  for (const skillName of ["grill-me", "improve-codebase-architecture", "gh-autopilot", "ado-autopilot", "azure-devops-triage", "copy-mode", "worktree-autopilot", "pr-creator", "commit-creator"]) {
-    await assert.doesNotReject(() =>
-      fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md"))
-    );
+  for (const skillName of [
+    "grill-me",
+    "improve-codebase-architecture",
+    "gh-autopilot",
+    "ado-autopilot",
+    "azure-devops-triage",
+    "copy-mode",
+    "worktree-autopilot",
+    "pr-creator",
+    "commit-creator",
+  ]) {
+    await assert.doesNotReject(() => fs.access(path.join(root, ".codex", "skills", skillName, "SKILL.md")));
   }
 });
 
 test("runCli hooks install honors hook settings from .agentify.yaml", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-hooks-config-"));
   await fs.mkdir(path.join(root, ".git", "hooks"), { recursive: true });
-  await fs.writeFile(
-    path.join(root, ".agentify.yaml"),
-    "hooks:\n  preCommit: true\n  postMerge: false\n",
-    "utf8",
-  );
+  await fs.writeFile(path.join(root, ".agentify.yaml"), "hooks:\n  preCommit: true\n  postMerge: false\n", "utf8");
 
   const output = [];
   const originalLog = console.log;
@@ -1376,19 +1353,23 @@ test("runCli init preserves existing gitignore entries while adding Agentify ign
 
 test("runCli init updates gitignore Agentify block without dropping user additions", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-main-init-gitignore-merge-"));
-  await fs.writeFile(path.join(root, ".gitignore"), [
-    "node_modules/",
-    "",
-    "# >>> agentify generated artifacts",
-    ".agents/",
-    ".agentify/",
-    ".agentify/work/",
-    "local.env",
-    "# <<< agentify generated artifacts",
-    "",
-    "coverage-local/",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(root, ".gitignore"),
+    [
+      "node_modules/",
+      "",
+      "# >>> agentify generated artifacts",
+      ".agents/",
+      ".agentify/",
+      ".agentify/work/",
+      "local.env",
+      "# <<< agentify generated artifacts",
+      "",
+      "coverage-local/",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   await runCli(["init", "--root", root]);
 
@@ -1447,15 +1428,19 @@ test("runCli link preserves existing branch-local policy files", async () => {
   await fs.writeFile(path.join(linked, ".agentify.yaml"), "provider: gemini\nstrict: false\n", "utf8");
   await fs.writeFile(path.join(linked, ".agentignore"), "branch-only.log\n", "utf8");
   await fs.writeFile(path.join(linked, ".guardrails"), "# Branch guardrails\n", "utf8");
-  await fs.writeFile(path.join(linked, ".gitignore"), [
-    "dist/",
-    "",
-    "# >>> agentify generated artifacts",
-    ".agentify/",
-    "local-policy.cache",
-    "# <<< agentify generated artifacts",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(linked, ".gitignore"),
+    [
+      "dist/",
+      "",
+      "# >>> agentify generated artifacts",
+      ".agentify/",
+      "local-policy.cache",
+      "# <<< agentify generated artifacts",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 
   await runCli(["link", "--root", linked, "--from", canonical]);
 
@@ -1479,13 +1464,11 @@ test("runCli up auto-links a git worktree when runtime.worktreeAutoLink is enabl
   await fs.mkdir(path.join(primary, "src"), { recursive: true });
   await fs.writeFile(path.join(primary, "package.json"), "{}\n", "utf8");
   await fs.writeFile(path.join(primary, "src", "index.js"), "export const answer = 42;\n", "utf8");
-  await fs.writeFile(path.join(primary, ".agentify.yaml"), [
-    "provider: local",
-    "runtime:",
-    "  store: local",
-    "  worktreeAutoLink: true",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    path.join(primary, ".agentify.yaml"),
+    ["provider: local", "runtime:", "  store: local", "  worktreeAutoLink: true", ""].join("\n"),
+    "utf8",
+  );
   await initGitRepo(primary);
   await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "autolink-worktree", linked]);
 
@@ -1508,7 +1491,7 @@ test("runCli init writes shared runtime config and links git checkouts by defaul
   await initGitRepo(root);
 
   const output = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () =>
-    captureConsoleLog(() => runCli(["init", "--root", root, "--json"]))
+    captureConsoleLog(() => runCli(["init", "--root", root, "--json"])),
   );
   const payload = JSON.parse(output.join("\n"));
   const config = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
@@ -1536,7 +1519,7 @@ test("runCli prints the worktree link hint once and respects suppression", async
   const first = await captureStderr(() => runCli(["scan", "--root", linked]));
   const second = await captureStderr(() => runCli(["scan", "--root", linked]));
   const suppressedOutput = await withEnv("AGENTIFY_NO_WORKTREE_HINT", "1", async () =>
-    captureStderr(() => runCli(["scan", "--root", suppressed]))
+    captureStderr(() => runCli(["scan", "--root", suppressed])),
   );
 
   assert.match(first, /Detected Git worktree\. To reuse repo maps across worktrees, run:/);
@@ -1702,7 +1685,12 @@ test("runCli link --auto migrates reusable local artifacts and preserves local-o
     return JSON.parse(output.join("\n"));
   });
 
-  assert.deepEqual(result.migration.migrated.map((item) => item.artifact).sort(), ["cache", "context", "index.db", "semantic"]);
+  assert.deepEqual(result.migration.migrated.map((item) => item.artifact).sort(), [
+    "cache",
+    "context",
+    "index.db",
+    "semantic",
+  ]);
   await assert.doesNotReject(() => fs.access(path.join(result.project_store, "index.db")));
   await assert.doesNotReject(() => fs.access(path.join(result.project_store, "cache", "nested", "blob.txt")));
   await assert.doesNotReject(() => fs.access(path.join(result.project_store, "semantic", "facts.json")));
@@ -1725,7 +1713,9 @@ test("runCli link --auto keeps existing shared artifacts unless local-to-shared 
   await fs.writeFile(path.join(root, ".agentify", "index.db"), "local-v1\n", "utf8");
 
   const initial = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
-    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    const output = await captureConsoleLog(() =>
+      runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]),
+    );
     return JSON.parse(output.join("\n"));
   });
   await fs.writeFile(path.join(initial.project_store, "index.db"), "shared-v1\n", "utf8");
@@ -1736,7 +1726,9 @@ test("runCli link --auto keeps existing shared artifacts unless local-to-shared 
     return JSON.parse(output.join("\n"));
   });
   assert.equal(await fs.readFile(path.join(initial.project_store, "index.db"), "utf8"), "shared-v1\n");
-  assert.ok(skipped.migration.warnings.some((warning) => warning.includes("Shared store already has reusable artifacts")));
+  assert.ok(
+    skipped.migration.warnings.some((warning) => warning.includes("Shared store already has reusable artifacts")),
+  );
 
   await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
     await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=local-to-shared", "--json"]));
@@ -1753,7 +1745,9 @@ test("runCli cache clean targets local, shared, and all stores without crossing 
   await initGitRepo(root);
 
   const link = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
-    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    const output = await captureConsoleLog(() =>
+      runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]),
+    );
     return JSON.parse(output.join("\n"));
   });
   const localCacheFile = path.join(root, ".agentify", "cache", "local.txt");
@@ -1773,7 +1767,9 @@ test("runCli cache clean targets local, shared, and all stores without crossing 
   await assert.doesNotReject(() => fs.access(sharedCacheFile));
 
   await fs.writeFile(localCacheFile, "local\n", "utf8");
-  const dryRun = await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--shared", "--dry-run", "--json"]));
+  const dryRun = await captureConsoleLog(() =>
+    runCli(["cache", "clean", "--root", root, "--shared", "--dry-run", "--json"]),
+  );
   const dryRunResult = JSON.parse(dryRun.join("\n"));
   assert.equal(dryRunResult.cleaned[0].store, "shared");
   assert.equal(dryRunResult.cleaned[0].removed, 1);
@@ -1785,10 +1781,7 @@ test("runCli cache clean targets local, shared, and all stores without crossing 
   await assert.rejects(() => fs.access(sharedCacheFile), { code: "ENOENT" });
 
   await fs.writeFile(sharedCacheFile, "shared\n", "utf8");
-  await assert.rejects(
-    () => runCli(["cache", "clean", "--root", root, "--all"]),
-    /cache clean --all requires --yes/,
-  );
+  await assert.rejects(() => runCli(["cache", "clean", "--root", root, "--all"]), /cache clean --all requires --yes/);
   await captureConsoleLog(() => runCli(["cache", "clean", "--root", root, "--all", "--yes", "--json"]));
   await assert.rejects(() => fs.access(localCacheFile), { code: "ENOENT" });
   await assert.rejects(() => fs.access(sharedCacheFile), { code: "ENOENT" });
@@ -1803,7 +1796,9 @@ test("runCli cache clean refuses shared deletion when shared store locks exist",
   await initGitRepo(root);
 
   const link = await withEnv("AGENTIFY_SHARED_STORE_PATH", sharedBase, async () => {
-    const output = await captureConsoleLog(() => runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]));
+    const output = await captureConsoleLog(() =>
+      runCli(["link", "--root", root, "--auto", "--migrate=none", "--json"]),
+    );
     return JSON.parse(output.join("\n"));
   });
   const sharedCacheFile = path.join(link.project_store, "cache", "shared.txt");
@@ -1896,7 +1891,7 @@ test("runCli plan --explain renders text and JSON score breakdowns", async () =>
 
   const stdoutChunks = [];
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((chunk, encoding, callback) => {
+  process.stdout.write = (chunk, encoding, callback) => {
     stdoutChunks.push(String(chunk));
     if (typeof encoding === "function") {
       encoding();
@@ -1904,7 +1899,7 @@ test("runCli plan --explain renders text and JSON score breakdowns", async () =>
       callback();
     }
     return true;
-  });
+  };
 
   try {
     await runCli(["plan", "--root", root, "--explain", "fix loginUser"]);
@@ -1934,7 +1929,11 @@ test("runCli plan --explain renders text and JSON score breakdowns", async () =>
   const payload = JSON.parse(jsonOutput[0]);
   assert.equal(payload.explain.schema_version, 1);
   assert.ok(payload.selected_files.some((fileInfo) => typeof fileInfo.score_breakdown?.total === "number"));
-  assert.ok(payload.selected_symbols.some((symbolInfo) => symbolInfo.reasons.some((reason) => reason.code === "lexical.symbol.direct_name_match")));
+  assert.ok(
+    payload.selected_symbols.some((symbolInfo) =>
+      symbolInfo.reasons.some((reason) => reason.code === "lexical.symbol.direct_name_match"),
+    ),
+  );
 });
 
 test("runCli query reports actionable guidance when the index is missing", async () => {
@@ -1966,14 +1965,12 @@ test("runCli context fetch returns exact bounded slices by lines and symbol", as
   await initGitRepo(root);
   await runCli(["scan", "--root", root]);
 
-  const searchOutput = await captureConsoleLog(() =>
-    runCli(["context", "search", "analytics", "--root", root])
-  );
+  const searchOutput = await captureConsoleLog(() => runCli(["context", "search", "analytics", "--root", root]));
   const searchPayload = JSON.parse(searchOutput[0]);
   assert.ok(searchPayload.refs.some((ref) => ref.path === "src/analytics/report.js"));
 
   const lineOutput = await captureConsoleLog(() =>
-    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--lines", "1:2"])
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--lines", "1:2"]),
   );
   const linePayload = JSON.parse(lineOutput[0]);
   assert.equal(linePayload.path, "src/analytics/report.js");
@@ -1981,7 +1978,7 @@ test("runCli context fetch returns exact bounded slices by lines and symbol", as
   assert.equal(linePayload.content, "   1: export function buildReport(events) {\n   2:   return events.length;");
 
   const symbolOutput = await captureConsoleLog(() =>
-    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--symbol", "buildReport"])
+    runCli(["context", "fetch", "src/analytics/report.js", "--root", root, "--symbol", "buildReport"]),
   );
   const symbolPayload = JSON.parse(symbolOutput[0]);
   assert.equal(symbolPayload.command, "context fetch");
@@ -2057,20 +2054,28 @@ test("runCli doctor --json reports package manager and provider readiness", asyn
   await fs.mkdir(path.join(homeDir, ".gemini"), { recursive: true });
   await fs.writeFile(path.join(homeDir, ".gemini", "oauth_creds.json"), "{}\n", "utf8");
   await installFakeExecutable(binDir, "pnpm", "#!/bin/sh\necho '10.1.2'\n");
-  await installFakeExecutable(binDir, "codex", `#!/bin/sh
+  await installFakeExecutable(
+    binDir,
+    "codex",
+    `#!/bin/sh
 if [ "$1" = "login" ] && [ "$2" = "status" ]; then
   echo "Logged in"
   exit 0
 fi
 echo "codex 1.2.3"
-`);
-  await installFakeExecutable(binDir, "claude", `#!/bin/sh
+`,
+  );
+  await installFakeExecutable(
+    binDir,
+    "claude",
+    `#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   echo '{"loggedIn":true,"authMethod":"test"}'
   exit 0
 fi
 echo "claude 2.3.4"
-`);
+`,
+  );
   await installFakeExecutable(binDir, "gemini", "#!/bin/sh\necho 'gemini 3.4.5'\n");
 
   const originalLog = console.log;
@@ -2142,7 +2147,10 @@ test("runCli run --rtk adds compact RTK guidance without wrapping the provider c
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
   await installFakeCodex(binDir, capturePath);
-  await installFakeExecutable(binDir, "rtk", `#!/bin/sh
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "rtk 0.39.0"
   exit 0
@@ -2152,21 +2160,13 @@ if [ "$1" = "gain" ]; then
   exit 0
 fi
 exit 0
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--rtk",
-      "--skip-refresh",
-      "Implement login retries",
-    ]);
+    await runCli(["run", "--root", root, "--provider", "codex", "--rtk", "--skip-refresh", "Implement login retries"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -2189,15 +2189,7 @@ test("runCli run omits RTK guidance by default", async () => {
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "--skip-refresh",
-      "Implement login retries",
-    ]);
+    await runCli(["run", "--root", root, "--provider", "codex", "--skip-refresh", "Implement login retries"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -2213,7 +2205,10 @@ test("runCli sess run --rtk adds compact RTK guidance", async () => {
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
   await installFakeCodex(binDir, capturePath);
-  await installFakeExecutable(binDir, "rtk", `#!/bin/sh
+  await installFakeExecutable(
+    binDir,
+    "rtk",
+    `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "rtk 0.39.0"
   exit 0
@@ -2223,7 +2218,8 @@ if [ "$1" = "gain" ]; then
   exit 0
 fi
 exit 0
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
@@ -2260,16 +2256,8 @@ test("runCli run --rtk fails fast when RTK cannot be verified", async () => {
   process.env.PATH = binDir;
   try {
     await assert.rejects(
-      () => runCli([
-        "run",
-        "--root",
-        root,
-        "--provider",
-        "codex",
-        "--rtk",
-        "--skip-refresh",
-        "Implement login retries",
-      ]),
+      () =>
+        runCli(["run", "--root", root, "--provider", "codex", "--rtk", "--skip-refresh", "Implement login retries"]),
       /RTK was requested/,
     );
   } finally {
@@ -2355,7 +2343,11 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   await fs.mkdir(path.join(root, ".codex", "skills", "grill-me"), { recursive: true });
   await fs.writeFile(path.join(root, ".codex", "skills", "grill-me", "SKILL.md"), "# stale skill\n", "utf8");
   await initGitRepo(root);
-  await fs.writeFile(path.join(root, ".git", "hooks", "post-merge"), "#!/bin/sh\n# @agentify post-merge hook\nagentify scan\n", "utf8");
+  await fs.writeFile(
+    path.join(root, ".git", "hooks", "post-merge"),
+    "#!/bin/sh\n# @agentify post-merge hook\nagentify scan\n",
+    "utf8",
+  );
 
   const output = [];
   const originalLog = console.log;
@@ -2376,7 +2368,10 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.equal(payload.repo_sync.config.status, "updated");
   assert.deepEqual(payload.repo_sync.skills.providers, ["codex"]);
   assert.equal(payload.repo_sync.hooks.results.find((item) => item.name === "post-merge")?.status, "updated");
-  assert.equal(payload.repo_sync.baseline.some((item) => item.status === "created"), true);
+  assert.equal(
+    payload.repo_sync.baseline.some((item) => item.status === "created"),
+    true,
+  );
 
   const configText = await fs.readFile(path.join(root, ".agentify.yaml"), "utf8");
   const gitignoreText = await fs.readFile(path.join(root, ".gitignore"), "utf8");
@@ -2388,7 +2383,10 @@ test("runCli sync upgrades repo-owned Agentify assets and emits sync json", asyn
   assert.match(gitignoreText, /# >>> agentify generated artifacts/);
   assert.match(gitignoreText, /^\.agentify\/$/m);
   assert.match(skillText, /Interview the user relentlessly/);
-  assert.match(hookText, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
+  assert.match(
+    hookText,
+    /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/,
+  );
   await assert.doesNotReject(() => fs.access(path.join(root, ".agentignore")));
   await assert.doesNotReject(() => fs.access(path.join(root, ".guardrails")));
 });
@@ -2464,7 +2462,7 @@ test("runCli restores stderr output after a failing json invocation", async () =
   const stderrChunks = [];
   const originalWrite = process.stderr.write.bind(process.stderr);
 
-  process.stderr.write = ((chunk, encoding, callback) => {
+  process.stderr.write = (chunk, encoding, callback) => {
     stderrChunks.push(String(chunk));
     if (typeof encoding === "function") {
       encoding();
@@ -2472,7 +2470,7 @@ test("runCli restores stderr output after a failing json invocation", async () =
       callback();
     }
     return true;
-  });
+  };
 
   try {
     await assert.rejects(() => runCli(["exec", "--root", root, "--json"]), /exec requires a command after --/);
@@ -2508,10 +2506,10 @@ test("runCli exec refreshes stale artifacts after a failing command mutates trac
   const stderrChunks = [];
   const originalWrite = process.stderr.write.bind(process.stderr);
   process.exitCode = undefined;
-  process.stderr.write = ((chunk, encoding, callback) => {
+  process.stderr.write = (chunk, encoding, callback) => {
     stderrChunks.push(String(chunk));
     return originalWrite(chunk, encoding, callback);
-  });
+  };
 
   try {
     await runCli(["exec", "--root", root, "--fail-on-stale", "--", "node", "--input-type=module", "-e", script]);

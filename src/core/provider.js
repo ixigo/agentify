@@ -16,7 +16,7 @@ function errorMessage(error) {
 export class ProviderExecutionError extends Error {
   constructor(provider, phase, cause) {
     super(`provider "${provider}" failed during ${phase}: ${errorMessage(cause)}`, {
-      cause
+      cause,
     });
     this.name = "ProviderExecutionError";
     this.code = "AGENTIFY_PROVIDER_EXECUTION_FAILED";
@@ -36,7 +36,10 @@ function asProviderExecutionError(provider, phase, error) {
 export function summarizeModule(moduleInfo, files, semantic = null) {
   const examples = files.slice(0, 5).join(", ");
   const semanticLead = semantic?.surfaces?.length
-    ? `Semantic surfaces: ${semantic.surfaces.slice(0, 3).map((item) => item.display_name || item.surface_key || item.path).join(", ")}. `
+    ? `Semantic surfaces: ${semantic.surfaces
+        .slice(0, 3)
+        .map((item) => item.display_name || item.surface_key || item.path)
+        .join(", ")}. `
     : "";
   return `${semanticLead}${moduleInfo.name} owns code under ${moduleInfo.rootPath} and is indexed from ${examples || "its module root"}.`;
 }
@@ -56,27 +59,35 @@ function dedupeBy(items, keyFn) {
 }
 
 function inferPublicApi(files, semantic = null) {
-  const semanticItems = semantic?.public_api?.map((item) => ({
-    symbol: item.symbol,
-    kind: item.kind,
-    path: item.path,
-  })) || [];
+  const semanticItems =
+    semantic?.public_api?.map((item) => ({
+      symbol: item.symbol,
+      kind: item.kind,
+      path: item.path,
+    })) || [];
   const inferredItems = files
-    .filter((file) => /(index|public|exports|main|appdelegate|scenedelegate|application|mainactivity)\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/i.test(file))
+    .filter((file) =>
+      /(index|public|exports|main|appdelegate|scenedelegate|application|mainactivity)\.(ts|tsx|js|jsx|py|cs|java|kt|kts|swift)$/i.test(
+        file,
+      ),
+    )
     .slice(0, 8)
     .map((file) => ({
       symbol: file.split("/").pop(),
       kind: "module",
-      path: file
+      path: file,
     }));
-  return dedupeBy([...semanticItems, ...inferredItems], (item) => `${item.path}:${item.symbol}:${item.kind}`).slice(0, 12);
+  return dedupeBy([...semanticItems, ...inferredItems], (item) => `${item.path}:${item.symbol}:${item.kind}`).slice(
+    0,
+    12,
+  );
 }
 
 function inferStartHere(context) {
   const semanticItems = context.semantic?.start_here || [];
   const fallbackItems = context.keyFiles.slice(0, 5).map((file) => ({
     path: file,
-    why: "High-signal file selected by Agentify key-file ranking."
+    why: "High-signal file selected by Agentify key-file ranking.",
   }));
   return dedupeBy([...semanticItems, ...fallbackItems], (item) => `${item.path}:${item.why}`).slice(0, 5);
 }
@@ -92,20 +103,27 @@ function buildSemanticMetadata(context) {
 
 function renderSemanticSection(metadata) {
   const hasSemanticData = Boolean(
-    metadata.semantic?.projects?.length
-    || metadata.semantic?.surfaces?.length
-    || metadata.semantic?.runtime_deps?.length
-    || metadata.semantic?.type_deps?.length
+    metadata.semantic?.projects?.length ||
+    metadata.semantic?.surfaces?.length ||
+    metadata.semantic?.runtime_deps?.length ||
+    metadata.semantic?.type_deps?.length,
   );
   if (!hasSemanticData) {
     return "";
   }
 
   const projects = metadata.semantic?.projects?.length
-    ? metadata.semantic.projects.map((item) => `- \`${item.config_path || item.project_id}\` (${item.status})`).join("\n")
+    ? metadata.semantic.projects
+        .map((item) => `- \`${item.config_path || item.project_id}\` (${item.status})`)
+        .join("\n")
     : "- No semantic projects recorded.";
   const surfaces = metadata.semantic?.surfaces?.length
-    ? metadata.semantic.surfaces.map((item) => `- \`${item.path}\` (${item.role || item.kind})${item.display_name ? ` -> ${item.display_name}` : ""}`).join("\n")
+    ? metadata.semantic.surfaces
+        .map(
+          (item) =>
+            `- \`${item.path}\` (${item.role || item.kind})${item.display_name ? ` -> ${item.display_name}` : ""}`,
+        )
+        .join("\n")
     : "- No semantic surfaces recorded.";
   const runtimeDeps = metadata.semantic?.runtime_deps?.length
     ? metadata.semantic.runtime_deps.map((item) => `- \`${item}\``).join("\n")
@@ -129,24 +147,28 @@ ${typeDeps}`;
 }
 
 export function renderModuleMarkdown(moduleInfo, metadata) {
-  const publicSurface = metadata.public_api.length > 0
-    ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
-    : "- No explicit export surface detected.";
-  const startHere = metadata.start_here.length > 0
-    ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n")
-    : "- No key files selected.";
-  const dependsOn = metadata.dependencies.depends_on.length > 0
-    ? metadata.dependencies.depends_on.map((item) => item.module_id).join(", ")
-    : "none";
-  const usedBy = metadata.dependencies.used_by.length > 0
-    ? metadata.dependencies.used_by.map((item) => item.module_id).join(", ")
-    : "none";
-  const sideEffects = metadata.side_effects.length > 0
-    ? metadata.side_effects.map((item) => `- \`${item}\``).join("\n")
-    : "- \`none\`";
-  const tests = metadata.tests.length > 0
-    ? metadata.tests.map((item) => `- \`${item}\``).join("\n")
-    : "- No tests detected in module scan.";
+  const publicSurface =
+    metadata.public_api.length > 0
+      ? metadata.public_api.map((item) => `- \`${item.path}\` (${item.kind})`).join("\n")
+      : "- No explicit export surface detected.";
+  const startHere =
+    metadata.start_here.length > 0
+      ? metadata.start_here.map((item) => `- \`${item.path}\`: ${item.why}`).join("\n")
+      : "- No key files selected.";
+  const dependsOn =
+    metadata.dependencies.depends_on.length > 0
+      ? metadata.dependencies.depends_on.map((item) => item.module_id).join(", ")
+      : "none";
+  const usedBy =
+    metadata.dependencies.used_by.length > 0
+      ? metadata.dependencies.used_by.map((item) => item.module_id).join(", ")
+      : "none";
+  const sideEffects =
+    metadata.side_effects.length > 0 ? metadata.side_effects.map((item) => `- \`${item}\``).join("\n") : "- \`none\`";
+  const tests =
+    metadata.tests.length > 0
+      ? metadata.tests.map((item) => `- \`${item}\``).join("\n")
+      : "- No tests detected in module scan.";
   const semanticSection = renderSemanticSection(metadata);
 
   return `# ${moduleInfo.name}
@@ -186,25 +208,25 @@ function fallbackArtifacts(moduleInfo, context) {
       id: moduleInfo.id,
       name: moduleInfo.name,
       root_path: moduleInfo.rootPath,
-      stack: moduleInfo.stack
+      stack: moduleInfo.stack,
     },
     summary,
     provider_status: {
       status: "fallback",
       provider: "local",
-      mode: "deterministic-local"
+      mode: "deterministic-local",
     },
     public_api: inferPublicApi(context.files, context.semantic),
     start_here: inferStartHere(context),
     dependencies: {
       depends_on: context.dependsOn.map((moduleId) => ({
         module_id: moduleId,
-        reason: "Observed through deterministic graph scan."
+        reason: "Observed through deterministic graph scan.",
       })),
       used_by: context.usedBy.map((moduleId) => ({
         module_id: moduleId,
-        reason: "Observed through deterministic graph scan."
-      }))
+        reason: "Observed through deterministic graph scan.",
+      })),
     },
     side_effects: ["none"],
     tests: context.files.filter((file) => /test|spec/.test(file)).slice(0, 10),
@@ -215,12 +237,12 @@ function fallbackArtifacts(moduleInfo, context) {
       last_indexed_at: context.now,
       last_indexed_commit: context.headCommit,
       content_fingerprint: null,
-    }
+    },
   };
 
   const headers = context.keyFiles.map((file) => ({
     path: file,
-    summary
+    summary,
   }));
 
   return {
@@ -230,8 +252,8 @@ function fallbackArtifacts(moduleInfo, context) {
     tokenUsage: {
       input_tokens: 0,
       output_tokens: 0,
-      total_tokens: 0
-    }
+      total_tokens: 0,
+    },
   };
 }
 
@@ -239,7 +261,7 @@ export function parseCodexJsonl(text) {
   const usage = {
     input_tokens: 0,
     output_tokens: 0,
-    total_tokens: 0
+    total_tokens: 0,
   };
 
   for (const rawLine of text.split(/\r?\n/)) {
@@ -270,8 +292,8 @@ export function parseClaudeJson(text) {
     usage: {
       input_tokens: usage.input_tokens || 0,
       output_tokens: usage.output_tokens || 0,
-      total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0)
-    }
+      total_tokens: (usage.input_tokens || 0) + (usage.output_tokens || 0),
+    },
   };
 }
 
@@ -300,8 +322,8 @@ export function parseGeminiJson(text) {
     usage: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
-      total_tokens: totalTokens || inputTokens + outputTokens
-    }
+      total_tokens: totalTokens || inputTokens + outputTokens,
+    },
   };
 }
 
@@ -310,7 +332,7 @@ export function parseOpenCodeJsonl(text) {
   const usage = {
     input_tokens: 0,
     output_tokens: 0,
-    total_tokens: 0
+    total_tokens: 0,
   };
 
   for (const rawLine of text.split(/\r?\n/)) {
@@ -340,13 +362,11 @@ export function parseOpenCodeJsonl(text) {
   return { output, usage };
 }
 
-export async function runChild(command, args, {
-  cwd,
-  env = {},
-  providerEnv = {},
-  sourceEnv = process.env,
-  timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS,
-} = {}) {
+export async function runChild(
+  command,
+  args,
+  { cwd, env = {}, providerEnv = {}, sourceEnv = process.env, timeoutMs = DEFAULT_PROVIDER_TIMEOUT_MS } = {},
+) {
   const stdoutChunks = [];
   const stderrChunks = [];
 
@@ -375,17 +395,18 @@ export async function runChild(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...buildProviderEnv(providerEnv, sourceEnv),
-        ...env
-      }
+        ...env,
+      },
     });
 
-    timeout = Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
-      }, timeoutMs)
-      : null;
+    timeout =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGTERM");
+            killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+          }, timeoutMs)
+        : null;
 
     child.stdout.on("data", (chunk) => {
       stdoutChunks.push(String(chunk));
@@ -406,13 +427,18 @@ export async function runChild(command, args, {
         finish(resolve);
         return;
       }
-      finish(reject, new Error(`${command} failed with code ${code}${signal ? ` (signal ${signal})` : ""}: ${stderrChunks.join("") || stdoutChunks.join("")}`));
+      finish(
+        reject,
+        new Error(
+          `${command} failed with code ${code}${signal ? ` (signal ${signal})` : ""}: ${stderrChunks.join("") || stdoutChunks.join("")}`,
+        ),
+      );
     });
   });
 
   return {
     stdout: stdoutChunks.join(""),
-    stderr: stderrChunks.join("")
+    stderr: stderrChunks.join(""),
   };
 }
 
@@ -435,7 +461,7 @@ async function runCodexExec({ root, prompt, schema, model, providerEnv, timeoutM
       "--output-schema",
       schemaPath,
       "--output-last-message",
-      outputPath
+      outputPath,
     ];
 
     if (model) {
@@ -455,15 +481,7 @@ async function runCodexExec({ root, prompt, schema, model, providerEnv, timeoutM
 }
 
 async function runClaudeExec({ root, prompt, schema, model, providerEnv, timeoutMs }) {
-  const args = [
-    "-p",
-    "--output-format",
-    "json",
-    "--permission-mode",
-    "plan",
-    "--json-schema",
-    JSON.stringify(schema)
-  ];
+  const args = ["-p", "--output-format", "json", "--permission-mode", "plan", "--json-schema", JSON.stringify(schema)];
 
   if (model) {
     args.push("--model", model);
@@ -481,17 +499,20 @@ function buildGeminiExecEnv(env = process.env, homeDir = os.homedir()) {
     return {};
   }
   return {
-    HOME: credentialHome
+    HOME: credentialHome,
   };
 }
 
-async function runGeminiExec({ root, prompt, model, providerEnv, timeoutMs, env = process.env, homeDir = os.homedir() }) {
-  const args = [
-    "-p",
-    prompt,
-    "--output-format",
-    "json"
-  ];
+async function runGeminiExec({
+  root,
+  prompt,
+  model,
+  providerEnv,
+  timeoutMs,
+  env = process.env,
+  homeDir = os.homedir(),
+}) {
+  const args = ["-p", prompt, "--output-format", "json"];
 
   if (model) {
     args.push("--model", model);
@@ -502,20 +523,13 @@ async function runGeminiExec({ root, prompt, model, providerEnv, timeoutMs, env 
     env: buildGeminiExecEnv(env, homeDir),
     providerEnv,
     sourceEnv: env,
-    timeoutMs
+    timeoutMs,
   });
   return parseGeminiJson(stdout);
 }
 
 async function runOpenCodeExec({ root, prompt, model, providerEnv, timeoutMs }) {
-  const args = [
-    "run",
-    prompt,
-    "--format",
-    "json",
-    "--dir",
-    root
-  ];
+  const args = ["run", prompt, "--format", "json", "--dir", root];
 
   if (model) {
     args.push("--model", model);
@@ -531,29 +545,38 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
     provider_status: {
       status: "success",
       provider: context.providerName || "external",
-      mode: "provider-backed"
+      mode: "provider-backed",
     },
     module: {
       id: moduleInfo.id,
       name: moduleInfo.name,
       root_path: moduleInfo.rootPath,
-      stack: moduleInfo.stack
+      stack: moduleInfo.stack,
     },
     summary: response.summary,
-    public_api: dedupeBy([...response.public_api, ...inferPublicApi([], context.semantic)], (item) => `${item.path}:${item.symbol}:${item.kind}`).slice(0, 12),
-    start_here: dedupeBy([...response.start_here, ...inferStartHere(context)], (item) => `${item.path}:${item.why}`).slice(0, 5),
+    public_api: dedupeBy(
+      [...response.public_api, ...inferPublicApi([], context.semantic)],
+      (item) => `${item.path}:${item.symbol}:${item.kind}`,
+    ).slice(0, 12),
+    start_here: dedupeBy(
+      [...response.start_here, ...inferStartHere(context)],
+      (item) => `${item.path}:${item.why}`,
+    ).slice(0, 5),
     dependencies: {
       depends_on: context.dependsOn.map((moduleId) => ({
         module_id: moduleId,
-        reason: "Observed through deterministic graph scan."
+        reason: "Observed through deterministic graph scan.",
       })),
       used_by: context.usedBy.map((moduleId) => ({
         module_id: moduleId,
-        reason: "Observed through deterministic graph scan."
-      }))
+        reason: "Observed through deterministic graph scan.",
+      })),
     },
     side_effects: response.side_effects.length > 0 ? response.side_effects : ["none"],
-    tests: context.files.map((file) => file.path).filter((file) => /test|spec/.test(file)).slice(0, 10),
+    tests: context.files
+      .map((file) => file.path)
+      .filter((file) => /test|spec/.test(file))
+      .slice(0, 10),
     docs: [moduleInfo.doc_path],
     tags: [moduleInfo.stack],
     semantic: buildSemanticMetadata(context),
@@ -561,7 +584,7 @@ function buildMetadataFromCodex(moduleInfo, context, response) {
       last_indexed_at: context.now,
       last_indexed_commit: context.headCommit,
       content_fingerprint: null,
-    }
+    },
   };
 }
 
@@ -574,28 +597,29 @@ function createLocalProvider() {
         plan: {
           repo_summary: "",
           shared_conventions: [],
-          module_focus: []
+          module_focus: [],
         },
         tokenUsage: {
           input_tokens: 0,
           output_tokens: 0,
-          total_tokens: 0
-        }
+          total_tokens: 0,
+        },
       };
     },
     async generateModuleArtifacts(moduleInfo, context) {
       return fallbackArtifacts(moduleInfo, {
         ...context,
-        files: context.files.map((item) => item.path)
+        files: context.files.map((item) => item.path),
       });
-    }
+    },
   };
 }
 
 function createExternalProvider(config, options) {
-  const timeoutMs = Number.isFinite(Number(config.providerTimeoutMs)) && Number(config.providerTimeoutMs) > 0
-    ? Number(config.providerTimeoutMs)
-    : DEFAULT_PROVIDER_TIMEOUT_MS;
+  const timeoutMs =
+    Number.isFinite(Number(config.providerTimeoutMs)) && Number(config.providerTimeoutMs) > 0
+      ? Number(config.providerTimeoutMs)
+      : DEFAULT_PROVIDER_TIMEOUT_MS;
   return {
     name: options.name,
     providerModel: config.model || options.defaultModel,
@@ -607,12 +631,12 @@ function createExternalProvider(config, options) {
           schema: buildManagerSchema(),
           model: config.model,
           providerEnv: config.providerEnv,
-          timeoutMs
+          timeoutMs,
         });
 
         return {
           plan: sanitizeManagerPlan(result.output, new Set(repoContext.modules.map((item) => item.id))),
-          tokenUsage: result.usage
+          tokenUsage: result.usage,
         };
       } catch (error) {
         throw asProviderExecutionError(options.name, "manager planning", error);
@@ -627,7 +651,7 @@ function createExternalProvider(config, options) {
           schema: buildModuleSchema(),
           model: config.model,
           providerEnv: config.providerEnv,
-          timeoutMs
+          timeoutMs,
         });
         const sanitized = sanitizeModuleResponse(result.output, moduleInfo, new Set(context.keyFiles));
         const metadata = {
@@ -635,18 +659,18 @@ function createExternalProvider(config, options) {
           summary: sanitized.summary,
           public_api: sanitized.public_api,
           start_here: sanitized.start_here,
-          side_effects: sanitized.side_effects
+          side_effects: sanitized.side_effects,
         };
         return {
           markdown: renderModuleMarkdown(moduleInfo, metadata),
           metadata,
           headers: sanitized.header_summaries,
-          tokenUsage: result.usage
+          tokenUsage: result.usage,
         };
       } catch (error) {
         throw asProviderExecutionError(options.name, "module artifact generation", error);
       }
-    }
+    },
   };
 }
 
@@ -665,10 +689,11 @@ function buildExternalRun(definition) {
   if (!definition.runtime.appendJsonOnlyInstruction) {
     return runner;
   }
-  return ({ prompt, ...args }) => runner({
-    ...args,
-    prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`,
-  });
+  return ({ prompt, ...args }) =>
+    runner({
+      ...args,
+      prompt: `${prompt}\n\nReturn only valid JSON matching the requested structure.`,
+    });
 }
 
 export function createProvider(name, config = {}) {

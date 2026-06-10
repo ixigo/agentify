@@ -96,7 +96,7 @@ test("resolveSkillInstallTargets expands provider all for project scope", () => 
       path.join(root, ".claude", "skills", "worktree-autopilot"),
       path.join(root, ".gemini", "skills", "worktree-autopilot"),
       path.join(root, ".opencode", "skills", "worktree-autopilot"),
-    ]
+    ],
   );
 });
 
@@ -314,13 +314,14 @@ test("installBuiltinSkill installs canonical skill name for alias across all pro
   assert.equal(result.results.length, 4);
 
   for (const provider of ["codex", "claude", "gemini", "opencode"]) {
-    const baseDir = provider === "codex"
-      ? path.join(root, ".codex", "skills")
-      : provider === "claude"
-        ? path.join(root, ".claude", "skills")
-        : provider === "gemini"
-          ? path.join(root, ".gemini", "skills")
-          : path.join(root, ".opencode", "skills");
+    const baseDir =
+      provider === "codex"
+        ? path.join(root, ".codex", "skills")
+        : provider === "claude"
+          ? path.join(root, ".claude", "skills")
+          : provider === "gemini"
+            ? path.join(root, ".gemini", "skills")
+            : path.join(root, ".opencode", "skills");
     const skillPath = path.join(baseDir, "worktree-autopilot", "SKILL.md");
     assert.equal(await exists(skillPath), true);
   }
@@ -338,13 +339,14 @@ test("installBuiltinSkill copies caveman skill bundle across all providers", asy
   assert.equal(result.results.length, 4);
 
   for (const provider of ["codex", "claude", "gemini", "opencode"]) {
-    const baseDir = provider === "codex"
-      ? path.join(root, ".codex", "skills")
-      : provider === "claude"
-        ? path.join(root, ".claude", "skills")
-        : provider === "gemini"
-          ? path.join(root, ".gemini", "skills")
-          : path.join(root, ".opencode", "skills");
+    const baseDir =
+      provider === "codex"
+        ? path.join(root, ".codex", "skills")
+        : provider === "claude"
+          ? path.join(root, ".claude", "skills")
+          : provider === "gemini"
+            ? path.join(root, ".gemini", "skills")
+            : path.join(root, ".opencode", "skills");
     const skillPath = path.join(baseDir, "caveman", "SKILL.md");
     const uiPath = path.join(baseDir, "caveman", "agents", "openai.yaml");
     assert.equal(await exists(skillPath), true);

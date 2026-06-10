@@ -14,30 +14,28 @@ function sha1(buffer) {
 }
 
 function shouldTrackDirtyPath(filePath) {
-  const normalized = String(filePath || "").split(path.sep).join("/");
-  return Boolean(normalized)
-    && !normalized.startsWith(".agentify/")
-    && !normalized.startsWith(".current_session/")
-    && !normalized.startsWith("docs/")
-    && normalized !== "agentify-report.html"
-    && normalized !== "output.txt"
-    && !/(^|\/)AGENTIFY\.md$/.test(normalized);
+  const normalized = String(filePath || "")
+    .split(path.sep)
+    .join("/");
+  return (
+    Boolean(normalized) &&
+    !normalized.startsWith(".agentify/") &&
+    !normalized.startsWith(".current_session/") &&
+    !normalized.startsWith("docs/") &&
+    normalized !== "agentify-report.html" &&
+    normalized !== "output.txt" &&
+    !/(^|\/)AGENTIFY\.md$/.test(normalized)
+  );
 }
 
 function normalizeDirtyFiles(entries) {
-  return [...new Set((entries || [])
-    .map((entry) => entry?.path)
-    .filter(shouldTrackDirtyPath))]
-    .sort();
+  return [...new Set((entries || []).map((entry) => entry?.path).filter(shouldTrackDirtyPath))].sort();
 }
 
 async function fingerprintFile(root, filePath) {
   const fullPath = path.join(root, filePath);
   try {
-    const [stat, content] = await Promise.all([
-      fs.stat(fullPath),
-      fs.readFile(fullPath),
-    ]);
+    const [stat, content] = await Promise.all([fs.stat(fullPath), fs.readFile(fullPath)]);
     return {
       sha1: sha1(content),
       mtime_ms: Math.round(Number(stat.mtimeMs)),
@@ -67,15 +65,11 @@ function sameArray(left, right) {
 }
 
 function sameFingerprint(left, right) {
-  return Boolean(left && right)
-    && left.sha1 === right.sha1
-    && Number(left.size) === Number(right.size);
+  return Boolean(left && right) && left.sha1 === right.sha1 && Number(left.size) === Number(right.size);
 }
 
 async function dirtySnapshotMatches(root, meta, dirtyFiles) {
-  const previousDirtyFiles = Array.isArray(meta?.dirty_files_snapshot)
-    ? [...meta.dirty_files_snapshot].sort()
-    : [];
+  const previousDirtyFiles = Array.isArray(meta?.dirty_files_snapshot) ? [...meta.dirty_files_snapshot].sort() : [];
   if (!sameArray(previousDirtyFiles, dirtyFiles)) {
     return false;
   }
@@ -163,13 +157,12 @@ export async function getIndexFreshness(root, artifactPaths) {
     };
   }
 
-  const diffEntries = meta.indexed_head
-    ? await getChangedFilesSince(root, meta.indexed_head)
-    : [];
-  const changedFiles = [...new Set([
-    ...diffEntries.map((entry) => entry?.path).filter(Boolean),
-    ...(dirtyMatchesMeta ? [] : dirtyFiles),
-  ])].filter(shouldTrackDirtyPath).sort();
+  const diffEntries = meta.indexed_head ? await getChangedFilesSince(root, meta.indexed_head) : [];
+  const changedFiles = [
+    ...new Set([...diffEntries.map((entry) => entry?.path).filter(Boolean), ...(dirtyMatchesMeta ? [] : dirtyFiles)]),
+  ]
+    .filter(shouldTrackDirtyPath)
+    .sort();
   const smallDiff = changedFiles.length > 0 && changedFiles.length < LARGE_DIFF_FILE_LIMIT;
 
   return {
@@ -185,7 +178,10 @@ export async function getIndexFreshness(root, artifactPaths) {
 }
 
 export async function writeIndexMeta(root, artifactPaths, snapshot, freshness) {
-  const fileFingerprints = await fingerprintPaths(root, snapshot.files.map((fileInfo) => fileInfo.path));
+  const fileFingerprints = await fingerprintPaths(
+    root,
+    snapshot.files.map((fileInfo) => fileInfo.path),
+  );
   const payload = {
     schema_version: INDEX_META_SCHEMA_VERSION,
     agentify_index_schema: SCHEMA_VERSIONS.INDEX,

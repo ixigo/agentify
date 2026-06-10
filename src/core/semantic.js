@@ -35,7 +35,9 @@ function sha256(value) {
 }
 
 function normalizeRepoPath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
+  return String(filePath || "")
+    .split(path.sep)
+    .join("/");
 }
 
 function pathHash(...parts) {
@@ -68,8 +70,10 @@ function shouldTreatAsOwned(filePath) {
 }
 
 function isSupportPath(filePath) {
-  return /(^|\/)(__tests__|__mocks__|fixtures?|examples?|stories)\//i.test(filePath)
-    || /\.(test|spec|stories)\.[^.]+$/i.test(filePath);
+  return (
+    /(^|\/)(__tests__|__mocks__|fixtures?|examples?|stories)\//i.test(filePath) ||
+    /\.(test|spec|stories)\.[^.]+$/i.test(filePath)
+  );
 }
 
 function domainForFile(filePath) {
@@ -77,21 +81,23 @@ function domainForFile(filePath) {
 }
 
 function isTestOwnedPath(filePath) {
-  return isSupportPath(filePath)
-    || /(^|\/)(test|tests)\//i.test(filePath)
-    || /(^|\/)(vitest|jest|playwright|cypress)[^/]*\.[^.]+$/i.test(filePath)
-    || /(^|\/)test-extend\.[^.]+$/i.test(filePath);
+  return (
+    isSupportPath(filePath) ||
+    /(^|\/)(test|tests)\//i.test(filePath) ||
+    /(^|\/)(vitest|jest|playwright|cypress)[^/]*\.[^.]+$/i.test(filePath) ||
+    /(^|\/)test-extend\.[^.]+$/i.test(filePath)
+  );
 }
 
 function isToolingPath(filePath) {
-  return /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro|jest)\.config\.[^.]+$/i.test(filePath)
-    || /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro)[^/]*\.[^.]+$/i.test(path.basename(filePath));
+  return (
+    /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro|jest)\.config\.[^.]+$/i.test(filePath) ||
+    /(^|\/)(vite|vitest|webpack|rollup|tailwind|eslint|postcss|babel|metro)[^/]*\.[^.]+$/i.test(path.basename(filePath))
+  );
 }
 
 function hasExplicitProjectInputs(rawConfig) {
-  return Array.isArray(rawConfig?.files)
-    || Array.isArray(rawConfig?.include)
-    || Array.isArray(rawConfig?.references);
+  return Array.isArray(rawConfig?.files) || Array.isArray(rawConfig?.include) || Array.isArray(rawConfig?.references);
 }
 
 function classifyProjectIntent(configPath, rawConfig) {
@@ -101,7 +107,9 @@ function classifyProjectIntent(configPath, rawConfig) {
     ...(rawConfig?.files || []),
     ...(rawConfig?.exclude || []),
     ...(rawConfig?.compilerOptions?.types || []),
-  ].join("\n").toLowerCase();
+  ]
+    .join("\n")
+    .toLowerCase();
 
   if (/(^|[^a-z])(test|spec|vitest|jest|playwright|cypress)([^a-z]|$)/.test(tokens)) {
     return "test";
@@ -151,11 +159,7 @@ function resolveExtendedConfigPath(configPath, extendsValue, knownConfigs) {
   const candidateBase = extendsValue.startsWith("/")
     ? extendsValue.replace(/^\/+/, "")
     : path.posix.normalize(path.posix.join(baseDir, extendsValue));
-  const candidates = [
-    candidateBase,
-    `${candidateBase}.json`,
-    path.posix.join(candidateBase, "tsconfig.json"),
-  ];
+  const candidates = [candidateBase, `${candidateBase}.json`, path.posix.join(candidateBase, "tsconfig.json")];
 
   return candidates.find((candidate) => knownConfigs.has(candidate)) || null;
 }
@@ -210,13 +214,7 @@ function normalizeFileHashCache(value) {
 }
 
 function statFingerprint(stat) {
-  return [
-    stat.size,
-    stat.mtimeMs,
-    stat.ctimeMs,
-    stat.dev,
-    stat.ino,
-  ].join(":");
+  return [stat.size, stat.mtimeMs, stat.ctimeMs, stat.dev, stat.ino].join(":");
 }
 
 function hasHighResolutionTimestamp(stat) {
@@ -231,7 +229,8 @@ async function computeFingerprint(root, filePaths, cache = null, instrumentation
       const stat = await fs.stat(absolutePath);
       const metadataFingerprint = statFingerprint(stat);
       const cached = cache?.files?.[filePath];
-      let contentHash = cached?.metadata === metadataFingerprint && hasHighResolutionTimestamp(stat) ? cached.hash : null;
+      let contentHash =
+        cached?.metadata === metadataFingerprint && hasHighResolutionTimestamp(stat) ? cached.hash : null;
 
       if (!contentHash) {
         const content = await fs.readFile(absolutePath, "utf8");
@@ -319,9 +318,9 @@ function semanticAdapterConfig(config, adapterId) {
 
 export function isSemanticEnabled(config) {
   return Boolean(
-    config.semantic?.enabled
-      || config.semantic?.tsjs?.enabled
-      || GENERIC_SEMANTIC_ADAPTERS.some((adapter) => semanticAdapterConfig(config, adapter.id).enabled)
+    config.semantic?.enabled ||
+    config.semantic?.tsjs?.enabled ||
+    GENERIC_SEMANTIC_ADAPTERS.some((adapter) => semanticAdapterConfig(config, adapter.id).enabled),
   );
 }
 
@@ -330,10 +329,7 @@ function isSemanticAdapterEnabled(config, adapterId) {
     return Boolean(config.semantic?.enabled || config.semantic?.tsjs?.enabled);
   }
   const adapterConfig = semanticAdapterConfig(config, adapterId);
-  return Boolean(
-    adapterConfig.enabled
-      || (config.semantic?.enabled && adapterConfig.enabled !== false)
-  );
+  return Boolean(adapterConfig.enabled || (config.semantic?.enabled && adapterConfig.enabled !== false));
 }
 
 function genericAnalyzerVersion(config, adapterId) {
@@ -342,20 +338,23 @@ function genericAnalyzerVersion(config, adapterId) {
 
 function groupGenericProjects(root, repoIndex, adapter, config) {
   const repoFiles = repoIndex.files.map((fileInfo) => normalizeRepoPath(fileInfo.path)).sort();
-  const filePaths = normalizeSourceFiles(repoIndex.files, adapter.language)
-    .filter((filePath) => adapter.includeTests || !adapter.isTestFile?.(filePath));
+  const filePaths = normalizeSourceFiles(repoIndex.files, adapter.language).filter(
+    (filePath) => adapter.includeTests || !adapter.isTestFile?.(filePath),
+  );
   if (filePaths.length === 0) {
     return [];
   }
 
   const configPath = adapter.configPath(root, repoFiles, ".");
-  const groups = [{
-    id: `${adapter.id}:root`,
-    configPath,
-    projectRoot: ".",
-    inferred: configPath ? false : true,
-    filePaths,
-  }];
+  const groups = [
+    {
+      id: `${adapter.id}:root`,
+      configPath,
+      projectRoot: ".",
+      inferred: configPath ? false : true,
+      filePaths,
+    },
+  ];
 
   const analyzerVersion = genericAnalyzerVersion(config, adapter.id);
   return groups.map((project) => ({
@@ -407,7 +406,9 @@ function createGenericSurface(project, symbolInfo) {
 }
 
 function externalPackageForImport(adapterId, specifier) {
-  const cleaned = String(specifier || "").trim().replace(/^["']|["']$/g, "");
+  const cleaned = String(specifier || "")
+    .trim()
+    .replace(/^["']|["']$/g, "");
   if (!cleaned) {
     return null;
   }
@@ -451,8 +452,9 @@ function createSemanticEdge(project, adapterId, importInfo, symbolByFile) {
 
 function buildGenericSnapshot(repoIndex, project, adapter) {
   const projectFiles = new Set(project.filePaths.map(normalizeRepoPath));
-  const structuralSymbols = repoIndex.symbols
-    .filter((symbolInfo) => projectFiles.has(normalizeRepoPath(symbolInfo.file_path)));
+  const structuralSymbols = repoIndex.symbols.filter((symbolInfo) =>
+    projectFiles.has(normalizeRepoPath(symbolInfo.file_path)),
+  );
   const symbols = structuralSymbols.map((symbolInfo) => semanticSymbolFromStructural(project, symbolInfo));
   const symbolByFile = new Map();
   for (const symbolInfo of symbols) {
@@ -499,7 +501,9 @@ function buildGenericSnapshot(repoIndex, project, adapter) {
     return `${filePath}:${fileInfo?.fingerprint || ""}`;
   });
   const publicEntries = [
-    ...symbols.filter((symbol) => symbol.is_exported).map((symbol) => `export:${symbol.file_path}:${symbol.export_name}:${symbol.kind}`),
+    ...symbols
+      .filter((symbol) => symbol.is_exported)
+      .map((symbol) => `export:${symbol.file_path}:${symbol.export_name}:${symbol.kind}`),
     ...surfaces.map((surface) => `surface:${surface.kind}:${surface.surface_key}:${surface.role}:${surface.file_path}`),
   ];
 
@@ -528,11 +532,13 @@ function buildGenericSnapshot(repoIndex, project, adapter) {
       domain: domainForFile(filePath),
       is_header_target: surfaces.some((surface) => surface.file_path === filePath) ? 1 : 0,
     })),
-    externalPackages: Array.from(externalPackages.entries()).sort(([left], [right]) => left.localeCompare(right)).map(([packageName, usageCount]) => ({
-      project_id: project.id,
-      package_name: packageName,
-      usage_count: usageCount,
-    })),
+    externalPackages: Array.from(externalPackages.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([packageName, usageCount]) => ({
+        project_id: project.id,
+        package_name: packageName,
+        usage_count: usageCount,
+      })),
     symbols,
     surfaces,
     symbolEdges,
@@ -563,9 +569,10 @@ const GENERIC_SEMANTIC_ADAPTERS = [
     language: "java",
     configPath(_root, repoFiles, moduleRoot = ".") {
       const rootPath = normalizeRepoPath(moduleRoot || ".");
-      const candidates = rootPath === "."
-        ? ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
-        : [`${rootPath}/pom.xml`, `${rootPath}/build.gradle`, `${rootPath}/build.gradle.kts`];
+      const candidates =
+        rootPath === "."
+          ? ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+          : [`${rootPath}/pom.xml`, `${rootPath}/build.gradle`, `${rootPath}/build.gradle.kts`];
       return findFirstConfig(repoFiles, candidates);
     },
   },
@@ -677,14 +684,11 @@ export async function discoverSemanticProjects(root, config = {}) {
 }
 
 async function discoverAllSemanticProjects(root, config) {
-  const tsProjects = isSemanticAdapterEnabled(config, "tsjs")
-    ? await discoverSemanticProjects(root, config)
-    : [];
-  const enabledGenericAdapters = GENERIC_SEMANTIC_ADAPTERS
-    .filter((adapter) => isSemanticAdapterEnabled(config, adapter.id));
-  const repoIndex = enabledGenericAdapters.length > 0
-    ? await buildRepositoryIndex(root, config)
-    : null;
+  const tsProjects = isSemanticAdapterEnabled(config, "tsjs") ? await discoverSemanticProjects(root, config) : [];
+  const enabledGenericAdapters = GENERIC_SEMANTIC_ADAPTERS.filter((adapter) =>
+    isSemanticAdapterEnabled(config, adapter.id),
+  );
+  const repoIndex = enabledGenericAdapters.length > 0 ? await buildRepositoryIndex(root, config) : null;
   const genericProjects = repoIndex
     ? enabledGenericAdapters.flatMap((adapter) => groupGenericProjects(root, repoIndex, adapter, config))
     : [];
@@ -805,7 +809,8 @@ export async function runSemanticRefresh(root, config, options = {}) {
   }
 
   const artifactRoot = options.artifactRoot || root;
-  const agentifyPaths = options.artifactPaths || config._agentifyPaths || await resolveAgentifyPaths(artifactRoot, config);
+  const agentifyPaths =
+    options.artifactPaths || config._agentifyPaths || (await resolveAgentifyPaths(artifactRoot, config));
   if (!config.dryRun) {
     await ensureDir(agentifyPaths.projectStore);
   }
@@ -831,7 +836,12 @@ export async function runSemanticRefresh(root, config, options = {}) {
 
     const pendingRefreshes = [];
     for (const project of discoveredProjects) {
-      const contentFingerprint = await computeFingerprint(root, project.filePaths, fileHashCache, options.instrumentation);
+      const contentFingerprint = await computeFingerprint(
+        root,
+        project.filePaths,
+        fileHashCache,
+        options.instrumentation,
+      );
       const existing = existingProjects.get(project.id);
       if (!shouldRefreshProject(project, existing, contentFingerprint)) {
         skipped.push(project.id);
@@ -842,7 +852,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
     }
 
     const workerBatchSize = tsJsWorkerBatchSize(config);
-    for (let index = 0; index < pendingRefreshes.length;) {
+    for (let index = 0; index < pendingRefreshes.length; ) {
       const refresh = pendingRefreshes[index];
       if (refresh.project.adapterId !== "tsjs") {
         const snapshot = await analyzeProject(
@@ -851,7 +861,7 @@ export async function runSemanticRefresh(root, config, options = {}) {
           config,
           repoIndex,
           refresh.contentFingerprint,
-          options.instrumentation
+          options.instrumentation,
         );
         persistSemanticSnapshot(db, snapshot, refresh.project, fileHashCache);
         refreshedIds.add(refresh.project.id);
@@ -862,9 +872,9 @@ export async function runSemanticRefresh(root, config, options = {}) {
 
       const batch = [];
       while (
-        index < pendingRefreshes.length
-        && pendingRefreshes[index].project.adapterId === "tsjs"
-        && batch.length < workerBatchSize
+        index < pendingRefreshes.length &&
+        pendingRefreshes[index].project.adapterId === "tsjs" &&
+        batch.length < workerBatchSize
       ) {
         batch.push(pendingRefreshes[index]);
         index += 1;
@@ -875,7 +885,9 @@ export async function runSemanticRefresh(root, config, options = {}) {
         const { project, contentFingerprint } = batch[batchIndex];
         const snapshot = snapshots[batchIndex];
         if (snapshot?.project?.project_id !== project.id) {
-          throw new Error(`TS/JS semantic worker returned snapshot for ${snapshot?.project?.project_id || "unknown"} while refreshing ${project.id}`);
+          throw new Error(
+            `TS/JS semantic worker returned snapshot for ${snapshot?.project?.project_id || "unknown"} while refreshing ${project.id}`,
+          );
         }
         snapshot.project.content_fingerprint = contentFingerprint;
         persistSemanticSnapshot(db, snapshot, project, fileHashCache);
@@ -911,15 +923,21 @@ export async function runSemanticRefresh(root, config, options = {}) {
 
 export function renderSemanticRepoMap(root, meta, modules, semanticProjects, routeSurfaces, reactSurfaces) {
   const structuralEntrypoints = modules.flatMap((moduleInfo) => moduleInfo.entry_files || []);
-  const projectLines = semanticProjects.length > 0
-    ? semanticProjects.map((project) => `- \`${project.config_path || "inferred"}\` (${project.status}, ${project.file_count} files, ${project.symbol_count} symbols, ${project.edge_count} edges)`)
-    : ["- No semantic projects indexed."];
-  const routeLines = routeSurfaces.length > 0
-    ? routeSurfaces.map((surface) => `- \`${surface.surface_key}\` (${surface.role}) -> \`${surface.file_path}\``)
-    : ["- No route surfaces detected."];
-  const reactLines = reactSurfaces.length > 0
-    ? reactSurfaces.map((surface) => `- \`${surface.display_name}\` (${surface.role}) -> \`${surface.file_path}\``)
-    : ["- No exported React surfaces detected."];
+  const projectLines =
+    semanticProjects.length > 0
+      ? semanticProjects.map(
+          (project) =>
+            `- \`${project.config_path || "inferred"}\` (${project.status}, ${project.file_count} files, ${project.symbol_count} symbols, ${project.edge_count} edges)`,
+        )
+      : ["- No semantic projects indexed."];
+  const routeLines =
+    routeSurfaces.length > 0
+      ? routeSurfaces.map((surface) => `- \`${surface.surface_key}\` (${surface.role}) -> \`${surface.file_path}\``)
+      : ["- No route surfaces detected."];
+  const reactLines =
+    reactSurfaces.length > 0
+      ? reactSurfaces.map((surface) => `- \`${surface.display_name}\` (${surface.role}) -> \`${surface.file_path}\``)
+      : ["- No exported React surfaces detected."];
 
   return `# Repo Map
 
@@ -930,11 +948,13 @@ ${(meta.detected_stacks || []).map((stack) => `- \`${stack.name}\` (${stack.conf
 ${structuralEntrypoints.length > 0 ? structuralEntrypoints.map((entry) => `- \`${entry}\``).join("\n") : "- No entrypoints detected."}
 
 ## Modules
-${modules.map((moduleInfo) => {
-  const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
-  const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
-  return `- [${moduleInfo.name}](${href})`;
-}).join("\n")}
+${modules
+  .map((moduleInfo) => {
+    const relativePath = path.posix.relative("docs", moduleInfo.doc_path);
+    const href = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+    return `- [${moduleInfo.name}](${href})`;
+  })
+  .join("\n")}
 
 ## Semantic Projects
 ${projectLines.join("\n")}
@@ -984,10 +1004,14 @@ export async function applySemanticHeaders(root, artifactRoot, config, { ghost =
   try {
     const files = loadFiles(db);
     const modules = loadModules(db);
-    const moduleByPath = new Map(files.filter((fileInfo) => fileInfo.module_id).map((fileInfo) => {
-      const moduleInfo = modules.find((item) => item.id === fileInfo.module_id);
-      return [fileInfo.path, moduleInfo];
-    }));
+    const moduleByPath = new Map(
+      files
+        .filter((fileInfo) => fileInfo.module_id)
+        .map((fileInfo) => {
+          const moduleInfo = modules.find((item) => item.id === fileInfo.module_id);
+          return [fileInfo.path, moduleInfo];
+        }),
+    );
 
     const fileFacts = loadSemanticProjectFactsByFile(db);
     const selected = fileFacts.filter((facts) => facts.is_header_target);
@@ -999,12 +1023,14 @@ export async function applySemanticHeaders(root, artifactRoot, config, { ghost =
       const payload = {
         summary: buildDeterministicSummary(facts),
         project: facts.project_label,
-        surface: facts.surface ? {
-          kind: facts.surface.kind,
-          role: facts.surface.role,
-          surfaceKey: facts.surface.surfaceKey,
-          displayName: facts.surface.displayName,
-        } : null,
+        surface: facts.surface
+          ? {
+              kind: facts.surface.kind,
+              role: facts.surface.role,
+              surfaceKey: facts.surface.surfaceKey,
+              displayName: facts.surface.displayName,
+            }
+          : null,
         exports: clipList(facts.exports, 5),
         runtimeDeps: clipList(facts.runtimeDeps, 5),
         typeDeps: clipList(facts.typeDeps, 3),
@@ -1027,7 +1053,7 @@ export async function applySemanticHeaders(root, artifactRoot, config, { ghost =
         moduleInfo?.name || path.basename(path.dirname(facts.file_path)),
         facts.file_path,
         payload,
-        moduleInfo?.stack || "ts"
+        moduleInfo?.stack || "ts",
       );
       if (update.changed) {
         changed += 1;

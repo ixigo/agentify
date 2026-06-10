@@ -8,13 +8,7 @@ import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
 import { closeIndexDatabase, openIndexDatabase } from "../src/core/db/connection.js";
 import { replaceSemanticProjectSnapshot } from "../src/core/db/semantic-store.js";
-import {
-  queryCallers,
-  queryDef,
-  queryImpacts,
-  queryRefs,
-  querySearch,
-} from "../src/core/query.js";
+import { queryCallers, queryDef, queryImpacts, queryRefs, querySearch } from "../src/core/query.js";
 
 test("querySearch reads an existing index when the database is read-only", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-query-readonly-"));
@@ -65,9 +59,24 @@ async function writeSemanticQueryFixture(root) {
         refreshed_at: "2026-05-04T00:00:00.000Z",
       },
       files: [
-        { project_id: "config:tsconfig.json", file_path: "src/auth/useAuth.ts", domain: "runtime", is_header_target: 1 },
-        { project_id: "config:tsconfig.json", file_path: "src/app/dashboard/page.tsx", domain: "runtime", is_header_target: 1 },
-        { project_id: "config:tsconfig.json", file_path: "src/app/settings/page.tsx", domain: "runtime", is_header_target: 1 },
+        {
+          project_id: "config:tsconfig.json",
+          file_path: "src/auth/useAuth.ts",
+          domain: "runtime",
+          is_header_target: 1,
+        },
+        {
+          project_id: "config:tsconfig.json",
+          file_path: "src/app/dashboard/page.tsx",
+          domain: "runtime",
+          is_header_target: 1,
+        },
+        {
+          project_id: "config:tsconfig.json",
+          file_path: "src/app/settings/page.tsx",
+          domain: "runtime",
+          is_header_target: 1,
+        },
         { project_id: "config:tsconfig.json", file_path: "src/types/user.ts", domain: "runtime", is_header_target: 1 },
         { project_id: "config:tsconfig.json", file_path: "src/a/format.ts", domain: "runtime", is_header_target: 1 },
         { project_id: "config:tsconfig.json", file_path: "src/b/format.ts", domain: "runtime", is_header_target: 1 },
@@ -216,14 +225,17 @@ test("semantic LSP query commands resolve definitions, refs, callers, and impact
   assert.equal(references.references[0].from.name, "DashboardPage");
   assert.equal(references.references[0].edge_kind, "references");
   assert.equal(callers.callers[0].name, "DashboardPage");
-  assert.deepEqual(impacts.impacts.map((impact) => [impact.file_path, impact.depth]), [
-    ["src/app/dashboard/page.tsx", 1],
-    ["src/app/settings/page.tsx", 2],
-  ]);
+  assert.deepEqual(
+    impacts.impacts.map((impact) => [impact.file_path, impact.depth]),
+    [
+      ["src/app/dashboard/page.tsx", 1],
+      ["src/app/settings/page.tsx", 2],
+    ],
+  );
   assert.deepEqual(repeatedImpacts, impacts);
   assert.equal(ambiguous.ambiguous, true);
-  assert.deepEqual(ambiguous.definitions.map((item) => item.file_path), [
-    "src/a/format.ts",
-    "src/b/format.ts",
-  ]);
+  assert.deepEqual(
+    ambiguous.definitions.map((item) => item.file_path),
+    ["src/a/format.ts", "src/b/format.ts"],
+  );
 });

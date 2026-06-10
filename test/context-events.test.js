@@ -25,15 +25,18 @@ function withUmask(t, mask) {
 }
 
 test("createContextEventRecord normalizes the context event schema", () => {
-  const record = createContextEventRecord({
-    runId: "run_1",
-    path: "src/core/config.js",
-    eventType: "fetch",
-    source: "local-index",
-    hash: "sha256:abc123",
-    summary: "Config defaults were loaded.",
-    confidence: 0.91,
-  }, { now: "2026-05-04T00:00:00.000Z" });
+  const record = createContextEventRecord(
+    {
+      runId: "run_1",
+      path: "src/core/config.js",
+      eventType: "fetch",
+      source: "local-index",
+      hash: "sha256:abc123",
+      summary: "Config defaults were loaded.",
+      confidence: 0.91,
+    },
+    { now: "2026-05-04T00:00:00.000Z" },
+  );
 
   assert.deepEqual(record, {
     schema_version: SCHEMA_VERSIONS.CONTEXT_EVENT,
@@ -62,18 +65,22 @@ test("appendContextEvent persists session events under ignored session artifacts
   }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-context-events-session-"));
 
-  const result = await appendContextEvent(root, {
-    run_id: "run_2",
-    path: "src/core/session.js",
-    event_type: "compact",
-    source: "provider-summary",
-    hash: "sha256:def456",
-    summary: "Session context was compacted.",
-    confidence: 0.8,
-  }, {
-    sessionId: "sess_context",
-    now: "2026-05-04T01:00:00.000Z",
-  });
+  const result = await appendContextEvent(
+    root,
+    {
+      run_id: "run_2",
+      path: "src/core/session.js",
+      event_type: "compact",
+      source: "provider-summary",
+      hash: "sha256:def456",
+      summary: "Session context was compacted.",
+      confidence: 0.8,
+    },
+    {
+      sessionId: "sess_context",
+      now: "2026-05-04T01:00:00.000Z",
+    },
+  );
 
   assert.equal(result.path, path.join(root, ".agentify", "session", "sess_context", "context-events.jsonl"));
   const raw = await fs.readFile(result.path, "utf8");

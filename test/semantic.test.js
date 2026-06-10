@@ -31,25 +31,36 @@ import { runDoctor } from "../src/core/toolchain.js";
 import { setSilent } from "../src/core/ui.js";
 
 async function writeSemanticFixture(root) {
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "semantic-fixture",
-  }, null, 2));
-  await fs.writeFile(path.join(root, "tsconfig.json"), JSON.stringify({
-    compilerOptions: {
-      jsx: "react-jsx",
-      allowJs: true,
-      module: "esnext",
-      moduleResolution: "bundler",
-      target: "es2022",
-    },
-    include: ["src/**/*"],
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "semantic-fixture",
+      },
+      null,
+      2,
+    ),
+  );
+  await fs.writeFile(
+    path.join(root, "tsconfig.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          jsx: "react-jsx",
+          allowJs: true,
+          module: "esnext",
+          moduleResolution: "bundler",
+          target: "es2022",
+        },
+        include: ["src/**/*"],
+      },
+      null,
+      2,
+    ),
+  );
   await fs.mkdir(path.join(root, "src", "app", "dashboard"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
-  await fs.writeFile(
-    path.join(root, "src", "auth", "useAuth.tsx"),
-    "export function useAuth() { return true; }\n"
-  );
+  await fs.writeFile(path.join(root, "src", "auth", "useAuth.tsx"), "export function useAuth() { return true; }\n");
   await fs.writeFile(
     path.join(root, "src", "app", "dashboard", "page.tsx"),
     [
@@ -60,52 +71,84 @@ async function writeSemanticFixture(root) {
       "  return <main>Dashboard</main>;",
       "}",
       "",
-    ].join("\n")
+    ].join("\n"),
   );
 }
 
 async function writeLayeredSemanticFixture(root) {
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "semantic-layered-fixture",
-  }, null, 2));
-  await fs.writeFile(path.join(root, "tsconfig.base.json"), JSON.stringify({
-    compilerOptions: {
-      jsx: "react-jsx",
-      allowJs: true,
-      module: "esnext",
-      moduleResolution: "bundler",
-      target: "es2022",
-      baseUrl: ".",
-    },
-  }, null, 2));
-  await fs.writeFile(path.join(root, "tsconfig.app.json"), JSON.stringify({
-    extends: "./tsconfig.base.json",
-    include: ["src/**/*"],
-    exclude: ["src/**/*.browser.test.tsx", "src/**/*.test.ts"],
-  }, null, 2));
-  await fs.writeFile(path.join(root, "tsconfig.test.browser.json"), JSON.stringify({
-    extends: "./tsconfig.app.json",
-    include: ["vitest.browser.setup.ts", "src/**/*", "src/**/*.browser.test.tsx", "test-extend.ts"],
-    exclude: [],
-    compilerOptions: {
-      types: ["vitest/globals", "@vitest/browser"],
-    },
-  }, null, 2));
-  await fs.writeFile(path.join(root, "tsconfig.test.unit.json"), JSON.stringify({
-    extends: "./tsconfig.base.json",
-    include: ["src/**/*.test.ts"],
-    compilerOptions: {
-      types: ["vitest/globals", "node"],
-    },
-  }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "semantic-layered-fixture",
+      },
+      null,
+      2,
+    ),
+  );
+  await fs.writeFile(
+    path.join(root, "tsconfig.base.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          jsx: "react-jsx",
+          allowJs: true,
+          module: "esnext",
+          moduleResolution: "bundler",
+          target: "es2022",
+          baseUrl: ".",
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  await fs.writeFile(
+    path.join(root, "tsconfig.app.json"),
+    JSON.stringify(
+      {
+        extends: "./tsconfig.base.json",
+        include: ["src/**/*"],
+        exclude: ["src/**/*.browser.test.tsx", "src/**/*.test.ts"],
+      },
+      null,
+      2,
+    ),
+  );
+  await fs.writeFile(
+    path.join(root, "tsconfig.test.browser.json"),
+    JSON.stringify(
+      {
+        extends: "./tsconfig.app.json",
+        include: ["vitest.browser.setup.ts", "src/**/*", "src/**/*.browser.test.tsx", "test-extend.ts"],
+        exclude: [],
+        compilerOptions: {
+          types: ["vitest/globals", "@vitest/browser"],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  await fs.writeFile(
+    path.join(root, "tsconfig.test.unit.json"),
+    JSON.stringify(
+      {
+        extends: "./tsconfig.base.json",
+        include: ["src/**/*.test.ts"],
+        compilerOptions: {
+          types: ["vitest/globals", "node"],
+        },
+      },
+      null,
+      2,
+    ),
+  );
   await fs.mkdir(path.join(root, "src", "app", "dashboard"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.writeFile(path.join(root, "vitest.browser.setup.ts"), "export const browserSetup = true;\n");
   await fs.writeFile(path.join(root, "test-extend.ts"), "export {};\n");
-  await fs.writeFile(
-    path.join(root, "src", "auth", "useAuth.tsx"),
-    "export function useAuth() { return true; }\n"
-  );
+  await fs.writeFile(path.join(root, "src", "auth", "useAuth.tsx"), "export function useAuth() { return true; }\n");
   await fs.writeFile(
     path.join(root, "src", "app", "dashboard", "page.tsx"),
     [
@@ -116,7 +159,7 @@ async function writeLayeredSemanticFixture(root) {
       "  return <main>Dashboard</main>;",
       "}",
       "",
-    ].join("\n")
+    ].join("\n"),
   );
   await fs.writeFile(
     path.join(root, "src", "app", "dashboard", "page.browser.test.tsx"),
@@ -130,7 +173,7 @@ async function writeLayeredSemanticFixture(root) {
       "  });",
       "});",
       "",
-    ].join("\n")
+    ].join("\n"),
   );
   await fs.writeFile(
     path.join(root, "src", "auth", "useAuth.test.ts"),
@@ -144,23 +187,23 @@ async function writeLayeredSemanticFixture(root) {
       "  });",
       "});",
       "",
-    ].join("\n")
+    ].join("\n"),
   );
 }
 
 async function writeMultiLanguageSemanticFixture(root) {
-  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"semantic-python\"\n", "utf8");
+  await fs.writeFile(path.join(root, "pyproject.toml"), '[project]\nname = "semantic-python"\n', "utf8");
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.writeFile(path.join(root, "src", "auth", "__init__.py"), "", "utf8");
   await fs.writeFile(
     path.join(root, "src", "auth", "service.py"),
     "def normalize_token(raw_token: str) -> str:\n    return raw_token.strip()\n",
-    "utf8"
+    "utf8",
   );
   await fs.writeFile(
     path.join(root, "src", "api.py"),
     "from auth.service import normalize_token\n\n\ndef handle_login(raw_token: str) -> str:\n    return normalize_token(raw_token)\n",
-    "utf8"
+    "utf8",
   );
 
   await fs.writeFile(path.join(root, "go.mod"), "module example.com/semantic\n\ngo 1.22\n", "utf8");
@@ -168,13 +211,13 @@ async function writeMultiLanguageSemanticFixture(root) {
   await fs.mkdir(path.join(root, "internal", "auth"), { recursive: true });
   await fs.writeFile(
     path.join(root, "cmd", "server", "main.go"),
-    "package main\n\nimport \"example.com/semantic/internal/auth\"\n\nfunc HandleLogin(raw string) string {\n\treturn auth.NormalizeToken(raw)\n}\n",
-    "utf8"
+    'package main\n\nimport "example.com/semantic/internal/auth"\n\nfunc HandleLogin(raw string) string {\n\treturn auth.NormalizeToken(raw)\n}\n',
+    "utf8",
   );
   await fs.writeFile(
     path.join(root, "internal", "auth", "token.go"),
     "package auth\n\nfunc NormalizeToken(raw string) string { return raw }\n",
-    "utf8"
+    "utf8",
   );
 
   await fs.writeFile(path.join(root, "pom.xml"), "<project />\n", "utf8");
@@ -183,26 +226,26 @@ async function writeMultiLanguageSemanticFixture(root) {
   await fs.writeFile(
     path.join(root, "java", "com", "example", "auth", "AuthService.java"),
     "package com.example.auth;\n\npublic class AuthService {\n  public String normalizeToken(String raw) { return raw.trim(); }\n}\n",
-    "utf8"
+    "utf8",
   );
   await fs.writeFile(
     path.join(root, "java", "com", "example", "api", "LoginController.java"),
     "package com.example.api;\n\nimport com.example.auth.AuthService;\n\npublic class LoginController {\n  public String handleLogin(String raw) { return new AuthService().normalizeToken(raw); }\n}\n",
-    "utf8"
+    "utf8",
   );
 
-  await fs.writeFile(path.join(root, "SemanticFixture.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n", "utf8");
+  await fs.writeFile(path.join(root, "SemanticFixture.csproj"), '<Project Sdk="Microsoft.NET.Sdk" />\n', "utf8");
   await fs.mkdir(path.join(root, "dotnet", "Auth"), { recursive: true });
   await fs.mkdir(path.join(root, "dotnet", "Api"), { recursive: true });
   await fs.writeFile(
     path.join(root, "dotnet", "Auth", "AuthService.cs"),
     "namespace Demo.Auth;\n\npublic class AuthService\n{\n    public string NormalizeToken(string raw) { return raw.Trim(); }\n}\n",
-    "utf8"
+    "utf8",
   );
   await fs.writeFile(
     path.join(root, "dotnet", "Api", "LoginController.cs"),
     "using Demo.Auth;\n\nnamespace Demo.Api;\n\npublic class LoginController\n{\n    public string HandleLogin(string raw) { return new AuthService().NormalizeToken(raw); }\n}\n",
-    "utf8"
+    "utf8",
   );
 }
 
@@ -262,7 +305,9 @@ test("semantic refresh indexes Python, Go, Java, and .NET adapters", async () =>
 
   assert.ok(search.semantic_symbols.some((symbolInfo) => symbolInfo.name === "NormalizeToken"));
   assert.ok(search.semantic_surfaces.some((surface) => surface.display_name === "NormalizeToken"));
-  assert.ok(plan.selected_symbols.some((symbolInfo) => symbolInfo.name === "NormalizeToken" && symbolInfo.source === "symbol"));
+  assert.ok(
+    plan.selected_symbols.some((symbolInfo) => symbolInfo.name === "NormalizeToken" && symbolInfo.source === "symbol"),
+  );
 });
 
 test("doc uses semantic repo map and deterministic semantic headers when enabled", async () => {
@@ -374,7 +419,7 @@ test("semantic refresh skips unchanged layered projects and avoids duplicate run
       assert.ok(indexedProject);
       assert.equal(
         indexedProject.content_fingerprint,
-        await computeSemanticProjectFingerprint(root, discoveredProject.filePaths)
+        await computeSemanticProjectFingerprint(root, discoveredProject.filePaths),
       );
     }
   } finally {
@@ -435,7 +480,9 @@ test("doctor --semantic detects stale fingerprints and failed semantic projects 
 
   const db = openIndexDatabase(root);
   try {
-    db.prepare("UPDATE semantic_projects SET status = 'failed', last_error = ?").run("intentional semantic fixture failure");
+    db.prepare("UPDATE semantic_projects SET status = 'failed', last_error = ?").run(
+      "intentional semantic fixture failure",
+    );
   } finally {
     closeIndexDatabase(db);
   }
@@ -494,7 +541,10 @@ test("doctor --semantic reports parse failures from broken tsconfig fixtures", a
 
 test("doctor --semantic reports parse failures in text output when no projects are discovered", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-semantic-doctor-parse-empty-"));
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "broken-empty-semantic-fixture" }, null, 2));
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "broken-empty-semantic-fixture" }, null, 2),
+  );
   await fs.writeFile(path.join(root, "tsconfig.json"), "{ invalid json\n");
   const config = await loadConfig(root, {
     provider: "local",

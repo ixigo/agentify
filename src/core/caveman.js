@@ -1,12 +1,4 @@
-const CAVEMAN_LEVELS = new Set([
-  "lite",
-  "full",
-  "ultra",
-  "wenyan",
-  "wenyan-lite",
-  "wenyan-full",
-  "wenyan-ultra",
-]);
+const CAVEMAN_LEVELS = new Set(["lite", "full", "ultra", "wenyan", "wenyan-lite", "wenyan-full", "wenyan-ultra"]);
 
 export const CAVEMAN_PREAMBLE_MARKER = "## Caveman Output Mode";
 
@@ -24,7 +16,7 @@ export function normalizeCavemanLevel(value) {
   }
   if (!CAVEMAN_LEVELS.has(raw)) {
     throw new Error(
-      `invalid caveman level "${value}". Supported levels: lite, full, ultra, wenyan, wenyan-lite, wenyan-full, wenyan-ultra`
+      `invalid caveman level "${value}". Supported levels: lite, full, ultra, wenyan, wenyan-lite, wenyan-full, wenyan-ultra`,
     );
   }
   return raw;

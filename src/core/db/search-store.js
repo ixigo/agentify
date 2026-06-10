@@ -4,7 +4,9 @@ const SEARCH_INDEX_VERSION = "1.0";
 const STRUCTURAL_OWNER = "structural";
 
 function likePattern(term) {
-  const normalized = String(term || "").trim().toLowerCase();
+  const normalized = String(term || "")
+    .trim()
+    .toLowerCase();
   return `%${normalized.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
@@ -21,8 +23,7 @@ export function createSearchSchema(db) {
 }
 
 export function refreshSearchIndexIfNeeded(db) {
-  const version = db.prepare("SELECT value_json FROM repo_meta WHERE key = ?")
-    .get("search_index_version")?.value_json;
+  const version = db.prepare("SELECT value_json FROM repo_meta WHERE key = ?").get("search_index_version")?.value_json;
   if (version === toJson(SEARCH_INDEX_VERSION)) {
     return;
   }
@@ -38,8 +39,10 @@ export function rebuildSearchIndex(db) {
 }
 
 export function setSearchIndexVersion(db) {
-  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
-    .run("search_index_version", toJson(SEARCH_INDEX_VERSION));
+  db.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)").run(
+    "search_index_version",
+    toJson(SEARCH_INDEX_VERSION),
+  );
 }
 
 export function clearStructuralSearchIndex(db) {
@@ -64,16 +67,19 @@ export function rebuildStructuralSearchIndex(db) {
 }
 
 export function clearSemanticProjectSearchIndex(db, projectId) {
-  db.prepare(`
+  db.prepare(
+    `
     DELETE FROM query_search_fts
     WHERE entity_type IN ('semantic_project', 'semantic_surface', 'semantic_symbol')
       AND owner_id = ?
-  `).run(projectId);
+  `,
+  ).run(projectId);
 }
 
 export function rebuildSemanticProjectSearchIndex(db, projectId) {
   clearSemanticProjectSearchIndex(db, projectId);
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
     SELECT
       'semantic_project',
@@ -82,8 +88,10 @@ export function rebuildSemanticProjectSearchIndex(db, projectId) {
       lower(project_id || ' ' || coalesce(config_path, '') || ' ' || project_root)
     FROM semantic_projects
     WHERE project_id = ?
-  `).run(projectId);
-  db.prepare(`
+  `,
+  ).run(projectId);
+  db.prepare(
+    `
     INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
     SELECT
       'semantic_surface',
@@ -92,8 +100,10 @@ export function rebuildSemanticProjectSearchIndex(db, projectId) {
       lower(file_path || ' ' || kind || ' ' || role || ' ' || surface_key || ' ' || display_name)
     FROM semantic_surfaces
     WHERE project_id = ?
-  `).run(projectId);
-  db.prepare(`
+  `,
+  ).run(projectId);
+  db.prepare(
+    `
     INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
     SELECT
       'semantic_symbol',
@@ -102,14 +112,17 @@ export function rebuildSemanticProjectSearchIndex(db, projectId) {
       lower(name || ' ' || file_path || ' ' || coalesce(export_name, ''))
     FROM semantic_symbols
     WHERE project_id = ?
-  `).run(projectId);
+  `,
+  ).run(projectId);
 }
 
 export function rebuildSemanticSearchIndex(db) {
-  db.prepare(`
+  db.prepare(
+    `
     DELETE FROM query_search_fts
     WHERE entity_type IN ('semantic_project', 'semantic_surface', 'semantic_symbol')
-  `).run();
+  `,
+  ).run();
   db.exec(`
     INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
     SELECT

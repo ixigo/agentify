@@ -77,7 +77,7 @@ function normalizeChecklist(checklist, maxItems, maxTextBytes) {
     .slice(0, maxItems)
     .map((item) => ({
       done: Boolean(item?.done),
-      text: clipToBytes(item?.text || "Untitled checklist item", maxTextBytes)
+      text: clipToBytes(item?.text || "Untitled checklist item", maxTextBytes),
     }))
     .filter((item) => item.text);
 }
@@ -130,21 +130,78 @@ function fitContext(manifest, index, checklist, options, config) {
   const staleModules = [];
   const maxBytes = getSessionLimitKb(config, "contextMaxKb", 16) * 1024;
   const memoryArtifacts = getSessionArtifactPaths(options.root || "", manifest.session_id);
-  const transcriptRef = options.root ? `.agentify/session/${manifest.session_id}/transcript.md` : memoryArtifacts.transcriptPath;
-  const memoryContextRef = options.root ? `.agentify/session/${manifest.session_id}/memory-context.md` : memoryArtifacts.memoryContextPath;
-  const handoffJsonRef = options.root ? `.agentify/session/${manifest.session_id}/handoff.json` : memoryArtifacts.handoffJsonPath;
-  const handoffMarkdownRef = options.root ? `.agentify/session/${manifest.session_id}/handoff.md` : memoryArtifacts.handoffMarkdownPath;
-  const launchesRef = options.root ? `.agentify/session/${manifest.session_id}/launches.jsonl` : memoryArtifacts.launchesPath;
+  const transcriptRef = options.root
+    ? `.agentify/session/${manifest.session_id}/transcript.md`
+    : memoryArtifacts.transcriptPath;
+  const memoryContextRef = options.root
+    ? `.agentify/session/${manifest.session_id}/memory-context.md`
+    : memoryArtifacts.memoryContextPath;
+  const handoffJsonRef = options.root
+    ? `.agentify/session/${manifest.session_id}/handoff.json`
+    : memoryArtifacts.handoffJsonPath;
+  const handoffMarkdownRef = options.root
+    ? `.agentify/session/${manifest.session_id}/handoff.md`
+    : memoryArtifacts.handoffMarkdownPath;
+  const launchesRef = options.root
+    ? `.agentify/session/${manifest.session_id}/launches.jsonl`
+    : memoryArtifacts.launchesPath;
   const turnsRef = options.root ? `.agentify/session/${manifest.session_id}/turns.jsonl` : memoryArtifacts.turnsPath;
-  const fetchOutputsRef = options.root ? `.agentify/session/${manifest.session_id}/context-fetches.jsonl` : memoryArtifacts.fetchOutputsPath;
-  const contextFactsRef = options.root ? `.agentify/session/${manifest.session_id}/context-facts.json` : memoryArtifacts.contextFactsPath;
-  const contextFactsMarkdownRef = options.root ? `.agentify/session/${manifest.session_id}/context-facts.md` : memoryArtifacts.contextFactsMarkdownPath;
+  const fetchOutputsRef = options.root
+    ? `.agentify/session/${manifest.session_id}/context-fetches.jsonl`
+    : memoryArtifacts.fetchOutputsPath;
+  const contextFactsRef = options.root
+    ? `.agentify/session/${manifest.session_id}/context-facts.json`
+    : memoryArtifacts.contextFactsPath;
+  const contextFactsMarkdownRef = options.root
+    ? `.agentify/session/${manifest.session_id}/context-facts.md`
+    : memoryArtifacts.contextFactsMarkdownPath;
   const attempts = [
-    { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, parentSummaryBytes: 2048, runHistoryLimit: 10, runSummaryBytes: 256, rollingSummaryBytes: 1024 },
-    { moduleLimit: 64, checklistLimit: 20, checklistTextBytes: 180, parentSummaryBytes: 1024, runHistoryLimit: 6, runSummaryBytes: 180, rollingSummaryBytes: 512 },
-    { moduleLimit: 24, checklistLimit: 10, checklistTextBytes: 140, parentSummaryBytes: 512, runHistoryLimit: 4, runSummaryBytes: 140, rollingSummaryBytes: 256 },
-    { moduleLimit: 8, checklistLimit: 5, checklistTextBytes: 100, parentSummaryBytes: 256, runHistoryLimit: 2, runSummaryBytes: 96, rollingSummaryBytes: 128 },
-    { moduleLimit: 0, checklistLimit: 0, checklistTextBytes: 0, parentSummaryBytes: 64, runHistoryLimit: 0, runSummaryBytes: 0, rollingSummaryBytes: 0, minimalRefs: true },
+    {
+      moduleLimit: moduleIds.length,
+      checklistLimit: checklist.length,
+      checklistTextBytes: 240,
+      parentSummaryBytes: 2048,
+      runHistoryLimit: 10,
+      runSummaryBytes: 256,
+      rollingSummaryBytes: 1024,
+    },
+    {
+      moduleLimit: 64,
+      checklistLimit: 20,
+      checklistTextBytes: 180,
+      parentSummaryBytes: 1024,
+      runHistoryLimit: 6,
+      runSummaryBytes: 180,
+      rollingSummaryBytes: 512,
+    },
+    {
+      moduleLimit: 24,
+      checklistLimit: 10,
+      checklistTextBytes: 140,
+      parentSummaryBytes: 512,
+      runHistoryLimit: 4,
+      runSummaryBytes: 140,
+      rollingSummaryBytes: 256,
+    },
+    {
+      moduleLimit: 8,
+      checklistLimit: 5,
+      checklistTextBytes: 100,
+      parentSummaryBytes: 256,
+      runHistoryLimit: 2,
+      runSummaryBytes: 96,
+      rollingSummaryBytes: 128,
+    },
+    {
+      moduleLimit: 0,
+      checklistLimit: 0,
+      checklistTextBytes: 0,
+      parentSummaryBytes: 64,
+      runHistoryLimit: 0,
+      runSummaryBytes: 0,
+      rollingSummaryBytes: 0,
+      minimalRefs: true,
+    },
   ];
 
   let selected = null;
@@ -152,27 +209,31 @@ function fitContext(manifest, index, checklist, options, config) {
     const previewChecklist = normalizeChecklist(checklist, attempt.checklistLimit, attempt.checklistTextBytes);
     const runHistory = clampRunHistory(options.runHistory || [], attempt.runHistoryLimit, attempt.runSummaryBytes);
     const includeHandoffRefs = attempt !== attempts[attempts.length - 1];
-    const cacheRefs = attempt.minimalRefs ? {
-      repo_index: ".agentify/index.db",
-      repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
-      checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
-    } : {
-      repo_index: ".agentify/index.db",
-      repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
-      checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
-      transcript: transcriptRef,
-      memory_context: memoryContextRef,
-      ...(includeHandoffRefs ? {
-        handoff_json: handoffJsonRef,
-        handoff_markdown: handoffMarkdownRef,
-      } : {}),
-      launches: launchesRef,
-      turns: turnsRef,
-      context_fetches: fetchOutputsRef,
-      context_fetches: fetchOutputsRef,
-      context_facts: contextFactsRef,
-      context_facts_markdown: contextFactsMarkdownRef,
-    };
+    const cacheRefs = attempt.minimalRefs
+      ? {
+          repo_index: ".agentify/index.db",
+          repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
+          checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
+        }
+      : {
+          repo_index: ".agentify/index.db",
+          repo_docs: "AGENTIFY.md and module-root AGENTIFY.md files",
+          checklist: `.agentify/session/${manifest.session_id}/checklist.json`,
+          transcript: transcriptRef,
+          memory_context: memoryContextRef,
+          ...(includeHandoffRefs
+            ? {
+                handoff_json: handoffJsonRef,
+                handoff_markdown: handoffMarkdownRef,
+              }
+            : {}),
+          launches: launchesRef,
+          turns: turnsRef,
+          context_fetches: fetchOutputsRef,
+          context_fetches: fetchOutputsRef,
+          context_facts: contextFactsRef,
+          context_facts_markdown: contextFactsMarkdownRef,
+        };
     const candidate = {
       schema_version: "1.0",
       session_id: manifest.session_id,
@@ -216,14 +277,18 @@ export function synthesizeBootstrapFromContext(manifest, context) {
   const runs = Array.isArray(context?.run_history) ? context.run_history : [];
   const rolling = String(context?.rolling_summary || "").trim();
 
-  const runsBlock = runs.length === 0
-    ? "- No prior runs recorded."
-    : runs.slice(-3).map((run) => {
-      const task = run?.task ? `task: ${run.task}` : "task: (unrecorded)";
-      const validation = run?.validation ? ` validation: ${run.validation}` : "";
-      const exit = Number.isFinite(run?.exit_code) ? ` exit: ${run.exit_code}` : "";
-      return `- ${run?.ended_at || run?.started_at || "run"} — ${task}${exit}${validation}`;
-    }).join("\n");
+  const runsBlock =
+    runs.length === 0
+      ? "- No prior runs recorded."
+      : runs
+          .slice(-3)
+          .map((run) => {
+            const task = run?.task ? `task: ${run.task}` : "task: (unrecorded)";
+            const validation = run?.validation ? ` validation: ${run.validation}` : "";
+            const exit = Number.isFinite(run?.exit_code) ? ` exit: ${run.exit_code}` : "";
+            return `- ${run?.ended_at || run?.started_at || "run"} — ${task}${exit}${validation}`;
+          })
+          .join("\n");
 
   return `# Session Context
 
@@ -253,11 +318,13 @@ ${rolling || "- No rolling summary recorded yet."}
 function fitBootstrap(manifest, index, checklist, options, config) {
   const moduleIds = index?.modules?.map((m) => m.id) || [];
   const maxBytes = getSessionLimitKb(config, "bootstrapMaxKb", 4) * 1024;
-  const baseStartHere = options.startHere || [
-    "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
-    "- Use `docs/repo-map.md` and module-root `AGENTIFY.md` files for deterministic structure before reaching for provider tools.",
-    "- Treat `.agentify/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
-  ].join("\n");
+  const baseStartHere =
+    options.startHere ||
+    [
+      "- Read root `AGENTIFY.md` for the current repo snapshot and module guidance.",
+      "- Use `docs/repo-map.md` and module-root `AGENTIFY.md` files for deterministic structure before reaching for provider tools.",
+      "- Treat `.agentify/index.db` as a host-shell artifact. Inside provider sessions, prefer the generated markdown docs before reaching for nested Agentify or SQLite commands.",
+    ].join("\n");
   const attempts = [
     { moduleLimit: moduleIds.length, checklistLimit: checklist.length, checklistTextBytes: 240, startHereBytes: 1200 },
     { moduleLimit: 32, checklistLimit: 16, checklistTextBytes: 180, startHereBytes: 720 },
@@ -306,7 +373,7 @@ export async function forkSession(root, config, options = {}) {
 
   const headCommit = await getHeadCommit(root);
   let index = null;
-  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const agentifyPaths = config._agentifyPaths || (await resolveAgentifyPaths(root, config));
   if (await exists(agentifyPaths.indexDb)) {
     const db = openIndexDatabase(agentifyPaths, { readOnly: true });
     try {
@@ -382,7 +449,9 @@ export async function forkSession(root, config, options = {}) {
     }
     const parentManifest = await readJson(parentManifestPath);
     if (parentManifest?.session_id !== options.from) {
-      throw new Error(`Parent session manifest session_id "${parentManifest?.session_id}" does not match requested id "${options.from}"`);
+      throw new Error(
+        `Parent session manifest session_id "${parentManifest?.session_id}" does not match requested id "${options.from}"`,
+      );
     }
     const checklistPath = path.join(parentDir, "checklist.json");
     if (await exists(checklistPath)) {
@@ -401,12 +470,18 @@ export async function forkSession(root, config, options = {}) {
     }
   }
 
-  const contextResult = fitContext(manifest, index, parentChecklist, {
-    ...options,
-    root,
-    runHistory: options.runHistory || parentRunHistory,
-    rollingSummary: options.rollingSummary || parentRollingSummary,
-  }, config);
+  const contextResult = fitContext(
+    manifest,
+    index,
+    parentChecklist,
+    {
+      ...options,
+      root,
+      runHistory: options.runHistory || parentRunHistory,
+      rollingSummary: options.rollingSummary || parentRollingSummary,
+    },
+    config,
+  );
   const bootstrapResult = fitBootstrap(manifest, index, parentChecklist, options, config);
   const context = contextResult.value;
   const bootstrap = bootstrapResult.value;

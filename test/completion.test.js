@@ -17,7 +17,7 @@ const execFileAsync = promisify(execFile);
 async function captureStdout(fn) {
   const chunks = [];
   const originalWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((chunk, encoding, callback) => {
+  process.stdout.write = (chunk, encoding, callback) => {
     chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
     if (typeof encoding === "function") {
       encoding();
@@ -25,7 +25,7 @@ async function captureStdout(fn) {
       callback();
     }
     return true;
-  });
+  };
 
   try {
     await fn();
@@ -57,7 +57,10 @@ test("generateCompletionScript prints zsh, bash, and fish scripts from one metad
   assert.match(fish, /agentify completion values skills --root \(pwd\)/);
   assert.match(fish, /complete -c agentify .* -a 'completion'/);
   assert.match(fish, /__fish_seen_subcommand_from skill skills; and not __fish_seen_subcommand_from list install/);
-  assert.match(fish, /__fish_seen_subcommand_from sess session; and not __fish_seen_subcommand_from list run fork resume/);
+  assert.match(
+    fish,
+    /__fish_seen_subcommand_from sess session; and not __fish_seen_subcommand_from list run fork resume/,
+  );
   assert.match(fish, /__fish_complete_path/);
 });
 
@@ -65,7 +68,9 @@ test("completion values use existing provider and skill sources of truth", async
   assert.deepEqual(await getCompletionValues("providers"), SUPPORTED_PROVIDERS);
   assert.deepEqual(
     await getCompletionValues("skills"),
-    listBuiltinSkills().map((skill) => skill.name).sort(),
+    listBuiltinSkills()
+      .map((skill) => skill.name)
+      .sort(),
   );
 
   const providerOutput = await captureStdout(() => runCli(["completion", "values", "providers"]));
@@ -78,16 +83,12 @@ test("completion values use existing provider and skill sources of truth", async
 
 test("completion values sessions degrade silently when session state is missing or unreadable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-sessions-"));
-  const missingOutput = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
-  );
+  const missingOutput = await captureStdout(() => runCli(["completion", "values", "sessions", "--root", root]));
   assert.equal(missingOutput, "");
 
   await fs.mkdir(path.join(root, ".agents", "session", "broken"), { recursive: true });
   await fs.writeFile(path.join(root, ".agents", "session", "broken", "session-manifest.json"), "{", "utf8");
-  const brokenOutput = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
-  );
+  const brokenOutput = await captureStdout(() => runCli(["completion", "values", "sessions", "--root", root]));
   assert.equal(brokenOutput, "");
 });
 
@@ -95,9 +96,7 @@ test("completion values sessions list known session ids", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-session-list-"));
   const created = await forkSession(root, { provider: "codex" }, { name: "completion test" });
 
-  const output = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
-  );
+  const output = await captureStdout(() => runCli(["completion", "values", "sessions", "--root", root]));
 
   assert.deepEqual(output.trim().split("\n"), [created.sessionId]);
 });

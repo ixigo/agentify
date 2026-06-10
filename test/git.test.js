@@ -56,25 +56,29 @@ test("getFileContentsAtHead fallback preserves newline paths", async () => {
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-fallback-"));
   const logPath = path.join(binDir, "git.log");
   const wrapperPath = path.join(binDir, "git");
-  await fs.writeFile(wrapperPath, [
-    "#!/usr/bin/env node",
-    "import fs from \"node:fs\";",
-    "import { spawnSync } from \"node:child_process\";",
-    "",
-    "const args = process.argv.slice(2);",
-    "fs.appendFileSync(process.env.AGENTIFY_GIT_LOG, `${JSON.stringify(args)}\\n`);",
-    "if (args[0] === \"cat-file\" && args.includes(\"-Z\")) {",
-    "  process.stderr.write(\"unknown option -Z\\n\");",
-    "  process.exit(129);",
-    "}",
-    "const result = spawnSync(process.env.AGENTIFY_REAL_GIT, args, { stdio: \"inherit\" });",
-    "if (result.error) {",
-    "  console.error(result.error.message);",
-    "  process.exit(1);",
-    "}",
-    "process.exit(result.status ?? 0);",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    wrapperPath,
+    [
+      "#!/usr/bin/env node",
+      'import fs from "node:fs";',
+      'import { spawnSync } from "node:child_process";',
+      "",
+      "const args = process.argv.slice(2);",
+      "fs.appendFileSync(process.env.AGENTIFY_GIT_LOG, `${JSON.stringify(args)}\\n`);",
+      'if (args[0] === "cat-file" && args.includes("-Z")) {',
+      '  process.stderr.write("unknown option -Z\\n");',
+      "  process.exit(129);",
+      "}",
+      'const result = spawnSync(process.env.AGENTIFY_REAL_GIT, args, { stdio: "inherit" });',
+      "if (result.error) {",
+      "  console.error(result.error.message);",
+      "  process.exit(1);",
+      "}",
+      "process.exit(result.status ?? 0);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await fs.chmod(wrapperPath, 0o755);
 
   const previousPath = process.env.PATH;
@@ -93,8 +97,14 @@ test("getFileContentsAtHead fallback preserves newline paths", async () => {
       .map((line) => JSON.parse(line));
 
     assert.equal(contents.get("src/line\nbreak.js"), "export const value = 1;\n");
-    assert.equal(calls.some((args) => args[0] === "cat-file" && args.includes("-Z")), true);
-    assert.equal(calls.some((args) => args[0] === "cat-file" && args.includes("-z")), true);
+    assert.equal(
+      calls.some((args) => args[0] === "cat-file" && args.includes("-Z")),
+      true,
+    );
+    assert.equal(
+      calls.some((args) => args[0] === "cat-file" && args.includes("-z")),
+      true,
+    );
   } finally {
     if (previousPath === undefined) {
       delete process.env.PATH;

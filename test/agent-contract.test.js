@@ -10,10 +10,10 @@ test("sanitizeManagerPlan drops unknown module ids and trims content", () => {
       shared_conventions: ["  docs under docs  ", "", 1],
       module_focus: [
         { module_id: "auth", focus: " authentication flows " },
-        { module_id: "payments", focus: "ignored" }
-      ]
+        { module_id: "payments", focus: "ignored" },
+      ],
     },
-    new Set(["auth"])
+    new Set(["auth"]),
   );
 
   assert.equal(plan.repo_summary, "repo summary");
@@ -27,31 +27,27 @@ test("sanitizeModuleResponse filters out paths outside the module and fills miss
       summary: "Auth module summary",
       public_api: [
         { symbol: "login", kind: "function", path: "src/auth/index.ts" },
-        { symbol: "escape", kind: "function", path: "../hack.ts" }
+        { symbol: "escape", kind: "function", path: "../hack.ts" },
       ],
       start_here: [
         { path: "src/auth/index.ts", why: "entry" },
-        { path: "src/other/index.ts", why: "wrong module" }
+        { path: "src/other/index.ts", why: "wrong module" },
       ],
       side_effects: ["network", "invalid"],
       header_summaries: [
         { path: "src/auth/index.ts", summary: "Main auth surface." },
-        { path: "src/other/index.ts", summary: "Should be ignored." }
-      ]
+        { path: "src/other/index.ts", summary: "Should be ignored." },
+      ],
     },
     { rootPath: "src/auth" },
-    new Set(["src/auth/index.ts", "src/auth/service.ts"])
+    new Set(["src/auth/index.ts", "src/auth/service.ts"]),
   );
 
-  assert.deepEqual(result.public_api, [
-    { symbol: "login", kind: "function", path: "src/auth/index.ts" }
-  ]);
-  assert.deepEqual(result.start_here, [
-    { path: "src/auth/index.ts", why: "entry" }
-  ]);
+  assert.deepEqual(result.public_api, [{ symbol: "login", kind: "function", path: "src/auth/index.ts" }]);
+  assert.deepEqual(result.start_here, [{ path: "src/auth/index.ts", why: "entry" }]);
   assert.deepEqual(result.side_effects, ["network"]);
   assert.deepEqual(result.header_summaries, [
     { path: "src/auth/index.ts", summary: "Main auth surface." },
-    { path: "src/auth/service.ts", summary: "Auth module summary" }
+    { path: "src/auth/service.ts", summary: "Auth module summary" },
   ]);
 });

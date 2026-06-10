@@ -69,9 +69,13 @@ status: "ready"
 
 async function installFakeCodex(binDir, behavior) {
   const codexPath = path.join(binDir, "codex");
-  await fs.writeFile(codexPath, `#!/usr/bin/env node
+  await fs.writeFile(
+    codexPath,
+    `#!/usr/bin/env node
 ${behavior}
-`, "utf8");
+`,
+    "utf8",
+  );
   await fs.chmod(codexPath, 0o755);
   return codexPath;
 }
@@ -148,27 +152,22 @@ test("agentify afk create captures provider output and writes a validated plan",
   const capturePath = path.join(root, "codex-argv.json");
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
-  await installFakeCodex(binDir, `
+  await installFakeCodex(
+    binDir,
+    `
 const fs = require("node:fs");
 fs.writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   argv: process.argv.slice(2),
   stdoutIsTTY: Boolean(process.stdout.isTTY)
 }));
 console.log(${JSON.stringify(validPlan("checkout-retries"))});
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "afk",
-      "create",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      "add checkout retries",
-    ]);
+    await runCli(["afk", "create", "--root", root, "--provider", "codex", "add checkout retries"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -184,7 +183,10 @@ console.log(${JSON.stringify(validPlan("checkout-retries"))});
   assert.match(prompt, /planning-only session/);
   assert.equal(plan.frontmatter.task, "add checkout retries");
   assert.match(planMarkdown, /## AFK Execution Handoff/);
-  assert.match(planMarkdown, /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/);
+  assert.match(
+    planMarkdown,
+    /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/,
+  );
   assert.match(planMarkdown, /\/compact` or `\/clear/);
   assert.match(planMarkdown, /agentify afk run \.agentify\/planned\/checkout-retries\.md/);
 });
@@ -194,10 +196,13 @@ test("agentify afk create reports provider command failures before plan validati
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-create-fail-bin-"));
   await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
   await initGitRepo(root);
-  await installFakeCodex(binDir, `
+  await installFakeCodex(
+    binDir,
+    `
 console.error("Error: stdout is not a terminal");
 process.exit(1);
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   const previousExitCode = process.exitCode;
@@ -205,15 +210,7 @@ process.exit(1);
   process.exitCode = undefined;
   try {
     await assert.rejects(
-      runCli([
-        "afk",
-        "create",
-        "--root",
-        root,
-        "--provider",
-        "codex",
-        "add checkout retries",
-      ]),
+      runCli(["afk", "create", "--root", root, "--provider", "codex", "add checkout retries"]),
       (error) => {
         assert.match(error.message, /AFK provider command failed with exit code 1/);
         assert.doesNotMatch(error.message, /Invalid AFK plan/);
@@ -240,9 +237,13 @@ test("agentify afk create returns execution command and clean-session hint", asy
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   let result;
   try {
-    result = await runAfkCreate(root, { provider: "codex" }, {
-      _: ["afk", "create", "add checkout retries"],
-    });
+    result = await runAfkCreate(
+      root,
+      { provider: "codex" },
+      {
+        _: ["afk", "create", "add checkout retries"],
+      },
+    );
   } finally {
     process.env.PATH = previousPath;
   }
@@ -252,7 +253,10 @@ test("agentify afk create returns execution command and clean-session hint", asy
   assert.match(result.next_step_hint, /\/compact or \/clear/);
   const planMarkdown = await fs.readFile(path.join(root, result.plan_path), "utf8");
   assert.match(planMarkdown, /## AFK Execution Handoff/);
-  assert.match(planMarkdown, /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/);
+  assert.match(
+    planMarkdown,
+    /Agentify writes this plan file before execution: `\.agentify\/planned\/checkout-retries\.md`/,
+  );
   assert.match(planMarkdown, /agentify afk run \.agentify\/planned\/checkout-retries\.md/);
 });
 
@@ -261,31 +265,38 @@ test("agentify afk run creates an isolated worktree and commits verified provide
   const root = path.join(parent, "repo");
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-afk-run-bin-"));
   await fs.mkdir(root, { recursive: true });
-  await fs.writeFile(path.join(root, "package.json"), JSON.stringify({
-    scripts: {
-      test: "node -e \"process.exit(0)\"",
-    },
-  }, null, 2), "utf8");
+  await fs.writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify(
+      {
+        scripts: {
+          test: 'node -e "process.exit(0)"',
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
   await fs.mkdir(path.join(root, ".agentify", "planned"), { recursive: true });
-  await fs.writeFile(path.join(root, ".agentify", "planned", "checkout-retries.md"), validPlan("checkout-retries"), "utf8");
+  await fs.writeFile(
+    path.join(root, ".agentify", "planned", "checkout-retries.md"),
+    validPlan("checkout-retries"),
+    "utf8",
+  );
   await initGitRepo(root);
-  await installFakeCodex(binDir, `
+  await installFakeCodex(
+    binDir,
+    `
 const fs = require("node:fs");
 fs.writeFileSync("afk-output.txt", "done\\n");
-`);
+`,
+  );
 
   const previousPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ""}`;
   try {
-    await runCli([
-      "afk",
-      "run",
-      "--root",
-      root,
-      "--provider",
-      "codex",
-      ".agentify/planned/checkout-retries.md",
-    ]);
+    await runCli(["afk", "run", "--root", root, "--provider", "codex", ".agentify/planned/checkout-retries.md"]);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -293,7 +304,9 @@ fs.writeFileSync("afk-output.txt", "done\\n");
   const worktreePath = path.join(parent, "repo.afk-checkout-retries");
   const branch = await execFileAsync("git", ["branch", "--show-current"], { cwd: worktreePath });
   const log = await execFileAsync("git", ["log", "-1", "--pretty=%s"], { cwd: worktreePath });
-  const committedFiles = await execFileAsync("git", ["show", "--pretty=", "--name-only", "HEAD"], { cwd: worktreePath });
+  const committedFiles = await execFileAsync("git", ["show", "--pretty=", "--name-only", "HEAD"], {
+    cwd: worktreePath,
+  });
   const output = await fs.readFile(path.join(worktreePath, "afk-output.txt"), "utf8");
 
   assert.equal(branch.stdout.trim(), "afk/checkout-retries");

@@ -138,7 +138,7 @@ export function normalizeInteractiveCapture(text) {
     stripAnsiSequences(String(text || ""))
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")
-      .replace(/[\u0000-\u0007\u000B-\u001F\u007F]/g, "")
+      .replace(/[\u0000-\u0007\u000B-\u001F\u007F]/g, ""),
   );
 
   const lines = cleaned
@@ -166,14 +166,14 @@ function getSessionMemoryLimit(config, key, fallback) {
 function shellEscape(value) {
   return String(value || "")
     .replaceAll("\\", "\\\\")
-    .replaceAll("\"", "\\\"");
+    .replaceAll('"', '\\"');
 }
 
 export function redactSensitiveText(value) {
   return String(value || "")
     .replace(
       /\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|SECRET|TOKEN|PASSWORD|PASS|PRIVATE[_-]?KEY)[A-Z0-9_-]*\s*[:=]\s*)(["']?)([^\s"'`,;]+)/gi,
-      "$1$2[REDACTED]"
+      "$1$2[REDACTED]",
     )
     .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]{12,}/gi, "$1[REDACTED]")
     .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9._-]{4,}\b/g, "[REDACTED]")
@@ -188,9 +188,7 @@ function redactSensitiveValue(value) {
     return value.map(redactSensitiveValue);
   }
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, redactSensitiveValue(entry)])
-    );
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactSensitiveValue(entry)]));
   }
   return value;
 }
@@ -199,10 +197,12 @@ function normalizeCommand(command) {
   if (!Array.isArray(command) || command.length === 0) {
     return "";
   }
-  return command.map((part) => {
-    const text = redactSensitiveText(part);
-    return /\s/.test(text) ? `"${shellEscape(text)}"` : text;
-  }).join(" ");
+  return command
+    .map((part) => {
+      const text = redactSensitiveText(part);
+      return /\s/.test(text) ? `"${shellEscape(text)}"` : text;
+    })
+    .join(" ");
 }
 
 function normalizeQuery(text) {
@@ -213,11 +213,13 @@ function normalizeQuery(text) {
 }
 
 function tokenizeQuery(text) {
-  return Array.from(new Set(
-    normalizeQuery(text)
-      .split(/\s+/)
-      .filter((token) => token.length >= 3 && !MEMORY_STOP_WORDS.has(token))
-  ));
+  return Array.from(
+    new Set(
+      normalizeQuery(text)
+        .split(/\s+/)
+        .filter((token) => token.length >= 3 && !MEMORY_STOP_WORDS.has(token)),
+    ),
+  );
 }
 
 function parseTranscriptTurns(text) {
@@ -349,7 +351,9 @@ function buildMemoryMarkdown(backend, hits, extraBullets, maxBytes) {
       "",
       hit.excerpt,
       "",
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     if (bytes(markdown) + bytes(block) <= maxBytes) {
       markdown += block;
@@ -381,7 +385,13 @@ function buildMemoryResult(backend, hits, extraBullets, maxBytes) {
 }
 
 function getRepoWing(root) {
-  return path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "agentify_repo";
+  return (
+    path
+      .basename(root)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "agentify_repo"
+  );
 }
 
 async function listSessionTranscripts(root) {
@@ -456,12 +466,16 @@ function getMemPalacePaths(root) {
 
 function createMemPalaceTranscriptFingerprint(transcripts) {
   return createHash("sha1")
-    .update(JSON.stringify(transcripts.map((item) => ({
-      sessionId: item.sessionId,
-      path: item.transcriptRelativePath,
-      mtimeMs: item.mtimeMs,
-      size: item.size,
-    }))))
+    .update(
+      JSON.stringify(
+        transcripts.map((item) => ({
+          sessionId: item.sessionId,
+          path: item.transcriptRelativePath,
+          mtimeMs: item.mtimeMs,
+          size: item.size,
+        })),
+      ),
+    )
     .digest("hex");
 }
 
@@ -471,14 +485,17 @@ async function writeMemPalaceSessionExports(exportDir, transcripts) {
   for (const item of transcripts) {
     const transcript = await fs.readFile(item.transcriptPath, "utf8");
     const exportPath = path.join(exportDir, `${item.sessionId}.md`);
-    await writeText(exportPath, [
-      "# Agentify Transcript Export",
-      `Source session: ${item.sessionId}`,
-      `Source transcript: ${item.transcriptRelativePath}`,
-      "",
-      transcript.trim(),
-      "",
-    ].join("\n"));
+    await writeText(
+      exportPath,
+      [
+        "# Agentify Transcript Export",
+        `Source session: ${item.sessionId}`,
+        `Source transcript: ${item.transcriptRelativePath}`,
+        "",
+        transcript.trim(),
+        "",
+      ].join("\n"),
+    );
   }
 }
 
@@ -495,7 +512,7 @@ async function syncMemPalaceSessionExports(root, transcripts) {
     }
   }
 
-  if (cachedState?.fingerprint === fingerprint && await exists(palacePath)) {
+  if (cachedState?.fingerprint === fingerprint && (await exists(palacePath))) {
     return { synced: true, fingerprint, palacePath, exportDir, cached: true };
   }
 
@@ -555,12 +572,19 @@ async function promoteMemPalaceRefresh(sync) {
   try {
     promoted.push(await replacePathIfExists(sync.palacePath, sync.livePalacePath, backupDir, "palace"));
     promoted.push(await replacePathIfExists(sync.exportDir, sync.liveExportDir, backupDir, "session-exports"));
-    await writeText(sync.syncStatePath, `${JSON.stringify({
-      schema_version: "1.0",
-      fingerprint: sync.fingerprint,
-      transcript_count: sync.transcriptCount,
-      updated_at: new Date().toISOString(),
-    }, null, 2)}\n`);
+    await writeText(
+      sync.syncStatePath,
+      `${JSON.stringify(
+        {
+          schema_version: "1.0",
+          fingerprint: sync.fingerprint,
+          transcript_count: sync.transcriptCount,
+          updated_at: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+    );
   } catch (error) {
     for (const entry of promoted.reverse()) {
       if (!entry) {
@@ -608,9 +632,7 @@ async function resolveCommandBinary(cmd) {
     return null;
   }
   const sep = process.platform === "win32" ? ";" : ":";
-  const exts = process.platform === "win32"
-    ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";")
-    : [""];
+  const exts = process.platform === "win32" ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""];
   for (const dir of pathEnv.split(sep)) {
     if (!dir) {
       continue;
@@ -632,11 +654,14 @@ async function resolveMemPalaceBinary() {
   const configured = process.env.AGENTIFY_MEMPALACE_CMD
     ? await resolveCommandBinary(process.env.AGENTIFY_MEMPALACE_CMD)
     : null;
-  return configured || await resolveCommandBinary("mempalace");
+  return configured || (await resolveCommandBinary("mempalace"));
 }
 
 function inspectMemPalaceSearchOutput(stdout, config) {
-  const excerpt = clipToBytes(String(stdout || "").trim(), getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+  const excerpt = clipToBytes(
+    String(stdout || "").trim(),
+    getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024,
+  );
   const hasResultRow = /^\s*\[\d+\]\s/m.test(excerpt);
   const hasErrorStdout = /No palace found|Run: mempalace init/.test(excerpt);
   return {
@@ -656,13 +681,18 @@ function emitMemPalaceDegradedWarning(reason, error = null) {
 
 async function searchMemPalaceIndex(root, query, config, wing, palacePath, command) {
   const resultCount = String(getSessionMemoryLimit(config, "memoryResults", 3));
-  const { stdout } = await runMemPalace(root, ["search", query, "--wing", wing, "--results", resultCount], palacePath, command);
+  const { stdout } = await runMemPalace(
+    root,
+    ["search", query, "--wing", wing, "--results", resultCount],
+    palacePath,
+    command,
+  );
   return inspectMemPalaceSearchOutput(stdout, config);
 }
 
 async function createMemPalaceBackend(root, query, config, sharedInventory = {}) {
-  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
-  const command = sharedInventory.mempalaceBinary || await resolveMemPalaceBinary();
+  const transcripts = sharedInventory.transcripts ?? (await listSessionTranscripts(root));
+  const command = sharedInventory.mempalaceBinary || (await resolveMemPalaceBinary());
   const tokens = tokenizeQuery(query);
 
   return {
@@ -683,18 +713,25 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
         if (!search.usable) {
           return null;
         }
-        return buildMemoryResult("mempalace", [{
-          sessionId: null,
-          transcriptPath: targetExportDir,
-          transcriptRelativePath: relative(root, targetExportDir),
-          score: Number.NaN,
-          excerpt: search.excerpt,
-        }], [
-          `- Query: ${query}`,
-          `- Wing: ${wing}`,
-          "- Source: repo-local MemPalace session export index.",
-          ...extraBullets,
-        ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+        return buildMemoryResult(
+          "mempalace",
+          [
+            {
+              sessionId: null,
+              transcriptPath: targetExportDir,
+              transcriptRelativePath: relative(root, targetExportDir),
+              score: Number.NaN,
+              excerpt: search.excerpt,
+            },
+          ],
+          [
+            `- Query: ${query}`,
+            `- Wing: ${wing}`,
+            "- Source: repo-local MemPalace session export index.",
+            ...extraBullets,
+          ],
+          getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024,
+        );
       };
 
       try {
@@ -705,7 +742,12 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
 
         let refreshReady = false;
         try {
-          await runMemPalace(root, ["mine", sync.exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"], sync.palacePath, command);
+          await runMemPalace(
+            root,
+            ["mine", sync.exportDir, "--mode", "convos", "--wing", wing, "--agent", "agentify"],
+            sync.palacePath,
+            command,
+          );
           const stagedSearch = await searchMemPalaceIndex(root, query, config, wing, sync.palacePath, command);
           if (stagedSearch.hasErrorStdout) {
             emitMemPalaceDegradedWarning("refreshed index search reported a missing palace");
@@ -713,17 +755,20 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
             await promoteMemPalaceRefresh(sync);
             refreshReady = true;
             if (stagedSearch.usable) {
-              return buildMemoryResult("mempalace", [{
-                sessionId: null,
-                transcriptPath: sync.liveExportDir,
-                transcriptRelativePath: relative(root, sync.liveExportDir),
-                score: Number.NaN,
-                excerpt: stagedSearch.excerpt,
-              }], [
-                `- Query: ${query}`,
-                `- Wing: ${wing}`,
-                "- Source: repo-local MemPalace session export index.",
-              ], getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024);
+              return buildMemoryResult(
+                "mempalace",
+                [
+                  {
+                    sessionId: null,
+                    transcriptPath: sync.liveExportDir,
+                    transcriptRelativePath: relative(root, sync.liveExportDir),
+                    score: Number.NaN,
+                    excerpt: stagedSearch.excerpt,
+                  },
+                ],
+                [`- Query: ${query}`, `- Wing: ${wing}`, "- Source: repo-local MemPalace session export index."],
+                getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024,
+              );
             }
           }
         } catch (error) {
@@ -752,8 +797,8 @@ async function createMemPalaceBackend(root, query, config, sharedInventory = {})
 }
 
 async function createTranscriptSearchBackend(root, query, config, sharedInventory = {}) {
-  const transcripts = sharedInventory.transcripts ?? await listSessionTranscripts(root);
-  const structuredAll = sharedInventory.structuredTurns ?? await listStructuredSessionTurns(root);
+  const transcripts = sharedInventory.transcripts ?? (await listSessionTranscripts(root));
+  const structuredAll = sharedInventory.structuredTurns ?? (await listStructuredSessionTurns(root));
   const structuredOnly = structuredAll.filter((item) => !transcripts.some((t) => t.sessionId === item.sessionId));
   const tokens = tokenizeQuery(query);
   const maxBytes = getSessionMemoryLimit(config, "memoryPromptMaxKb", 4) * 1024;
@@ -815,10 +860,12 @@ async function createTranscriptSearchBackend(root, query, config, sharedInventor
         return null;
       }
 
-      return buildMemoryResult("local-session-search", hits, [
-        `- Query: ${query}`,
-        `- Search scope: \`${relative(root, resolveLocalAgentifyPaths(root).sessionRoot)}/\``,
-      ], maxBytes);
+      return buildMemoryResult(
+        "local-session-search",
+        hits,
+        [`- Query: ${query}`, `- Search scope: \`${relative(root, resolveLocalAgentifyPaths(root).sessionRoot)}/\``],
+        maxBytes,
+      );
     },
   };
 }
@@ -854,10 +901,10 @@ async function createStructuredLineageBackend(root, manifest, config) {
           lines.push("", "Recent runs:");
           for (const run of runs.slice(-5)) {
             const when = run?.ended_at || run?.started_at || "";
-            const timeout = run?.timed_out
-              ? ` timeout=${run.timeout_ms ?? "unknown"}ms`
-              : "";
-            lines.push(`- ${when} task="${(run?.task || "").trim()}" exit=${run?.exit_code ?? "?"} validation=${run?.validation || "not-run"}${timeout}`);
+            const timeout = run?.timed_out ? ` timeout=${run.timeout_ms ?? "unknown"}ms` : "";
+            lines.push(
+              `- ${when} task="${(run?.task || "").trim()}" exit=${run?.exit_code ?? "?"} validation=${run?.validation || "not-run"}${timeout}`,
+            );
             if (run?.assistant_summary) {
               lines.push(`  summary: ${run.assistant_summary}`);
             }
@@ -867,15 +914,20 @@ async function createStructuredLineageBackend(root, manifest, config) {
         if (!excerpt) {
           continue;
         }
-        return buildMemoryResult("structured-lineage", [{
-          sessionId,
-          transcriptPath: paths.contextPath,
-          transcriptRelativePath: relative(root, paths.contextPath),
-          score: Number.NaN,
-          excerpt,
-        }], [
-          "- Source: structured session state (context.json run_history + rolling_summary).",
-        ], maxBytes);
+        return buildMemoryResult(
+          "structured-lineage",
+          [
+            {
+              sessionId,
+              transcriptPath: paths.contextPath,
+              transcriptRelativePath: relative(root, paths.contextPath),
+              score: Number.NaN,
+              excerpt,
+            },
+          ],
+          ["- Source: structured session state (context.json run_history + rolling_summary)."],
+          maxBytes,
+        );
       }
       return null;
     },
@@ -909,15 +961,20 @@ async function createLineageBackend(root, manifest, config) {
           continue;
         }
 
-        return buildMemoryResult("lineage-replay", [{
-          sessionId,
-          transcriptPath: sourcePath,
-          transcriptRelativePath: relative(root, sourcePath),
-          score: Number.NaN,
-          excerpt,
-        }], [
-          "- Source: direct session lineage replay.",
-        ], maxBytes);
+        return buildMemoryResult(
+          "lineage-replay",
+          [
+            {
+              sessionId,
+              transcriptPath: sourcePath,
+              transcriptRelativePath: relative(root, sourcePath),
+              score: Number.NaN,
+              excerpt,
+            },
+          ],
+          ["- Source: direct session lineage replay."],
+          maxBytes,
+        );
       }
 
       return null;
@@ -1056,7 +1113,7 @@ async function acquireSessionArtifactLock(paths, operation, options = {}) {
 
     if (Date.now() >= deadline) {
       throw new Error(
-        `Session ${path.basename(paths.sessionDir)} is already being updated by PID ${existing.pid} for '${existing.operation}' since ${new Date(existing.acquired_at).toISOString()}`
+        `Session ${path.basename(paths.sessionDir)} is already being updated by PID ${existing.pid} for '${existing.operation}' since ${new Date(existing.acquired_at).toISOString()}`,
       );
     }
     await sleep(Math.min(SESSION_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())));
@@ -1095,15 +1152,11 @@ async function buildEstimatedManagedContext(root, sessionRecord, paths, config) 
   const promptBytes = bytes(sessionRecord?.prompt || "");
   const transcriptBytes = await safeFileBytes(paths.transcriptPath);
   const fetchOutputBytes = await safeFileBytes(paths.fetchOutputsPath);
-  const memoryArtifactBytes = (
-    await safeFileBytes(paths.memoryContextPath)
-    + await safeFileBytes(paths.contextPath)
-    + await safeFileBytes(paths.turnsPath)
-  );
-  const estimatedManagedContextBytes = promptBytes
-    + transcriptBytes
-    + fetchOutputBytes
-    + memoryArtifactBytes;
+  const memoryArtifactBytes =
+    (await safeFileBytes(paths.memoryContextPath)) +
+    (await safeFileBytes(paths.contextPath)) +
+    (await safeFileBytes(paths.turnsPath));
+  const estimatedManagedContextBytes = promptBytes + transcriptBytes + fetchOutputBytes + memoryArtifactBytes;
   const rolloverThresholdBytes = getContextThresholdBytes(config);
 
   return {
@@ -1147,11 +1200,8 @@ function turnToTranscriptText(turn) {
   if (!turn || typeof turn !== "object") {
     return "";
   }
-  const label = turn.role === "assistant"
-    ? "> Provider response"
-    : turn.role === "system"
-      ? "> System"
-      : "> Current task";
+  const label =
+    turn.role === "assistant" ? "> Provider response" : turn.role === "system" ? "> System" : "> Current task";
   return `${label}\n${String(turn.content || "").trim()}`.trim();
 }
 
@@ -1189,12 +1239,11 @@ function buildRollingSummary(history) {
   const latest = history[history.length - 1] || {};
   const task = latest.task ? `Last task: ${latest.task}` : null;
   const summary = latest.assistant_summary ? `Last outcome: ${latest.assistant_summary}` : null;
-  const timeout = latest.timed_out
-    ? `, timeout after ${latest.timeout_ms ?? "unknown"}ms`
-    : "";
-  const status = latest.exit_code !== null && latest.exit_code !== undefined
-    ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}${timeout}`
-    : null;
+  const timeout = latest.timed_out ? `, timeout after ${latest.timeout_ms ?? "unknown"}ms` : "";
+  const status =
+    latest.exit_code !== null && latest.exit_code !== undefined
+      ? `Last exit: ${latest.exit_code}, validation ${latest.validation || "not-run"}${timeout}`
+      : null;
   return [task, status, summary].filter(Boolean).join("\n");
 }
 
@@ -1219,9 +1268,7 @@ async function readJsonLines(filePath) {
 }
 
 function renderContextFactsMarkdown(facts) {
-  const tasks = facts.recent_tasks.length
-    ? facts.recent_tasks.map((task) => `- ${task}`).join("\n")
-    : "- none";
+  const tasks = facts.recent_tasks.length ? facts.recent_tasks.map((task) => `- ${task}`).join("\n") : "- none";
   return `# Context Facts
 
 Session: ${facts.session_id}
@@ -1236,7 +1283,12 @@ ${tasks}
 `;
 }
 
-async function compactSessionContextUnlocked(root, sessionId, config = {}, paths = getSessionArtifactPaths(root, sessionId)) {
+async function compactSessionContextUnlocked(
+  root,
+  sessionId,
+  config = {},
+  paths = getSessionArtifactPaths(root, sessionId),
+) {
   if (!(await exists(paths.contextPath))) {
     throw new Error(`Session ${sessionId} does not have context.json`);
   }
@@ -1283,18 +1335,25 @@ async function compactSessionContextUnlocked(root, sessionId, config = {}, paths
   return {
     session_id: sessionId,
     facts_path: relative(root, paths.contextFactsPath),
-    markdown_path: config?.session?.emitMarkdownArtifacts === false ? null : relative(root, paths.contextFactsMarkdownPath),
+    markdown_path:
+      config?.session?.emitMarkdownArtifacts === false ? null : relative(root, paths.contextFactsMarkdownPath),
     facts,
   };
 }
 
 export async function compactSessionContext(root, sessionId, config = {}) {
-  return withSessionArtifactLock(root, sessionId, "compact-session-context", (paths) => (
-    compactSessionContextUnlocked(root, sessionId, config, paths)
-  ));
+  return withSessionArtifactLock(root, sessionId, "compact-session-context", (paths) =>
+    compactSessionContextUnlocked(root, sessionId, config, paths),
+  );
 }
 
-async function appendRunSummaryUnlocked(root, sessionId, entry, config, paths = getSessionArtifactPaths(root, sessionId)) {
+async function appendRunSummaryUnlocked(
+  root,
+  sessionId,
+  entry,
+  config,
+  paths = getSessionArtifactPaths(root, sessionId),
+) {
   if (!(await exists(paths.contextPath))) {
     return null;
   }
@@ -1315,9 +1374,9 @@ async function appendRunSummaryUnlocked(root, sessionId, entry, config, paths = 
 }
 
 export async function appendRunSummary(root, sessionId, entry, config) {
-  return withSessionArtifactLock(root, sessionId, "append-run-summary", (paths) => (
-    appendRunSummaryUnlocked(root, sessionId, entry, config, paths)
-  ));
+  return withSessionArtifactLock(root, sessionId, "append-run-summary", (paths) =>
+    appendRunSummaryUnlocked(root, sessionId, entry, config, paths),
+  );
 }
 
 export async function loadAutomaticMemory(root, options, config) {
@@ -1399,11 +1458,16 @@ export async function prepareSessionMemoryRun(root, sessionRecord, config) {
         `Bootstrap context is persisted in \`.agentify/session/${sessionRecord.sessionId}/bootstrap.md\`.`,
         "",
         "> Automatic session memory",
-        redactSensitiveText(sessionRecord.memoryContext?.excerpt || "No prior session transcript was available for automatic recall before this run."),
+        redactSensitiveText(
+          sessionRecord.memoryContext?.excerpt ||
+            "No prior session transcript was available for automatic recall before this run.",
+        ),
         "",
         "> Current task",
-        redactSensitiveText(sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one."),
-        ""
+        redactSensitiveText(
+          sessionRecord.task || "No task was provided; the provider was instructed to ask the user for one.",
+        ),
+        "",
       );
 
       await appendPrivateText(paths.transcriptPath, `${transcriptLines.filter(Boolean).join("\n")}\n`);
@@ -1419,21 +1483,21 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
   try {
     const captureMaxBytes = getSessionMemoryLimit(config, "captureMaxKb", 48) * 1024;
     const summaryMaxBytes = getSessionMemoryLimit(config, "runSummaryMaxBytes", 256);
-    const emitMarkdown = prepared?.emitMarkdown !== undefined
-      ? prepared.emitMarkdown
-      : config?.session?.emitMarkdownArtifacts !== false;
+    const emitMarkdown =
+      prepared?.emitMarkdown !== undefined ? prepared.emitMarkdown : config?.session?.emitMarkdownArtifacts !== false;
     const providerOutput = outcome?.interactiveTranscript
       ? String(outcome.interactiveTranscript).trim()
-      : [outcome?.stdout, outcome?.stderr]
-        .filter(Boolean)
-        .join("\n")
-        .trim();
+      : [outcome?.stdout, outcome?.stderr].filter(Boolean).join("\n").trim();
     const assistantText = providerOutput
       ? clipToBytes(redactSensitiveText(providerOutput), captureMaxBytes)
       : "Agentify launched the provider in inherited interactive mode, so the full assistant transcript was not captured for this run. The prompt, bootstrap, memory context, and launch record were still persisted automatically.";
     const validationSummary = outcome?.validation
-      ? outcome.validation.passed ? "passed" : "failed"
-      : outcome?.skippedRefresh ? "skipped" : "not-run";
+      ? outcome.validation.passed
+        ? "passed"
+        : "failed"
+      : outcome?.skippedRefresh
+        ? "skipped"
+        : "not-run";
     const phase = outcome?.phase || "complete";
     const endedAt = new Date().toISOString();
     const timeout = getOutcomeTimeout(outcome);
@@ -1477,8 +1541,10 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
         outcome?.rawInteractiveLogPath ? `Raw interactive log: ${relative(root, outcome.rawInteractiveLogPath)}` : null,
         outcome?.interactiveCaptureError ? `Interactive capture warning: ${outcome.interactiveCaptureError}` : null,
         `Ended: ${endedAt}`,
-        ""
-      ].filter(Boolean).join("\n");
+        "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       await appendPrivateText(prepared.paths.transcriptPath, transcriptTail);
     }
 
@@ -1498,9 +1564,7 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
       memory_context_path: relative(root, prepared.paths.memoryContextPath),
       turns_path: relative(root, prepared.paths.turnsPath),
       memory_backend: sessionRecord.memoryContext?.backend || "none",
-      raw_interactive_log_path: outcome?.rawInteractiveLogPath
-        ? relative(root, outcome.rawInteractiveLogPath)
-        : null,
+      raw_interactive_log_path: outcome?.rawInteractiveLogPath ? relative(root, outcome.rawInteractiveLogPath) : null,
       memory_source_session_id: sessionRecord.memoryContext?.sourceSessionId || null,
       memory_source_transcript: sessionRecord.memoryContext?.transcriptRelativePath || null,
       phase,
@@ -1514,18 +1578,24 @@ export async function finalizeSessionMemoryRun(root, sessionRecord, prepared, ou
     };
     await appendPrivateText(prepared.paths.launchesPath, `${JSON.stringify(launchRecord)}\n`);
 
-    await appendRunSummaryUnlocked(root, sessionRecord.sessionId, {
-      started_at: prepared.startedAt,
-      ended_at: endedAt,
-      task: sessionRecord.task || "",
-      assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
-      exit_code: outcome?.exitCode ?? null,
-      ...timeoutFields,
-      validation: validationSummary,
-      phase,
-      memory_backend: sessionRecord.memoryContext?.backend || "none",
-      managed_context: managedContext,
-    }, config, prepared.paths);
+    await appendRunSummaryUnlocked(
+      root,
+      sessionRecord.sessionId,
+      {
+        started_at: prepared.startedAt,
+        ended_at: endedAt,
+        task: sessionRecord.task || "",
+        assistant_summary: clipToBytes(assistantText, summaryMaxBytes),
+        exit_code: outcome?.exitCode ?? null,
+        ...timeoutFields,
+        validation: validationSummary,
+        phase,
+        memory_backend: sessionRecord.memoryContext?.backend || "none",
+        managed_context: managedContext,
+      },
+      config,
+      prepared.paths,
+    );
     await compactSessionContextUnlocked(root, sessionRecord.sessionId, config, prepared.paths);
   } finally {
     await prepared?.sessionArtifactLock?.release?.();

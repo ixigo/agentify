@@ -16,18 +16,19 @@ function normalizePrompt(prompt) {
   return "Continue the task in this repository and keep changes minimal, tested, and documented.";
 }
 
-export function buildProviderTemplateCommand(provider, prompt, {
-  root,
-  interactive = false,
-  bypassPermissions = false,
-  continueSession = false,
-} = {}) {
+export function buildProviderTemplateCommand(
+  provider,
+  prompt,
+  { root, interactive = false, bypassPermissions = false, continueSession = false } = {},
+) {
   assertSupportedProvider(provider);
   const normalizedPrompt = normalizePrompt(prompt);
   const definition = getProviderDefinition(provider);
 
   if (!definition.executable || !definition.buildTemplateCommand) {
-    throw new Error(`provider "${provider}" cannot execute agent commands. Pass --provider ${EXECUTABLE_PROVIDER_NAMES.join("|")}.`);
+    throw new Error(
+      `provider "${provider}" cannot execute agent commands. Pass --provider ${EXECUTABLE_PROVIDER_NAMES.join("|")}.`,
+    );
   }
 
   return definition.buildTemplateCommand({

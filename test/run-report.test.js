@@ -99,7 +99,7 @@ test("createRunReporter persists output and HTML report", async (t) => {
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetry = JSON.parse(
-    await fs.readFile(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json"), "utf8")
+    await fs.readFile(path.join(root, ".agentify", "runs", "test-execution-execution-telemetry.json"), "utf8"),
   );
   const telemetryJson = JSON.stringify(telemetry);
 
@@ -195,7 +195,7 @@ test("createRunReporter surfaces execution timeout state", async (t) => {
   const output = await fs.readFile(path.join(root, "output.txt"), "utf8");
   const html = await fs.readFile(path.join(root, "agentify-report.html"), "utf8");
   const telemetry = JSON.parse(
-    await fs.readFile(path.join(root, ".agentify", "runs", "timeout-execution-execution-telemetry.json"), "utf8")
+    await fs.readFile(path.join(root, ".agentify", "runs", "timeout-execution-execution-telemetry.json"), "utf8"),
   );
 
   assert.match(output, /execution: timeout=yes timeout_ms=50 signal=SIGTERM reason=timeout/);

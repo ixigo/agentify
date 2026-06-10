@@ -101,13 +101,19 @@ test("session memory run artifacts use restrictive permissions", async (t) => {
   const record = createSessionRecord(created.sessionId, "permission-sensitive task");
   const prepared = await prepareSessionMemoryRun(root, record, config);
 
-  await finalizeSessionMemoryRun(root, record, prepared, {
-    phase: "complete",
-    exitCode: 0,
-    stdout: "done",
-    stderr: "",
-    validation: { passed: true },
-  }, config);
+  await finalizeSessionMemoryRun(
+    root,
+    record,
+    prepared,
+    {
+      phase: "complete",
+      exitCode: 0,
+      stdout: "done",
+      stderr: "",
+      validation: { passed: true },
+    },
+    config,
+  );
 
   const paths = getSessionArtifactPaths(root, created.sessionId);
   assert.equal(await modeOf(paths.sessionDir), 0o700);
@@ -183,16 +189,21 @@ test("appendRunSummary keeps run_history bounded and updates rolling_summary", a
   const created = await forkSession(root, config, { name: "rollup" });
 
   for (let index = 0; index < 12; index += 1) {
-    await appendRunSummary(root, created.sessionId, {
-      started_at: `s-${index}`,
-      ended_at: `e-${index}`,
-      task: `task ${index} ${"x".repeat(300)}`,
-      assistant_summary: `summary ${index} ${"y".repeat(300)}`,
-      exit_code: index % 2 === 0 ? 0 : 1,
-      validation: index % 2 === 0 ? "passed" : "failed",
-      phase: "complete",
-      memory_backend: "structured-lineage",
-    }, config);
+    await appendRunSummary(
+      root,
+      created.sessionId,
+      {
+        started_at: `s-${index}`,
+        ended_at: `e-${index}`,
+        task: `task ${index} ${"x".repeat(300)}`,
+        assistant_summary: `summary ${index} ${"y".repeat(300)}`,
+        exit_code: index % 2 === 0 ? 0 : 1,
+        validation: index % 2 === 0 ? "passed" : "failed",
+        phase: "complete",
+        memory_backend: "structured-lineage",
+      },
+      config,
+    );
   }
 
   const contextPath = path.join(created.sessionDir, "context.json");
@@ -215,16 +226,25 @@ test("appendRunSummary preserves concurrent same-session updates", async () => {
   config.session.runHistoryMax = 30;
   const created = await forkSession(root, config, { name: "rollup-concurrent" });
 
-  await Promise.all(Array.from({ length: 20 }, (_, index) => appendRunSummary(root, created.sessionId, {
-    started_at: `s-${index}`,
-    ended_at: `e-${index}`,
-    task: `task ${index}`,
-    assistant_summary: `summary ${index}`,
-    exit_code: 0,
-    validation: "passed",
-    phase: "complete",
-    memory_backend: "structured-lineage",
-  }, config)));
+  await Promise.all(
+    Array.from({ length: 20 }, (_, index) =>
+      appendRunSummary(
+        root,
+        created.sessionId,
+        {
+          started_at: `s-${index}`,
+          ended_at: `e-${index}`,
+          task: `task ${index}`,
+          assistant_summary: `summary ${index}`,
+          exit_code: 0,
+          validation: "passed",
+          phase: "complete",
+          memory_backend: "structured-lineage",
+        },
+        config,
+      ),
+    ),
+  );
 
   const context = JSON.parse(await fs.readFile(path.join(created.sessionDir, "context.json"), "utf8"));
   const started = new Set(context.run_history.map((entry) => entry.started_at));
@@ -247,16 +267,22 @@ test("prepareSessionMemoryRun rejects a concurrent same-session run while the fi
   try {
     await assert.rejects(
       () => prepareSessionMemoryRun(root, createSessionRecord(created.sessionId, "second task"), config),
-      /already being updated.*session-run/
+      /already being updated.*session-run/,
     );
   } finally {
-    await finalizeSessionMemoryRun(root, createSessionRecord(created.sessionId, "first task"), prepared, {
-      phase: "complete",
-      exitCode: 0,
-      stdout: "first task complete",
-      stderr: "",
-      validation: { passed: true },
-    }, config);
+    await finalizeSessionMemoryRun(
+      root,
+      createSessionRecord(created.sessionId, "first task"),
+      prepared,
+      {
+        phase: "complete",
+        exitCode: 0,
+        stdout: "first task complete",
+        stderr: "",
+        validation: { passed: true },
+      },
+      config,
+    );
   }
 
   assert.equal(await fileExists(paths.lockPath), false);
@@ -272,16 +298,21 @@ test("forkSession inherits run_history and rolling_summary from parent", async (
 
   const config = await loadConfig(root, { provider: "codex" });
   const parent = await forkSession(root, config, { name: "parent" });
-  await appendRunSummary(root, parent.sessionId, {
-    started_at: "p-start",
-    ended_at: "p-end",
-    task: "investigate refresh bug",
-    assistant_summary: "refresh bug fixed after wrapping the refresh call.",
-    exit_code: 0,
-    validation: "passed",
-    phase: "complete",
-    memory_backend: "structured-lineage",
-  }, config);
+  await appendRunSummary(
+    root,
+    parent.sessionId,
+    {
+      started_at: "p-start",
+      ended_at: "p-end",
+      task: "investigate refresh bug",
+      assistant_summary: "refresh bug fixed after wrapping the refresh call.",
+      exit_code: 0,
+      validation: "passed",
+      phase: "complete",
+      memory_backend: "structured-lineage",
+    },
+    config,
+  );
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
   assert.equal(child.context.run_history.length, 1);
@@ -301,22 +332,31 @@ test("forkSession compacts child context while preserving runtime artifact refs"
   const parent = await forkSession(root, config, { name: "parent" });
   await fs.writeFile(
     path.join(parent.sessionDir, "checklist.json"),
-    `${JSON.stringify(Array.from({ length: 40 }, (_, index) => ({
-      done: false,
-      text: `large inherited task ${index} ${"x".repeat(160)}`,
-    })), null, 2)}\n`,
+    `${JSON.stringify(
+      Array.from({ length: 40 }, (_, index) => ({
+        done: false,
+        text: `large inherited task ${index} ${"x".repeat(160)}`,
+      })),
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
-  await appendRunSummary(root, parent.sessionId, {
-    started_at: "p-start",
-    ended_at: "p-end",
-    task: "prepare a child session with compact routed context",
-    assistant_summary: "child should retain artifact refs while dropping oversized details",
-    exit_code: 0,
-    validation: "passed",
-    phase: "complete",
-    memory_backend: "structured-lineage",
-  }, config);
+  await appendRunSummary(
+    root,
+    parent.sessionId,
+    {
+      started_at: "p-start",
+      ended_at: "p-end",
+      task: "prepare a child session with compact routed context",
+      assistant_summary: "child should retain artifact refs while dropping oversized details",
+      exit_code: 0,
+      validation: "passed",
+      phase: "complete",
+      memory_backend: "structured-lineage",
+    },
+    config,
+  );
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
   const resumed = await resumeSession(root, child.sessionId);
@@ -339,25 +379,32 @@ test("maybePrepareChildSession creates child above context threshold without lau
   const config = await loadConfig(root, { provider: "codex" });
   config.session.prepareChildAboveKb = 0.001;
   const parent = await forkSession(root, config, { name: "parent" });
-  await appendRunSummary(root, parent.sessionId, {
-    started_at: "p-start",
-    ended_at: "p-end",
-    task: "large context handoff",
-    assistant_summary: "prepare child session without launching provider",
-    exit_code: 0,
-    validation: "passed",
-    phase: "complete",
-    memory_backend: "structured-lineage",
-  }, config);
+  await appendRunSummary(
+    root,
+    parent.sessionId,
+    {
+      started_at: "p-start",
+      ended_at: "p-end",
+      task: "large context handoff",
+      assistant_summary: "prepare child session without launching provider",
+      exit_code: 0,
+      validation: "passed",
+      phase: "complete",
+      memory_backend: "structured-lineage",
+    },
+    config,
+  );
 
   const result = await maybePrepareChildSession(root, config, parent.sessionId, { provider: "codex" });
   assert.ok(result.child_session_id.startsWith("sess_"));
   assert.match(result.resume_command, new RegExp(result.child_session_id));
 
-  const childManifest = JSON.parse(await fs.readFile(
-    path.join(root, ".agentify", "session", result.child_session_id, "session-manifest.json"),
-    "utf8"
-  ));
+  const childManifest = JSON.parse(
+    await fs.readFile(
+      path.join(root, ".agentify", "session", result.child_session_id, "session-manifest.json"),
+      "utf8",
+    ),
+  );
   assert.equal(childManifest.parent_id, parent.sessionId);
   const parentManifest = JSON.parse(await fs.readFile(path.join(parent.sessionDir, "session-manifest.json"), "utf8"));
   assert.equal(parentManifest.prepared_child_session.session_id, result.child_session_id);
@@ -370,25 +417,28 @@ test("loadAutomaticSessionMemory prefers structured lineage over transcript repl
 
   const config = await loadConfig(root, { provider: "codex" });
   const parent = await forkSession(root, config, { name: "parent" });
-  await appendRunSummary(root, parent.sessionId, {
-    started_at: "p-start",
-    ended_at: "p-end",
-    task: "wire up structured memory",
-    assistant_summary: "context.json now carries the rolling summary.",
-    exit_code: 0,
-    validation: "passed",
-    phase: "complete",
-    memory_backend: "structured-lineage",
-  }, config);
+  await appendRunSummary(
+    root,
+    parent.sessionId,
+    {
+      started_at: "p-start",
+      ended_at: "p-end",
+      task: "wire up structured memory",
+      assistant_summary: "context.json now carries the rolling summary.",
+      exit_code: 0,
+      validation: "passed",
+      phase: "complete",
+      memory_backend: "structured-lineage",
+    },
+    config,
+  );
 
   const paths = getSessionArtifactPaths(root, parent.sessionId);
-  await fs.writeFile(paths.transcriptPath, [
-    "# Agentify Session Run",
-    "",
-    "> Provider response",
-    "legacy transcript content",
-    "",
-  ].join("\n"), "utf8");
+  await fs.writeFile(
+    paths.transcriptPath,
+    ["# Agentify Session Run", "", "> Provider response", "legacy transcript content", ""].join("\n"),
+    "utf8",
+  );
 
   const child = await forkSession(root, config, { from: parent.sessionId, name: "child" });
   const memory = await loadAutomaticSessionMemory(root, child.manifest, config);

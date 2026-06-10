@@ -66,9 +66,7 @@ export async function getGitIdentity(root) {
   if (!rawCommonDir) {
     return null;
   }
-  const commonDir = path.isAbsolute(rawCommonDir)
-    ? rawCommonDir
-    : path.resolve(topLevel, rawCommonDir);
+  const commonDir = path.isAbsolute(rawCommonDir) ? rawCommonDir : path.resolve(topLevel, rawCommonDir);
   const remote = await runGit(root, ["remote", "get-url", "origin"]);
 
   return {
@@ -104,12 +102,8 @@ export async function detectGitWorktree(root) {
   }
 
   const resolvedTopLevel = path.resolve(topLevel);
-  const gitDir = path.isAbsolute(rawGitDir)
-    ? rawGitDir
-    : path.resolve(resolvedTopLevel, rawGitDir);
-  const commonDir = path.isAbsolute(rawCommonDir)
-    ? rawCommonDir
-    : path.resolve(resolvedTopLevel, rawCommonDir);
+  const gitDir = path.isAbsolute(rawGitDir) ? rawGitDir : path.resolve(resolvedTopLevel, rawGitDir);
+  const commonDir = path.isAbsolute(rawCommonDir) ? rawCommonDir : path.resolve(resolvedTopLevel, rawCommonDir);
   const realGitDir = await realpathIfPossible(gitDir);
   const realCommonDir = await realpathIfPossible(commonDir);
 

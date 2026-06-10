@@ -17,7 +17,7 @@ const entrypointCases = [
     name: "python",
     entryPath: "src/demo/main.py",
     setup: async (root) => {
-      await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+      await fs.writeFile(path.join(root, "pyproject.toml"), '[project]\nname = "demo"\n', "utf8");
       await fs.mkdir(path.join(root, "src", "demo"), { recursive: true });
       await fs.writeFile(path.join(root, "src", "demo", "__init__.py"), "", "utf8");
       await fs.writeFile(path.join(root, "src", "demo", "main.py"), "def main():\n    return None\n", "utf8");
@@ -38,17 +38,25 @@ const entrypointCases = [
     setup: async (root) => {
       await fs.mkdir(path.join(root, "app", "src", "main", "java", "com", "demo"), { recursive: true });
       await fs.writeFile(path.join(root, "app", "build.gradle"), "plugins {}\n", "utf8");
-      await fs.writeFile(path.join(root, "app", "src", "main", "java", "com", "demo", "Application.java"), "class Application {}\n", "utf8");
+      await fs.writeFile(
+        path.join(root, "app", "src", "main", "java", "com", "demo", "Application.java"),
+        "class Application {}\n",
+        "utf8",
+      );
     },
   },
   {
     name: "kotlin",
     entryPath: "app/src/main/kotlin/com/demo/MainActivity.kt",
     setup: async (root) => {
-      await fs.writeFile(path.join(root, "settings.gradle.kts"), "include(\":app\")\n", "utf8");
+      await fs.writeFile(path.join(root, "settings.gradle.kts"), 'include(":app")\n', "utf8");
       await fs.mkdir(path.join(root, "app", "src", "main", "kotlin", "com", "demo"), { recursive: true });
       await fs.writeFile(path.join(root, "app", "build.gradle.kts"), "plugins {}\n", "utf8");
-      await fs.writeFile(path.join(root, "app", "src", "main", "kotlin", "com", "demo", "MainActivity.kt"), "class MainActivity\n", "utf8");
+      await fs.writeFile(
+        path.join(root, "app", "src", "main", "kotlin", "com", "demo", "MainActivity.kt"),
+        "class MainActivity\n",
+        "utf8",
+      );
     },
   },
   {
@@ -73,7 +81,11 @@ const entrypointCases = [
     name: "rust",
     entryPath: "src/lib.rs",
     setup: async (root) => {
-      await fs.writeFile(path.join(root, "Cargo.toml"), "[package]\nname = \"agentify-rust\"\nversion = \"0.1.0\"\n", "utf8");
+      await fs.writeFile(
+        path.join(root, "Cargo.toml"),
+        '[package]\nname = "agentify-rust"\nversion = "0.1.0"\n',
+        "utf8",
+      );
       await fs.mkdir(path.join(root, "src"), { recursive: true });
       await fs.writeFile(path.join(root, "src", "lib.rs"), "pub fn run() {}\n", "utf8");
     },

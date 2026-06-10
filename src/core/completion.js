@@ -6,7 +6,18 @@ const LANGUAGE_VALUES = ["auto", "ts", "python", "go", "rust", "dotnet", "java",
 const CONTEXT_MODE_VALUES = ["compact", "routed", "direct"];
 const SCOPE_VALUES = ["project", "user"];
 const BOOLEAN_VALUES = ["true", "false"];
-const CAVEMAN_VALUES = ["lite", "full", "ultra", "wenyan", "wenyan-lite", "wenyan-full", "wenyan-ultra", "off", "normal", "none"];
+const CAVEMAN_VALUES = [
+  "lite",
+  "full",
+  "ultra",
+  "wenyan",
+  "wenyan-lite",
+  "wenyan-full",
+  "wenyan-ultra",
+  "off",
+  "normal",
+  "none",
+];
 const COMPLETION_SHELLS = ["zsh", "bash", "fish"];
 const DYNAMIC_VALUE_KINDS = ["providers", "skills", "sessions"];
 
@@ -27,7 +38,9 @@ const GLOBAL_FLAGS = [
 
 const COMMANDS = [
   command("init", "Create baseline Agentify artifacts", {
-    flags: [flag("--shared-store", { description: "Use the default shared worktree store and auto-link this checkout" })],
+    flags: [
+      flag("--shared-store", { description: "Use the default shared worktree store and auto-link this checkout" }),
+    ],
   }),
   command("index", "Build the SQLite repository index"),
   command("scan", "Alias for index"),
@@ -266,7 +279,9 @@ export async function getCompletionValues(kind, { root = process.cwd() } = {}) {
     case "providers":
       return [...SUPPORTED_PROVIDERS];
     case "skills":
-      return listBuiltinSkills().map((skill) => skill.name).sort();
+      return listBuiltinSkills()
+        .map((skill) => skill.name)
+        .sort();
     case "sessions":
       try {
         const sessions = await listSessions(root);
@@ -369,7 +384,9 @@ function collectFlags() {
 
 function scriptData() {
   const commands = allCommandNames();
-  const subcommands = Object.fromEntries(COMMANDS.map((item) => [item.name, visibleSubcommands(item).map((sub) => sub.name)]));
+  const subcommands = Object.fromEntries(
+    COMMANDS.map((item) => [item.name, visibleSubcommands(item).map((sub) => sub.name)]),
+  );
   for (const item of COMMANDS) {
     for (const alias of item.aliases || []) {
       subcommands[alias] = subcommands[item.name] || [];
@@ -383,7 +400,9 @@ function scriptData() {
       flags[`${commandName}:${sub.name}`] = flagsFor(commandName, sub.name).map((item) => item.name);
     }
   }
-  const flagKinds = Object.fromEntries(collectFlags().map((item) => [item.name, item.valueKind || (item.values ? item.name.slice(2) : null)]));
+  const flagKinds = Object.fromEntries(
+    collectFlags().map((item) => [item.name, item.valueKind || (item.values ? item.name.slice(2) : null)]),
+  );
   const staticValues = {
     ...COMPLETION_METADATA.staticValues,
     provider: SUPPORTED_PROVIDERS,
@@ -438,7 +457,9 @@ ${bashCaseEntries(data.flags)}
 
 _agentify_flag_kind() {
   case "$1" in
-${Object.entries(data.flagKinds).map(([key, kind]) => `    ${shellQuote(key)}) printf '%s\\n' ${shellQuote(kind || "")} ;;`).join("\n")}
+${Object.entries(data.flagKinds)
+  .map(([key, kind]) => `    ${shellQuote(key)}) printf '%s\\n' ${shellQuote(kind || "")} ;;`)
+  .join("\n")}
   esac
 }
 
@@ -513,7 +534,9 @@ complete -F _agentify_completion agentify
 function zshCaseEntries(map, functionName) {
   return `${functionName}() {
   case "$1" in
-${Object.entries(map).map(([key, values]) => `    ${shellQuote(key)}) print -r -- ${shellWords(values)} ;;`).join("\n")}
+${Object.entries(map)
+  .map(([key, values]) => `    ${shellQuote(key)}) print -r -- ${shellWords(values)} ;;`)
+  .join("\n")}
   esac
 }`;
 }
@@ -539,7 +562,9 @@ ${bashCaseEntries(data.flags)}
 
 _agentify_flag_kind() {
   case "$1" in
-${Object.entries(data.flagKinds).map(([key, kind]) => `    ${shellQuote(key)}) print -r -- ${shellQuote(kind || "")} ;;`).join("\n")}
+${Object.entries(data.flagKinds)
+  .map(([key, kind]) => `    ${shellQuote(key)}) print -r -- ${shellQuote(kind || "")} ;;`)
+  .join("\n")}
   esac
 }
 
@@ -547,12 +572,12 @@ _agentify_add_kind() {
   local -a values
   case "$1" in
     providers|skills|sessions)
-      values=("${"${(@f)$(_agentify_dynamic_values \"$1\")}" }")
+      values=("${'${(@f)$(_agentify_dynamic_values "$1")}'}")
       compadd -- $values
       ;;
     path) _files ;;
     number|text) ;;
-    *) values=("${"${(@f)$(_agentify_static_values \"$1\")}" }"); compadd -- $values ;;
+    *) values=("${'${(@f)$(_agentify_static_values "$1")}'}"); compadd -- $values ;;
   esac
 }
 
@@ -570,7 +595,7 @@ _agentify() {
   fi
 
   if [[ "$cur" == --* ]]; then
-    compadd -- ${"${(@f)$(_agentify_flags \"$cmd\" \"$sub\")}" }
+    compadd -- ${'${(@f)$(_agentify_flags "$cmd" "$sub")}'}
     return
   fi
 
@@ -580,7 +605,7 @@ _agentify() {
   fi
 
   if (( CURRENT == 3 )); then
-    compadd -- ${"${(@f)$(_agentify_subcommands \"$cmd\")}" }
+    compadd -- ${'${(@f)$(_agentify_subcommands "$cmd")}'}
     return
   fi
 
@@ -640,13 +665,21 @@ function renderFishCompletion() {
     if (commandInfo.hidden) continue;
     const names = [commandInfo.name, ...(commandInfo.aliases || [])];
     for (const name of names) {
-      lines.push(`complete -c agentify -f -n 'not __fish_seen_subcommand_from ${commandNames}' -a ${shellQuote(name)} -d ${shellQuote(commandInfo.description)}`);
+      lines.push(
+        `complete -c agentify -f -n 'not __fish_seen_subcommand_from ${commandNames}' -a ${shellQuote(name)} -d ${shellQuote(commandInfo.description)}`,
+      );
     }
   }
 
   for (const commandInfo of COMMANDS) {
     for (const sub of visibleSubcommands(commandInfo)) {
-      lines.push(`complete -c agentify -f -n '${fishConditionForCommand(commandInfo)}; and not __fish_seen_subcommand_from ${visibleSubcommands(commandInfo).map((item) => item.name).join(" ")}' -a ${shellQuote(sub.name)} -d ${shellQuote(sub.description)}`);
+      lines.push(
+        `complete -c agentify -f -n '${fishConditionForCommand(commandInfo)}; and not __fish_seen_subcommand_from ${visibleSubcommands(
+          commandInfo,
+        )
+          .map((item) => item.name)
+          .join(" ")}' -a ${shellQuote(sub.name)} -d ${shellQuote(sub.description)}`,
+      );
     }
   }
 
@@ -660,17 +693,33 @@ function renderFishCompletion() {
     }
     for (const sub of visibleSubcommands(commandInfo)) {
       for (const flagInfo of sub.flags || []) {
-        pushFishFlag(lines, flagInfo, `${fishConditionForCommand(commandInfo)}; and __fish_seen_subcommand_from ${sub.name}`);
+        pushFishFlag(
+          lines,
+          flagInfo,
+          `${fishConditionForCommand(commandInfo)}; and __fish_seen_subcommand_from ${sub.name}`,
+        );
       }
     }
   }
 
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from skill skills; and __fish_seen_subcommand_from install' -a '(__agentify_complete_skills)'");
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from sess session; and __fish_seen_subcommand_from resume' -a '(__agentify_complete_sessions)'");
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from completion; and not __fish_seen_subcommand_from zsh bash fish values' -a 'zsh bash fish'");
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from values' -a 'providers skills sessions'");
-  lines.push("complete -c agentify -n '__fish_seen_subcommand_from context; and __fish_seen_subcommand_from fetch' -a '(__fish_complete_path)'");
-  lines.push("complete -c agentify -n '__fish_seen_subcommand_from memory; and __fish_seen_subcommand_from compress' -a '(__fish_complete_path)'");
+  lines.push(
+    "complete -c agentify -f -n '__fish_seen_subcommand_from skill skills; and __fish_seen_subcommand_from install' -a '(__agentify_complete_skills)'",
+  );
+  lines.push(
+    "complete -c agentify -f -n '__fish_seen_subcommand_from sess session; and __fish_seen_subcommand_from resume' -a '(__agentify_complete_sessions)'",
+  );
+  lines.push(
+    "complete -c agentify -f -n '__fish_seen_subcommand_from completion; and not __fish_seen_subcommand_from zsh bash fish values' -a 'zsh bash fish'",
+  );
+  lines.push(
+    "complete -c agentify -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from values' -a 'providers skills sessions'",
+  );
+  lines.push(
+    "complete -c agentify -n '__fish_seen_subcommand_from context; and __fish_seen_subcommand_from fetch' -a '(__fish_complete_path)'",
+  );
+  lines.push(
+    "complete -c agentify -n '__fish_seen_subcommand_from memory; and __fish_seen_subcommand_from compress' -a '(__fish_complete_path)'",
+  );
   lines.push("");
   return `${lines.join("\n")}\n`;
 }

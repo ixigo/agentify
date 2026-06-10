@@ -14,7 +14,9 @@ import {
 import { getChangedFilesSince } from "./git.js";
 
 function normalizePath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
+  return String(filePath || "")
+    .split(path.sep)
+    .join("/");
 }
 
 function findOwningModule(modules, filePath) {
@@ -22,9 +24,9 @@ function findOwningModule(modules, filePath) {
   const sorted = [...modules].sort((left, right) => right.root_path.length - left.root_path.length);
   for (const moduleInfo of sorted) {
     if (
-      moduleInfo.root_path === "."
-      || normalized === moduleInfo.root_path
-      || normalized.startsWith(`${moduleInfo.root_path}/`)
+      moduleInfo.root_path === "." ||
+      normalized === moduleInfo.root_path ||
+      normalized.startsWith(`${moduleInfo.root_path}/`)
     ) {
       return moduleInfo;
     }
@@ -37,22 +39,24 @@ function symbolResolution(symbol, definitions) {
     symbol,
     ambiguous: definitions.length > 1,
     definitions,
-    message: definitions.length === 0
-      ? "No semantic symbol found"
-      : definitions.length > 1
-        ? "Multiple semantic symbols matched; results include all candidates in deterministic order"
-        : undefined,
+    message:
+      definitions.length === 0
+        ? "No semantic symbol found"
+        : definitions.length > 1
+          ? "Multiple semantic symbols matched; results include all candidates in deterministic order"
+          : undefined,
   };
 }
 
 function edgeRank(edge) {
-  const kindScore = {
-    calls: 100,
-    renders: 90,
-    references: 75,
-    imports: 50,
-    "re-exports": 45,
-  }[edge.edge_kind] || 25;
+  const kindScore =
+    {
+      calls: 100,
+      renders: 90,
+      references: 75,
+      imports: 50,
+      "re-exports": 45,
+    }[edge.edge_kind] || 25;
   const domainScore = edge.edge_domain === "runtime" ? 10 : 0;
   return kindScore + domainScore + Number(edge.confidence || 0);
 }
@@ -188,7 +192,7 @@ function computeImpacts(filePath, edges, maxDepth) {
 }
 
 async function resolveQueryPaths(root, options = {}) {
-  return options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+  return options.artifactPaths || (await resolveAgentifyPaths(root, options.config || {}));
 }
 
 export async function queryOwner(root, filePath, options = {}) {
@@ -299,10 +303,12 @@ export async function queryRefs(root, symbol, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const definitions = resolveSemanticSymbols(db, symbol);
-    const references = rankedReferences(loadSemanticReferencesToSymbols(
-      db,
-      definitions.map((definition) => definition.symbol_id)
-    ));
+    const references = rankedReferences(
+      loadSemanticReferencesToSymbols(
+        db,
+        definitions.map((definition) => definition.symbol_id),
+      ),
+    );
     return {
       ...symbolResolution(symbol, definitions),
       references,
@@ -318,7 +324,7 @@ export async function queryCallers(root, symbol, options = {}) {
     const definitions = resolveSemanticSymbols(db, symbol);
     const edges = loadSemanticReferencesToSymbols(
       db,
-      definitions.map((definition) => definition.symbol_id)
+      definitions.map((definition) => definition.symbol_id),
     );
     return {
       ...symbolResolution(symbol, definitions),

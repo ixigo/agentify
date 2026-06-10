@@ -38,7 +38,10 @@ function normalizeRepoPath(repoPath) {
   if (!repoPath) {
     return null;
   }
-  return repoPath.split(/[\\/]+/).filter(Boolean).join("/");
+  return repoPath
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .join("/");
 }
 
 function addExpectedDocPath(expectedDocs, docPath) {
@@ -130,19 +133,13 @@ async function pruneOrphanedModuleArtifacts(root, dryRun, agentifyPaths) {
   };
 }
 
-async function pruneRetainedFiles(dirPath, {
-  keep = 0,
-  maxAgeDays = 0,
-  matcher = () => true,
-  relativePrefix,
-  dryRun,
-}) {
+async function pruneRetainedFiles(dirPath, { keep = 0, maxAgeDays = 0, matcher = () => true, relativePrefix, dryRun }) {
   if (!(await exists(dirPath))) {
     return [];
   }
 
   const now = Date.now();
-  const cutoff = maxAgeDays > 0 ? now - (maxAgeDays * 86400000) : null;
+  const cutoff = maxAgeDays > 0 ? now - maxAgeDays * 86400000 : null;
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   const candidates = [];
 
@@ -176,19 +173,16 @@ async function pruneRetainedFiles(dirPath, {
   return toArray(removed);
 }
 
-async function pruneRetainedDirs(dirPath, {
-  keep = 0,
-  maxAgeDays = 0,
-  nameMatcher = () => true,
-  relativePrefix,
-  dryRun,
-}) {
+async function pruneRetainedDirs(
+  dirPath,
+  { keep = 0, maxAgeDays = 0, nameMatcher = () => true, relativePrefix, dryRun },
+) {
   if (!(await exists(dirPath))) {
     return [];
   }
 
   const now = Date.now();
-  const cutoff = maxAgeDays > 0 ? now - (maxAgeDays * 86400000) : null;
+  const cutoff = maxAgeDays > 0 ? now - maxAgeDays * 86400000 : null;
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   const candidates = [];
 
@@ -314,7 +308,7 @@ export async function runClean(root, config, options = {}) {
   const cleanupConfig = config.cleanup || {};
   const cleanPlanned = options.planned === true || options.all === true;
   const cleanSessions = options.sessions === true || options.all === true;
-  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const agentifyPaths = config._agentifyPaths || (await resolveAgentifyPaths(root, config));
 
   const orphaned = await pruneOrphanedModuleArtifacts(root, dryRun, agentifyPaths);
   const runReports = await pruneRetainedFiles(agentifyPaths.runsRoot, {
@@ -331,12 +325,18 @@ export async function runClean(root, config, options = {}) {
     relativePrefix: ".current_session",
     dryRun,
   });
-  const invalidSessions = await pruneInvalidSessionDirs(root, dryRun, cleanupConfig.pruneInvalidSessions !== false, agentifyPaths);
+  const invalidSessions = await pruneInvalidSessionDirs(
+    root,
+    dryRun,
+    cleanupConfig.pruneInvalidSessions !== false,
+    agentifyPaths,
+  );
   const plannedArtifacts = await prunePlannedArtifacts(root, dryRun, cleanPlanned, agentifyPaths);
   const afkSessions = await pruneAfkSessionDirs(root, dryRun, cleanSessions, agentifyPaths);
-  const cacheRemoved = cleanupConfig.pruneCache === false
-    ? 0
-    : (await garbageCollect(agentifyPaths.cacheRoot, config.cache?.maxAgeDays || 7, { dryRun })).removed;
+  const cacheRemoved =
+    cleanupConfig.pruneCache === false
+      ? 0
+      : (await garbageCollect(agentifyPaths.cacheRoot, config.cache?.maxAgeDays || 7, { dryRun })).removed;
 
   const emptyDirs = [
     ...(await pruneEmptyDirs(path.join(root, "docs", "modules"), dryRun)).map((item) => `docs/modules/${item}`),

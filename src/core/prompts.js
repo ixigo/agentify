@@ -7,7 +7,7 @@ export function buildManagerSchema() {
       repo_summary: { type: "string" },
       shared_conventions: {
         type: "array",
-        items: { type: "string" }
+        items: { type: "string" },
       },
       module_focus: {
         type: "array",
@@ -17,11 +17,11 @@ export function buildManagerSchema() {
           required: ["module_id", "focus"],
           properties: {
             module_id: { type: "string" },
-            focus: { type: "string" }
-          }
-        }
-      }
-    }
+            focus: { type: "string" },
+          },
+        },
+      },
+    },
   };
 }
 
@@ -41,9 +41,9 @@ export function buildModuleSchema() {
           properties: {
             symbol: { type: "string" },
             kind: { type: "string" },
-            path: { type: "string" }
-          }
-        }
+            path: { type: "string" },
+          },
+        },
       },
       start_here: {
         type: "array",
@@ -53,13 +53,13 @@ export function buildModuleSchema() {
           required: ["path", "why"],
           properties: {
             path: { type: "string" },
-            why: { type: "string" }
-          }
-        }
+            why: { type: "string" },
+          },
+        },
       },
       side_effects: {
         type: "array",
-        items: { type: "string" }
+        items: { type: "string" },
       },
       header_summaries: {
         type: "array",
@@ -69,11 +69,11 @@ export function buildModuleSchema() {
           required: ["path", "summary"],
           properties: {
             path: { type: "string" },
-            summary: { type: "string" }
-          }
-        }
-      }
-    }
+            summary: { type: "string" },
+          },
+        },
+      },
+    },
   };
 }
 

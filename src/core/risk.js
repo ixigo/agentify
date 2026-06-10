@@ -36,9 +36,9 @@ function findOwningModule(modules, filePath) {
   const sorted = [...modules].sort((left, right) => right.root_path.length - left.root_path.length);
   for (const moduleInfo of sorted) {
     if (
-      moduleInfo.root_path === "."
-      || normalized === moduleInfo.root_path
-      || normalized.startsWith(`${moduleInfo.root_path}/`)
+      moduleInfo.root_path === "." ||
+      normalized === moduleInfo.root_path ||
+      normalized.startsWith(`${moduleInfo.root_path}/`)
     ) {
       return moduleInfo;
     }
@@ -83,14 +83,18 @@ function unresolvedImportTargets(fromPath, specifier) {
 }
 
 function loadImportEdges(db) {
-  const structural = normalizeRows(db.prepare(`
+  const structural = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT from_path, to_path, specifier, kind
     FROM imports
     ORDER BY from_path, to_path, kind
-  `).all()).flatMap((row) => {
-    const targets = row.to_path
-      ? [row.to_path]
-      : unresolvedImportTargets(row.from_path, row.specifier);
+  `,
+      )
+      .all(),
+  ).flatMap((row) => {
+    const targets = row.to_path ? [row.to_path] : unresolvedImportTargets(row.from_path, row.specifier);
     return targets.map((target) => ({
       from: row.from_path,
       to: target,
@@ -99,13 +103,19 @@ function loadImportEdges(db) {
     }));
   });
 
-  const semantic = normalizeRows(db.prepare(`
+  const semantic = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT from_file_path, to_file_path, edge_kind, edge_domain, confidence
     FROM semantic_symbol_edges
     WHERE from_file_path IS NOT NULL
       AND to_file_path IS NOT NULL
     ORDER BY from_file_path, to_file_path, edge_kind, edge_domain
-  `).all()).map((row) => ({
+  `,
+      )
+      .all(),
+  ).map((row) => ({
     from: row.from_file_path,
     to: row.to_file_path,
     kind: `semantic:${row.edge_domain}:${row.edge_kind}`,
@@ -117,22 +127,40 @@ function loadImportEdges(db) {
 }
 
 function loadSemanticFacts(db) {
-  const edgeRows = normalizeRows(db.prepare(`
+  const edgeRows = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT from_file_path, to_file_path, edge_domain, confidence
     FROM semantic_symbol_edges
     WHERE from_file_path IS NOT NULL
     ORDER BY from_file_path, to_file_path
-  `).all());
-  const surfaceRows = normalizeRows(db.prepare(`
+  `,
+      )
+      .all(),
+  );
+  const surfaceRows = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT file_path, kind, role, surface_key, display_name
     FROM semantic_surfaces
     ORDER BY file_path, kind, role, surface_key
-  `).all());
-  const symbolRows = normalizeRows(db.prepare(`
+  `,
+      )
+      .all(),
+  );
+  const symbolRows = normalizeRows(
+    db
+      .prepare(
+        `
     SELECT symbol_id, file_path, name, kind, export_name, is_exported, start_line, end_line
     FROM semantic_symbols
     ORDER BY file_path, start_line, name
-  `).all());
+  `,
+      )
+      .all(),
+  );
 
   const byFile = new Map();
   function ensure(filePath) {
@@ -252,12 +280,18 @@ function buildNeighborhood(changedFiles, graph) {
 function statusWeight(status) {
   const code = String(status || "M").charAt(0);
   switch (code) {
-    case "A": return 8;
-    case "D": return 14;
-    case "R": return 12;
-    case "C": return 8;
-    case "M": return 6;
-    default: return 5;
+    case "A":
+      return 8;
+    case "D":
+      return 14;
+    case "R":
+      return 12;
+    case "C":
+      return 8;
+    case "M":
+      return 6;
+    default:
+      return 5;
   }
 }
 
@@ -285,10 +319,11 @@ function computeFileRisk(change, fileInfo, graphStats, semanticFacts) {
   };
   const incoming = graphStats.incoming || 0;
   const outgoing = graphStats.outgoing || 0;
-  const semanticCentrality = semantic.runtimeIncoming * 5
-    + semantic.runtimeOutgoing * 2
-    + Math.max(0, semantic.incoming - semantic.runtimeIncoming) * 2
-    + Math.max(0, semantic.outgoing - semantic.runtimeOutgoing);
+  const semanticCentrality =
+    semantic.runtimeIncoming * 5 +
+    semantic.runtimeOutgoing * 2 +
+    Math.max(0, semantic.incoming - semantic.runtimeIncoming) * 2 +
+    Math.max(0, semantic.outgoing - semantic.runtimeOutgoing);
   const surfaceScore = semantic.surfaces.length * 12;
   const exportScore = Math.min(12, semantic.exportedSymbols.length * 3);
   const fanoutScore = incoming * 6 + outgoing * 2;
@@ -300,7 +335,14 @@ function computeFileRisk(change, fileInfo, graphStats, semanticFacts) {
     semantic_centrality: semanticCentrality,
     semantic_surface: surfaceScore,
     exported_api: exportScore,
-    total: 10 + statusWeight(change.status) + fileSignal(fileInfo) + fanoutScore + semanticCentrality + surfaceScore + exportScore,
+    total:
+      10 +
+      statusWeight(change.status) +
+      fileSignal(fileInfo) +
+      fanoutScore +
+      semanticCentrality +
+      surfaceScore +
+      exportScore,
   };
 }
 
@@ -408,7 +450,12 @@ function collectImpactedSymbols(symbols, semanticFactsByFile, impactedFiles) {
   }
 
   return Array.from(deduped.values())
-    .sort((left, right) => left.file_path.localeCompare(right.file_path) || left.start_line - right.start_line || left.name.localeCompare(right.name))
+    .sort(
+      (left, right) =>
+        left.file_path.localeCompare(right.file_path) ||
+        left.start_line - right.start_line ||
+        left.name.localeCompare(right.name),
+    )
     .slice(0, 25);
 }
 
@@ -419,10 +466,12 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
   const directTests = tests.filter((testInfo) => {
     const testPath = normalizePath(testInfo.file_path);
     const relatedPath = normalizePath(testInfo.related_path);
-    return impactedFileSet.has(testPath)
-      || impactedFileSet.has(relatedPath)
-      || changedByPath.has(testPath)
-      || changedByPath.has(relatedPath);
+    return (
+      impactedFileSet.has(testPath) ||
+      impactedFileSet.has(relatedPath) ||
+      changedByPath.has(testPath) ||
+      changedByPath.has(relatedPath)
+    );
   });
   const directTestModules = new Set(directTests.map((testInfo) => testInfo.module_id).filter(Boolean));
   const directTestFilesByModule = new Map();
@@ -461,15 +510,20 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
 
   return recommendations
     .sort((left, right) => right.priority - left.priority || left.command_line.localeCompare(right.command_line))
-    .filter((item, index, list) => list.findIndex((candidate) => candidate.command_line === item.command_line) === index);
+    .filter(
+      (item, index, list) => list.findIndex((candidate) => candidate.command_line === item.command_line) === index,
+    );
 }
 
 function buildReasons(changedFileScores, impactedModules, semanticFactsByFile) {
   const reasons = [];
-  const topFile = [...changedFileScores]
-    .sort((left, right) => right.score.total - left.score.total || left.path.localeCompare(right.path))[0];
+  const topFile = [...changedFileScores].sort(
+    (left, right) => right.score.total - left.score.total || left.path.localeCompare(right.path),
+  )[0];
   if (topFile) {
-    reasons.push(`${topFile.path} has the highest changed-file risk contribution (${Math.round(topFile.score.total)}).`);
+    reasons.push(
+      `${topFile.path} has the highest changed-file risk contribution (${Math.round(topFile.score.total)}).`,
+    );
     if (topFile.score.dependency_fanout > 0) {
       reasons.push("Dependency fan-out reaches files that import the changed code.");
     }
@@ -487,7 +541,7 @@ function buildReasons(changedFileScores, impactedModules, semanticFactsByFile) {
 }
 
 export async function buildRiskReport(root, options = {}) {
-  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+  const agentifyPaths = options.artifactPaths || (await resolveAgentifyPaths(root, options.config || {}));
   const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const modules = loadModules(db);
@@ -500,21 +554,24 @@ export async function buildRiskReport(root, options = {}) {
     const semanticFactsByFile = loadSemanticFacts(db);
     const graph = buildGraph(edges);
     const graphStats = collectGraphStats(edges);
-    const changedFiles = (options.changedFiles
-      || (options.since ? await getChangedFilesSince(root, options.since) : await getChangedFiles(root)))
+    const changedFiles = (
+      options.changedFiles ||
+      (options.since ? await getChangedFilesSince(root, options.since) : await getChangedFiles(root))
+    )
       .map((entry) => ({
         status: entry.status || "M",
         path: normalizePath(entry.path),
         orig_path: entry.origPath ? normalizePath(entry.origPath) : null,
       }))
       .filter((entry) => entry.path)
-      .sort((left, right) => left.path.localeCompare(right.path) || String(left.status).localeCompare(String(right.status)));
+      .sort(
+        (left, right) => left.path.localeCompare(right.path) || String(left.status).localeCompare(String(right.status)),
+      );
     const changedByPath = new Map(changedFiles.map((entry) => [entry.path, entry]));
-    const impactedFiles = buildNeighborhood(changedFiles, graph)
-      .map((fileImpact) => ({
-        ...fileImpact,
-        module_id: filesByPath.get(fileImpact.path)?.module_id || findOwningModule(modules, fileImpact.path)?.id || null,
-      }));
+    const impactedFiles = buildNeighborhood(changedFiles, graph).map((fileImpact) => ({
+      ...fileImpact,
+      module_id: filesByPath.get(fileImpact.path)?.module_id || findOwningModule(modules, fileImpact.path)?.id || null,
+    }));
     const changedFileScores = changedFiles.map((change) => {
       const fileInfo = filesByPath.get(change.path) || null;
       return {
@@ -525,17 +582,24 @@ export async function buildRiskReport(root, options = {}) {
           change,
           fileInfo,
           graphStats.get(change.path) || { incoming: 0, outgoing: 0 },
-          semanticFactsByFile.get(change.path)
+          semanticFactsByFile.get(change.path),
         ),
       };
     });
     const impactedModules = buildImpactedModules(modules, impactedFiles, changedByPath, filesByPath);
     const impactedSymbols = collectImpactedSymbols(symbols, semanticFactsByFile, impactedFiles);
-    const rawScore = changedFileScores.reduce((total, item) => total + item.score.total, 0)
-      + impactedFiles.filter((item) => item.distance > 0).length * 4
-      + impactedModules.length * 4;
+    const rawScore =
+      changedFileScores.reduce((total, item) => total + item.score.total, 0) +
+      impactedFiles.filter((item) => item.distance > 0).length * 4 +
+      impactedModules.length * 4;
     const score = clampScore(rawScore);
-    const testRecommendations = buildTestRecommendations(commands, tests, impactedModules, impactedFiles, changedByPath);
+    const testRecommendations = buildTestRecommendations(
+      commands,
+      tests,
+      impactedModules,
+      impactedFiles,
+      changedByPath,
+    );
 
     return {
       schema_version: RISK_SCHEMA_VERSION,
@@ -553,9 +617,12 @@ export async function buildRiskReport(root, options = {}) {
         symbols: impactedSymbols,
       },
       prioritized_test_commands: testRecommendations,
-      notes: testRecommendations.length === 0
-        ? ["No indexed test command covers the impacted modules. Run agentify scan after adding package test scripts."]
-        : [],
+      notes:
+        testRecommendations.length === 0
+          ? [
+              "No indexed test command covers the impacted modules. Run agentify scan after adding package test scripts.",
+            ]
+          : [],
     };
   } finally {
     closeIndexDatabase(db);

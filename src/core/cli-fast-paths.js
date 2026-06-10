@@ -28,7 +28,12 @@ function dim(msg) {
 
 export function isHelpRequest(args) {
   const agentifyArgs = agentifyArgsBeforePassthrough(args);
-  return agentifyArgs.includes("--help") || agentifyArgs.includes("-h") || agentifyArgs[0] === "help" || agentifyArgs.length === 0;
+  return (
+    agentifyArgs.includes("--help") ||
+    agentifyArgs.includes("-h") ||
+    agentifyArgs[0] === "help" ||
+    agentifyArgs.length === 0
+  );
 }
 
 export function isVersionRequest(args) {

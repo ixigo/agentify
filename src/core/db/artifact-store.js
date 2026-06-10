@@ -1,14 +1,8 @@
 import { fromJson, normalizeRow, normalizeRows, toJson } from "./utils.js";
 
-export function upsertArtifact(db, {
-  key,
-  type,
-  scope = null,
-  fingerprint = null,
-  payload,
-  updatedAt,
-}) {
-  db.prepare(`
+export function upsertArtifact(db, { key, type, scope = null, fingerprint = null, payload, updatedAt }) {
+  db.prepare(
+    `
     INSERT OR REPLACE INTO artifacts (
       artifact_key,
       artifact_type,
@@ -17,16 +11,21 @@ export function upsertArtifact(db, {
       payload_json,
       updated_at
     ) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(key, type, scope, fingerprint, toJson(payload), updatedAt);
+  `,
+  ).run(key, type, scope, fingerprint, toJson(payload), updatedAt);
 }
 
 export function getArtifact(db, key) {
   const row = normalizeRow(
-    db.prepare(`
+    db
+      .prepare(
+        `
       SELECT artifact_key, artifact_type, scope, fingerprint, payload_json, updated_at
       FROM artifacts
       WHERE artifact_key = ?
-    `).get(key)
+    `,
+      )
+      .get(key),
   );
 
   if (!row) {
@@ -46,19 +45,27 @@ export function getArtifact(db, key) {
 export function listArtifacts(db, type = null) {
   const rows = type
     ? normalizeRows(
-        db.prepare(`
+        db
+          .prepare(
+            `
           SELECT artifact_key, artifact_type, scope, fingerprint, payload_json, updated_at
           FROM artifacts
           WHERE artifact_type = ?
           ORDER BY artifact_key
-        `).all(type)
+        `,
+          )
+          .all(type),
       )
     : normalizeRows(
-        db.prepare(`
+        db
+          .prepare(
+            `
           SELECT artifact_key, artifact_type, scope, fingerprint, payload_json, updated_at
           FROM artifacts
           ORDER BY artifact_key
-        `).all()
+        `,
+          )
+          .all(),
       );
 
   return rows.map((row) => ({

@@ -7,7 +7,8 @@ const execFileAsync = promisify(execFile);
 
 export const RTK_COMMAND_ENV = "AGENTIFY_RTK_CMD";
 export const RTK_DEFAULT_COMMAND = "rtk";
-export const RTK_PROVIDER_INSTRUCTION = "RTK is available. Prefer `rtk <command>` for shell commands with large output; use `rtk proxy <command>` when raw output is required.";
+export const RTK_PROVIDER_INSTRUCTION =
+  "RTK is available. Prefer `rtk <command>` for shell commands with large output; use `rtk proxy <command>` when raw output is required.";
 
 const PROVIDER_COMMANDS = new Set(["codex", "claude", "gemini", "opencode"]);
 
@@ -46,12 +47,11 @@ async function defaultExec(command, args, options = {}) {
 }
 
 export function resolveRtkConfig(config = {}, flags = {}, env = process.env) {
-  const toolConfig = config?.toolchain?.rtk && typeof config.toolchain.rtk === "object"
-    ? config.toolchain.rtk
-    : {};
+  const toolConfig = config?.toolchain?.rtk && typeof config.toolchain.rtk === "object" ? config.toolchain.rtk : {};
   const explicit = flags.rtk === true || config.rtk === true;
   const enabled = explicit || toolConfig.enabled === true;
-  const command = String(env?.[RTK_COMMAND_ENV] || toolConfig.command || RTK_DEFAULT_COMMAND).trim() || RTK_DEFAULT_COMMAND;
+  const command =
+    String(env?.[RTK_COMMAND_ENV] || toolConfig.command || RTK_DEFAULT_COMMAND).trim() || RTK_DEFAULT_COMMAND;
 
   return {
     enabled,
@@ -94,12 +94,14 @@ export async function detectRtk(command = RTK_DEFAULT_COMMAND, runtime = {}) {
     path: resolvedCommand,
     command,
     check_command: `${command} gain`,
-    ...(verified ? {} : {
-      check_status: "failed",
-      reason: available
-        ? "`rtk gain` failed; install the Rust Token Killer CLI from rtk-ai/rtk"
-        : "RTK readiness checks failed",
-    }),
+    ...(verified
+      ? {}
+      : {
+          check_status: "failed",
+          reason: available
+            ? "`rtk gain` failed; install the Rust Token Killer CLI from rtk-ai/rtk"
+            : "RTK readiness checks failed",
+        }),
     install_hint: "brew install rtk / cargo install --git https://github.com/rtk-ai/rtk",
   };
 }

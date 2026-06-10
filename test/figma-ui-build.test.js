@@ -6,10 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import {
-  normalizeNodeId,
-  parseFigmaUrl,
-} from "../skills/figma-ui-build/scripts/figma-ui-build.mjs";
+import { normalizeNodeId, parseFigmaUrl } from "../skills/figma-ui-build/scripts/figma-ui-build.mjs";
 
 const execFileAsync = promisify(execFile);
 const helperPath = path.resolve("skills/figma-ui-build/scripts/figma-ui-build.mjs");
@@ -42,36 +39,45 @@ test("helper uses supplied reference image and raw node without Figma API", asyn
   const figmaUrl = "https://www.figma.com/design/qIfekFRB75vg5pzmMXBvvH/App?node-id=9786-23492";
 
   await fs.writeFile(referenceImage, "placeholder");
-  await fs.writeFile(rawNodePath, `${JSON.stringify({
-    nodes: {
-      "9786:23492": {
-        document: {
-          name: "Primary Button",
-          type: "FRAME",
-          absoluteBoundingBox: { width: 120, height: 44 },
-          layoutMode: "HORIZONTAL",
-          itemSpacing: 8,
-          paddingTop: 10,
-          paddingRight: 16,
-          paddingBottom: 10,
-          paddingLeft: 16,
-          fills: [{ type: "SOLID", color: { r: 0, g: 0.2, b: 0.8, a: 1 } }],
-          children: [{
-            name: "Label",
-            type: "TEXT",
-            characters: "Continue",
-            style: {
-              fontFamily: "Inter",
-              fontSize: 16,
-              fontWeight: 600,
-              lineHeightPx: 20,
+  await fs.writeFile(
+    rawNodePath,
+    `${JSON.stringify(
+      {
+        nodes: {
+          "9786:23492": {
+            document: {
+              name: "Primary Button",
+              type: "FRAME",
+              absoluteBoundingBox: { width: 120, height: 44 },
+              layoutMode: "HORIZONTAL",
+              itemSpacing: 8,
+              paddingTop: 10,
+              paddingRight: 16,
+              paddingBottom: 10,
+              paddingLeft: 16,
+              fills: [{ type: "SOLID", color: { r: 0, g: 0.2, b: 0.8, a: 1 } }],
+              children: [
+                {
+                  name: "Label",
+                  type: "TEXT",
+                  characters: "Continue",
+                  style: {
+                    fontFamily: "Inter",
+                    fontSize: 16,
+                    fontWeight: 600,
+                    lineHeightPx: 20,
+                  },
+                  fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
+                },
+              ],
             },
-            fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
-          }],
+          },
         },
       },
-    },
-  }, null, 2)}\n`);
+      null,
+      2,
+    )}\n`,
+  );
 
   const { stdout } = await execFileAsync("node", [
     helperPath,

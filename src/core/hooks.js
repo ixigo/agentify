@@ -248,11 +248,11 @@ export async function syncManagedHooks(root, { dryRun = false, settings = {} } =
   }
 
   const changed = results.some((item) =>
-    ["updated", "would_update", "removed_disabled", "would_remove_disabled"].includes(item.status)
+    ["updated", "would_update", "removed_disabled", "would_remove_disabled"].includes(item.status),
   );
   return {
     git_repository: true,
     results,
-    status: changed ? dryRun ? "would_sync" : "synced" : "unchanged",
+    status: changed ? (dryRun ? "would_sync" : "synced") : "unchanged",
   };
 }

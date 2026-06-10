@@ -30,9 +30,7 @@ function normalizeProviderCommand(value) {
     executable,
     argc,
     argv_redacted: true,
-    display: executable
-      ? `${executable} [argv redacted; argc=${argc}]`
-      : `[argv redacted; argc=${argc}]`,
+    display: executable ? `${executable} [argv redacted; argc=${argc}]` : `[argv redacted; argc=${argc}]`,
   };
 }
 
@@ -97,9 +95,7 @@ function renderExecutionOutputBlock(execution) {
     return "";
   }
 
-  const changedPaths = execution.changed_paths?.length
-    ? execution.changed_paths.join(", ")
-    : "none";
+  const changedPaths = execution.changed_paths?.length ? execution.changed_paths.join(", ") : "none";
   const command = execution.provider_command?.display || execution.provider_command?.executable || "unknown";
   const capture = execution.capture || {};
   const timeoutLine = execution.timed_out
@@ -119,9 +115,10 @@ function renderExecutionOutputBlock(execution) {
 
 export function renderHtmlReport(summary) {
   const artifactsRaw = summary.artifacts || [];
-  const artifacts = artifactsRaw.length > 0
-    ? artifactsRaw.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
-    : `<li class="empty">no generated artifacts recorded.</li>`;
+  const artifacts =
+    artifactsRaw.length > 0
+      ? artifactsRaw.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
+      : `<li class="empty">no generated artifacts recorded.</li>`;
   const execution = normalizeExecutionTelemetry(summary.execution);
   const executionChangedPaths = execution?.changed_paths?.length
     ? execution.changed_paths.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")
@@ -182,29 +179,27 @@ export function renderHtmlReport(summary) {
     by_module: [],
   };
 
-  const validationStatus = summary.validation
-    ? (summary.validation.passed ? "passed" : "failed")
-    : "not-run";
+  const validationStatus = summary.validation ? (summary.validation.passed ? "passed" : "failed") : "not-run";
   const testStatus = summary.tests?.status || "not-run";
 
-  const validationTone = validationStatus === "passed" ? "passed"
-    : validationStatus === "failed" ? "failed" : "skipped";
-  const testTone = testStatus === "passed" ? "passed"
-    : testStatus === "failed" ? "failed" : "skipped";
+  const validationTone =
+    validationStatus === "passed" ? "passed" : validationStatus === "failed" ? "failed" : "skipped";
+  const testTone = testStatus === "passed" ? "passed" : testStatus === "failed" ? "failed" : "skipped";
 
-  const validationGlyph = validationTone === "passed" ? "✓"
-    : validationTone === "failed" ? "✗" : "·";
-  const testGlyph = testTone === "passed" ? "✓"
-    : testTone === "failed" ? "✗" : "·";
+  const validationGlyph = validationTone === "passed" ? "✓" : validationTone === "failed" ? "✗" : "·";
+  const testGlyph = testTone === "passed" ? "✓" : testTone === "failed" ? "✗" : "·";
 
   const validationFailures = summary.validation?.failures?.length
-    ? `<ul class="fail-list">${summary.validation.failures.map((item) => {
-        const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
-        const rem = typeof item === "object" && item.remediation
-          ? `<div class="fail-rem">${escapeHtml(item.remediation)}</div>`
-          : "";
-        return `<li><code>${escapeHtml(msg)}</code>${rem}</li>`;
-      }).join("")}</ul>`
+    ? `<ul class="fail-list">${summary.validation.failures
+        .map((item) => {
+          const msg = typeof item === "string" ? item : `[${item.category}] ${item.message}`;
+          const rem =
+            typeof item === "object" && item.remediation
+              ? `<div class="fail-rem">${escapeHtml(item.remediation)}</div>`
+              : "";
+          return `<li><code>${escapeHtml(msg)}</code>${rem}</li>`;
+        })
+        .join("")}</ul>`
     : summary.validation
       ? `<p class="muted mono-sm">no validation failures.</p>`
       : `<p class="muted mono-sm">validation was not run for this command.</p>`;
@@ -214,14 +209,19 @@ export function renderHtmlReport(summary) {
   const testCombined = [testStdout, testStderr].filter(Boolean).join("\n");
   const testTruncationMessages = [];
   if (summary.tests?.stdout_truncated) {
-    testTruncationMessages.push(`stdout captured ${summary.tests.output_max_bytes} of ${summary.tests.stdout_bytes} bytes`);
+    testTruncationMessages.push(
+      `stdout captured ${summary.tests.output_max_bytes} of ${summary.tests.stdout_bytes} bytes`,
+    );
   }
   if (summary.tests?.stderr_truncated) {
-    testTruncationMessages.push(`stderr captured ${summary.tests.output_max_bytes} of ${summary.tests.stderr_bytes} bytes`);
+    testTruncationMessages.push(
+      `stderr captured ${summary.tests.output_max_bytes} of ${summary.tests.stderr_bytes} bytes`,
+    );
   }
-  const testOutputNotice = testTruncationMessages.length > 0
-    ? `<p class="muted mono-sm">test output was truncated: ${escapeHtml(testTruncationMessages.join("; "))}. Configure <code>tests.outputMaxKb</code> to adjust the limit.</p>`
-    : "";
+  const testOutputNotice =
+    testTruncationMessages.length > 0
+      ? `<p class="muted mono-sm">test output was truncated: ${escapeHtml(testTruncationMessages.join("; "))}. Configure <code>tests.outputMaxKb</code> to adjust the limit.</p>`
+      : "";
   const testOutput = summary.tests
     ? `${testOutputNotice}<details class="term-details"><summary>test output · stdout/stderr</summary><pre class="term-body small">${escapeHtml(testCombined)}</pre></details>`
     : `<p class="muted mono-sm">no test run was recorded.</p>`;
@@ -229,11 +229,12 @@ export function renderHtmlReport(summary) {
   const rerunUpdateCommand = sanitizeForJsString("agentify up --provider local");
   const rerunTestsCommand = sanitizeForJsString(summary.tests?.command || "npm test");
 
-  const testSummaryText = summary.tests?.status === "passed"
-    ? "All configured test cases passed."
-    : summary.tests?.status === "failed"
-      ? "Some test cases failed. Use the rerun button and inspect the output below."
-      : "Tests were skipped because no runnable test script was detected.";
+  const testSummaryText =
+    summary.tests?.status === "passed"
+      ? "All configured test cases passed."
+      : summary.tests?.status === "failed"
+        ? "Some test cases failed. Use the rerun button and inspect the output below."
+        : "Tests were skipped because no runnable test script was detected.";
 
   const validationCount = summary.validation?.failures?.length || 0;
   const artifactCount = artifactsRaw.length || 0;
@@ -250,22 +251,28 @@ export function renderHtmlReport(summary) {
   const executionChangedCount = execution?.changed_files_count ?? 0;
   const executionTranscriptText = execution?.capture?.transcript_available ? "yes" : "no";
 
-  const healthHeadline = validationStatus === "passed" && testStatus === "passed"
-    ? "repository checks completed successfully."
-    : validationStatus === "failed" || testStatus === "failed"
-      ? "one or more health checks need attention."
-      : "some health checks were skipped.";
+  const healthHeadline =
+    validationStatus === "passed" && testStatus === "passed"
+      ? "repository checks completed successfully."
+      : validationStatus === "failed" || testStatus === "failed"
+        ? "one or more health checks need attention."
+        : "some health checks were skipped.";
 
-  const moduleRows = (tokenUsage.by_module || []).length > 0
-    ? tokenUsage.by_module.map((m) => `
+  const moduleRows =
+    (tokenUsage.by_module || []).length > 0
+      ? tokenUsage.by_module
+          .map(
+            (m) => `
         <tr>
           <td><code>${escapeHtml(m.module_id || "module")}</code></td>
           <td class="num">${escapeHtml(m.input_tokens ?? 0)}</td>
           <td class="num">${escapeHtml(m.output_tokens ?? 0)}</td>
           <td class="num total">${escapeHtml(m.total_tokens ?? 0)}</td>
         </tr>
-      `).join("")
-    : `<tr><td colspan="4" class="muted mono-sm">no per-module token usage was recorded.</td></tr>`;
+      `,
+          )
+          .join("")
+      : `<tr><td colspan="4" class="muted mono-sm">no per-module token usage was recorded.</td></tr>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -1269,7 +1276,10 @@ export function createRunReporter(root) {
       const htmlPath = path.join(root, "agentify-report.html");
       let telemetryJsonPath = null;
       if (summary.execution) {
-        telemetryJsonPath = path.join(resolveLocalAgentifyPaths(root).runsRoot, `${summary.execution.run_id}-execution-telemetry.json`);
+        telemetryJsonPath = path.join(
+          resolveLocalAgentifyPaths(root).runsRoot,
+          `${summary.execution.run_id}-execution-telemetry.json`,
+        );
         await writePrivateJson(telemetryJsonPath, summary.execution);
       }
       await writePrivateText(outputPath, events.join(""), { privateDir: false });
@@ -1282,9 +1292,7 @@ export function createRunReporter(root) {
         ui.label("Execution", summary.execution?.phase || "not run"),
         ui.label(
           "Validation",
-          summary.validation
-            ? (summary.validation.passed ? ui.green("passed") : ui.red("failed"))
-            : ui.dim("not run")
+          summary.validation ? (summary.validation.passed ? ui.green("passed") : ui.red("failed")) : ui.dim("not run"),
         ),
         ui.label("Tests", summary.tests?.status || "not run"),
         ui.label("Report", ui.dim(htmlPath)),

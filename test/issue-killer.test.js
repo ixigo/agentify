@@ -30,7 +30,9 @@ async function withFakePath(root, testBody) {
   const tmuxLog = path.join(root, "tmux.log");
   const originalPath = process.env.PATH;
 
-  await writeExecutable(path.join(bin, "gh"), `#!/usr/bin/env node
+  await writeExecutable(
+    path.join(bin, "gh"),
+    `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args[0] === "auth" && args[1] === "status") process.exit(0);
 if (args[0] === "repo" && args[1] === "view") {
@@ -51,9 +53,12 @@ if (args[0] === "issue" && args[1] === "view") {
 }
 console.error("unexpected gh args", args.join(" "));
 process.exit(2);
-`);
+`,
+  );
 
-  await writeExecutable(path.join(bin, "wt"), `#!/usr/bin/env node
+  await writeExecutable(
+    path.join(bin, "wt"),
+    `#!/usr/bin/env node
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -63,15 +68,19 @@ const safe = branch.replace(/[^a-zA-Z0-9._-]+/g, "-");
 const target = path.join(path.dirname(root), path.basename(root) + "-wt-" + safe);
 const result = spawnSync("git", ["-C", root, "worktree", "add", "-b", branch, target, "HEAD"], { stdio: "inherit" });
 process.exit(result.status || 0);
-`);
+`,
+  );
 
-  await writeExecutable(path.join(bin, "tmux"), `#!/usr/bin/env node
+  await writeExecutable(
+    path.join(bin, "tmux"),
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "has-session") process.exit(1);
 fs.appendFileSync(${JSON.stringify(tmuxLog)}, args.join("\\u0000") + "\\n");
 process.exit(0);
-`);
+`,
+  );
 
   await writeExecutable(path.join(bin, "codex"), "#!/bin/sh\nexit 0\n");
   await writeExecutable(path.join(bin, "claude"), "#!/bin/sh\nexit 0\n");
@@ -100,11 +109,15 @@ test("issue-killer dry-run selects opt-in GitHub labelled issues", async () => {
 
   await withFakePath(root, async () => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "codex", dryRun: true, json: true }, {
-        label: "agentify-ready",
-        limit: 2,
-        allowPartial: false,
-      })
+      runIssueKiller(
+        root,
+        { provider: "codex", dryRun: true, json: true },
+        {
+          label: "agentify-ready",
+          limit: 2,
+          allowPartial: false,
+        },
+      ),
     );
 
     assert.equal(result.dry_run, true);
@@ -122,10 +135,14 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
 
   await withFakePath(root, async ({ tmuxLog }) => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "codex", dryRun: false, json: true }, {
-        label: "agentify-ready",
-        limit: 2,
-      })
+      runIssueKiller(
+        root,
+        { provider: "codex", dryRun: false, json: true },
+        {
+          label: "agentify-ready",
+          limit: 2,
+        },
+      ),
     );
 
     assert.equal(result.assignments.length, 2);
@@ -137,9 +154,15 @@ test("issue-killer creates Worktrunk worktrees and tmux panes", async () => {
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
     assert.doesNotMatch(result.assignments[0].pane_command, /WARNING: YOLO mode is enabled/);
     assert.doesNotMatch(result.assignments[0].pane_command, /permission prompts bypassed/);
-    assert.doesNotMatch(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
+    assert.doesNotMatch(
+      result.assignments[0].pane_command,
+      /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/,
+    );
     assert.match(result.assignments[0].pane_command, /Respect provider permission prompts and sandbox approvals/);
-    assert.match(result.assignments[0].pane_command, /Do not force-push, rewrite unrelated history, or weaken tests to pass checks/);
+    assert.match(
+      result.assignments[0].pane_command,
+      /Do not force-push, rewrite unrelated history, or weaken tests to pass checks/,
+    );
 
     const tmuxCalls = await fs.readFile(tmuxLog, "utf8");
     assert.match(tmuxCalls, /new-session/);
@@ -154,11 +177,15 @@ test("issue-killer can explicitly bypass codex permissions", async () => {
 
   await withFakePath(root, async () => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "codex", dryRun: false, json: true }, {
-        label: "agentify-ready",
-        limit: 1,
-        bypassPermissions: true,
-      })
+      runIssueKiller(
+        root,
+        { provider: "codex", dryRun: false, json: true },
+        {
+          label: "agentify-ready",
+          limit: 1,
+          bypassPermissions: true,
+        },
+      ),
     );
 
     assert.equal(result.provider_permission_bypass, true);
@@ -166,8 +193,14 @@ test("issue-killer can explicitly bypass codex permissions", async () => {
     assert.match(result.assignments[0].pane_command, /--dangerously-bypass-approvals-and-sandbox/);
     assert.match(result.assignments[0].pane_command, /WARNING: YOLO mode is enabled/);
     assert.match(result.assignments[0].pane_command, /permission prompts bypassed/);
-    assert.match(result.assignments[0].pane_command, /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/);
-    assert.doesNotMatch(result.assignments[0].pane_command, /Respect provider permission prompts and sandbox approvals/);
+    assert.match(
+      result.assignments[0].pane_command,
+      /Do not ask for permission before running task-related shell, git, gh, package-manager, test, commit, push, or draft PR commands/,
+    );
+    assert.doesNotMatch(
+      result.assignments[0].pane_command,
+      /Respect provider permission prompts and sandbox approvals/,
+    );
   });
 });
 
@@ -177,11 +210,15 @@ test("issue-killer launches claude without bypass permissions by default", async
 
   await withFakePath(root, async () => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "claude", dryRun: false, json: true }, {
-        label: "agentify-ready",
-        limit: 1,
-        agentProvider: "claude",
-      })
+      runIssueKiller(
+        root,
+        { provider: "claude", dryRun: false, json: true },
+        {
+          label: "agentify-ready",
+          limit: 1,
+          agentProvider: "claude",
+        },
+      ),
     );
 
     assert.equal(result.agent_provider, "claude");
@@ -201,17 +238,24 @@ test("issue-killer can explicitly bypass claude permissions", async () => {
 
   await withFakePath(root, async () => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "claude", dryRun: false, json: true }, {
-        label: "agentify-ready",
-        limit: 1,
-        agentProvider: "claude",
-        bypassPermissions: true,
-      })
+      runIssueKiller(
+        root,
+        { provider: "claude", dryRun: false, json: true },
+        {
+          label: "agentify-ready",
+          limit: 1,
+          agentProvider: "claude",
+          bypassPermissions: true,
+        },
+      ),
     );
 
     assert.equal(result.agent_provider, "claude");
     assert.equal(result.provider_permission_bypass, true);
-    assert.match(result.assignments[0].pane_command, /^'claude' '--dangerously-skip-permissions' '--permission-mode' 'bypassPermissions'/);
+    assert.match(
+      result.assignments[0].pane_command,
+      /^'claude' '--dangerously-skip-permissions' '--permission-mode' 'bypassPermissions'/,
+    );
     assert.match(result.assignments[0].pane_command, /gh pr create --draft/);
     assert.match(result.assignments[0].pane_command, /WARNING: YOLO mode is enabled/);
   });
@@ -223,9 +267,13 @@ test("issue-killer explicit URLs default limit to URL count", async () => {
 
   await withFakePath(root, async () => {
     const result = await withQuietConsole(() =>
-      runIssueKiller(root, { provider: "claude", dryRun: true, json: true }, {
-        issueUrl: "https://github.com/acme/widgets/issues/333",
-      })
+      runIssueKiller(
+        root,
+        { provider: "claude", dryRun: true, json: true },
+        {
+          issueUrl: "https://github.com/acme/widgets/issues/333",
+        },
+      ),
     );
 
     assert.equal(result.agent_provider, "claude");

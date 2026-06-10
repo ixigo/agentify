@@ -177,9 +177,7 @@ async function runChildCommand(command, args, { cwd, env, outputMaxBytes, timeou
 }
 
 function formatPackageJsonDiscoveryError(packageJsonPath, error) {
-  const type = error instanceof SyntaxError
-    ? "package_json_parse_error"
-    : "package_json_read_error";
+  const type = error instanceof SyntaxError ? "package_json_parse_error" : "package_json_read_error";
   return {
     type,
     path: packageJsonPath,
@@ -188,8 +186,7 @@ function formatPackageJsonDiscoveryError(packageJsonPath, error) {
 }
 
 async function rootFiles(root) {
-  return (await walkFiles(root, { respectIgnore: true }))
-    .map((filePath) => relative(root, filePath));
+  return (await walkFiles(root, { respectIgnore: true })).map((filePath) => relative(root, filePath));
 }
 
 function pythonCommand(platform = process.platform) {
@@ -203,24 +200,24 @@ async function detectPythonTestCommand(root, { platform = process.platform } = {
   if (await exists(path.join(root, "noxfile.py"))) {
     return { command: "nox", args: [] };
   }
-  if (
-    await exists(path.join(root, "pytest.ini"))
-    || await exists(path.join(root, "conftest.py"))
-  ) {
+  if ((await exists(path.join(root, "pytest.ini"))) || (await exists(path.join(root, "conftest.py")))) {
     return { command: pythonCommand(), args: ["-m", "pytest"] };
   }
 
   const files = await rootFiles(root);
   const hasTestsDir = await exists(path.join(root, "tests"));
-  const hasPythonTestFiles = files.some((file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file));
+  const hasPythonTestFiles = files.some(
+    (file) => /(^|\/)test[^/]*\.py$/.test(file) || /(^|\/)[^/]+_test\.py$/.test(file),
+  );
   if (hasTestsDir || hasPythonTestFiles) {
     return { command: pythonCommand(platform), args: ["-m", "pytest"] };
   }
 
-  const hasPythonSignals = await exists(path.join(root, "pyproject.toml"))
-    || await exists(path.join(root, "requirements.txt"))
-    || await exists(path.join(root, "setup.py"))
-    || files.some((file) => file.endsWith(".py"));
+  const hasPythonSignals =
+    (await exists(path.join(root, "pyproject.toml"))) ||
+    (await exists(path.join(root, "requirements.txt"))) ||
+    (await exists(path.join(root, "setup.py"))) ||
+    files.some((file) => file.endsWith(".py"));
   if (!hasPythonSignals) {
     return null;
   }
@@ -229,7 +226,7 @@ async function detectPythonTestCommand(root, { platform = process.platform } = {
 
 async function detectGoTestCommand(root) {
   const files = await rootFiles(root);
-  if (await exists(path.join(root, "go.mod")) || files.some((file) => file.endsWith("_test.go"))) {
+  if ((await exists(path.join(root, "go.mod"))) || files.some((file) => file.endsWith("_test.go"))) {
     return { command: "go", args: ["test", "./..."] };
   }
   return null;
@@ -266,7 +263,7 @@ async function detectJvmTestCommand(root, { platform = process.platform } = {}) 
       return { command: "./mvnw", args: ["test"] };
     }
   }
-  if (await exists(path.join(root, "build.gradle")) || await exists(path.join(root, "build.gradle.kts"))) {
+  if ((await exists(path.join(root, "build.gradle"))) || (await exists(path.join(root, "build.gradle.kts")))) {
     return { command: "gradle", args: ["test"] };
   }
   if (await exists(path.join(root, "pom.xml"))) {
@@ -316,9 +313,8 @@ export async function detectTestCommand(root, options = {}) {
   }
 
   if (packageJson?.scripts?.test) {
-    const packageManager = typeof packageJson.packageManager === "string"
-      ? packageJson.packageManager.split("@")[0]
-      : null;
+    const packageManager =
+      typeof packageJson.packageManager === "string" ? packageJson.packageManager.split("@")[0] : null;
     if (packageManager === "pnpm") {
       return { command: "pnpm", args: ["test"] };
     }
@@ -334,7 +330,7 @@ export async function detectTestCommand(root, options = {}) {
     if (await exists(path.join(root, "yarn.lock"))) {
       return { command: "yarn", args: ["test"] };
     }
-    if (await exists(path.join(root, "bun.lockb")) || await exists(path.join(root, "bun.lock"))) {
+    if ((await exists(path.join(root, "bun.lockb"))) || (await exists(path.join(root, "bun.lock")))) {
       return { command: "bun", args: ["test"] };
     }
     return { command: "npm", args: ["test"] };
@@ -344,9 +340,7 @@ export async function detectTestCommand(root, options = {}) {
 
 async function buildNoTestCommandResult(root, options, outputMaxBytes) {
   const detectedStacks = await detectStacks(root, options.config || {});
-  const nonNodeStacks = detectedStacks
-    .map((stack) => stack.name)
-    .filter((name) => name !== "ts");
+  const nonNodeStacks = detectedStacks.map((stack) => stack.name).filter((name) => name !== "ts");
 
   if (nonNodeStacks.length > 0) {
     return {
@@ -419,7 +413,7 @@ export async function runProjectTests(root, reporter, options = {}) {
   let rtkDetection = null;
 
   if (rtkConfig.wrapProjectTests) {
-    rtkDetection = options.rtkDetection || await detectRtk(rtkConfig.command, { cwd: root, env });
+    rtkDetection = options.rtkDetection || (await detectRtk(rtkConfig.command, { cwd: root, env }));
     if (!rtkDetection.verified) {
       throw new Error(formatRtkUnavailableMessage(rtkDetection));
     }
@@ -434,14 +428,20 @@ export async function runProjectTests(root, reporter, options = {}) {
     reporter.log("tests: RTK wrapping enabled for test output compression");
   }
   if (testsConfig.env?.inherit !== true) {
-    reporter.log("tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars");
+    reporter.log(
+      "tests: subprocess env is sanitized; configure tests.env.passthrough or tests.env.extra to expose vars",
+    );
   }
   const outcome = await runChildCommand(command, args, { cwd: root, env, outputMaxBytes, timeoutMs });
   if (outcome.stdoutTruncated) {
-    reporter.log(`tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`);
+    reporter.log(
+      `tests: stdout truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stdoutBytes} bytes; configure tests.outputMaxKb to adjust`,
+    );
   }
   if (outcome.stderrTruncated) {
-    reporter.log(`tests: stderr truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stderrBytes} bytes; configure tests.outputMaxKb to adjust`);
+    reporter.log(
+      `tests: stderr truncated to ${outcome.outputMaxBytes} bytes from ${outcome.stderrBytes} bytes; configure tests.outputMaxKb to adjust`,
+    );
   }
   const stdout = redactSensitiveText(outcome.stdout);
   const stderr = redactSensitiveText(outcome.stderr);

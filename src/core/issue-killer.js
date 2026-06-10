@@ -28,9 +28,7 @@ function splitCsv(value) {
 }
 
 function normalizeLimit(value, defaultLimit = DEFAULT_LIMIT) {
-  const limit = value === undefined || value === null || value === true
-    ? defaultLimit
-    : Number(value);
+  const limit = value === undefined || value === null || value === true ? defaultLimit : Number(value);
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error("--limit must be a positive integer.");
   }
@@ -41,7 +39,9 @@ function normalizeLimit(value, defaultLimit = DEFAULT_LIMIT) {
 }
 
 function normalizeIssueProvider(value) {
-  const provider = String(value || "github").trim().toLowerCase();
+  const provider = String(value || "github")
+    .trim()
+    .toLowerCase();
   if (SUPPORTED_ISSUE_PROVIDERS.includes(provider)) {
     return provider;
   }
@@ -52,10 +52,10 @@ function normalizeIssueProvider(value) {
 }
 
 function normalizeAgentProvider(value, config) {
-  const raw = value === undefined || value === null || value === false || value === true
-    ? config.provider
-    : value;
-  const provider = String(raw || "codex").trim().toLowerCase();
+  const raw = value === undefined || value === null || value === false || value === true ? config.provider : value;
+  const provider = String(raw || "codex")
+    .trim()
+    .toLowerCase();
   if (SUPPORTED_AGENT_PROVIDERS.includes(provider)) {
     return provider;
   }
@@ -113,7 +113,7 @@ async function execJson(command, args, options = {}) {
 
 async function commandExists(command) {
   try {
-    await execFileAsync("sh", ["-lc", "command -v -- \"$0\"", command]);
+    await execFileAsync("sh", ["-lc", 'command -v -- "$0"', command]);
     return true;
   } catch {
     return false;
@@ -153,7 +153,7 @@ async function resolveGitHubRepo(root, explicitRepo) {
 
 function normalizeIssue(raw, fallbackRepo) {
   const labels = Array.isArray(raw.labels)
-    ? raw.labels.map((label) => typeof label === "string" ? label : label.name).filter(Boolean)
+    ? raw.labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean)
     : [];
   return {
     number: Number(raw.number),
@@ -169,33 +169,31 @@ async function loadExplicitGitHubIssues(root, urls) {
   const issues = [];
   for (const url of urls) {
     const parsed = parseGitHubIssueUrl(url);
-    const raw = await execJson("gh", [
-      "issue",
-      "view",
-      url,
-      "--json",
-      "number,title,url,state,labels",
-    ], { cwd: root });
+    const raw = await execJson("gh", ["issue", "view", url, "--json", "number,title,url,state,labels"], { cwd: root });
     issues.push(normalizeIssue(raw || parsed, parsed.repoFullName));
   }
   return issues;
 }
 
 async function listLabelledGitHubIssues(root, { repo, label, limit }) {
-  const raw = await execJson("gh", [
-    "issue",
-    "list",
-    "--repo",
-    repo,
-    "--state",
-    "open",
-    "--label",
-    label,
-    "--limit",
-    String(limit),
-    "--json",
-    "number,title,url,state,labels",
-  ], { cwd: root });
+  const raw = await execJson(
+    "gh",
+    [
+      "issue",
+      "list",
+      "--repo",
+      repo,
+      "--state",
+      "open",
+      "--label",
+      label,
+      "--limit",
+      String(limit),
+      "--json",
+      "number,title,url,state,labels",
+    ],
+    { cwd: root },
+  );
   return (Array.isArray(raw) ? raw : []).map((issue) => normalizeIssue(issue, repo));
 }
 
@@ -205,7 +203,9 @@ function selectIssues(issues, limit, allowPartial) {
     throw new Error("no open GitHub issues were selected.");
   }
   if (openIssues.length < limit && !allowPartial) {
-    throw new Error(`selected ${openIssues.length} issue(s), but --limit is ${limit}. Pass --allow-partial to launch fewer panes.`);
+    throw new Error(
+      `selected ${openIssues.length} issue(s), but --limit is ${limit}. Pass --allow-partial to launch fewer panes.`,
+    );
   }
   return openIssues.slice(0, limit);
 }
@@ -226,10 +226,11 @@ async function loadIssues(root, options) {
 
 function createBranchName(issue, branchPrefix) {
   const prefix = normalizeBranchPart(branchPrefix || "issue") || "issue";
-  const slug = normalizeBranchPart(issue.title)
-    .replaceAll("/", "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "") || `issue-${issue.number}`;
+  const slug =
+    normalizeBranchPart(issue.title)
+      .replaceAll("/", "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, "") || `issue-${issue.number}`;
   return `${prefix}/${issue.number}-${slug}`;
 }
 
@@ -318,14 +319,7 @@ async function tmuxSessionExists(name) {
 
 async function splitOrCreateWindow(session, windowTarget, shellArgs, assignment) {
   try {
-    await execFileAsync("tmux", [
-      "split-window",
-      "-t",
-      windowTarget,
-      "-c",
-      assignment.worktreePath,
-      ...shellArgs,
-    ]);
+    await execFileAsync("tmux", ["split-window", "-t", windowTarget, "-c", assignment.worktreePath, ...shellArgs]);
   } catch (error) {
     const output = `${error?.stdout || ""}\n${error?.stderr || ""}`;
     if (!output.includes("no space for new pane")) {
@@ -383,10 +377,7 @@ async function launchTmux(assignments, options) {
 }
 
 function normalizeOptions(args, config) {
-  const issueUrls = [
-    ...splitCsv(args.issueUrl),
-    ...splitCsv(args.issueUrls),
-  ];
+  const issueUrls = [...splitCsv(args.issueUrl), ...splitCsv(args.issueUrls)];
   const issueProvider = normalizeIssueProvider(args.issueProvider);
   const agentProvider = normalizeAgentProvider(args.agentProvider || args.provider, config);
   const defaultLimit = issueUrls.length > 0 ? issueUrls.length : DEFAULT_LIMIT;
@@ -407,7 +398,9 @@ function normalizeOptions(args, config) {
     repo: args.repo,
     branchPrefix: args.branchPrefix || "issue",
     base: args.base,
-    sessionName: String(args.sessionName === undefined || args.sessionName === true ? DEFAULT_SESSION_NAME : args.sessionName).trim(),
+    sessionName: String(
+      args.sessionName === undefined || args.sessionName === true ? DEFAULT_SESSION_NAME : args.sessionName,
+    ).trim(),
     reuseSession: Boolean(args.reuseSession),
     bypassPermissions: args.bypassPermissions === true,
     dryRun: Boolean(config.dryRun),

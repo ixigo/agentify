@@ -136,7 +136,10 @@ function isGitIgnored(relativePath, ignoredPaths) {
   if (ignoredPaths.size === 0) {
     return false;
   }
-  if (ignoredPaths.has(relativePath) || ignoredPaths.has(relativePath.endsWith("/") ? relativePath : `${relativePath}/`)) {
+  if (
+    ignoredPaths.has(relativePath) ||
+    ignoredPaths.has(relativePath.endsWith("/") ? relativePath : `${relativePath}/`)
+  ) {
     return true;
   }
   let slashIndex = relativePath.indexOf("/");
@@ -179,9 +182,7 @@ async function atomicWriteText(targetPath, text, options = {}) {
   const ensureParent = options.private && options.privateDir !== false ? ensurePrivateDir : ensureDir;
   await ensureParent(path.dirname(targetPath));
   const tmp = `${targetPath}.${randomUUID().slice(0, 8)}.tmp`;
-  const writeOptions = options.private
-    ? { encoding: "utf8", mode: PRIVATE_FILE_MODE }
-    : "utf8";
+  const writeOptions = options.private ? { encoding: "utf8", mode: PRIVATE_FILE_MODE } : "utf8";
   await fs.writeFile(tmp, text, writeOptions);
   if (options.private) {
     await fs.chmod(tmp, PRIVATE_FILE_MODE);

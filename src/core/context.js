@@ -10,7 +10,9 @@ import { resolveAgentifyPaths } from "./project-store.js";
 const MAX_FETCH_LINES = 240;
 
 function normalizePathForOutput(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
+  return String(filePath || "")
+    .split(path.sep)
+    .join("/");
 }
 
 function resolveRepoPath(root, filePath) {
@@ -27,7 +29,9 @@ function resolveRepoPath(root, filePath) {
 }
 
 function parseLineRange(raw) {
-  const match = String(raw || "").trim().match(/^(\d+):(\d+)$/);
+  const match = String(raw || "")
+    .trim()
+    .match(/^(\d+):(\d+)$/);
   if (!match) {
     throw new Error("context fetch --lines requires A:B line range");
   }
@@ -80,7 +84,7 @@ export async function searchContext(root, term, options = {}) {
   if (!query || query === "true") {
     throw new Error("context search requires a search term");
   }
-  const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+  const agentifyPaths = options.artifactPaths || (await resolveAgentifyPaths(root, options.config || {}));
   const db = openIndexDatabase(agentifyPaths, { readOnly: true });
   try {
     const structural = searchIndex(db, query, options.limit || 20);
@@ -98,7 +102,9 @@ export async function searchContext(root, term, options = {}) {
 function findSymbolRange(root, normalizedPath, symbol, options = {}) {
   const db = openIndexDatabase(options.artifactPaths || root, { readOnly: true });
   try {
-    const semantic = db.prepare(`
+    const semantic = db
+      .prepare(
+        `
       SELECT name, display_name, kind, start_line, end_line
       FROM semantic_symbols
       WHERE file_path = ?
@@ -107,7 +113,9 @@ function findSymbolRange(root, normalizedPath, symbol, options = {}) {
         CASE WHEN name = ? THEN 0 ELSE 1 END,
         start_line
       LIMIT 1
-    `).get(normalizedPath, symbol, symbol, symbol, symbol);
+    `,
+      )
+      .get(normalizedPath, symbol, symbol, symbol, symbol);
     if (semantic) {
       return {
         symbol: semantic.name,
@@ -118,14 +126,18 @@ function findSymbolRange(root, normalizedPath, symbol, options = {}) {
       };
     }
 
-    const structural = db.prepare(`
+    const structural = db
+      .prepare(
+        `
       SELECT name, kind, start_line, end_line
       FROM symbols
       WHERE file_path = ?
         AND name = ?
       ORDER BY start_line
       LIMIT 1
-    `).get(normalizedPath, symbol);
+    `,
+      )
+      .get(normalizedPath, symbol);
     if (structural) {
       return {
         symbol: structural.name,
@@ -157,7 +169,7 @@ export async function fetchContext(root, filePath, options = {}) {
     if (!symbolName || symbolName === "true") {
       throw new Error("context fetch --symbol requires a symbol name");
     }
-    const agentifyPaths = options.artifactPaths || await resolveAgentifyPaths(root, options.config || {});
+    const agentifyPaths = options.artifactPaths || (await resolveAgentifyPaths(root, options.config || {}));
     symbol = findSymbolRange(root, normalized, symbolName, { artifactPaths: agentifyPaths });
     if (!symbol) {
       throw new Error(`context fetch could not find symbol "${symbolName}" in ${normalized}`);
