@@ -5,16 +5,10 @@ import { resolveAgentifyPaths } from "./project-store.js";
 import { normalizeRows } from "./db/utils.js";
 import { loadCommands, loadFiles, loadModules, loadSymbols, loadTests } from "./db/structural-store.js";
 import { getChangedFiles, getChangedFilesSince } from "./git.js";
+import { normalizePath } from "./utils/paths.js";
 
 const RISK_SCHEMA_VERSION = "risk-v1";
 const MAX_NEIGHBOR_DISTANCE = 2;
-
-function normalizePath(filePath) {
-  return String(filePath || "")
-    .split(path.sep)
-    .join("/")
-    .replace(/^\.\//, "");
-}
 
 function uniqSorted(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));

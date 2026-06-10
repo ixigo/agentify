@@ -2,17 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { exists, relative, walkFiles } from "./fs.js";
+import { readTextIfExists } from "./utils/fs-helpers.js";
+import { normalizePath as normalizeRelPath } from "./utils/paths.js";
 
 function hasExtension(files, extensions) {
   return files.filter((file) => extensions.some((ext) => file.endsWith(ext))).length;
-}
-
-async function readTextIfExists(targetPath) {
-  try {
-    return await fs.readFile(targetPath, "utf8");
-  } catch {
-    return "";
-  }
 }
 
 function parseTomlStringField(raw, key) {
@@ -30,10 +24,6 @@ function parseTomlArrayField(raw, key) {
     .split(",")
     .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
     .filter(Boolean);
-}
-
-function normalizeRelPath(value) {
-  return String(value || "").split(path.sep).join("/");
 }
 
 async function readGradleModules(root) {

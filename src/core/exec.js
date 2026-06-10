@@ -10,6 +10,8 @@ import { validateRepo } from "./validate.js";
 import { finalizeSessionMemoryRun, normalizeInteractiveCapture, prepareSessionMemoryRun, redactSensitiveText } from "./session-memory.js";
 import { createBoundedCaptureBuffer, DEFAULT_CAPTURE_MAX_KB, normalizeCaptureMaxBytes } from "./capture-buffer.js";
 import * as ui from "./ui.js";
+import { killChildProcess } from "./utils/exec-helpers.js";
+import { normalizeRepoPath } from "./utils/paths.js";
 
 const AGENTIFY_EXIT_VALIDATE_FAILED = 80;
 const AGENTIFY_EXIT_REFRESH_ERROR = 81;
@@ -23,14 +25,6 @@ const REFRESH_NEUTRAL_PATH_PATTERNS = [
   /^agentify-report\.html$/,
   /(^|\/)AGENTIFY\.md$/,
 ];
-
-function normalizeRepoPath(value) {
-  return String(value || "")
-    .split(path.sep)
-    .join("/")
-    .replace(/^\.\//, "")
-    .replace(/\/{2,}/g, "/");
-}
 
 function isRefreshNeutralPath(filePath) {
   const normalized = normalizeRepoPath(filePath);
@@ -157,14 +151,6 @@ function buildScriptCommand(argv, capturePath) {
     cmd: "script",
     args: ["-q", "-e", "-c", argv.map(posixShellQuote).join(" "), capturePath],
   };
-}
-
-function killChildProcess(child, signal) {
-  try {
-    child.kill(signal);
-  } catch {
-    // The process may have exited between timeout scheduling and signal delivery.
-  }
 }
 
 async function removeRawInteractiveLog(capturePath, raw) {

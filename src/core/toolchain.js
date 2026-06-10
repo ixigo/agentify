@@ -15,6 +15,7 @@ import {
 } from "./semantic.js";
 import { detectRtk, resolveRtkConfig } from "./rtk.js";
 import * as ui from "./ui.js";
+import { runCommandCapture } from "./utils/exec-helpers.js";
 
 const execFileAsync = promisify(execFile);
 const AGENTIFY_EXIT_SEMANTIC_STALE = 80;
@@ -70,27 +71,6 @@ async function resolveToolCommand(command) {
   }
   const { stdout } = await execFileAsync("sh", ["-c", 'command -v -- "$1"', "sh", command]);
   return stdout.trim() || command;
-}
-
-async function runCommandCapture(argv, options = {}) {
-  const [command, ...args] = argv;
-  try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
-      cwd: options.cwd,
-      env: options.env || process.env,
-    });
-    return { code: 0, stdout, stderr, missing: false };
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
-      return { code: 127, stdout: "", stderr: `${command}: command not found`, missing: true };
-    }
-    return {
-      code: typeof error?.code === "number" ? error.code : 1,
-      stdout: String(error?.stdout || ""),
-      stderr: String(error?.stderr || error?.message || ""),
-      missing: false,
-    };
-  }
 }
 
 function parseVersion(stdout, stderr = "") {

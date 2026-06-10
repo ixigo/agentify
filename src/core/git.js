@@ -1,61 +1,10 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
+import { normalizePath, toGitRelativePath, toRootRelativePath } from "./utils/paths.js";
+
 const execFileAsync = promisify(execFile);
 const contextCache = new Map();
-
-function normalizePath(value) {
-  return String(value || "")
-    .split("\\")
-    .join("/")
-    .replace(/^\.\//, "")
-    .replace(/\/{2,}/g, "/");
-}
-
-function normalizePrefix(value) {
-  return normalizePath(value).replace(/\/+$/, "");
-}
-
-function toRootRelativePath(gitPath, rootPrefix) {
-  const normalizedPath = normalizePath(gitPath);
-  const normalizedPrefix = normalizePrefix(rootPrefix);
-
-  if (!normalizedPath) return null;
-  if (!normalizedPrefix) return normalizedPath;
-  if (
-    normalizedPath === normalizedPrefix ||
-    normalizedPath === `${normalizedPrefix}/`
-  ) {
-    return ".";
-  }
-
-  const prefixWithSlash = `${normalizedPrefix}/`;
-  if (normalizedPath.startsWith(prefixWithSlash)) {
-    return normalizedPath.slice(prefixWithSlash.length);
-  }
-
-  return null;
-}
-
-function toGitRelativePath(filePath, rootPrefix) {
-  const normalizedPath = normalizePath(filePath);
-  const normalizedPrefix = normalizePrefix(rootPrefix);
-
-  if (!normalizedPath || normalizedPath === ".") {
-    return normalizedPrefix;
-  }
-  if (!normalizedPrefix) {
-    return normalizedPath;
-  }
-  if (
-    normalizedPath === normalizedPrefix ||
-    normalizedPath.startsWith(`${normalizedPrefix}/`)
-  ) {
-    return normalizedPath;
-  }
-
-  return `${normalizedPrefix}/${normalizedPath}`;
-}
 
 async function getGitContext(root) {
   const cacheKey = String(root);

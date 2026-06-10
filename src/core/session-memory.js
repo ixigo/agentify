@@ -20,6 +20,8 @@ import {
   writeText,
 } from "./fs.js";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
+import { bytes, clipToBytes } from "./utils/bytes.js";
+import { isProcessAlive } from "./utils/exec-helpers.js";
 
 const execFileAsync = promisify(execFile);
 const SESSION_LOCK_STALE_MS = 300000;
@@ -63,31 +65,6 @@ const MEMORY_STOP_WORDS = new Set([
   "with",
   "work",
 ]);
-
-function bytes(value) {
-  return Buffer.byteLength(String(value || ""), "utf8");
-}
-
-function clipToBytes(value, maxBytes) {
-  const text = String(value || "");
-  if (maxBytes <= 0 || text.length === 0) {
-    return "";
-  }
-  if (bytes(text) <= maxBytes) {
-    return text;
-  }
-
-  let end = text.length;
-  while (end > 0) {
-    const candidate = `${text.slice(0, end).trimEnd()}...`;
-    if (bytes(candidate) <= maxBytes) {
-      return candidate;
-    }
-    end -= 1;
-  }
-
-  return "";
-}
 
 function normalizeTimeoutMs(value) {
   if (value === null || value === undefined || value === "") {
@@ -973,19 +950,6 @@ export function getSessionArtifactPaths(root, sessionId) {
     contextPath: path.join(sessionDir, "context.json"),
     lockPath: path.join(sessionDir, ".session.lock"),
   };
-}
-
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
 }
 
 function canReclaimSessionLock(existing) {

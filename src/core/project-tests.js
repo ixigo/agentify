@@ -6,6 +6,7 @@ import { detectStacks } from "./detect.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { buildRtkWrappedCommand, detectRtk, formatRtkUnavailableMessage, resolveRtkConfig } from "./rtk.js";
 import { redactSensitiveText } from "./session-memory.js";
+import { killChildProcess } from "./utils/exec-helpers.js";
 
 const DEFAULT_TEST_TIMEOUT_MS = 10 * 60 * 1000;
 const FORCE_KILL_TIMEOUT_MS = 1000;
@@ -97,22 +98,6 @@ function getTestTimeoutMs(testsConfig = {}) {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TEST_TIMEOUT_MS;
 }
 
-function killChildProcess(child, signal) {
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, signal);
-      return;
-    } catch (error) {
-      if (error?.code === "ESRCH") return;
-    }
-  }
-  try {
-    child.kill(signal);
-  } catch {
-    // The process may have exited between timeout scheduling and signal delivery.
-  }
-}
-
 async function runChildCommand(command, args, { cwd, env, outputMaxBytes, timeoutMs } = {}) {
   const stdoutCapture = createBoundedCaptureBuffer(outputMaxBytes);
   const stderrCapture = createBoundedCaptureBuffer(outputMaxBytes);
@@ -139,9 +124,9 @@ async function runChildCommand(command, args, { cwd, env, outputMaxBytes, timeou
 
     timeout = setTimeout(() => {
       timedOut = true;
-      killChildProcess(child, "SIGTERM");
+      killChildProcess(child, "SIGTERM", { processGroup: true });
       killTimer = setTimeout(() => {
-        killChildProcess(child, "SIGKILL");
+        killChildProcess(child, "SIGKILL", { processGroup: true });
       }, FORCE_KILL_TIMEOUT_MS);
     }, timeoutMs);
 

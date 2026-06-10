@@ -6,15 +6,12 @@ import { searchIndex } from "./db/structural-store.js";
 import { searchSemanticIndex } from "./db/semantic-store.js";
 import { normalizeContextMode } from "./context-mode.js";
 import { resolveAgentifyPaths } from "./project-store.js";
+import { normalizePath } from "./utils/paths.js";
 
 const MAX_FETCH_LINES = 240;
 
-function normalizePathForOutput(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
-}
-
 function resolveRepoPath(root, filePath) {
-  const normalized = normalizePathForOutput(filePath);
+  const normalized = normalizePath(filePath);
   if (!normalized || normalized.startsWith("../") || path.isAbsolute(normalized)) {
     throw new Error("context fetch path must be a repository-relative path");
   }

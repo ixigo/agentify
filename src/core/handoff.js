@@ -9,16 +9,13 @@ import { getChangedFiles, getChangedFilesSince, getHeadCommit } from "./git.js";
 import { resolveAgentifyPaths } from "./project-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
 import { listSessions, resumeSession } from "./session.js";
+import { normalizePath } from "./utils/paths.js";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_SYMBOLS = 12;
 const MAX_TOUCHED_SYMBOLS_PER_FILE = 12;
 const MAX_RISKS = 12;
 const RECENT_SESSION_LIMIT = 8;
-
-function normalizePath(value) {
-  return String(value || "").split(path.sep).join("/").replace(/^\.\//, "");
-}
 
 function uniqueSorted(items) {
   return Array.from(new Set(items.filter(Boolean))).sort((left, right) => left.localeCompare(right));

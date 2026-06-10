@@ -1,16 +1,10 @@
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 import ts from "typescript";
 
-function sha1(value) {
-  return crypto.createHash("sha1").update(value).digest("hex");
-}
-
-function normalize(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
-}
+import { pathHash, sha256 } from "./utils/crypto.js";
+import { normalizePath as normalize } from "./utils/paths.js";
 
 function isRepoOwned(root, filePath) {
   const resolved = path.resolve(filePath);
@@ -78,10 +72,6 @@ function parseProject(root, project) {
       .filter(shouldTreatAsOwned)
       .filter((filePath) => allowedFiles.size === 0 || allowedFiles.has(normalize(path.relative(root, filePath)))),
   };
-}
-
-function pathHash(...parts) {
-  return sha1(parts.join(":"));
 }
 
 function lineNumber(sourceFile, position) {
@@ -320,9 +310,9 @@ async function computeContentFingerprint(root, repoFiles) {
   const contentEntries = [];
   for (const filePath of repoFiles) {
     const content = await fs.readFile(path.join(root, filePath), "utf8");
-    contentEntries.push(`${filePath}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+    contentEntries.push(`${filePath}:${sha256(content)}`);
   }
-  return crypto.createHash("sha256").update(contentEntries.sort().join("\n")).digest("hex");
+  return sha256(contentEntries.sort().join("\n"));
 }
 
 async function analyzeProject(root, project, analyzerVersion, contentFingerprint = null) {
@@ -618,7 +608,7 @@ async function analyzeProject(root, project, analyzerVersion, contentFingerprint
       surface_count: surfaces.length,
       edge_count: symbolEdges.length,
       content_fingerprint: resolvedContentFingerprint,
-      public_fingerprint: crypto.createHash("sha256").update(publicEntries.sort().join("\n")).digest("hex"),
+      public_fingerprint: sha256(publicEntries.sort().join("\n")),
       refreshed_at: new Date().toISOString(),
       last_error: null,
     },

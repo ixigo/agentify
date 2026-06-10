@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -6,6 +5,9 @@ import ts from "typescript";
 
 import { detectModules, detectStacks } from "./detect.js";
 import { exists, relative, walkFiles } from "./fs.js";
+import { sha256 } from "./utils/crypto.js";
+import { readJsonIfExists, readTextIfExists } from "./utils/fs-helpers.js";
+import { normalizePath as normalizeRepoPath } from "./utils/paths.js";
 
 const TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const SOURCE_EXTENSIONS = new Set([
@@ -24,10 +26,6 @@ const SOURCE_EXTENSIONS = new Set([
   ".rs",
   ".go",
 ]);
-
-function sha256(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
 
 function toSlug(value) {
   return String(value || "module")
@@ -127,22 +125,6 @@ function globToRegExp(pattern) {
     .replace(/\*\*/g, ".*")
     .replace(/\*/g, "[^/]*");
   return new RegExp(`^${escaped.replace(/\/+$/, "")}$`);
-}
-
-async function readJsonIfExists(targetPath) {
-  try {
-    return JSON.parse(await fs.readFile(targetPath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function readTextIfExists(targetPath) {
-  try {
-    return await fs.readFile(targetPath, "utf8");
-  } catch {
-    return "";
-  }
 }
 
 async function loadWorkspacePatterns(root) {
@@ -804,10 +786,6 @@ async function readGoModuleName(root) {
   const raw = await readTextIfExists(path.join(root, "go.mod"));
   const match = raw.match(/^\s*module\s+(.+)$/m);
   return match ? match[1].trim() : null;
-}
-
-function normalizeRepoPath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
 }
 
 function stripLeadingSourceRoot(filePath) {

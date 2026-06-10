@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -23,24 +22,10 @@ import {
 } from "./db/semantic-store.js";
 import { ensureDir, relative, walkFiles, writeText } from "./fs.js";
 import { updateFileHeader } from "./headers.js";
+import { pathHash, sha256 } from "./utils/crypto.js";
+import { normalizePath as normalizeRepoPath } from "./utils/paths.js";
 
 const execFileAsync = promisify(execFile);
-
-function sha1(value) {
-  return crypto.createHash("sha1").update(value).digest("hex");
-}
-
-function sha256(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function normalizeRepoPath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
-}
-
-function pathHash(...parts) {
-  return sha1(parts.join(":"));
-}
 
 function isTsJsFile(filePath) {
   return /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(filePath) && !filePath.endsWith(".d.ts");
@@ -236,7 +221,7 @@ async function computeFingerprint(root, filePaths, cache = null, instrumentation
       if (!contentHash) {
         const content = await fs.readFile(absolutePath, "utf8");
         instrumentation?.onContentRead?.(filePath);
-        contentHash = crypto.createHash("sha256").update(content).digest("hex");
+        contentHash = sha256(content);
         if (cache?.files) {
           cache.files[filePath] = {
             metadata: metadataFingerprint,
@@ -253,7 +238,7 @@ async function computeFingerprint(root, filePaths, cache = null, instrumentation
       }
     }
   }
-  return crypto.createHash("sha256").update(entries.sort().join("\n")).digest("hex");
+  return sha256(entries.sort().join("\n"));
 }
 
 export async function computeSemanticProjectFingerprint(root, filePaths) {

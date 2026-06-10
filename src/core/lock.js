@@ -4,25 +4,13 @@ import path from "node:path";
 import process from "node:process";
 
 import { resolveLocalAgentifyPaths } from "./project-store.js";
+import { isProcessAlive } from "./utils/exec-helpers.js";
 
 const LOCK_STALE_MS = 300000;
 const LOCK_NAMES = {
   "index-refresh": "index.lock",
   "cache-gc": "cache-gc.lock",
 };
-
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
-}
 
 function canReclaimLock(existing) {
   const acquiredAt = existing?.acquired_at || Date.parse(existing?.created_at || "");

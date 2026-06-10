@@ -17,10 +17,7 @@ import { loadSemanticModuleDependencies, loadSemanticPlannerFacts } from "./db/s
 import { getChangedFiles } from "./git.js";
 import { stripLeadingAgentifyHeader } from "./headers.js";
 import { isSemanticEnabled } from "./semantic.js";
-
-function bytes(value) {
-  return Buffer.byteLength(String(value || ""), "utf8");
-}
+import { bytes } from "./utils/bytes.js";
 
 function cleanInline(value) {
   return String(value || "").replace(/\s+/g, " ").trim();

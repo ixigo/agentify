@@ -1,13 +1,10 @@
-import crypto from "node:crypto";
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import { ensureDir, exists, readJson } from "./fs.js";
-
-const execFileAsync = promisify(execFile);
+import { sha256 } from "./utils/crypto.js";
+import { runGit } from "./utils/exec-helpers.js";
 
 export const LINK_SCHEMA_VERSION = 2;
 export const STORE_SCHEMA_VERSION = 1;
@@ -43,33 +40,24 @@ async function realpathIfPossible(targetPath) {
   }
 }
 
-async function runGit(targetPath, args) {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", targetPath, ...args]);
-    return stdout.trim();
-  } catch {
-    return null;
-  }
-}
-
 export function computeRepoKey({ remote, commonDir }) {
   const seed = `${remote || ""}\n${commonDir || ""}`;
-  return crypto.createHash("sha256").update(seed).digest("hex").slice(0, 16);
+  return sha256(seed).slice(0, 16);
 }
 
 export async function getGitIdentity(root) {
-  const topLevel = await runGit(root, ["rev-parse", "--show-toplevel"]);
+  const topLevel = await runGit(root, ["rev-parse", "--show-toplevel"], { nullOnError: true });
   if (!topLevel) {
     return null;
   }
-  const rawCommonDir = await runGit(root, ["rev-parse", "--git-common-dir"]);
+  const rawCommonDir = await runGit(root, ["rev-parse", "--git-common-dir"], { nullOnError: true });
   if (!rawCommonDir) {
     return null;
   }
   const commonDir = path.isAbsolute(rawCommonDir)
     ? rawCommonDir
     : path.resolve(topLevel, rawCommonDir);
-  const remote = await runGit(root, ["remote", "get-url", "origin"]);
+  const remote = await runGit(root, ["remote", "get-url", "origin"], { nullOnError: true });
 
   return {
     topLevel: path.resolve(topLevel),
@@ -80,7 +68,7 @@ export async function getGitIdentity(root) {
 }
 
 export async function detectGitWorktree(root) {
-  const topLevel = await runGit(root, ["rev-parse", "--show-toplevel"]);
+  const topLevel = await runGit(root, ["rev-parse", "--show-toplevel"], { nullOnError: true });
   if (!topLevel) {
     return {
       isGitRepo: false,
@@ -91,8 +79,8 @@ export async function detectGitWorktree(root) {
     };
   }
 
-  const rawGitDir = await runGit(root, ["rev-parse", "--git-dir"]);
-  const rawCommonDir = await runGit(root, ["rev-parse", "--git-common-dir"]);
+  const rawGitDir = await runGit(root, ["rev-parse", "--git-dir"], { nullOnError: true });
+  const rawCommonDir = await runGit(root, ["rev-parse", "--git-common-dir"], { nullOnError: true });
   if (!rawGitDir || !rawCommonDir) {
     return {
       isGitRepo: true,

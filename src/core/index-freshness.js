@@ -1,20 +1,17 @@
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 import { exists, readJson, writeJson } from "./fs.js";
 import { getChangedFiles, getChangedFilesSince, getCurrentBranch, getHeadCommit, getHeadTree } from "./git.js";
 import { SCHEMA_VERSIONS } from "./schema.js";
+import { sha1 } from "./utils/crypto.js";
+import { normalizePath } from "./utils/paths.js";
 
 const LARGE_DIFF_FILE_LIMIT = 50;
 const INDEX_META_SCHEMA_VERSION = 1;
 
-function sha1(buffer) {
-  return crypto.createHash("sha1").update(buffer).digest("hex");
-}
-
 function shouldTrackDirtyPath(filePath) {
-  const normalized = String(filePath || "").split(path.sep).join("/");
+  const normalized = normalizePath(filePath);
   return Boolean(normalized)
     && !normalized.startsWith(".agentify/")
     && !normalized.startsWith(".current_session/")

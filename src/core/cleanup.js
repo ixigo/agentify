@@ -7,6 +7,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { listArtifacts } from "./db/artifact-store.js";
 import { loadModules } from "./db/structural-store.js";
 import { resolveAgentifyPaths } from "./project-store.js";
+import { normalizeRepoPath } from "./utils/paths.js";
 
 function toArray(paths) {
   return Array.from(new Set(paths)).sort();
@@ -35,15 +36,8 @@ async function listDirs(dirPath) {
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
-function normalizeRepoPath(repoPath) {
-  if (!repoPath) {
-    return null;
-  }
-  return repoPath.split(/[\\/]+/).filter(Boolean).join("/");
-}
-
 function addExpectedDocPath(expectedDocs, docPath) {
-  const normalized = normalizeRepoPath(docPath);
+  const normalized = normalizeRepoPath(docPath, { nullOnEmpty: true, stripEmptySegments: true });
   if (normalized) {
     expectedDocs.add(normalized);
   }

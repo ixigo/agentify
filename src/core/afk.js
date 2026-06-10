@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import YAML from "yaml";
 
 import { ensureDir, ensurePrivateDir, exists, readText, relative, writePrivateText, writeText } from "./fs.js";
@@ -11,8 +9,7 @@ import { runProjectTests } from "./project-tests.js";
 import { buildProviderTemplateCommand } from "./provider-command.js";
 import { runExec } from "./exec.js";
 import { bold, dim, log, success } from "./ui.js";
-
-const execFileAsync = promisify(execFile);
+import { runGit } from "./utils/exec-helpers.js";
 
 export const AFK_PLAN_TYPE = "agentify-afk-plan";
 export const AFK_PLAN_SCHEMA_VERSION = "1.0";
@@ -331,15 +328,6 @@ function quietReporter() {
     setTests() {},
     async finalize() {},
   };
-}
-
-async function runGit(root, args, options = {}) {
-  const result = await execFileAsync("git", args, {
-    cwd: root,
-    maxBuffer: 1024 * 1024 * 10,
-    ...options,
-  });
-  return result.stdout.trim();
 }
 
 async function getCurrentBranch(root) {

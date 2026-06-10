@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -10,6 +9,7 @@ import { exists } from "./fs.js";
 import { BOOTSTRAP_PROVIDER_NAMES, getProviderBootstrap, getProviderDefinition, stripAnsi } from "./provider-registry.js";
 import { buildSkillInstallHint } from "./skills.js";
 import * as ui from "./ui.js";
+import { runCommandCapture } from "./utils/exec-helpers.js";
 
 export const BOOTSTRAP_PROVIDERS = BOOTSTRAP_PROVIDER_NAMES;
 
@@ -74,40 +74,6 @@ function tailText(text, maxLines = 4) {
     .split(/\r?\n/)
     .slice(-maxLines)
     .join("\n");
-}
-
-async function runCommandCapture(argv, options = {}) {
-  return new Promise((resolve, reject) => {
-    const [cmd, ...args] = argv;
-    const child = spawn(cmd, args, {
-      cwd: options.cwd,
-      env: options.env || process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    const stdout = [];
-    const stderr = [];
-
-    child.stdout.on("data", (chunk) => stdout.push(chunk));
-    child.stderr.on("data", (chunk) => stderr.push(chunk));
-    child.on("error", (error) => {
-      if (error && error.code === "ENOENT") {
-        resolve({ code: 127, stdout: "", stderr: `${cmd}: command not found`, missing: true });
-        return;
-      }
-      reject(error);
-    });
-    child.on("close", (code) => {
-      resolve({
-        code: code ?? 1,
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        missing: false,
-      });
-    });
-
-    child.stdin.end(options.input || "");
-  });
 }
 
 function createPromptAdapter(runtime) {

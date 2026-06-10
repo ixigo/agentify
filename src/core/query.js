@@ -12,10 +12,7 @@ import {
   searchSemanticIndex,
 } from "./db/semantic-store.js";
 import { getChangedFilesSince } from "./git.js";
-
-function normalizePath(filePath) {
-  return String(filePath || "").split(path.sep).join("/");
-}
+import { normalizePath } from "./utils/paths.js";
 
 function findOwningModule(modules, filePath) {
   const normalized = normalizePath(filePath);

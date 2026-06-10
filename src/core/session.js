@@ -7,6 +7,7 @@ import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModules } from "./db/structural-store.js";
 import { resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./project-store.js";
 import { getSessionArtifactPaths } from "./session-memory.js";
+import { bytes, clipToBytes } from "./utils/bytes.js";
 
 function generateSessionId() {
   const now = new Date();
@@ -40,31 +41,6 @@ function resolveSessionDirSafely(root, sessionId, label = "session id") {
     throw new Error(`Invalid ${label}: resolved path escapes \`.agentify/session/\``);
   }
   return sessionDir;
-}
-
-function bytes(value) {
-  return Buffer.byteLength(value, "utf8");
-}
-
-function clipToBytes(value, maxBytes) {
-  const text = String(value || "");
-  if (maxBytes <= 0 || text.length === 0) {
-    return "";
-  }
-  if (bytes(text) <= maxBytes) {
-    return text;
-  }
-
-  let end = text.length;
-  while (end > 0) {
-    const candidate = `${text.slice(0, end).trimEnd()}...`;
-    if (bytes(candidate) <= maxBytes) {
-      return candidate;
-    }
-    end -= 1;
-  }
-
-  return "";
 }
 
 function getSessionLimitKb(config, key, fallbackKb) {

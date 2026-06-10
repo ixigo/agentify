@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import { ensureDir, exists, readJson, writeJson } from "./fs.js";
 import { VERSION } from "./cli-fast-paths.js";
@@ -19,18 +17,9 @@ import {
   resolveAgentifyPaths,
   resolveLocalAgentifyPaths,
 } from "./project-store.js";
+import { runGit } from "./utils/exec-helpers.js";
 
-const execFileAsync = promisify(execFile);
 const MIGRATABLE_SHARED_ARTIFACTS = ["index.db", "cache", "semantic", "context"];
-
-async function runGit(targetPath, args) {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", targetPath, ...args]);
-    return stdout.trim();
-  } catch {
-    throw new Error(`${targetPath} is not inside a git worktree`);
-  }
-}
 
 async function realpathIfPossible(targetPath) {
   try {
@@ -42,8 +31,12 @@ async function realpathIfPossible(targetPath) {
 
 async function resolveGitWorktree(targetPath) {
   const requestedPath = path.resolve(targetPath);
-  const topLevel = path.resolve(await runGit(requestedPath, ["rev-parse", "--show-toplevel"]));
-  const rawCommonDir = await runGit(requestedPath, ["rev-parse", "--git-common-dir"]);
+  const topLevel = path.resolve(await runGit(requestedPath, ["rev-parse", "--show-toplevel"], {
+    failureMessage: `${targetPath} is not inside a git worktree`,
+  }));
+  const rawCommonDir = await runGit(requestedPath, ["rev-parse", "--git-common-dir"], {
+    failureMessage: `${targetPath} is not inside a git worktree`,
+  });
   const gitCommonDir = path.isAbsolute(rawCommonDir)
     ? rawCommonDir
     : path.resolve(topLevel, rawCommonDir);
