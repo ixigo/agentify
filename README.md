@@ -646,4 +646,6 @@ pnpm install
 pnpm test
 ```
 
+Use `git commit --no-verify` to bypass local hooks when needed.
+
 License: [MIT](./LICENSE)

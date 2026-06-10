@@ -18,7 +18,8 @@
     ".": "./src/main.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=20"
@@ -53,5 +54,18 @@
     "typescript": "^6.0.2",
     "yaml": "^2.8.3",
     "yocto-spinner": "^1.1.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4",
+    "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.8.3"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   }
 }
