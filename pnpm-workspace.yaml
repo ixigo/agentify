@@ -1,4 +1,6 @@
+packages:
+  - "."
 allowBuilds:
   better-sqlite3: set this to true or false
-overrides:
-  agentify: 'link:'
+onlyBuiltDependencies:
+  - better-sqlite3
