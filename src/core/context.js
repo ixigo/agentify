@@ -196,7 +196,7 @@ export async function fetchContext(root, filePath, options = {}) {
 
 export { normalizeContextMode };
 
-export function buildRoutedPrompt(basePrompt, memoryMarkdown = "", options = {}) {
+export function buildRoutedPrompt(basePrompt, memoryMarkdown = "", _options = {}) {
   const task = String(basePrompt || "").trim();
   const sections = [
     "You are running in Agentify routed context mode.",

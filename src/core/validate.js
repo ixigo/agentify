@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { getChangedFiles, getFileContentsAtHead, getHeadCommit } from "./git.js";
-import { exists, readJson, relative, walkFiles } from "./fs.js";
+import { exists, relative, walkFiles } from "./fs.js";
 import { splitLicense, stripLeadingAgentifyHeader } from "./headers.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
@@ -60,7 +60,7 @@ function isAllowedPath(filePath) {
   return ALLOWED_DOC_PATHS.some((pattern) => pattern.test(filePath)) || ALLOWED_CODE_EXTENSIONS.test(filePath);
 }
 
-function stripTopAgentifyHeader(source, filePath, headerWindow) {
+function stripTopAgentifyHeader(source, _filePath, _headerWindow) {
   const shebangMatch = source.match(/^#!.*\r?\n/);
   const shebang = shebangMatch ? shebangMatch[0] : "";
   const body = shebang ? source.slice(shebang.length) : source;

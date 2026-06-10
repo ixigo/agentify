@@ -5,7 +5,7 @@ import path from "node:path";
 import ts from "typescript";
 
 import { detectModules, detectStacks } from "./detect.js";
-import { exists, relative, walkFiles } from "./fs.js";
+import { relative, walkFiles } from "./fs.js";
 
 const TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const SOURCE_EXTENSIONS = new Set([

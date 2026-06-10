@@ -12,17 +12,14 @@ import { runProjectTests } from "./project-tests.js";
 import { ensureProjectStore, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./project-store.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
-import { checkSchema, migrateIndex, SCHEMA_VERSIONS } from "./schema.js";
 import { acquireLock, acquireProjectStoreLock } from "./lock.js";
 import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { getArtifact, removeArtifact, upsertArtifact } from "./db/artifact-store.js";
 import {
-  loadCommands,
   loadFiles,
   loadModuleDependencies,
   loadModules,
-  loadTests,
   writeRepositoryIndex,
 } from "./db/structural-store.js";
 import { loadSemanticModuleContext } from "./db/semantic-store.js";
@@ -297,13 +294,6 @@ function buildRenderableIndex(root, meta, modules) {
       note: "symbol spans are stored in .agentify/index.db"
     }
   };
-}
-
-function applyBudgets(files, config) {
-  return applyContentBudget(files, {
-    perFile: config.budgets?.perFile || 8000,
-    totalBudget: config.budgets?.perModule || 32000,
-  });
 }
 
 function applyContentBudget(files, { perFile, totalBudget }) {

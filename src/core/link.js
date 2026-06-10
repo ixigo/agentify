@@ -10,7 +10,6 @@ import {
   LINK_SCHEMA_VERSION,
   STORE_KIND,
   STORE_SCHEMA_VERSION,
-  computeRepoKey,
   describeLocalArtifacts,
   describeSharedArtifacts,
   ensureProjectStore,

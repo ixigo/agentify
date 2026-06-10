@@ -909,13 +909,6 @@ export async function runSemanticRefresh(root, config, options = {}) {
   };
 }
 
-function renderSemanticSurfaceGroups(title, groups, mapper, emptyLine) {
-  if (groups.length === 0) {
-    return `## ${title}\n${emptyLine}`;
-  }
-  return `## ${title}\n${groups.map(mapper).join("\n")}`;
-}
-
 export function renderSemanticRepoMap(root, meta, modules, semanticProjects, routeSurfaces, reactSurfaces) {
   const structuralEntrypoints = modules.flatMap((moduleInfo) => moduleInfo.entry_files || []);
   const projectLines = semanticProjects.length > 0

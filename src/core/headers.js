@@ -153,7 +153,7 @@ export async function updateFileHeader(root, moduleName, filePath, summary, stac
     moduleName,
     summary,
     relativePath: relative(root, absolutePath),
-    stack: syntax === "jsdoc" ? "ts" : syntax === "python" ? "python" : "dotnet",
+    stack: stack || (syntax === "jsdoc" ? "ts" : syntax === "python" ? "python" : "dotnet"),
     eol: detectEol(source)
   });
   const next = applyHeaderToSource(source, header);

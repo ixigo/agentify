@@ -4,7 +4,6 @@ import path from "node:path";
 import { garbageCollect } from "./cache.js";
 import { exists, readJson, relative, walkFiles } from "./fs.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
-import { listArtifacts } from "./db/artifact-store.js";
 import { loadModules } from "./db/structural-store.js";
 import { resolveAgentifyPaths } from "./project-store.js";
 

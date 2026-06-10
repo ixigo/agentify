@@ -654,7 +654,7 @@ export function parseArgs(argv) {
   return args;
 }
 
-export async function runCli(argv, runtime = {}) {
+export async function runCli(argv, _runtime = {}) {
   const args = parseArgs(argv);
   if (args._[0] === "session") {
     args._[0] = "sess";
