@@ -33,7 +33,6 @@ export function refreshSearchIndexIfNeeded(db) {
 export function rebuildSearchIndex(db) {
   db.prepare("DELETE FROM query_search_fts").run();
   rebuildStructuralSearchIndex(db);
-  rebuildSemanticSearchIndex(db);
   setSearchIndexVersion(db);
 }
 
@@ -60,80 +59,6 @@ export function rebuildStructuralSearchIndex(db) {
     INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
     SELECT 'symbol', '${STRUCTURAL_OWNER}', CAST(symbol_id AS TEXT), lower(name || ' ' || file_path)
     FROM symbols;
-  `);
-}
-
-export function clearSemanticProjectSearchIndex(db, projectId) {
-  db.prepare(`
-    DELETE FROM query_search_fts
-    WHERE entity_type IN ('semantic_project', 'semantic_surface', 'semantic_symbol')
-      AND owner_id = ?
-  `).run(projectId);
-}
-
-export function rebuildSemanticProjectSearchIndex(db, projectId) {
-  clearSemanticProjectSearchIndex(db, projectId);
-  db.prepare(`
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_project',
-      project_id,
-      project_id,
-      lower(project_id || ' ' || coalesce(config_path, '') || ' ' || project_root)
-    FROM semantic_projects
-    WHERE project_id = ?
-  `).run(projectId);
-  db.prepare(`
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_surface',
-      project_id,
-      surface_id,
-      lower(file_path || ' ' || kind || ' ' || role || ' ' || surface_key || ' ' || display_name)
-    FROM semantic_surfaces
-    WHERE project_id = ?
-  `).run(projectId);
-  db.prepare(`
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_symbol',
-      project_id,
-      symbol_id,
-      lower(name || ' ' || file_path || ' ' || coalesce(export_name, ''))
-    FROM semantic_symbols
-    WHERE project_id = ?
-  `).run(projectId);
-}
-
-export function rebuildSemanticSearchIndex(db) {
-  db.prepare(`
-    DELETE FROM query_search_fts
-    WHERE entity_type IN ('semantic_project', 'semantic_surface', 'semantic_symbol')
-  `).run();
-  db.exec(`
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_project',
-      project_id,
-      project_id,
-      lower(project_id || ' ' || coalesce(config_path, '') || ' ' || project_root)
-    FROM semantic_projects;
-
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_surface',
-      project_id,
-      surface_id,
-      lower(file_path || ' ' || kind || ' ' || role || ' ' || surface_key || ' ' || display_name)
-    FROM semantic_surfaces;
-
-    INSERT INTO query_search_fts (entity_type, owner_id, entity_id, search_text)
-    SELECT
-      'semantic_symbol',
-      project_id,
-      symbol_id,
-      lower(name || ' ' || file_path || ' ' || coalesce(export_name, ''))
-    FROM semantic_symbols;
   `);
 }
 

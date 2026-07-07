@@ -2,15 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
-import { CONTEXT_MODE_DEFAULT } from "./context-mode.js";
-
 const DEFAULT_CONFIG = {
   provider: "local",
-  providerEnv: {
-    inherit: false,
-    passthrough: [],
-    extra: {},
-  },
   strict: true,
   languages: "auto",
   moduleStrategy: "auto",
@@ -18,51 +11,17 @@ const DEFAULT_CONFIG = {
   ghostMode: false,
   json: false,
   maxFilesPerModule: 20,
-  moduleConcurrency: 4,
-  providerTimeoutMs: 120000,
-  tokenReport: true,
-  docs: true,
-  headers: false,
-  headerWindow: 80,
   topKeyFilesPerModule: 15,
-  budgets: {
-    repo: 128000,
-    perModule: 32000,
-    perFile: 8000,
-    truncation: "ranked",
-  },
   toolchain: {
     zoekt: false,
-    preferNative: false,
-    rtk: {
-      enabled: false,
-      command: "rtk",
-      providerInstruction: false,
-      wrapProjectTests: false,
-    },
   },
   hooks: {
     preCommit: true,
     postMerge: true,
   },
-  cache: {
-    enabled: true,
-    maxAgeDays: 7,
-    maxSizeMb: 100,
-  },
   runtime: {
     store: "local",
     sharedStorePath: null,
-    worktreeAutoLink: false,
-  },
-  context: {
-    mode: CONTEXT_MODE_DEFAULT,
-    routedDefaultProvider: null,
-    compactAfterRun: true,
-    autoPrepareChildAboveKb: 96,
-    maxFetchBytes: 12000,
-    maxSearchResults: 12,
-    allowProviderSummary: true,
   },
   cleanup: {
     keepRuns: 20,
@@ -70,60 +29,6 @@ const DEFAULT_CONFIG = {
     keepGhostRuns: 3,
     maxGhostAgeDays: 3,
     pruneInvalidSessions: true,
-    pruneCache: true,
-  },
-  session: {
-    bootstrapMaxKb: 4,
-    contextMaxKb: 16,
-    memoryPromptMaxKb: 4,
-    memoryTurns: 6,
-    memoryResults: 3,
-    captureMaxKb: 48,
-    runHistoryMax: 10,
-    runSummaryMaxBytes: 256,
-    emitMarkdownArtifacts: true,
-  },
-  planner: {
-    maxModules: 6,
-    maxFiles: 12,
-    maxSymbols: 24,
-    maxTests: 6,
-    maxSourceBytes: 24000,
-    maxInstructionBytes: 6000,
-    maxAdditionalReadsBeforeEdit: 4,
-    maxWidenings: 1,
-    editAfterSelectedContextUnlessBlocked: true,
-  },
-  semantic: {
-    enabled: false,
-    tsjs: {
-      enabled: false,
-      workerConcurrency: 1,
-      timeoutMs: 45000,
-      memoryMb: 1536,
-      analyzerVersion: "semantic-tsjs-v1",
-    },
-    python: {
-      analyzerVersion: "semantic-python-v1",
-    },
-    go: {
-      analyzerVersion: "semantic-go-v1",
-    },
-    java: {
-      analyzerVersion: "semantic-java-v1",
-    },
-    dotnet: {
-      analyzerVersion: "semantic-dotnet-v1",
-    },
-  },
-  tests: {
-    timeoutMs: 600000,
-    outputMaxKb: 48,
-    env: {
-      inherit: false,
-      passthrough: [],
-      extra: {},
-    },
   },
 };
 
@@ -241,31 +146,15 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
 
   const output = {
     provider: config.provider,
-    providerEnv: config.providerEnv,
     strict: config.strict,
     languages: config.languages,
     moduleStrategy: config.moduleStrategy,
-    dryRun: config.dryRun,
     maxFilesPerModule: config.maxFilesPerModule,
-    moduleConcurrency: config.moduleConcurrency,
-    providerTimeoutMs: config.providerTimeoutMs,
-    tokenReport: config.tokenReport,
-    docs: config.docs,
-    headers: config.headers,
-    headerWindow: config.headerWindow,
     topKeyFilesPerModule: config.topKeyFilesPerModule,
-    budgets: config.budgets,
     toolchain: config.toolchain,
     hooks: normalizeConfig(config).hooks,
-    cache: config.cache,
-    context: config.context,
-    cleanup: config.cleanup,
-    context: config.context,
     runtime: config.runtime,
-    session: config.session,
-    planner: config.planner,
-    semantic: config.semantic,
-    tests: config.tests,
+    cleanup: config.cleanup,
   };
 
   const yaml = stringifyYaml(output);
@@ -273,68 +162,5 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
   if (!dryRun) {
     await fs.writeFile(configPath, yaml, "utf8");
   }
-  return configPath;
-}
-
-export async function syncConfigFile(root, config, { dryRun = false } = {}) {
-  const configPath = path.join(root, ".agentify.yaml");
-  let existing = null;
-  let fileConfig = {};
-
-  try {
-    existing = await fs.readFile(configPath, "utf8");
-    fileConfig = parseConfigFile(existing);
-  } catch (error) {
-    if (error && error.code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  const merged = normalizeConfig(deepMerge(DEFAULT_CONFIG, fileConfig));
-  if (!existing && config?.provider) {
-    merged.provider = config.provider;
-  }
-
-  const yaml = stringifyYaml(merged);
-  const changed = !existing || JSON.stringify(fileConfig) !== JSON.stringify(merged);
-
-  if (changed && !dryRun) {
-    await fs.writeFile(configPath, yaml, "utf8");
-  }
-
-  return {
-    path: configPath,
-    existed: Boolean(existing),
-    changed,
-    status: !existing
-      ? dryRun ? "would_create" : "created"
-      : changed
-        ? dryRun ? "would_update" : "updated"
-        : "unchanged",
-  };
-}
-
-export async function persistProviderPreference(root, provider, { dryRun = false } = {}) {
-  const configPath = path.join(root, ".agentify.yaml");
-  let fileConfig = {};
-
-  try {
-    const raw = await fs.readFile(configPath, "utf8");
-    fileConfig = parseConfigFile(raw);
-  } catch (error) {
-    if (error && error.code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  const yaml = stringifyYaml({
-    ...fileConfig,
-    provider,
-  });
-
-  if (!dryRun) {
-    await fs.writeFile(configPath, yaml, "utf8");
-  }
-
   return configPath;
 }

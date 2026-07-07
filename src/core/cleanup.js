@@ -1,11 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { garbageCollect } from "./cache.js";
-import { exists, readJson, relative, walkFiles } from "./fs.js";
-import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
-import { listArtifacts } from "./db/artifact-store.js";
-import { loadModules } from "./db/structural-store.js";
+import { exists } from "./fs.js";
 import { resolveAgentifyPaths } from "./project-store.js";
 
 function toArray(paths) {
@@ -33,102 +29,6 @@ async function listDirs(dirPath) {
   }
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-}
-
-function normalizeRepoPath(repoPath) {
-  if (!repoPath) {
-    return null;
-  }
-  return repoPath.split(/[\\/]+/).filter(Boolean).join("/");
-}
-
-function addExpectedDocPath(expectedDocs, docPath) {
-  const normalized = normalizeRepoPath(docPath);
-  if (normalized) {
-    expectedDocs.add(normalized);
-  }
-}
-
-async function listModuleRootDocs(root) {
-  const docs = [];
-  for (const filePath of await walkFiles(root)) {
-    if (path.basename(filePath) !== "AGENTIFY.md") {
-      continue;
-    }
-    const relativePath = relative(root, filePath);
-    if (
-      relativePath === "AGENTIFY.md" ||
-      relativePath.startsWith(".agentify/") ||
-      relativePath.startsWith(".current_session/") ||
-      relativePath.startsWith("docs/")
-    ) {
-      continue;
-    }
-    docs.push(relativePath);
-  }
-  return docs;
-}
-
-async function pruneOrphanedModuleArtifacts(root, dryRun, agentifyPaths) {
-  const expectedDocs = new Set();
-  const expectedMetadata = new Set();
-  if (await exists(agentifyPaths.indexDb)) {
-    const db = openIndexDatabase(agentifyPaths);
-    try {
-      for (const moduleInfo of loadModules(db)) {
-        addExpectedDocPath(expectedDocs, moduleInfo.doc_path);
-      }
-    } finally {
-      closeIndexDatabase(db);
-    }
-  } else if (await exists(agentifyPaths.legacyIndexJson)) {
-    const legacyIndex = await readJson(agentifyPaths.legacyIndexJson);
-    for (const moduleInfo of legacyIndex.modules || []) {
-      addExpectedDocPath(expectedDocs, moduleInfo.doc_path);
-      if (moduleInfo.metadata_path) {
-        expectedMetadata.add(path.basename(moduleInfo.metadata_path));
-      }
-    }
-  } else {
-    return {
-      removed: [],
-      skipped: "missing-index",
-    };
-  }
-
-  const docsDir = path.join(root, "docs", "modules");
-  const removed = [];
-
-  for (const file of await listFiles(docsDir)) {
-    const relativePath = `docs/modules/${file}`;
-    if (!file.endsWith(".md") || expectedDocs.has(relativePath)) {
-      continue;
-    }
-    await removePath(path.join(docsDir, file), dryRun);
-    removed.push(relativePath);
-  }
-
-  for (const relativePath of await listModuleRootDocs(root)) {
-    if (expectedDocs.has(relativePath)) {
-      continue;
-    }
-    await removePath(path.join(root, relativePath), dryRun);
-    removed.push(relativePath);
-  }
-
-  const metadataDir = agentifyPaths.modulesRoot;
-  for (const file of await listFiles(metadataDir)) {
-    if (!file.endsWith(".json") || expectedMetadata.has(file)) {
-      continue;
-    }
-    await removePath(path.join(metadataDir, file), dryRun);
-    removed.push(`.agentify/modules/${file}`);
-  }
-
-  return {
-    removed: toArray(removed),
-    skipped: null,
-  };
 }
 
 async function pruneRetainedFiles(dirPath, {
@@ -317,7 +217,6 @@ export async function runClean(root, config, options = {}) {
   const cleanSessions = options.sessions === true || options.all === true;
   const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
 
-  const orphaned = await pruneOrphanedModuleArtifacts(root, dryRun, agentifyPaths);
   const runReports = await pruneRetainedFiles(agentifyPaths.runsRoot, {
     keep: cleanupConfig.keepRuns ?? 20,
     maxAgeDays: cleanupConfig.maxRunAgeDays ?? 14,
@@ -335,9 +234,6 @@ export async function runClean(root, config, options = {}) {
   const invalidSessions = await pruneInvalidSessionDirs(root, dryRun, cleanupConfig.pruneInvalidSessions !== false, agentifyPaths);
   const plannedArtifacts = await prunePlannedArtifacts(root, dryRun, cleanPlanned, agentifyPaths);
   const afkSessions = await pruneAfkSessionDirs(root, dryRun, cleanSessions, agentifyPaths);
-  const cacheRemoved = cleanupConfig.pruneCache === false
-    ? 0
-    : (await garbageCollect(agentifyPaths.cacheRoot, config.cache?.maxAgeDays || 7, { dryRun })).removed;
 
   const emptyDirs = [
     ...(await pruneEmptyDirs(path.join(root, "docs", "modules"), dryRun)).map((item) => `docs/modules/${item}`),
@@ -350,7 +246,6 @@ export async function runClean(root, config, options = {}) {
   ];
 
   const removedPaths = toArray([
-    ...orphaned.removed,
     ...runReports,
     ...ghostRuns,
     ...invalidSessions,
@@ -362,16 +257,14 @@ export async function runClean(root, config, options = {}) {
   return {
     command: "clean",
     dry_run: dryRun,
-    removed_count: removedPaths.length + cacheRemoved,
+    removed_count: removedPaths.length,
     removed_paths: removedPaths,
-    removed_cache_blobs: cacheRemoved,
-    orphaned_module_artifacts: orphaned.removed,
     stale_run_reports: runReports,
     stale_ghost_runs: ghostRuns,
     invalid_sessions: invalidSessions,
     planned_artifacts: plannedArtifacts,
     afk_sessions: afkSessions,
     empty_dirs: toArray(emptyDirs),
-    skipped: orphaned.skipped ? ["module-artifacts:no-index"] : [],
+    skipped: [],
   };
 }

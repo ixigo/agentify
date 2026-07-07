@@ -238,15 +238,6 @@ function configureIndexConnection(db, implementation, { readOnly }) {
       FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS artifacts (
-      artifact_key TEXT PRIMARY KEY,
-      artifact_type TEXT NOT NULL,
-      scope TEXT,
-      fingerprint TEXT,
-      payload_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS index_events (
       event_id INTEGER PRIMARY KEY AUTOINCREMENT,
       indexed_at TEXT NOT NULL,
@@ -255,96 +246,6 @@ function configureIndexConnection(db, implementation, { readOnly }) {
       module_count INTEGER NOT NULL,
       symbol_count INTEGER NOT NULL,
       import_count INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_meta (
-      key TEXT PRIMARY KEY,
-      value_json TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_projects (
-      project_id TEXT PRIMARY KEY,
-      config_path TEXT,
-      project_root TEXT NOT NULL,
-      inferred INTEGER NOT NULL DEFAULT 0,
-      analyzer_version TEXT NOT NULL,
-      schema_version TEXT NOT NULL,
-      status TEXT NOT NULL,
-      coverage_ratio REAL NOT NULL DEFAULT 1,
-      file_count INTEGER NOT NULL DEFAULT 0,
-      symbol_count INTEGER NOT NULL DEFAULT 0,
-      surface_count INTEGER NOT NULL DEFAULT 0,
-      edge_count INTEGER NOT NULL DEFAULT 0,
-      content_fingerprint TEXT NOT NULL,
-      public_fingerprint TEXT NOT NULL,
-      refreshed_at TEXT NOT NULL,
-      last_error TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_project_files (
-      project_id TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      domain TEXT NOT NULL,
-      is_header_target INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (project_id, file_path),
-      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_external_packages (
-      project_id TEXT NOT NULL,
-      package_name TEXT NOT NULL,
-      usage_count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (project_id, package_name),
-      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_symbols (
-      symbol_id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      name TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      export_name TEXT,
-      start_line INTEGER NOT NULL,
-      end_line INTEGER NOT NULL,
-      is_exported INTEGER NOT NULL DEFAULT 0,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      domain TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_surfaces (
-      surface_id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      symbol_id TEXT,
-      kind TEXT NOT NULL,
-      role TEXT NOT NULL,
-      surface_key TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      domain TEXT NOT NULL,
-      is_header_target INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE,
-      FOREIGN KEY (symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS semantic_symbol_edges (
-      edge_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      from_symbol_id TEXT,
-      to_symbol_id TEXT,
-      from_file_path TEXT,
-      to_file_path TEXT,
-      to_external_package TEXT,
-      edge_kind TEXT NOT NULL,
-      edge_domain TEXT NOT NULL,
-      confidence REAL NOT NULL DEFAULT 1,
-      source TEXT NOT NULL,
-      metadata_json TEXT,
-      FOREIGN KEY (project_id) REFERENCES semantic_projects(project_id) ON DELETE CASCADE,
-      FOREIGN KEY (from_symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL,
-      FOREIGN KEY (to_symbol_id) REFERENCES semantic_symbols(symbol_id) ON DELETE SET NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_modules_root_path ON modules(root_path);
@@ -356,16 +257,6 @@ function configureIndexConnection(db, implementation, { readOnly }) {
     CREATE INDEX IF NOT EXISTS idx_imports_to_module_id ON imports(to_module_id);
     CREATE INDEX IF NOT EXISTS idx_tests_module_id ON tests(module_id);
     CREATE INDEX IF NOT EXISTS idx_commands_module_id ON commands(module_id);
-    CREATE INDEX IF NOT EXISTS idx_semantic_projects_status ON semantic_projects(status);
-    CREATE INDEX IF NOT EXISTS idx_semantic_project_files_file_path ON semantic_project_files(file_path);
-    CREATE INDEX IF NOT EXISTS idx_semantic_symbols_file_path ON semantic_symbols(file_path);
-    CREATE INDEX IF NOT EXISTS idx_semantic_symbols_project_id ON semantic_symbols(project_id);
-    CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_file_path ON semantic_surfaces(file_path);
-    CREATE INDEX IF NOT EXISTS idx_semantic_surfaces_kind ON semantic_surfaces(kind);
-    CREATE INDEX IF NOT EXISTS idx_semantic_edges_project_id ON semantic_symbol_edges(project_id);
-    CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_symbol_id ON semantic_symbol_edges(to_symbol_id, edge_kind);
-    CREATE INDEX IF NOT EXISTS idx_semantic_edges_from_file_path ON semantic_symbol_edges(from_file_path);
-    CREATE INDEX IF NOT EXISTS idx_semantic_edges_to_file_path ON semantic_symbol_edges(to_file_path);
   `);
   createSearchSchema(db);
 

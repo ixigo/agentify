@@ -99,38 +99,19 @@ function loadImportEdges(db) {
     }));
   });
 
-  const semantic = normalizeRows(db.prepare(`
-    SELECT from_file_path, to_file_path, edge_kind, edge_domain, confidence
-    FROM semantic_symbol_edges
-    WHERE from_file_path IS NOT NULL
-      AND to_file_path IS NOT NULL
-    ORDER BY from_file_path, to_file_path, edge_kind, edge_domain
-  `).all()).map((row) => ({
-    from: row.from_file_path,
-    to: row.to_file_path,
-    kind: `semantic:${row.edge_domain}:${row.edge_kind}`,
-    source: "semantic",
-    confidence: row.confidence ?? 1,
-  }));
-
-  return [...structural, ...semantic];
+  return structural;
 }
 
-function loadSemanticFacts(db) {
+function loadFileFacts(db) {
   const edgeRows = normalizeRows(db.prepare(`
-    SELECT from_file_path, to_file_path, edge_domain, confidence
-    FROM semantic_symbol_edges
-    WHERE from_file_path IS NOT NULL
-    ORDER BY from_file_path, to_file_path
-  `).all());
-  const surfaceRows = normalizeRows(db.prepare(`
-    SELECT file_path, kind, role, surface_key, display_name
-    FROM semantic_surfaces
-    ORDER BY file_path, kind, role, surface_key
+    SELECT from_path, to_path
+    FROM imports
+    WHERE to_path IS NOT NULL
+    ORDER BY from_path, to_path
   `).all());
   const symbolRows = normalizeRows(db.prepare(`
-    SELECT symbol_id, file_path, name, kind, export_name, is_exported, start_line, end_line
-    FROM semantic_symbols
+    SELECT symbol_id, file_path, name, kind, exported, start_line, end_line
+    FROM symbols
     ORDER BY file_path, start_line, name
   `).all());
 
@@ -141,9 +122,6 @@ function loadSemanticFacts(db) {
       byFile.set(normalized, {
         incoming: 0,
         outgoing: 0,
-        runtimeIncoming: 0,
-        runtimeOutgoing: 0,
-        surfaces: [],
         exportedSymbols: [],
       });
     }
@@ -151,37 +129,23 @@ function loadSemanticFacts(db) {
   }
 
   for (const row of edgeRows) {
-    if (row.from_file_path) {
-      const facts = ensure(row.from_file_path);
-      facts.outgoing += Number(row.confidence ?? 1);
-      if (row.edge_domain === "runtime") facts.runtimeOutgoing += Number(row.confidence ?? 1);
+    if (row.from_path) {
+      ensure(row.from_path).outgoing += 1;
     }
-    if (row.to_file_path) {
-      const facts = ensure(row.to_file_path);
-      facts.incoming += Number(row.confidence ?? 1);
-      if (row.edge_domain === "runtime") facts.runtimeIncoming += Number(row.confidence ?? 1);
+    if (row.to_path) {
+      ensure(row.to_path).incoming += 1;
     }
-  }
-
-  for (const row of surfaceRows) {
-    ensure(row.file_path).surfaces.push({
-      kind: row.kind,
-      role: row.role,
-      surface_key: row.surface_key,
-      display_name: row.display_name,
-    });
   }
 
   for (const row of symbolRows) {
-    if (!row.is_exported) continue;
+    if (!row.exported) continue;
     ensure(row.file_path).exportedSymbols.push({
       symbol_id: row.symbol_id,
       name: row.name,
       kind: row.kind,
-      export_name: row.export_name,
       start_line: row.start_line,
       end_line: row.end_line,
-      source: "semantic",
+      source: "structural",
     });
   }
 
@@ -274,33 +238,25 @@ function fileSignal(fileInfo) {
   return score;
 }
 
-function computeFileRisk(change, fileInfo, graphStats, semanticFacts) {
-  const semantic = semanticFacts || {
+function computeFileRisk(change, fileInfo, graphStats, fileFacts) {
+  const facts = fileFacts || {
     incoming: 0,
     outgoing: 0,
-    runtimeIncoming: 0,
-    runtimeOutgoing: 0,
-    surfaces: [],
     exportedSymbols: [],
   };
   const incoming = graphStats.incoming || 0;
   const outgoing = graphStats.outgoing || 0;
-  const semanticCentrality = semantic.runtimeIncoming * 5
-    + semantic.runtimeOutgoing * 2
-    + Math.max(0, semantic.incoming - semantic.runtimeIncoming) * 2
-    + Math.max(0, semantic.outgoing - semantic.runtimeOutgoing);
-  const surfaceScore = semantic.surfaces.length * 12;
-  const exportScore = Math.min(12, semantic.exportedSymbols.length * 3);
+  const centrality = facts.incoming * 2 + facts.outgoing;
+  const exportScore = Math.min(12, facts.exportedSymbols.length * 3);
   const fanoutScore = incoming * 6 + outgoing * 2;
   return {
     base: 10,
     status: statusWeight(change.status),
     file_signal: fileSignal(fileInfo),
     dependency_fanout: fanoutScore,
-    semantic_centrality: semanticCentrality,
-    semantic_surface: surfaceScore,
+    centrality,
     exported_api: exportScore,
-    total: 10 + statusWeight(change.status) + fileSignal(fileInfo) + fanoutScore + semanticCentrality + surfaceScore + exportScore,
+    total: 10 + statusWeight(change.status) + fileSignal(fileInfo) + fanoutScore + centrality + exportScore,
   };
 }
 
@@ -370,7 +326,7 @@ function buildImpactedModules(modules, impactedFiles, changedByPath, filesByPath
     .sort((left, right) => right.score - left.score || left.module_id.localeCompare(right.module_id));
 }
 
-function collectImpactedSymbols(symbols, semanticFactsByFile, impactedFiles) {
+function collectImpactedSymbols(symbols, impactedFiles) {
   const impactedSet = new Set(impactedFiles.map((fileInfo) => fileInfo.path));
   const structuralSymbols = symbols
     .filter((symbol) => impactedSet.has(symbol.file_path) && symbol.exported)
@@ -383,24 +339,9 @@ function collectImpactedSymbols(symbols, semanticFactsByFile, impactedFiles) {
       end_line: symbol.end_line,
       source: "structural",
     }));
-  const semanticSymbols = [];
-  for (const filePath of impactedSet) {
-    const facts = semanticFactsByFile.get(filePath);
-    for (const symbol of facts?.exportedSymbols || []) {
-      semanticSymbols.push({
-        name: symbol.name,
-        kind: symbol.kind,
-        file_path: filePath,
-        module_id: null,
-        start_line: symbol.start_line,
-        end_line: symbol.end_line,
-        source: "semantic",
-      });
-    }
-  }
 
   const deduped = new Map();
-  for (const symbol of [...structuralSymbols, ...semanticSymbols]) {
+  for (const symbol of structuralSymbols) {
     const key = `${symbol.file_path}:${symbol.name}:${symbol.kind}`;
     if (!deduped.has(key)) {
       deduped.set(key, symbol);
@@ -464,7 +405,7 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
     .filter((item, index, list) => list.findIndex((candidate) => candidate.command_line === item.command_line) === index);
 }
 
-function buildReasons(changedFileScores, impactedModules, semanticFactsByFile) {
+function buildReasons(changedFileScores, impactedModules) {
   const reasons = [];
   const topFile = [...changedFileScores]
     .sort((left, right) => right.score.total - left.score.total || left.path.localeCompare(right.path))[0];
@@ -473,15 +414,12 @@ function buildReasons(changedFileScores, impactedModules, semanticFactsByFile) {
     if (topFile.score.dependency_fanout > 0) {
       reasons.push("Dependency fan-out reaches files that import the changed code.");
     }
-    if (topFile.score.semantic_centrality > 0) {
-      reasons.push("Semantic edge centrality indicates runtime/type relationships around changed files.");
+    if (topFile.score.centrality > 0) {
+      reasons.push("Import centrality indicates other files depend on the changed code.");
     }
   }
   if (impactedModules.length > 1) {
     reasons.push(`Changes cross ${impactedModules.length} impacted modules.`);
-  }
-  if (changedFileScores.some((item) => (semanticFactsByFile.get(item.path)?.surfaces || []).length > 0)) {
-    reasons.push("At least one changed file owns a semantic surface.");
   }
   return reasons.sort();
 }
@@ -497,7 +435,7 @@ export async function buildRiskReport(root, options = {}) {
     const commands = loadCommands(db);
     const edges = loadImportEdges(db);
     const filesByPath = new Map(files.map((fileInfo) => [fileInfo.path, fileInfo]));
-    const semanticFactsByFile = loadSemanticFacts(db);
+    const fileFactsByPath = loadFileFacts(db);
     const graph = buildGraph(edges);
     const graphStats = collectGraphStats(edges);
     const changedFiles = (options.changedFiles
@@ -525,12 +463,12 @@ export async function buildRiskReport(root, options = {}) {
           change,
           fileInfo,
           graphStats.get(change.path) || { incoming: 0, outgoing: 0 },
-          semanticFactsByFile.get(change.path)
+          fileFactsByPath.get(change.path)
         ),
       };
     });
     const impactedModules = buildImpactedModules(modules, impactedFiles, changedByPath, filesByPath);
-    const impactedSymbols = collectImpactedSymbols(symbols, semanticFactsByFile, impactedFiles);
+    const impactedSymbols = collectImpactedSymbols(symbols, impactedFiles);
     const rawScore = changedFileScores.reduce((total, item) => total + item.score.total, 0)
       + impactedFiles.filter((item) => item.distance > 0).length * 4
       + impactedModules.length * 4;
@@ -545,7 +483,7 @@ export async function buildRiskReport(root, options = {}) {
       risk: {
         score,
         level: riskLevel(score),
-        reasons: buildReasons(changedFileScores, impactedModules, semanticFactsByFile),
+        reasons: buildReasons(changedFileScores, impactedModules),
       },
       impacted: {
         modules: impactedModules,

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { writePrivateJson, writePrivateText } from "./fs.js";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
-import { redactSensitiveText } from "./session-memory.js";
+import { redactSensitiveText } from "./redact.js";
 import * as ui from "./ui.js";
 
 function escapeHtml(value) {

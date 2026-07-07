@@ -2,15 +2,8 @@ import path from "node:path";
 
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadModuleDependencies, loadModules, searchIndex } from "./db/structural-store.js";
+import { normalizeRows } from "./db/utils.js";
 import { resolveAgentifyPaths } from "./project-store.js";
-import {
-  loadSemanticFileContext,
-  loadSemanticInternalEdges,
-  loadSemanticModuleDependencies,
-  loadSemanticReferencesToSymbols,
-  resolveSemanticSymbols,
-  searchSemanticIndex,
-} from "./db/semantic-store.js";
 import { getChangedFilesSince } from "./git.js";
 
 function normalizePath(filePath) {
@@ -32,77 +25,50 @@ function findOwningModule(modules, filePath) {
   return null;
 }
 
+function loadSymbolsByName(db, symbol) {
+  const rows = db.prepare(`
+    SELECT module_id, file_path, name, kind, exported, start_line, end_line
+    FROM symbols
+    WHERE name = ?
+    ORDER BY exported DESC, file_path ASC, start_line ASC
+  `).all(String(symbol));
+  return normalizeRows(rows);
+}
+
+function loadImportEdges(db) {
+  const rows = db.prepare(`
+    SELECT from_path, to_path, specifier, kind
+    FROM imports
+    WHERE to_path IS NOT NULL
+  `).all();
+  return normalizeRows(rows);
+}
+
+function loadImportersOf(db, filePaths) {
+  if (filePaths.length === 0) {
+    return [];
+  }
+  const placeholders = filePaths.map(() => "?").join(", ");
+  const rows = db.prepare(`
+    SELECT from_path, to_path, specifier, kind
+    FROM imports
+    WHERE to_path IN (${placeholders})
+    ORDER BY from_path ASC
+  `).all(...filePaths);
+  return normalizeRows(rows);
+}
+
 function symbolResolution(symbol, definitions) {
   return {
     symbol,
     ambiguous: definitions.length > 1,
     definitions,
     message: definitions.length === 0
-      ? "No semantic symbol found"
+      ? "No indexed symbol found; run `agentify scan` if the index may be stale"
       : definitions.length > 1
-        ? "Multiple semantic symbols matched; results include all candidates in deterministic order"
+        ? "Multiple symbols matched; results include all candidates in deterministic order"
         : undefined,
   };
-}
-
-function edgeRank(edge) {
-  const kindScore = {
-    calls: 100,
-    renders: 90,
-    references: 75,
-    imports: 50,
-    "re-exports": 45,
-  }[edge.edge_kind] || 25;
-  const domainScore = edge.edge_domain === "runtime" ? 10 : 0;
-  return kindScore + domainScore + Number(edge.confidence || 0);
-}
-
-function rankedReferences(edges) {
-  return edges
-    .map((edge) => ({
-      rank: edgeRank(edge),
-      edge_kind: edge.edge_kind,
-      edge_domain: edge.edge_domain,
-      confidence: edge.confidence,
-      from: edge.from,
-      to: edge.to,
-      metadata: edge.metadata,
-    }))
-    .sort((left, right) => {
-      const rankDelta = right.rank - left.rank;
-      if (rankDelta !== 0) return rankDelta;
-      const fileDelta = String(left.from.file_path || "").localeCompare(String(right.from.file_path || ""));
-      if (fileDelta !== 0) return fileDelta;
-      return Number(left.from.start_line || 0) - Number(right.from.start_line || 0);
-    });
-}
-
-function uniqueCallers(edges) {
-  const callers = new Map();
-  for (const ref of rankedReferences(edges.filter((edge) => ["calls", "renders"].includes(edge.edge_kind)))) {
-    const key = ref.from.symbol_id || ref.from.file_path;
-    const existing = callers.get(key);
-    if (!existing || ref.rank > existing.rank) {
-      callers.set(key, {
-        rank: ref.rank,
-        edge_kind: ref.edge_kind,
-        edge_domain: ref.edge_domain,
-        symbol_id: ref.from.symbol_id,
-        name: ref.from.name,
-        kind: ref.from.kind,
-        file_path: ref.from.file_path,
-        start_line: ref.from.start_line,
-        end_line: ref.from.end_line,
-      });
-    }
-  }
-  return Array.from(callers.values()).sort((left, right) => {
-    const rankDelta = right.rank - left.rank;
-    if (rankDelta !== 0) return rankDelta;
-    const fileDelta = String(left.file_path || "").localeCompare(String(right.file_path || ""));
-    if (fileDelta !== 0) return fileDelta;
-    return Number(left.start_line || 0) - Number(right.start_line || 0);
-  });
 }
 
 function normalizeDepth(depth) {
@@ -113,33 +79,16 @@ function normalizeDepth(depth) {
   return Math.min(Math.floor(parsed), 6);
 }
 
-function impactEdgeTargetFile(edge) {
-  return edge.to.file_path || null;
-}
-
-function summarizeImpactVia(edge) {
-  return {
-    edge_kind: edge.edge_kind,
-    edge_domain: edge.edge_domain,
-    confidence: edge.confidence,
-    from_file_path: edge.from.file_path,
-    from_symbol: edge.from.name,
-    to_file_path: impactEdgeTargetFile(edge),
-    to_symbol: edge.to.name,
-  };
-}
-
 function computeImpacts(filePath, edges, maxDepth) {
-  const incomingByTargetFile = new Map();
+  const importersByTarget = new Map();
   for (const edge of edges) {
-    const targetFile = impactEdgeTargetFile(edge);
-    if (!targetFile || !edge.from.file_path || edge.from.file_path === targetFile) {
+    if (!edge.to_path || !edge.from_path || edge.from_path === edge.to_path) {
       continue;
     }
-    if (!incomingByTargetFile.has(targetFile)) {
-      incomingByTargetFile.set(targetFile, []);
+    if (!importersByTarget.has(edge.to_path)) {
+      importersByTarget.set(edge.to_path, []);
     }
-    incomingByTargetFile.get(targetFile).push(edge);
+    importersByTarget.get(edge.to_path).push(edge);
   }
 
   const visited = new Set([filePath]);
@@ -149,15 +98,19 @@ function computeImpacts(filePath, edges, maxDepth) {
   for (let depth = 1; depth <= maxDepth && frontier.size > 0; depth += 1) {
     const next = new Set();
     for (const target of frontier) {
-      const incoming = incomingByTargetFile.get(target) || [];
-      for (const edge of incoming) {
-        const impactedFile = edge.from.file_path;
+      for (const edge of importersByTarget.get(target) || []) {
+        const impactedFile = edge.from_path;
         if (!impactedFile || visited.has(impactedFile)) {
           continue;
         }
-        const score = Math.round(((maxDepth - depth + 1) * 100 + edgeRank(edge)) * 100) / 100;
+        const score = (maxDepth - depth + 1) * 100;
+        const via = {
+          kind: `import:${edge.kind}`,
+          from_file_path: edge.from_path,
+          to_file_path: edge.to_path,
+          specifier: edge.specifier,
+        };
         const existing = impacts.get(impactedFile);
-        const via = summarizeImpactVia(edge);
         if (!existing) {
           impacts.set(impactedFile, {
             file_path: impactedFile,
@@ -209,7 +162,6 @@ export async function queryOwner(root, filePath, options = {}) {
       module_root: owner.root_path,
       doc_path: owner.doc_path,
       stack: owner.stack,
-      semantic: loadSemanticFileContext(db, normalized),
     };
   } finally {
     closeIndexDatabase(db);
@@ -225,13 +177,10 @@ export async function queryDeps(root, moduleId, options = {}) {
       return { module_id: moduleId, error: "Module not found" };
     }
     const deps = loadModuleDependencies(db, moduleId);
-    const semanticDeps = loadSemanticModuleDependencies(db, moduleId);
     return {
       module_id: moduleId,
       depends_on: deps.dependsOn,
       used_by: deps.usedBy,
-      semantic_depends_on: semanticDeps.dependsOn,
-      semantic_used_by: semanticDeps.usedBy,
     };
   } finally {
     closeIndexDatabase(db);
@@ -275,11 +224,9 @@ export async function queryChanged(root, sinceCommit, options = {}) {
 export async function querySearch(root, term, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
-    const semantic = searchSemanticIndex(db, term);
     return {
       term,
       ...searchIndex(db, term),
-      ...semantic,
     };
   } finally {
     closeIndexDatabase(db);
@@ -289,7 +236,7 @@ export async function querySearch(root, term, options = {}) {
 export async function queryDef(root, symbol, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
-    return symbolResolution(symbol, resolveSemanticSymbols(db, symbol));
+    return symbolResolution(symbol, loadSymbolsByName(db, symbol));
   } finally {
     closeIndexDatabase(db);
   }
@@ -298,11 +245,14 @@ export async function queryDef(root, symbol, options = {}) {
 export async function queryRefs(root, symbol, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
-    const definitions = resolveSemanticSymbols(db, symbol);
-    const references = rankedReferences(loadSemanticReferencesToSymbols(
-      db,
-      definitions.map((definition) => definition.symbol_id)
-    ));
+    const definitions = loadSymbolsByName(db, symbol);
+    const definingFiles = [...new Set(definitions.map((definition) => definition.file_path))];
+    const references = loadImportersOf(db, definingFiles).map((edge) => ({
+      kind: `import:${edge.kind}`,
+      file_path: edge.from_path,
+      imports: edge.to_path,
+      specifier: edge.specifier,
+    }));
     return {
       ...symbolResolution(symbol, definitions),
       references,
@@ -313,20 +263,14 @@ export async function queryRefs(root, symbol, options = {}) {
 }
 
 export async function queryCallers(root, symbol, options = {}) {
-  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
-  try {
-    const definitions = resolveSemanticSymbols(db, symbol);
-    const edges = loadSemanticReferencesToSymbols(
-      db,
-      definitions.map((definition) => definition.symbol_id)
-    );
-    return {
-      ...symbolResolution(symbol, definitions),
-      callers: uniqueCallers(edges),
-    };
-  } finally {
-    closeIndexDatabase(db);
-  }
+  const result = await queryRefs(root, symbol, options);
+  return {
+    symbol: result.symbol,
+    ambiguous: result.ambiguous,
+    definitions: result.definitions,
+    ...(result.message ? { message: result.message } : {}),
+    callers: result.references,
+  };
 }
 
 export async function queryImpacts(root, filePath, options = {}) {
@@ -337,7 +281,7 @@ export async function queryImpacts(root, filePath, options = {}) {
     return {
       file: normalized,
       depth,
-      impacts: computeImpacts(normalized, loadSemanticInternalEdges(db), depth),
+      impacts: computeImpacts(normalized, loadImportEdges(db), depth),
     };
   } finally {
     closeIndexDatabase(db);

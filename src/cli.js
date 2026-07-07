@@ -6,7 +6,9 @@ const args = process.argv.slice(2);
 const isJson = args.includes("--json");
 const isHelp = isHelpRequest(args);
 const isVersion = isVersionRequest(args);
-const isCompletion = args.includes("completion");
+// Quiet commands run inside Claude Code hooks or shell completion; the banner
+// would pollute their output.
+const isQuiet = args.includes("completion") || args[0] === "ctx";
 
 async function main() {
   if (await handleFastPath(args)) {
@@ -15,7 +17,7 @@ async function main() {
 
   const { banner, error, dim } = await import("./core/ui.js");
 
-  if (!isJson && !isHelp && !isVersion && !isCompletion) {
+  if (!isJson && !isHelp && !isVersion && !isQuiet) {
     banner();
   }
 

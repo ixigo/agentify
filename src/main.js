@@ -1,15 +1,23 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { applyCavemanPreamble, resolveCavemanLevel } from "./core/caveman.js";
-import { loadConfig, persistProviderPreference, writeDefaultConfig } from "./core/config.js";
-import { ensureBaselineArtifacts, runDoc, runScan, runUpdate, runValidate } from "./core/commands.js";
-import { runExec } from "./core/exec.js";
-import { writeHandoffBundle } from "./core/handoff.js";
+import { loadConfig, writeDefaultConfig } from "./core/config.js";
+import { ensureBaselineArtifacts, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
-import { linkProject } from "./core/link.js";
-import { buildRoutedPrompt, fetchContext, normalizeContextMode as normalizeSessionContextMode, searchContext } from "./core/context.js";
+import {
+  claudeIntegrationStatus,
+  installClaudeIntegration,
+  uninstallClaudeIntegration,
+} from "./core/claude-install.js";
+import {
+  addNote,
+  contextStatus,
+  loadContextSnapshot,
+  readHookPayload,
+  renderContextDigest,
+  trackEvent,
+  writeHandoff,
+} from "./core/ctx.js";
 import {
   queryCallers,
   queryChanged,
@@ -21,202 +29,13 @@ import {
   querySearch,
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
-import { buildExecutionPlan, renderPlanExplanation } from "./core/planner.js";
-import { forkSession, listSessions, maybePrepareChildSession, resolveSessionProvider, resumeSession, validateSessionId } from "./core/session.js";
-import { compactSessionContext, loadAutomaticRunMemory, loadAutomaticSessionMemory } from "./core/session-memory.js";
 import { runDoctor } from "./core/toolchain.js";
-import { cleanCache, garbageCollect, cacheStatus, hasSharedStoreLocks } from "./core/cache.js";
 import { runClean } from "./core/cleanup.js";
-import { acquireProjectStoreLock } from "./core/lock.js";
-import { runAfk } from "./core/afk.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
-import { runSemanticRefresh } from "./core/semantic.js";
-import { runIssueKiller } from "./core/issue-killer.js";
-import { SUPPORTED_PROVIDERS, assertSupportedProvider, buildProviderTemplateCommand } from "./core/provider-command.js";
-import { runRepoSync } from "./core/repo-sync.js";
-import { buildRtkProviderInstruction, detectRtk, formatRtkUnavailableMessage, resolveRtkConfig } from "./core/rtk.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
-import { runBootstrapCommand } from "./core/bootstrap.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
-import { detectGitWorktree, readLink, resolveAgentifyPaths, resolveLocalAgentifyPaths } from "./core/project-store.js";
-import {
-  CONTEXT_MODE_DEFAULT,
-  normalizeContextMode,
-  toPlannerContextMode,
-} from "./core/context-mode.js";
+import { resolveAgentifyPaths } from "./core/project-store.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
-
-const WORKTREE_RUNTIME_COMMANDS = new Set(["up", "scan", "index", "run", "sess", "afk", "check"]);
-
-async function ensureLinkTargetPolicy(root, config) {
-  await writeDefaultConfig(root, config, { dryRun: config.dryRun });
-  await ensureBaselineArtifacts(root, config);
-}
-
-function renderAutoLinkSummary(result) {
-  log(`Current worktree: ${result.root}`);
-  log(`Git common dir:  ${result.git_common_dir}`);
-  log(`Project store:   ${result.project_store}`);
-  log("");
-  log("Shared artifacts:");
-  for (const name of result.shared_artifacts || []) {
-    log(`  - ${name}`);
-  }
-  log("Local artifacts:");
-  for (const name of result.local_artifacts || []) {
-    log(`  - ${name}`);
-  }
-  if (result.migration) {
-    log("");
-    if (result.migration.migrated?.length > 0) {
-      log("Migrated reusable artifacts:");
-      for (const item of result.migration.migrated) {
-        log(`  - ${item.artifact}: ${item.source} -> ${item.target}`);
-      }
-    } else if (result.migration.mode === "none") {
-      log("Migration: skipped (--migrate=none)");
-    } else {
-      log("Migration: no reusable local artifacts copied");
-    }
-    for (const warning of result.migration.warnings || []) {
-      log(`Warning: ${warning}`);
-    }
-  }
-}
-
-function renderLinkStatus(result) {
-  log("Agentify runtime status");
-  log("");
-  log(`Mode:            ${result.runtime_mode}`);
-  log(`Current root:    ${result.root}`);
-  log(`Runtime root:    ${result.runtime_root}`);
-  log(`Project store:   ${result.project_store}`);
-  if (result.git_common_dir) {
-    log(`Git common dir:  ${result.git_common_dir}`);
-  }
-  if (result.repo_key) {
-    log(`Repo key:        ${result.repo_key}`);
-  }
-  log("");
-  if (!result.link_present) {
-    log("Link file:       (none)");
-  } else if (!result.link_valid) {
-    log(`Link file:       invalid (${result.link_invalid_reason || "unknown"})`);
-  } else {
-    log("Link file:       ok");
-  }
-  if (result.store_meta) {
-    log(`Store created:   ${result.store_meta.created_at || "?"}`);
-    log(`Store last used: ${result.store_meta.last_used_at || "?"}`);
-  }
-}
-
-function shouldUseSharedStoreInit(args, command) {
-  return command === "init" && args.sharedStore !== false;
-}
-
-function enableSharedStoreConfig(config) {
-  config.runtime = {
-    ...(config.runtime || {}),
-    store: "shared",
-    worktreeAutoLink: true,
-  };
-}
-
-async function maybeWriteWorktreeHint(root, config) {
-  if (config.json || config.dryRun || process.env.AGENTIFY_NO_WORKTREE_HINT === "1") {
-    return;
-  }
-
-  const markerPath = path.join(root, ".agentify", ".worktree-hint");
-  try {
-    await fs.access(markerPath);
-    return;
-  } catch (error) {
-    if (error && error.code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  await fs.mkdir(path.dirname(markerPath), { recursive: true });
-  await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
-  log("Detected Git worktree. To reuse repo maps across worktrees, run:");
-  log("  agentify link --auto");
-}
-
-async function maybePrepareWorktreeRuntime(root, config, command) {
-  if (!WORKTREE_RUNTIME_COMMANDS.has(command)) {
-    return;
-  }
-
-  const localPaths = resolveLocalAgentifyPaths(root);
-  const link = await readLink(localPaths.linkPath);
-  if (link.present) {
-    return;
-  }
-
-  const worktree = await detectGitWorktree(root);
-  if (!worktree.isLinkedWorktree) {
-    return;
-  }
-
-  if (config.runtime?.worktreeAutoLink === true) {
-    const result = await linkProject(root, {
-      auto: true,
-      migrate: "auto",
-      dryRun: config.dryRun,
-      config,
-      prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
-    });
-    if (!config.json && result.changed) {
-      log(`Linked Git worktree to shared Agentify store: ${result.project_store}`);
-    }
-    return;
-  }
-
-  if (String(config.runtime?.store || "local").trim().toLowerCase() === "local") {
-    await maybeWriteWorktreeHint(root, config);
-  }
-}
-
-function buildCacheStatus(paths, status) {
-  return {
-    ...status,
-    store: paths.mode === "shared" ? "shared" : "local",
-    cache_root: paths.cacheRoot,
-    runtime_root: paths.runtimeRoot,
-    project_store: paths.projectStore,
-  };
-}
-
-function cacheCleanTargets(root, agentifyPaths, args) {
-  const localPaths = resolveLocalAgentifyPaths(root);
-  const wantsLocal = args.local === true;
-  const wantsShared = args.shared === true;
-  const wantsAll = args.all === true;
-  const selectedCount = [wantsLocal, wantsShared, wantsAll].filter(Boolean).length;
-  if (selectedCount !== 1) {
-    throw new Error("cache clean requires exactly one of --local, --shared, or --all");
-  }
-  if ((wantsShared || wantsAll) && agentifyPaths.mode !== "shared") {
-    throw new Error("cache clean --shared requires a linked or shared Agentify project store");
-  }
-  if (wantsAll && !args.dryRun && args.yes !== true) {
-    throw new Error("cache clean --all requires --yes unless --dry-run is used");
-  }
-
-  const targets = [];
-  if (wantsLocal || wantsAll) {
-    targets.push({ store: "local", cacheRoot: localPaths.cacheRoot, shared: false });
-  }
-  if (wantsShared || wantsAll) {
-    const alreadyIncluded = targets.some((target) => target.cacheRoot === agentifyPaths.cacheRoot);
-    if (!alreadyIncluded) {
-      targets.push({ store: "shared", cacheRoot: agentifyPaths.cacheRoot, shared: true });
-    }
-  }
-  return targets;
-}
 
 function parseValue(raw) {
   if (raw === "true") {
@@ -235,52 +54,14 @@ const BOOLEAN_FLAGS = new Set([
   "dryRun",
   "ghost",
   "json",
-  "interactive",
-  "docs",
-  "headers",
-  "semantic",
-  "failOnStale",
-  "skipRefresh",
-  "explainPlan",
-  "explain",
-  "allowPartial",
-  "reuseSession",
-  "bypassPermissions",
   "hook",
-  "withContext",
-  "continue",
-  "resume",
-  "rtk",
-  "currentWorktree",
-  "allowDirty",
-  "noCommit",
+  "failOnStale",
+  "force",
+  "global",
   "planned",
   "sessions",
   "all",
-  "auto",
-  "status",
-  "force",
-  "sharedStore",
-]);
-
-const DEFAULT_SESSION_TASK = "Continue this session from the latest repository state.";
-const NO_TASK_PROVIDER_INSTRUCTION = "No task was provided. Do not infer a task or continue prior work. Use this context only to orient yourself, then ask the user what task they want to work on before making changes.";
-const RESUME_PROVIDER_INSTRUCTION = "Resume mode is active. Use the previous provider or Agentify session context for continuity. If the next step is unclear, ask the user what to do next before making changes.";
-const CAVEMAN_FLAG_VALUES = new Set([
-  "lite",
-  "full",
-  "ultra",
-  "wenyan",
-  "wenyan-lite",
-  "wenyan-full",
-  "wenyan-ultra",
-  "true",
-  "false",
-  "1",
-  "0",
-  "off",
-  "normal",
-  "none",
+  "strict",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -289,19 +70,6 @@ function toCamelCaseFlag(key) {
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
-function isProviderStickyCommand(command, subcommand) {
-  return command === "run" || command === "exec" || (command === "sess" && ["run", "resume", "fork"].includes(subcommand || ""));
-}
-
-function normalizeProvider(value) {
-  const provider = String(value || "").trim();
-  if (!provider || provider === "true") {
-    throw new Error(`--provider requires a value. Supported providers: ${SUPPORTED_PROVIDERS.join(", ")}`);
-  }
-  assertSupportedProvider(provider);
-  return provider;
 }
 
 function normalizeOptionalSince(args, commandName) {
@@ -315,33 +83,6 @@ function normalizeOptionalSince(args, commandName) {
   return since;
 }
 
-async function maybePersistProvider(root, config, args, command, subcommand) {
-  if (command === "skill" || command === "skills") {
-    return;
-  }
-
-  if (!hasOwn(args, "provider")) {
-    return;
-  }
-
-  const provider = normalizeProvider(args.provider);
-  config.provider = provider;
-
-  if (isProviderStickyCommand(command, subcommand)) {
-    await persistProviderPreference(root, provider, { dryRun: config.dryRun });
-  }
-}
-
-function getExecFlags(args, extras = {}) {
-  return {
-    failOnStale: args.failOnStale || false,
-    timeout: args.timeout || null,
-    skipRefresh: args.skipRefresh || false,
-    skipCodeBodyChanges: args.hook === true,
-    ...extras,
-  };
-}
-
 function isMissingIndexError(error) {
   return error instanceof Error && /missing index database at /.test(error.message);
 }
@@ -353,24 +94,16 @@ function isInvalidIndexDatabaseError(error) {
   );
 }
 
-function createMissingIndexGuidance(root) {
-  return new Error(
-    `Agentify index missing for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" before using plan/query/context commands.`
-  );
-}
-
-function createInvalidIndexGuidance(root) {
-  return new Error(
-    `Agentify index unreadable for ${root}. Run "agentify scan --root ${root}" or "agentify up --root ${root}" to rebuild it before using plan/query/context commands.`
-  );
-}
-
 function throwWithIndexGuidance(error, root) {
   if (isMissingIndexError(error)) {
-    throw createMissingIndexGuidance(root);
+    throw new Error(
+      `Agentify index missing for ${root}. Run "agentify scan --root ${root}" before using query/risk commands.`
+    );
   }
   if (isInvalidIndexDatabaseError(error)) {
-    throw createInvalidIndexGuidance(root);
+    throw new Error(
+      `Agentify index unreadable for ${root}. Run "agentify scan --root ${root}" to rebuild it before using query/risk commands.`
+    );
   }
   throw error;
 }
@@ -383,216 +116,12 @@ function getSearchTerm(args, commandName) {
   return String(term);
 }
 
-export function getProviderTemplateOptions(args, root, provider, usingTemplateCommand) {
-  const interactiveByDefault = usingTemplateCommand;
-  const interactive = hasOwn(args, "interactive") ? args.interactive === true : interactiveByDefault;
-
-  return {
-    root,
-    interactive,
-  };
-}
-
-export function getSessionCaptureSettings(usingTemplateCommand, providerOptions) {
-  if (!usingTemplateCommand) {
-    return {
-      captureOutputMode: "inherit",
-      captureMode: "interactive-inherit",
-    };
-  }
-
-  return providerOptions.interactive
-    ? {
-      captureOutputMode: "pty",
-      captureMode: "interactive-pty",
-    }
-    : {
-      captureOutputMode: "pipe",
-      captureMode: "captured-pipe",
-    };
-}
-
 function getPromptFromArgs(args, startIndex) {
   return args._.slice(startIndex).join(" ").trim();
 }
 
-function buildRunPrompt(userPrompt) {
-  return String(userPrompt || "").trim();
-}
-
-function resolveRunTask(args, startIndex) {
-  return buildRunPrompt(getPromptFromArgs(args, startIndex));
-}
-
-export function resolveRunContextMode(args = {}, config = {}) {
-  return normalizeContextMode(
-    hasOwn(args, "contextMode") ? args.contextMode : config?.context?.mode,
-    { fallback: CONTEXT_MODE_DEFAULT },
-  );
-}
-
-function buildRoutedExecutionPrompt(task, memoryMarkdown = "", options = {}) {
-  return applyCavemanPreamble([buildRoutedPrompt(task, memoryMarkdown), options.rtkInstruction].filter(Boolean).join("\n\n"), options.caveman, { promptKind: options.promptKind });
-}
-
-export function buildExecutionPrompt(basePrompt, memoryMarkdown = "", options = {}) {
-  const prompt = String(basePrompt || "").trim();
-  const promptWithMemory = [memoryMarkdown.trim(), prompt, options.rtkInstruction].filter(Boolean).join("\n\n");
-  return applyCavemanPreamble(promptWithMemory, options.caveman, { promptKind: options.promptKind });
-}
-
-export function buildMinimalRunPrompt(userPrompt, options = {}) {
-  const task = buildRunPrompt(userPrompt);
-  if (!task) {
-    throw new Error("buildMinimalRunPrompt requires a non-empty task");
-  }
-  const prompt = [
-    "You are running inside an Agentify-prepared repository.",
-    "Follow the user's task. Load repo docs or installed skills only when they are needed or explicitly invoked.",
-    "",
-    `Task: ${task}`,
-  ];
-  if (options.rtkInstruction) {
-    prompt.push("", options.rtkInstruction);
-  }
-  const promptText = prompt.join("\n");
-  return applyCavemanPreamble(promptText, options.caveman, { promptKind: options.promptKind });
-}
-
-export function buildNoTaskRunPrompt(memoryMarkdown = "", options = {}) {
-  const instruction = options.resume ? RESUME_PROVIDER_INSTRUCTION : NO_TASK_PROVIDER_INSTRUCTION;
-  const sections = [
-    "You are running inside an Agentify-prepared repository.",
-    "Load repo docs or installed skills only when they are needed or explicitly invoked.",
-  ];
-  if (memoryMarkdown.trim()) {
-    sections.push("", memoryMarkdown.trim());
-  }
-  if (options.rtkInstruction) {
-    sections.push("", options.rtkInstruction);
-  }
-  sections.push("", instruction);
-  return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
-}
-
-export function buildSessionPrompt(bootstrap, userPrompt, memoryMarkdown = "", options = {}) {
-  const task = buildRunPrompt(userPrompt);
-  const sections = [
-    "You are continuing an Agentify session.",
-    "",
-    bootstrap.trim(),
-  ];
-  if (memoryMarkdown.trim()) {
-    sections.push("", memoryMarkdown.trim());
-  }
-  if (options.rtkInstruction) {
-    sections.push("", options.rtkInstruction);
-  }
-  if (task) {
-    sections.push("", `Current task: ${task}`);
-  } else {
-    sections.push("", options.resume ? RESUME_PROVIDER_INSTRUCTION : NO_TASK_PROVIDER_INSTRUCTION);
-  }
-  return applyCavemanPreamble(sections.join("\n"), options.caveman, { promptKind: options.promptKind });
-}
-
-async function resolveRtkPromptInstruction(root, config, args, provider) {
-  const rtkConfig = resolveRtkConfig(config, args);
-  if (!rtkConfig.providerInstruction) {
-    return "";
-  }
-  const detection = await detectRtk(rtkConfig.command, { cwd: root });
-  if (!detection.verified) {
-    if (rtkConfig.explicit) {
-      throw new Error(formatRtkUnavailableMessage(detection));
-    }
-    return "";
-  }
-  return buildRtkProviderInstruction(provider, detection);
-}
-
-export async function prepareSessionLaunch(root, config, args, sessionResult, task) {
-  const memoryQuery = task || sessionResult.manifest.name || "";
-  const memoryContext = await loadAutomaticSessionMemory(root, sessionResult.manifest, config, memoryQuery);
-  const caveman = resolveCavemanLevel(args);
-  const provider = hasOwn(args, "provider")
-    ? normalizeProvider(args.provider)
-    : normalizeProvider(resolveSessionProvider(sessionResult.manifest, config.provider));
-  const usingTemplateCommand = !args._exec?.length;
-  const providerOptions = getProviderTemplateOptions(args, root, provider, usingTemplateCommand);
-  const captureSettings = getSessionCaptureSettings(usingTemplateCommand, providerOptions);
-  const contextMode = normalizeSessionContextMode(hasOwn(args, "contextMode") ? args.contextMode : CONTEXT_MODE_DEFAULT);
-  const subcommand = args._?.[1] || "run";
-  const resumeMode = subcommand === "resume" || args.resume === true;
-  const rtkInstruction = usingTemplateCommand
-    ? await resolveRtkPromptInstruction(root, config, args, provider)
-    : "";
-  const sessionInstruction = task
-    || (resumeMode ? DEFAULT_SESSION_TASK : NO_TASK_PROVIDER_INSTRUCTION);
-  const prompt = contextMode === "routed"
-    ? buildRoutedExecutionPrompt(`${sessionInstruction}\n\nSession bootstrap:\n${sessionResult.bootstrap.trim()}`, memoryContext.markdown, { caveman, rtkInstruction })
-    : buildSessionPrompt(sessionResult.bootstrap, task, memoryContext.markdown, { caveman, resume: resumeMode, rtkInstruction });
-  const agentCommand = args._exec?.length
-    ? args._exec
-    : buildProviderTemplateCommand(
-      provider,
-      prompt,
-      providerOptions,
-    );
-  const sessionRecord = {
-    sessionId: sessionResult.manifest.session_id,
-    provider,
-    prompt,
-    task: task || (resumeMode ? DEFAULT_SESSION_TASK : ""),
-    command: agentCommand,
-    memoryContext,
-    captureMode: captureSettings.captureMode,
-    contextMode,
-  };
-
-  return {
-    provider,
-    memoryContext,
-    prompt,
-    captureSettings,
-    agentCommand,
-    sessionRecord,
-    runExecConfig: { ...config, provider },
-    runExecFlags: getExecFlags(args, {
-      captureOutputMode: captureSettings.captureOutputMode,
-      sessionRecord,
-      commandName: `sess ${args._?.[1] || "run"}`,
-      providerEnvMode: usingTemplateCommand ? "provider" : "generic",
-      skipCodeBodyChanges: true,
-    }),
-  };
-}
-
-function resolveSessionIdForResume(args) {
-  if (args.session) {
-    return { sessionId: validateSessionId(String(args.session), "--session id"), promptStartIndex: 2 };
-  }
-  const positional = args._[2];
-  if (positional) {
-    return { sessionId: validateSessionId(String(positional), "session id"), promptStartIndex: 3 };
-  }
-  throw new Error("sess resume requires --session <id> or sess resume <id>");
-}
-
-async function maybePrintPreparedChild(root, config, launch) {
-  const child = await maybePrepareChildSession(root, config, launch.sessionRecord.sessionId, {
-    provider: launch.provider,
-  });
-  if (child && !config.json) {
-    success(`Prepared child session: ${child.child_session_id}`);
-    log(`Resume: ${dim(child.resume_command)}`);
-  }
-  return child;
-}
-
 export function parseArgs(argv) {
   const args = { _: [] };
-  let seenDoubleDash = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -605,16 +134,6 @@ export function parseArgs(argv) {
       args.version = true;
       continue;
     }
-    if (token === "-i") {
-      args.interactive = true;
-      continue;
-    }
-
-    if (token === "--" && !seenDoubleDash) {
-      seenDoubleDash = true;
-      args._exec = argv.slice(index + 1);
-      break;
-    }
 
     if (!token.startsWith("--")) {
       args._.push(token);
@@ -625,16 +144,6 @@ export function parseArgs(argv) {
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
       args[key] = parseValue(inlineValue);
-      continue;
-    }
-    if (key === "caveman") {
-      const next = argv[index + 1];
-      if (next && !next.startsWith("--") && CAVEMAN_FLAG_VALUES.has(String(next).trim().toLowerCase())) {
-        args[key] = parseValue(next);
-        index += 1;
-      } else {
-        args[key] = true;
-      }
       continue;
     }
     if (BOOLEAN_FLAGS.has(key)) {
@@ -654,14 +163,169 @@ export function parseArgs(argv) {
   return args;
 }
 
+async function runCtxHook(action, root) {
+  // Hook-invoked paths must never fail or pollute the transcript with errors.
+  try {
+    const payload = await readHookPayload();
+    if (action === "track") {
+      await trackEvent(root, payload);
+      return;
+    }
+    if (action === "load") {
+      const snapshot = await loadContextSnapshot(root);
+      const digest = renderContextDigest(snapshot);
+      if (digest) {
+        process.stdout.write(`${digest}\n`);
+      }
+    }
+  } catch {
+    // Swallow all hook errors: a broken hook must not block the agent.
+  }
+}
+
+async function runCtxCommand(root, config, args, subcommand) {
+  const isHookMode = args.hook === true;
+
+  switch (subcommand) {
+    case "track": {
+      if (isHookMode) {
+        await runCtxHook("track", root);
+        return;
+      }
+      const payload = await readHookPayload();
+      const result = await trackEvent(root, payload);
+      console.log(JSON.stringify({ command: "ctx track", ...result }, null, 2));
+      return;
+    }
+
+    case "load": {
+      if (isHookMode) {
+        await runCtxHook("load", root);
+        return;
+      }
+      const snapshot = await loadContextSnapshot(root);
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx load", ...snapshot }, null, 2));
+      } else {
+        const digest = renderContextDigest(snapshot);
+        log(digest || "No tracked context yet. Context accrues automatically once `agentify install` hooks are active.");
+      }
+      return;
+    }
+
+    case "note": {
+      const text = getPromptFromArgs(args, 2);
+      const result = await addNote(root, text, { session: args.session });
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx note", ...result }, null, 2));
+      } else {
+        success("Noted.");
+      }
+      return;
+    }
+
+    case "status": {
+      const result = await contextStatus(root);
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        log(`Events: ${bold(String(result.event_count))} across ${bold(String(result.session_count))} session(s)`);
+        log(`Notes:  ${bold(String(result.note_count))}`);
+        log(`Log:    ${dim(result.events_path)} (${result.event_log_bytes} bytes)`);
+        if (result.last_event_at) {
+          log(`Last activity: ${result.last_event_at}`);
+        }
+        for (const item of result.hot_files.slice(0, 5)) {
+          log(`  ${item.file} ${dim(`(${item.edits} edits)`)}`);
+        }
+      }
+      return;
+    }
+
+    case "handoff": {
+      const result = await writeHandoff(root, { task: getPromptFromArgs(args, 2) });
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        success(`Handoff written: ${result.relative_path}`);
+      }
+      return;
+    }
+
+    default:
+      throw new Error("ctx requires a subcommand: track, note, load, status, or handoff");
+  }
+}
+
+async function runInstall(root, config, args) {
+  const isGlobal = args.global === true;
+
+  if (!isGlobal) {
+    await writeDefaultConfig(root, config, { dryRun: config.dryRun });
+    await ensureBaselineArtifacts(root, config);
+  }
+
+  const integration = await installClaudeIntegration(root, {
+    global: isGlobal,
+    dryRun: config.dryRun,
+  });
+
+  const result = {
+    command: "install",
+    root,
+    scope: integration.scope,
+    dry_run: Boolean(config.dryRun),
+    claude: integration,
+    wrote: isGlobal || config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify"],
+  };
+
+  if (config.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  success(`Agentify installed (${integration.scope} scope)`);
+  log(`CLAUDE.md:     ${dim(integration.memory.path)} (${integration.memory.action})`);
+  log(`Claude hooks:  ${dim(integration.settings.path)} (${integration.settings.changed ? "updated" : "already current"})`);
+  if (!isGlobal) {
+    log("");
+    log("Claude Code will now track context automatically in this repo.");
+    log(`Optional: ${dim("agentify scan")} to build the structural index for query/risk commands.`);
+    log(buildSkillInstallHint(config.provider, "project").message);
+  }
+}
+
+async function runUninstall(root, config, args) {
+  const result = await uninstallClaudeIntegration(root, {
+    global: args.global === true,
+    dryRun: config.dryRun,
+  });
+  if (config.json) {
+    console.log(JSON.stringify({ command: "uninstall", ...result }, null, 2));
+    return;
+  }
+  success(`Agentify Claude integration removed (${result.scope} scope)`);
+  log(`CLAUDE.md:    ${dim(result.memory.path)} (${result.memory.changed ? "cleaned" : "no managed block"})`);
+  log(`Claude hooks: ${dim(result.settings.path)} (${result.settings.changed ? "cleaned" : "no managed hooks"})`);
+}
+
+async function runStatus(root, config, args) {
+  const integration = await claudeIntegrationStatus(root, { global: args.global === true });
+  const context = await contextStatus(root);
+  const result = { command: "status", integration, context };
+  if (config.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const state = (installed) => (installed ? green("installed") : dim("not installed"));
+  log(`Scope:        ${bold(integration.scope)}`);
+  log(`CLAUDE.md:    ${state(integration.memory.installed)}${integration.memory.installed && !integration.memory.current ? " (outdated block — rerun agentify install)" : ""}`);
+  log(`Claude hooks: ${state(integration.settings.installed)}`);
+  log(`Context:      ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
+}
+
 export async function runCli(argv, runtime = {}) {
   const args = parseArgs(argv);
-  if (args._[0] === "session") {
-    args._[0] = "sess";
-  }
-  if (args._[0] === "sess" && args.resume === true && args._[1] !== "resume") {
-    args._ = ["sess", "resume", ...args._.slice(1)];
-  }
   const [command = "help", subcommand] = args._;
 
   if (args.version) {
@@ -674,27 +338,12 @@ export async function runCli(argv, runtime = {}) {
     return;
   }
 
-  if (hasOwn(args, "tool")) {
-    throw new Error("--tool was removed. Use --provider.");
-  }
-
-  if (command === "update") {
-    throw new Error("command \"update\" was removed. Use \"up\".");
-  }
-  if (command === "validate") {
-    throw new Error("command \"validate\" was removed. Use \"check\".");
-  }
-  if (command === "this") {
-    await runBootstrapCommand(args);
-    return;
-  }
-
   if (command === "completion") {
     const root = path.resolve(String(args.root || process.cwd()));
     if (subcommand === "values") {
       const kind = args._[2];
       if (!kind) {
-        throw new Error("completion values requires a kind: providers, skills, or sessions");
+        throw new Error("completion values requires a kind: providers or skills");
       }
       await printCompletionValues(kind, { root });
       return;
@@ -704,11 +353,15 @@ export async function runCli(argv, runtime = {}) {
   }
 
   const root = path.resolve(String(args.root || process.cwd()));
-  const config = await loadConfig(root, args);
-  if (shouldUseSharedStoreInit(args, command)) {
-    enableSharedStoreConfig(config);
+
+  // Hook-invoked ctx commands run before config loading so they stay fast and
+  // never fail, even outside an initialized repo.
+  if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load")) {
+    await runCtxHook(subcommand, root);
+    return;
   }
-  await maybePrepareWorktreeRuntime(root, config, command);
+
+  const config = await loadConfig(root, args);
   config._agentifyPaths = await resolveAgentifyPaths(root, config);
 
   if (args.json) {
@@ -720,327 +373,35 @@ export async function runCli(argv, runtime = {}) {
   }
 
   const dispatch = async () => {
-    await maybePersistProvider(root, config, args, command, subcommand);
-
     switch (command) {
+      case "install":
       case "init":
-        await writeDefaultConfig(root, config, { dryRun: config.dryRun });
-        await ensureBaselineArtifacts(root, config);
-        let sharedStoreLink = null;
-        if (shouldUseSharedStoreInit(args, command)) {
-          const worktree = await detectGitWorktree(root);
-          if (worktree.isGitRepo) {
-            sharedStoreLink = await linkProject(root, {
-              auto: true,
-              migrate: args.migrate,
-              dryRun: config.dryRun,
-              config,
-              prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
-            });
-            config._agentifyPaths = await resolveAgentifyPaths(root, config);
-          }
-        }
-        const skillInstallHint = buildSkillInstallHint(config.provider, "project");
-        if (config.json) {
-          console.log(JSON.stringify({
-            command: "init",
-            root,
-            dry_run: Boolean(config.dryRun),
-            wrote: config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", `.agentify`, ".agentify/runs", ".agentify/work", "docs/modules"],
-            shared_store: sharedStoreLink ? {
-              link_path: sharedStoreLink.link_path,
-              project_store: sharedStoreLink.project_store,
-              changed: sharedStoreLink.changed,
-            } : null,
-            skill_install_hint: skillInstallHint,
-          }, null, 2));
-        } else {
-          success("Initialized agentify artifacts");
-          if (sharedStoreLink) {
-            log(`Shared store: ${sharedStoreLink.project_store}`);
-          }
-          log(skillInstallHint.message);
-        }
+        await runInstall(root, config, args);
         return;
 
-      case "link": {
-        const result = await linkProject(root, {
-          from: args.from,
-          auto: args.auto === true,
-          status: args.status === true,
-          force: args.force === true,
-          migrate: args.migrate,
-          dryRun: config.dryRun,
-          config,
-          prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
-        });
-        if (config.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (result.mode === "status") {
-          renderLinkStatus(result);
-        } else if (result.mode === "auto") {
-          if (result.changed) {
-            success("Linked Agentify shared project store");
-          } else {
-            success("Agentify shared project store link already up to date");
-          }
-          renderAutoLinkSummary(result);
-        } else if (result.changed) {
-          success("Linked Agentify project store");
-          log(`Shared store: ${result.project_store}`);
-        } else {
-          success("Agentify project link already up to date");
-          log(`Shared store: ${result.project_store}`);
-        }
+      case "uninstall":
+        await runUninstall(root, config, args);
         return;
-      }
 
-      case "worktree": {
-        const sub = String(subcommand || "").toLowerCase();
-        if (sub === "attach") {
-          const result = await linkProject(root, {
-            auto: true,
-            force: args.force === true,
-            migrate: args.migrate,
-            dryRun: config.dryRun,
-            config,
-            prepareTarget: (targetRoot) => ensureLinkTargetPolicy(targetRoot, config),
-          });
-          if (config.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else if (result.changed) {
-            success("Linked Agentify shared project store");
-            renderAutoLinkSummary(result);
-          } else {
-            success("Agentify shared project store link already up to date");
-            renderAutoLinkSummary(result);
-          }
-          return;
-        }
-        if (sub === "status" || sub === "") {
-          const result = await linkProject(root, { status: true, config });
-          if (config.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            renderLinkStatus(result);
-          }
-          return;
-        }
-        throw new Error(`Unknown worktree subcommand: ${subcommand}. Try \`agentify worktree attach\` or \`agentify worktree status\`.`);
-      }
+      case "status":
+        await runStatus(root, config, args);
+        return;
 
-      case "index":
-        await runScan(root, config, { commandName: "index" });
+      case "ctx":
+        await runCtxCommand(root, config, args, subcommand);
         return;
 
       case "scan":
         await runScan(root, config, { commandName: "scan" });
         return;
 
-      case "doc":
-        await runDoc(root, config);
-        return;
-
       case "up":
         await runUpdate(root, config, { skipCodeBodyChanges: args.hook === true });
-        return;
-
-      case "sync":
-        await runRepoSync(root, config, { provider: args.provider });
         return;
 
       case "check":
         await runValidate(root, config, { skipCodeBodyChanges: args.hook === true });
         return;
-
-      case "plan": {
-        const task = buildRunPrompt(getPromptFromArgs(args, 1));
-        const contextMode = normalizeContextMode(args.contextMode, { fallback: CONTEXT_MODE_DEFAULT });
-        const includeSource = contextMode !== "routed" || args.withContext === true;
-        let plan;
-        try {
-          plan = await buildExecutionPlan(root, config, task, {
-            explain: args.explain === true,
-            contextMode: toPlannerContextMode(contextMode),
-            includeSource,
-          });
-        } catch (error) {
-          throwWithIndexGuidance(error, root);
-        }
-        if (args.explain === true && !args.json) {
-          process.stdout.write(renderPlanExplanation(plan));
-        } else {
-          console.log(JSON.stringify(plan, null, 2));
-        }
-        return;
-      }
-
-      case "run": {
-        const task = resolveRunTask(args, 1);
-        const caveman = resolveCavemanLevel(args);
-        const usingTemplateCommand = !args._exec?.length;
-        const providerOptions = {
-          ...getProviderTemplateOptions(args, root, config.provider, usingTemplateCommand),
-          continueSession: args.continue === true || args.resume === true,
-        };
-        const noTaskInteractiveLaunch = !task && usingTemplateCommand && providerOptions.interactive === true;
-        if (!task && !noTaskInteractiveLaunch && !args._exec?.length) {
-          throw new Error('agentify run requires a task when not launching an interactive provider. Pass one as `agentify run "task"`.');
-        }
-        const contextMode = resolveRunContextMode(args, config);
-        const usesManagedContext = usingTemplateCommand && (
-          contextMode === "routed"
-          || providerOptions.interactive !== true
-          || args.withContext === true
-          || args.explainPlan === true
-        );
-        const includeSource = contextMode !== "routed" || args.withContext === true;
-        let memoryContext;
-        let plan;
-        try {
-          memoryContext = noTaskInteractiveLaunch
-            ? await loadAutomaticRunMemory(root, "", config)
-            : usesManagedContext
-            ? await loadAutomaticRunMemory(root, task, config)
-            : { markdown: "" };
-          plan = usesManagedContext && task
-            ? await buildExecutionPlan(root, config, task, {
-              contextMode: toPlannerContextMode(contextMode),
-              includeSource,
-            })
-            : null;
-        } catch (error) {
-          throwWithIndexGuidance(error, root);
-        }
-        if (args.explainPlan && plan) {
-          console.log(JSON.stringify(plan, null, 2));
-        }
-        const rtkInstruction = usingTemplateCommand
-          ? await resolveRtkPromptInstruction(root, config, args, config.provider)
-          : "";
-        const prompt = noTaskInteractiveLaunch
-          ? buildNoTaskRunPrompt(memoryContext.markdown, { caveman, resume: providerOptions.continueSession, rtkInstruction })
-          : usesManagedContext
-          ? buildExecutionPrompt(plan?.prompt || task, memoryContext.markdown, { caveman, rtkInstruction })
-          : !task && args._exec?.length
-          ? ""
-          : buildMinimalRunPrompt(task, { caveman, rtkInstruction });
-        const agentCommand = args._exec?.length
-          ? args._exec
-          : buildProviderTemplateCommand(
-            config.provider,
-            prompt,
-            providerOptions,
-          );
-
-        await runExec(root, config, agentCommand, getExecFlags(args, {
-          commandName: "run",
-          providerEnvMode: usingTemplateCommand ? "provider" : "generic",
-          skipCodeBodyChanges: true,
-        }));
-        return;
-      }
-
-      case "context": {
-        let result;
-        const contextOptions = { config, artifactPaths: config._agentifyPaths };
-        try {
-          if (subcommand === "search") {
-            const term = args.term || getPromptFromArgs(args, 2);
-            result = await searchContext(root, term, contextOptions);
-          } else if (subcommand === "fetch") {
-            const target = args._[2] || args.file || args.path;
-            if (!target) {
-              throw new Error("context fetch requires <path>");
-            }
-            result = await fetchContext(root, target, {
-              ...contextOptions,
-              lines: args.lines,
-              symbol: args.symbol,
-            });
-          } else if (subcommand === "compact") {
-            if (!args.session) {
-              throw new Error("context compact requires --session <id>");
-            }
-            result = await compactSessionContext(root, validateSessionId(String(args.session), "--session id"), config);
-          } else if (subcommand === "status") {
-            if (!args.session) {
-              throw new Error("context status requires --session <id>");
-            }
-            const sessionId = validateSessionId(String(args.session), "--session id");
-            const session = await resumeSession(root, sessionId);
-            result = {
-              command: "context status",
-              session_id: sessionId,
-              provider: resolveSessionProvider(session.manifest, null),
-              context_bytes: Buffer.byteLength(JSON.stringify(session.context, null, 2), "utf8"),
-              run_history_count: Array.isArray(session.context.run_history) ? session.context.run_history.length : 0,
-              has_context_facts: Boolean(session.context.context_facts),
-              prepared_child_session: session.manifest.prepared_child_session || null,
-            };
-          } else {
-            throw new Error("context requires a subcommand: search, fetch, compact, or status");
-          }
-        } catch (error) {
-          throwWithIndexGuidance(error, root);
-        }
-        console.log(JSON.stringify(result, null, 2));
-        return;
-      }
-
-      case "exec": {
-        const agentCommand = args._exec || [];
-        if (agentCommand.length === 0) {
-          throw new Error("exec requires a command after --: agentify exec [flags] -- <command...>");
-        }
-        await runExec(root, config, agentCommand, getExecFlags(args, {
-          commandName: "exec",
-          providerEnvMode: "generic",
-          skipCodeBodyChanges: true,
-        }));
-        return;
-      }
-
-      case "issue-killer":
-        await runIssueKiller(root, config, args);
-        return;
-
-      case "afk":
-        await runAfk(root, config, args, { runClean });
-        return;
-
-      case "handoff": {
-        let sessionId = args.session ? validateSessionId(String(args.session), "--session id") : null;
-        let promptStartIndex = 1;
-        if (!sessionId && args._[1]) {
-          sessionId = validateSessionId(String(args._[1]), "session id");
-          promptStartIndex = 2;
-        }
-        if (!sessionId) {
-          const sessions = await listSessions(root);
-          if (sessions.length === 0) {
-            throw new Error("handoff requires --session <id> when no sessions exist");
-          }
-          sessionId = validateSessionId(String(sessions[0].session_id), "session id");
-        }
-
-        const task = getPromptFromArgs(args, promptStartIndex);
-        const result = await writeHandoffBundle(root, config, sessionId, task);
-        if (config.json) {
-          console.log(JSON.stringify({
-            command: "handoff",
-            session_id: sessionId,
-            markdown_path: result.relativeMarkdownPath,
-            json_path: result.relativeJsonPath,
-            bundle: result.bundle,
-          }, null, 2));
-        } else {
-          success(`Handoff written for ${sessionId}`);
-          log(`Markdown: ${dim(result.relativeMarkdownPath)}`);
-          log(`JSON: ${dim(result.relativeJsonPath)}`);
-        }
-        return;
-      }
 
       case "query": {
         let result;
@@ -1171,116 +532,6 @@ export async function runCli(argv, runtime = {}) {
         throw new Error("skill requires a subcommand: list or install");
       }
 
-      case "memory": {
-        if (subcommand === "compress") {
-          const target = args._[2];
-          if (!target) {
-            throw new Error("memory compress requires a file path: agentify memory compress <file>");
-          }
-          const result = {
-            command: "memory compress",
-            status: "not_implemented",
-            file: path.resolve(root, String(target)),
-            message:
-              "TODO: memory compression is reserved for the caveman-compress follow-up. Install the placeholder with `agentify skill install caveman-compress`.",
-          };
-          if (config.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            log(result.message);
-          }
-          return;
-        }
-
-        throw new Error("memory requires a subcommand: compress");
-      }
-
-      case "sess": {
-        if (subcommand === "list") {
-          const sessions = await listSessions(root);
-          if (config.json) {
-            console.log(JSON.stringify(sessions, null, 2));
-          } else if (sessions.length === 0) {
-            log("No sessions found.");
-          } else {
-            for (const s of sessions) {
-              log(`${bold(s.session_id)} ${dim(resolveSessionProvider(s, ""))} ${dim(s.created_at || "")}`);
-            }
-          }
-          return;
-        }
-
-        if (subcommand === "fork") {
-          const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
-          const result = await forkSession(root, config, {
-            from: fromId,
-            provider: args.provider || null,
-            name: args.name || null,
-          });
-          const task = getPromptFromArgs(args, 2);
-          const launch = await prepareSessionLaunch(root, config, args, result, task);
-
-          if (!config.json) {
-            success(`Session forked: ${result.manifest.session_id}`);
-            log(`Path: ${dim(result.sessionDir)}`);
-          }
-
-          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
-          await maybePrintPreparedChild(root, config, launch);
-          return;
-        }
-
-        if (subcommand === "resume") {
-          const { sessionId, promptStartIndex } = resolveSessionIdForResume(args);
-          const result = await resumeSession(root, sessionId);
-          const task = getPromptFromArgs(args, promptStartIndex);
-          const launch = await prepareSessionLaunch(root, config, args, result, task);
-
-          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
-          await maybePrintPreparedChild(root, config, launch);
-          return;
-        }
-
-        if (subcommand === "run") {
-          let sessionResult;
-          let sessionDir;
-
-          if (args.session) {
-            sessionResult = await resumeSession(root, validateSessionId(String(args.session), "--session id"));
-          } else {
-            const fromId = args.from ? validateSessionId(String(args.from), "--from id") : null;
-            const created = await forkSession(root, config, {
-              from: fromId,
-              provider: args.provider || null,
-              name: args.name || null,
-            });
-            sessionResult = {
-              manifest: created.manifest,
-              context: created.context,
-              bootstrap: created.bootstrap,
-            };
-            sessionDir = created.sessionDir;
-            if (!config.json) {
-              success(`Session created: ${created.manifest.session_id}`);
-              log(`Path: ${dim(created.sessionDir)}`);
-            }
-          }
-
-          const task = getPromptFromArgs(args, 2);
-          const launch = await prepareSessionLaunch(root, config, args, sessionResult, task);
-
-          if (config.json && sessionDir) {
-            console.log(JSON.stringify({ ...sessionResult.manifest, session_dir: sessionDir }, null, 2));
-          }
-
-          await runExec(root, launch.runExecConfig, launch.agentCommand, launch.runExecFlags);
-          await maybePrintPreparedChild(root, config, launch);
-          return;
-        }
-
-        throw new Error("sess requires a subcommand: run, fork, list, or resume");
-      }
-
       case "hooks": {
         if (subcommand === "install") {
           const { installed, removed } = await installHooks(root, config.hooks);
@@ -1317,14 +568,7 @@ export async function runCli(argv, runtime = {}) {
       }
 
       case "doctor":
-        await runDoctor(root, config, { semantic: args.semantic === true, failOnStale: args.failOnStale === true });
-        return;
-
-      case "semantic":
-        if (subcommand && subcommand !== "refresh") {
-          throw new Error("semantic requires the refresh subcommand: agentify semantic refresh");
-        }
-        await runSemanticRefresh(root, config);
+        await runDoctor(root, config, { failOnStale: args.failOnStale === true });
         return;
 
       case "clean": {
@@ -1346,74 +590,11 @@ export async function runCli(argv, runtime = {}) {
               log(item);
             }
           }
-          if (result.removed_cache_blobs > 0) {
-            log(`Cache blobs removed: ${result.removed_cache_blobs}`);
-          }
           if (result.skipped.length > 0) {
             for (const item of result.skipped) {
               log(`Skipped ${item}`);
             }
           }
-        }
-        return;
-      }
-
-      case "cache": {
-        const cacheRoot = config._agentifyPaths.cacheRoot;
-        if (subcommand === "gc") {
-          const maxAge = args.maxAge || config.cache?.maxAgeDays || 7;
-          const lock = await acquireProjectStoreLock(config._agentifyPaths, "cache-gc");
-          if (!lock.acquired) {
-            throw new Error(lock.message || "Cache garbage collection lock is already held");
-          }
-          let result;
-          try {
-            result = await garbageCollect(cacheRoot, maxAge);
-          } finally {
-            await lock.release();
-          }
-          success(`Garbage collected ${result.removed} blob(s).`);
-        } else if (subcommand === "status") {
-          const status = buildCacheStatus(config._agentifyPaths, await cacheStatus(cacheRoot));
-          if (config.json) {
-            console.log(JSON.stringify(status, null, 2));
-          } else {
-            log(`Store: ${bold(status.store)}  Path: ${dim(status.cache_root)}`);
-            log(`Blobs: ${bold(String(status.blobs))}  Size: ${bold(status.totalSize || "0 B")}`);
-          }
-        } else if (subcommand === "clean") {
-          const targets = cacheCleanTargets(root, config._agentifyPaths, args);
-          const touchesShared = targets.some((target) => target.shared);
-          if (touchesShared && !config.dryRun && await hasSharedStoreLocks(config._agentifyPaths.locksRoot)) {
-            throw new Error(`Refusing to clean shared cache while shared store locks are present: ${config._agentifyPaths.locksRoot}`);
-          }
-
-          const cleaned = [];
-          for (const target of targets) {
-            cleaned.push({
-              store: target.store,
-              cache_root: target.cacheRoot,
-              ...(await cleanCache(target.cacheRoot, { dryRun: config.dryRun })),
-            });
-          }
-          const result = {
-            command: "cache clean",
-            dry_run: Boolean(config.dryRun),
-            cleaned,
-          };
-          if (config.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            for (const item of cleaned) {
-              const verb = config.dryRun ? "would remove" : "removed";
-              log(`Cache clean ${item.store}: ${verb} ${item.removed} item(s) from ${dim(item.cache_root)}`);
-              for (const removedPath of item.removed_paths) {
-                log(`  - ${removedPath}`);
-              }
-            }
-          }
-        } else {
-          throw new Error("cache requires a subcommand: gc, status, or clean");
         }
         return;
       }

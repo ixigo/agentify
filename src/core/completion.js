@@ -1,23 +1,16 @@
-import { listSessions } from "./session.js";
 import { listBuiltinSkills } from "./skills.js";
 import { SUPPORTED_PROVIDERS } from "./provider-command.js";
 
 const LANGUAGE_VALUES = ["auto", "ts", "python", "go", "rust", "dotnet", "java", "kotlin", "swift"];
-const CONTEXT_MODE_VALUES = ["compact", "routed", "direct"];
 const SCOPE_VALUES = ["project", "user"];
 const BOOLEAN_VALUES = ["true", "false"];
-const CAVEMAN_VALUES = ["lite", "full", "ultra", "wenyan", "wenyan-lite", "wenyan-full", "wenyan-ultra", "off", "normal", "none"];
 const COMPLETION_SHELLS = ["zsh", "bash", "fish"];
-const DYNAMIC_VALUE_KINDS = ["providers", "skills", "sessions"];
+const DYNAMIC_VALUE_KINDS = ["providers", "skills"];
 
 const GLOBAL_FLAGS = [
-  flag("--provider", { valueKind: "providers", description: "Provider to use" }),
   flag("--strict", { values: BOOLEAN_VALUES, description: "Fail closed on validation issues" }),
   flag("--languages", { values: LANGUAGE_VALUES, description: "Language scanner selection" }),
   flag("--dry-run", { description: "Report planned writes without changing files" }),
-  flag("--docs", { values: BOOLEAN_VALUES, description: "Generate docs during refresh flows" }),
-  flag("--headers", { description: "Apply Agentify headers to source files" }),
-  flag("--provider-timeout-ms", { valueKind: "number", description: "Provider timeout in milliseconds" }),
   flag("--ghost", { description: "Route outputs to .current_session/" }),
   flag("--json", { description: "Print machine-readable JSON" }),
   flag("--root", { valueKind: "path", description: "Target repository root" }),
@@ -26,45 +19,35 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
-  command("init", "Create baseline Agentify artifacts", {
-    flags: [flag("--shared-store", { description: "Use the default shared worktree store and auto-link this checkout" })],
-  }),
-  command("index", "Build the SQLite repository index"),
-  command("scan", "Alias for index"),
-  command("doc", "Generate docs, metadata, and key-file headers"),
-  command("up", "Run scan, optional doc, check, and test pipeline", {
-    flags: [flag("--hook", { description: "Use hook-friendly validation" })],
-  }),
-  command("sync", "Upgrade repo-owned Agentify files, then run refresh"),
-  command("check", "Validate freshness, schemas, and safety rules", {
-    flags: [flag("--hook", { description: "Use hook-friendly validation" })],
-  }),
-  command("plan", "Preview planner-selected context for a task", {
+  command("install", "Install Agentify into this repo and its Claude Code config", {
+    aliases: ["init"],
     flags: [
-      flag("--explain", { description: "Include planner score breakdowns" }),
-      flag("--context-mode", { values: ["compact", "routed"], description: "Planner context mode" }),
-      flag("--with-context", { description: "Include selected source context" }),
+      flag("--global", { description: "Install into ~/.claude instead of the project" }),
     ],
   }),
-  command("context", "Search and fetch bounded routed context", {
+  command("uninstall", "Remove the Agentify Claude Code integration", {
+    flags: [flag("--global", { description: "Uninstall from ~/.claude" })],
+  }),
+  command("status", "Show integration and context-tracking status", {
+    flags: [flag("--global", { description: "Inspect the global integration" })],
+  }),
+  command("ctx", "Lightweight context tracking", {
     subcommands: [
-      subcommand("search", "Search indexed context"),
-      subcommand("fetch", "Fetch exact file slices", {
-        positionals: [positional("target", "path")],
-        flags: [
-          flag("--lines", { valueKind: "text", description: "Line range A:B" }),
-          flag("--symbol", { valueKind: "text", description: "Symbol name" }),
-          flag("--file", { valueKind: "path", description: "File path" }),
-          flag("--path", { valueKind: "path", description: "File path" }),
-        ],
+      subcommand("load", "Print a digest of recent activity and notes"),
+      subcommand("note", "Record a note for future sessions"),
+      subcommand("track", "Record a context event from a Claude Code hook payload", {
+        flags: [flag("--hook", { description: "Hook mode: read stdin, never fail" })],
       }),
-      subcommand("compact", "Compact session context", {
-        flags: [flag("--session", { valueKind: "sessions", description: "Session id" })],
-      }),
-      subcommand("status", "Inspect routed context status", {
-        flags: [flag("--session", { valueKind: "sessions", description: "Session id" })],
-      }),
+      subcommand("status", "Show context tracking status"),
+      subcommand("handoff", "Write a handoff summary"),
     ],
+  }),
+  command("scan", "Build the SQLite repository index"),
+  command("up", "Run scan and check", {
+    flags: [flag("--hook", { description: "Use hook-friendly validation" })],
+  }),
+  command("check", "Validate index freshness and generated artifacts", {
+    flags: [flag("--hook", { description: "Use hook-friendly validation" })],
   }),
   command("query", "Query the repository index", {
     subcommands: [
@@ -98,55 +81,6 @@ const COMMANDS = [
   command("risk", "Score PR blast radius", {
     flags: [flag("--since", { valueKind: "text", description: "Commit or ref" })],
   }),
-  command("run", "Run provider template command with auto-refresh", {
-    flags: [
-      flag("--interactive", { description: "Force interactive provider mode" }),
-      flag("--continue", { description: "Resume the provider's most recent session" }),
-      flag("--resume", { description: "Alias for --continue" }),
-      flag("--context-mode", { values: ["compact", "routed"], description: "Run prompt context mode" }),
-      flag("--with-context", { description: "Inject planner-selected context" }),
-      flag("--explain-plan", { description: "Print planner output before execution" }),
-      flag("--caveman", { values: CAVEMAN_VALUES, description: "Terse output level" }),
-      flag("--timeout", { valueKind: "number", description: "Wrapped command timeout in seconds" }),
-      flag("--skip-refresh", { description: "Skip post-command refresh" }),
-      flag("--fail-on-stale", { description: "Exit 80 when validation fails" }),
-      flag("--bypass-permissions", { description: "Bypass provider permission prompts" }),
-    ],
-  }),
-  command("afk", "Create and run fresh-session autonomous plans", {
-    subcommands: [
-      subcommand("create", "Create an implementation-ready AFK plan", {
-        flags: [
-          flag("--provider", { valueKind: "providers", description: "Planning provider" }),
-          flag("--slug", { valueKind: "text", description: "Plan slug" }),
-        ],
-      }),
-      subcommand("run", "Run an AFK plan in a fresh provider session", {
-        positionals: [positional("plan", "path")],
-        flags: [
-          flag("--provider", { valueKind: "providers", description: "Execution provider" }),
-          flag("--interactive", { description: "Run provider interactively" }),
-          flag("--current-worktree", { description: "Use the current checkout" }),
-          flag("--allow-dirty", { description: "Allow current checkout changes" }),
-          flag("--no-commit", { description: "Do not auto-commit successful worktree changes" }),
-          flag("--cleanup", { values: ["keep", "delete", "ask"], description: "Plan cleanup mode after run" }),
-        ],
-      }),
-      subcommand("clean", "Prune AFK plans and session artifacts", {
-        flags: [flag("--dry-run", { description: "Report planned removals only" })],
-      }),
-    ],
-  }),
-  command("exec", "Advanced wrapper for custom agent commands", {
-    flags: [
-      flag("--timeout", { valueKind: "number", description: "Wrapped command timeout in seconds" }),
-      flag("--skip-refresh", { description: "Skip post-command refresh" }),
-      flag("--fail-on-stale", { description: "Exit 80 when validation fails" }),
-    ],
-  }),
-  command("this", "Bootstrap this macOS repo for Agentify", {
-    flags: [flag("--provider", { valueKind: "providers", description: "Bootstrap provider" })],
-  }),
   command("skill", "Manage built-in agent skills", {
     aliases: ["skills"],
     subcommands: [
@@ -161,41 +95,6 @@ const COMMANDS = [
       }),
     ],
   }),
-  command("sess", "Manage provider-backed sessions", {
-    aliases: ["session"],
-    subcommands: [
-      subcommand("list", "List sessions"),
-      subcommand("run", "Create or resume a session and launch provider", {
-        flags: sessionLaunchFlags(),
-      }),
-      subcommand("fork", "Fork a session and launch provider", {
-        flags: sessionLaunchFlags(),
-      }),
-      subcommand("resume", "Resume a session", {
-        positionals: [positional("session", "sessions")],
-        flags: sessionLaunchFlags(),
-      }),
-    ],
-  }),
-  command("handoff", "Write a cross-agent handoff bundle", {
-    positionals: [positional("session", "sessions")],
-    flags: [flag("--session", { valueKind: "sessions", description: "Session id" })],
-  }),
-  command("memory", "Manage agent memory helpers", {
-    subcommands: [
-      subcommand("compress", "Compress a memory file", {
-        positionals: [positional("file", "path")],
-      }),
-    ],
-  }),
-  command("issue-killer", "Launch labelled GitHub issues into tmux worktrees", {
-    flags: [
-      flag("--label", { valueKind: "text", description: "GitHub issue label" }),
-      flag("--agent-provider", { valueKind: "providers", description: "Provider for issue panes" }),
-      flag("--limit", { valueKind: "number", description: "Maximum issues to launch" }),
-      flag("--bypass-permissions", { description: "Explicitly enable issue-killer YOLO mode" }),
-    ],
-  }),
   command("hooks", "Install/remove git hooks", {
     subcommands: [
       subcommand("install", "Install enabled hooks"),
@@ -204,37 +103,14 @@ const COMMANDS = [
     ],
   }),
   command("doctor", "Check toolchain health", {
-    flags: [
-      flag("--semantic", { description: "Show semantic diagnostics" }),
-      flag("--fail-on-stale", { description: "Exit non-zero when stale" }),
-    ],
-  }),
-  command("semantic", "Refresh semantic project facts", {
-    subcommands: [subcommand("refresh", "Refresh semantic facts")],
+    flags: [flag("--fail-on-stale", { description: "Exit non-zero when stale" })],
   }),
   command("clean", "Prune stale generated artifacts", {
     flags: [
       flag("--dry-run", { description: "Report planned removals only" }),
-      flag("--planned", { description: "Prune AFK planned artifacts" }),
-      flag("--sessions", { description: "Prune AFK session artifacts" }),
+      flag("--planned", { description: "Prune legacy planned artifacts" }),
+      flag("--sessions", { description: "Prune legacy session artifacts" }),
       flag("--all", { description: "Include optional cleanup groups" }),
-    ],
-  }),
-  command("cache", "Manage the content cache", {
-    subcommands: [
-      subcommand("gc", "Garbage collect cache blobs", {
-        flags: [flag("--max-age", { valueKind: "number", description: "Maximum age in days" })],
-      }),
-      subcommand("status", "Show cache status"),
-      subcommand("clean", "Remove cache contents from the selected store", {
-        flags: [
-          flag("--local", { description: "Clean only the current worktree cache" }),
-          flag("--shared", { description: "Clean only the shared project-store cache" }),
-          flag("--all", { description: "Clean local and shared cache stores" }),
-          flag("--dry-run", { description: "Report planned removals only" }),
-          flag("--yes", { description: "Confirm --all without prompting" }),
-        ],
-      }),
     ],
   }),
   command("completion", "Generate shell completion scripts", {
@@ -267,13 +143,6 @@ export async function getCompletionValues(kind, { root = process.cwd() } = {}) {
       return [...SUPPORTED_PROVIDERS];
     case "skills":
       return listBuiltinSkills().map((skill) => skill.name).sort();
-    case "sessions":
-      try {
-        const sessions = await listSessions(root);
-        return sessions.map((session) => session.session_id).filter(Boolean);
-      } catch {
-        return [];
-      }
     default:
       throw new Error(`unknown completion value kind "${kind}". Expected ${DYNAMIC_VALUE_KINDS.join(", ")}`);
   }
@@ -313,23 +182,6 @@ function command(name, description, options = {}) {
 
 function subcommand(name, description, options = {}) {
   return command(name, description, options);
-}
-
-function sessionLaunchFlags() {
-  return [
-    flag("--provider", { valueKind: "providers", description: "Provider to launch" }),
-    flag("--session", { valueKind: "sessions", description: "Session id" }),
-    flag("--from", { valueKind: "sessions", description: "Parent session id" }),
-    flag("--name", { valueKind: "text", description: "Session name" }),
-    flag("--interactive", { description: "Force interactive provider mode" }),
-    flag("--resume", { description: "Resume Agentify session context" }),
-    flag("--context-mode", { values: CONTEXT_MODE_VALUES, description: "Session context mode" }),
-    flag("--caveman", { values: CAVEMAN_VALUES, description: "Terse output level" }),
-    flag("--timeout", { valueKind: "number", description: "Wrapped command timeout in seconds" }),
-    flag("--skip-refresh", { description: "Skip post-command refresh" }),
-    flag("--fail-on-stale", { description: "Exit 80 when validation fails" }),
-    flag("--bypass-permissions", { description: "Bypass provider permission prompts" }),
-  ];
 }
 
 function visibleSubcommands(commandInfo) {
@@ -390,9 +242,6 @@ function scriptData() {
     languages: LANGUAGE_VALUES,
     scope: SCOPE_VALUES,
     strict: BOOLEAN_VALUES,
-    docs: BOOLEAN_VALUES,
-    "context-mode": CONTEXT_MODE_VALUES,
-    caveman: CAVEMAN_VALUES,
   };
   return { commands, subcommands, flags, flagKinds, staticValues };
 }
@@ -444,7 +293,7 @@ ${Object.entries(data.flagKinds).map(([key, kind]) => `    ${shellQuote(key)}) p
 
 _agentify_complete_kind() {
   case "$1" in
-    providers|skills|sessions) COMPREPLY=($(compgen -W "$(_agentify_dynamic_values "$1")" -- "$cur")) ;;
+    providers|skills) COMPREPLY=($(compgen -W "$(_agentify_dynamic_values "$1")" -- "$cur")) ;;
     path) COMPREPLY=($(compgen -f -- "$cur")) ;;
     number|text) COMPREPLY=() ;;
     *) COMPREPLY=($(compgen -W "$(_agentify_static_values "$1")" -- "$cur")) ;;
@@ -484,24 +333,12 @@ _agentify_completion() {
     _agentify_complete_kind skills
     return 0
   fi
-  if [[ "$cmd" == "sess" || "$cmd" == "session" ]] && [[ "$sub" == "resume" ]] && [[ $COMP_CWORD -eq 3 ]]; then
-    _agentify_complete_kind sessions
-    return 0
-  fi
-  if [[ "$cmd" == "handoff" ]] && [[ $COMP_CWORD -eq 2 ]]; then
-    _agentify_complete_kind sessions
-    return 0
-  fi
   if [[ "$cmd" == "completion" ]] && [[ $COMP_CWORD -eq 2 ]]; then
     COMPREPLY=($(compgen -W "${shellWords(COMPLETION_SHELLS)}" -- "$cur"))
     return 0
   fi
   if [[ "$cmd" == "completion" ]] && [[ "$sub" == "values" ]] && [[ $COMP_CWORD -eq 3 ]]; then
     COMPREPLY=($(compgen -W "${shellWords(DYNAMIC_VALUE_KINDS)}" -- "$cur"))
-    return 0
-  fi
-  if [[ "$cmd" == "context" && "$sub" == "fetch" ]] || [[ "$cmd" == "memory" && "$sub" == "compress" ]]; then
-    COMPREPLY=($(compgen -f -- "$cur"))
     return 0
   fi
 }
@@ -546,7 +383,7 @@ ${Object.entries(data.flagKinds).map(([key, kind]) => `    ${shellQuote(key)}) p
 _agentify_add_kind() {
   local -a values
   case "$1" in
-    providers|skills|sessions)
+    providers|skills)
       values=("${"${(@f)$(_agentify_dynamic_values \"$1\")}" }")
       compadd -- $values
       ;;
@@ -588,24 +425,12 @@ _agentify() {
     _agentify_add_kind skills
     return
   fi
-  if [[ "$cmd" == "sess" || "$cmd" == "session" ]] && [[ "$sub" == "resume" ]] && (( CURRENT == 4 )); then
-    _agentify_add_kind sessions
-    return
-  fi
-  if [[ "$cmd" == "handoff" ]] && (( CURRENT == 3 )); then
-    _agentify_add_kind sessions
-    return
-  fi
   if [[ "$cmd" == "completion" ]] && (( CURRENT == 3 )); then
     compadd -- ${shellWords(COMPLETION_SHELLS)}
     return
   fi
   if [[ "$cmd" == "completion" && "$sub" == "values" ]] && (( CURRENT == 4 )); then
     compadd -- ${shellWords(DYNAMIC_VALUE_KINDS)}
-    return
-  fi
-  if [[ "$cmd" == "context" && "$sub" == "fetch" ]] || [[ "$cmd" == "memory" && "$sub" == "compress" ]]; then
-    _files
     return
   fi
 }
@@ -628,9 +453,6 @@ function renderFishCompletion() {
     "end",
     "function __agentify_complete_skills",
     "  agentify completion values skills --root (pwd) 2>/dev/null",
-    "end",
-    "function __agentify_complete_sessions",
-    "  agentify completion values sessions --root (pwd) 2>/dev/null",
     "end",
     "",
   ];
@@ -666,11 +488,8 @@ function renderFishCompletion() {
   }
 
   lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from skill skills; and __fish_seen_subcommand_from install' -a '(__agentify_complete_skills)'");
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from sess session; and __fish_seen_subcommand_from resume' -a '(__agentify_complete_sessions)'");
   lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from completion; and not __fish_seen_subcommand_from zsh bash fish values' -a 'zsh bash fish'");
-  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from values' -a 'providers skills sessions'");
-  lines.push("complete -c agentify -n '__fish_seen_subcommand_from context; and __fish_seen_subcommand_from fetch' -a '(__fish_complete_path)'");
-  lines.push("complete -c agentify -n '__fish_seen_subcommand_from memory; and __fish_seen_subcommand_from compress' -a '(__fish_complete_path)'");
+  lines.push("complete -c agentify -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from values' -a 'providers skills'");
   lines.push("");
   return `${lines.join("\n")}\n`;
 }
@@ -698,8 +517,6 @@ function fishArgsForFlag(flagInfo) {
       return ["-xa", "'(__agentify_complete_providers)'"];
     case "skills":
       return ["-xa", "'(__agentify_complete_skills)'"];
-    case "sessions":
-      return ["-xa", "'(__agentify_complete_sessions)'"];
     case "path":
       return ["-r"];
     case "number":
