@@ -207,6 +207,27 @@ agentify uninstall</code></pre>
     </div>
   </section>
 
+  <section id="workflows">
+    <h2>Platform workflows</h2>
+    <p class="lede">On GitHub, GitLab, or Azure DevOps — there's a prebuilt workflow to get things done. <code>agentify workflow install</code> detects your platform from the git remote and installs the bundle: triage the board, pick up an item, implement in an isolated worktree, raise a draft PR.</p>
+    <div class="grid">
+      <div class="card">
+        <h3><a href="pages/workflow-gh.html">GitHub</a> <span class="badge">gh</span></h3>
+        <p>github-triage label state machine, gh-autopilot execution, issue-killer parallel worktree fan-out, draft PRs via pr-creator.</p>
+      </div>
+      <div class="card">
+        <h3><a href="pages/workflow-glab.html">GitLab</a> <span class="badge">glab</span></h3>
+        <p>gitlab-triage, glab-autopilot for issues and MRs, the same worktree isolation and parallel fan-out, draft MRs.</p>
+      </div>
+      <div class="card">
+        <h3><a href="pages/workflow-azure.html">Azure DevOps</a> <span class="badge">az</span></h3>
+        <p>azure-devops-triage over Azure Boards, ado-autopilot for work items and Repos PRs, plus pr-convention-learner for reviewer conventions.</p>
+      </div>
+    </div>
+    <pre class="code"><code><span class="green">agentify workflow install</span>   <span class="comment"># auto-detects gh / glab / azure from the git remote</span>
+agentify workflow list      <span class="comment"># bundles + platform CLI availability</span></code></pre>
+  </section>
+
   <section id="routing">
     <h2>Model routing</h2>
     <p class="lede">Install also sets up a routing table: each kind of work goes to the model best suited for it, and the agent is taught to delegate instead of doing everything inline.</p>
@@ -267,6 +288,7 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
       <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>
       <tr><td><code>agentify up</code> / <code>agentify check</code></td><td>Refresh the index / validate freshness</td></tr>
       <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills (<a href="skill-catalog.html">browse the catalog</a>, <a href="pages/skill.html">command reference</a>)</td></tr>
+      <tr><td><code>agentify workflow list|install</code></td><td>Platform workflows: <a href="pages/workflow-gh.html">GitHub</a>, <a href="pages/workflow-glab.html">GitLab</a>, <a href="pages/workflow-azure.html">Azure DevOps</a></td></tr>
       <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan)</td></tr>
       <tr><td><code>agentify doctor</code> / <code>clean</code> / <code>completion</code></td><td>Toolchain readiness, artifact pruning, shell completion</td></tr>
     </table>
@@ -283,7 +305,7 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
   </section>
 
   <footer>
-    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/skill.html">Skill command</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
+    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/workflow-gh.html">GitHub workflow</a> · <a href="pages/workflow-glab.html">GitLab workflow</a> · <a href="pages/workflow-azure.html">Azure workflow</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
   </footer>
 </main>
 </body>

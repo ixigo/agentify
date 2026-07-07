@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · GitHub workflow</title>
+  <meta name="description" content="The prebuilt GitHub agent workflow — from board to draft PR with the gh CLI. github-triage, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
+  <link rel="stylesheet" href="command-style.css">
+  <style>
+    .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .flow-step { position: relative; }
+    .flow-step .step-no {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; margin-right: 8px;
+      color: var(--bg); background: var(--accent); border-radius: 50%;
+      font: 700 11px/1 var(--mono); vertical-align: middle;
+    }
+    @media (max-width: 900px) { .flow-grid { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="../skill-catalog.html">catalog</a>
+        <span class="pill">gh</span>
+        <a href="workflow-glab.html">glab</a>
+        <a href="workflow-azure.html">azure</a>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">GitHub workflow</span>
+        <h1>From board to draft PR — the agent drives <span class="accent">the whole loop.</span></h1>
+        <p class="lede">One bundle wires GitHub Issues to isolated worktrees and draft pull requests, all orchestrated with the <code>gh</code> CLI. Opt in an issue, and the agent triages, picks it up, implements in isolation, and raises a draft PR.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#flow">the flow</a>
+          <a class="cta cta-secondary" href="../skill-catalog.html">skill catalog</a>
+        </div>
+        <div class="hero-meta">
+          <span>cli <code>gh</code></span>
+          <span>opt-in label <code>agentify-ready</code></span>
+          <span>output <code>draft PR</code></span>
+        </div>
+      </div>
+      <aside class="terminal" aria-label="GitHub workflow quick start">
+        <div class="terminal-top">
+          <span>quick start</span>
+          <span>gh</span>
+        </div>
+<pre><span class="c"># install the CLI + wire up the repo</span>
+<span class="a">curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash</span>
+<span class="a">agentify install</span>
+
+<span class="c"># install the platform workflow (auto-detects from the git remote)</span>
+<span class="a">agentify workflow install</span>          <span class="c"># or: agentify workflow install gh</span></pre>
+      </aside>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell" id="flow">
+      <div class="container">
+        <span class="section-label">the flow</span>
+        <h2>Six moves from <span class="accent">issue to draft PR.</span></h2>
+        <p class="section-lede">Each step is a skill in the bundle. The board stays the source of truth; the agent only touches issues you have opted in.</p>
+
+        <div class="flow-grid">
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">1</span>triage the board</span>
+            <h3>github-triage</h3>
+            <p>Runs issues through a label-based state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — with exactly one state and one category label each. Opting in means moving an issue to <code>ready-for-agent</code> (and tagging <code>agentify-ready</code> for fan-out).</p>
+          </div>
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">2</span>pick up an item</span>
+            <h3>gh-autopilot</h3>
+            <p>Resolves the GitHub context with <code>gh</code>: confirms <code>gh auth status</code>, selects the target issue or PR (explicit number, <code>latest</code>, or <code>first</code>), and turns <code>gh issue view</code> into an execution checklist. Keeps all GitHub orchestration here.</p>
+          </div>
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">3</span>implement in isolation</span>
+            <h3>worktree-autopilot</h3>
+            <p>Creates a fresh branch and <code>git worktree</code> off the correct base, implements the smallest viable change there, and verifies it with the repo's own formatting, linting, type checks, and tests. Commits with a conventional message and leaves the original checkout untouched.</p>
+          </div>
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">4</span>fan out in parallel</span>
+            <h3>issue-killer</h3>
+            <p>When several issues are opted in, launches one tmux pane and one worktree per issue via <code>gh issue list --label agentify-ready</code>, each running an agent that opens a draft PR. Supervise them all with <code>tmux attach -t issue-killer</code>.</p>
+          </div>
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">5</span>raise a draft PR</span>
+            <h3>pr-creator</h3>
+            <p>Validates <code>gh</code> and auth, confirms base/source branch, title, and body, then creates a <strong>draft</strong> PR with <code>gh pr create --draft</code> and returns the link. Never opens a non-draft PR unless you explicitly ask.</p>
+          </div>
+          <div class="move flow-step">
+            <span class="tag"><span class="step-no">6</span>carry context across sessions</span>
+            <h3>agentify ctx</h3>
+            <p>Fan-outs and handoffs are recorded with <code>agentify ctx note</code> so a later session knows what is in flight. Every worktree gets its own <code>.agentify/</code> store, so notes and tracking stay per-checkout.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">bundle</span>
+        <h2>What <span class="accent">workflow install gh</span> lays down.</h2>
+        <p class="section-lede">Six skills, installed together and templated for your provider.</p>
+
+        <div class="artifact-list">
+          <div class="artifact"><strong>github-triage</strong><span>Label-based state machine for incoming issues.</span></div>
+          <div class="artifact"><strong>gh-autopilot</strong><span>Resolves GitHub issue/PR context with <code>gh</code>.</span></div>
+          <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in issues.</span></div>
+          <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>
+          <div class="artifact"><strong>pr-creator</strong><span>Draft PR creation with prerequisite checks.</span></div>
+          <div class="artifact"><strong>commit-creator</strong><span>Focused, Conventional-Commit staging and messages.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">platform cli</span>
+        <h2>Readiness and <span class="accent">board queries.</span></h2>
+        <p class="section-lede">The workflow confirms the toolchain before it touches anything on GitHub.</p>
+        <aside class="terminal" aria-label="GitHub CLI commands">
+          <div class="terminal-top">
+            <span>gh</span>
+            <span>readiness · board</span>
+          </div>
+<pre><span class="c"># readiness</span>
+<span class="a">gh auth status</span>
+
+<span class="c"># the opted-in board</span>
+<span class="a">gh issue list --label agentify-ready --state open --limit 5 --json number,title,url</span>
+
+<span class="c"># load one issue as a checklist</span>
+gh issue view &lt;number&gt; --json number,title,body,labels,assignees,url</pre>
+        </aside>
+      </div>
+    </section>
+
+    <section class="shell">
+      <div class="container">
+        <span class="section-label">guardrails</span>
+        <h2>Conservative <span class="accent">by default.</span></h2>
+
+        <div class="safety-grid">
+          <div class="safety-card">
+            <span class="tag">opt-in only</span>
+            <p>Issues are selected by an opt-in label or explicit URLs/IDs — never arbitrary open issues. One worktree per issue, never shared.</p>
+          </div>
+          <div class="safety-card">
+            <span class="tag">draft PRs</span>
+            <p>Agents open draft PRs by default (<code>gh pr create --draft</code>). Nothing is marked ready for review automatically.</p>
+          </div>
+          <div class="safety-card">
+            <span class="tag">no force / merge</span>
+            <p>No force-push, no rewriting shared history, and nothing is closed or merged unless you explicitly ask.</p>
+          </div>
+          <div class="safety-card">
+            <span class="tag">ai disclaimer</span>
+            <p>Every triage comment posted to GitHub carries <code>&gt; <em>This was generated by AI during triage.</em></code> at the top of the body.</p>
+          </div>
+        </div>
+
+        <nav class="page-nav" aria-label="Workflow pagination">
+          <a class="nav-btn prev" href="../index.html">
+            <span class="nav-dir">home</span>
+            <span class="nav-title">Agentify overview</span>
+          </a>
+          <a class="nav-btn next" href="workflow-glab.html">
+            <span class="nav-dir">glab</span>
+            <span class="nav-title">GitLab workflow</span>
+          </a>
+        </nav>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify GitHub workflow</span>
+      <span><a href="../skill-catalog.html">catalog</a> · <a href="../index.html">home</a></span>
+    </div>
+  </footer>
+</body>
+</html>

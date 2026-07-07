@@ -31,6 +31,7 @@ import {
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
+import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
 import { runClean } from "./core/cleanup.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
@@ -478,6 +479,60 @@ export async function runCli(argv, runtime = {}) {
         }
         console.log(JSON.stringify(result, null, 2));
         return;
+      }
+
+      case "workflow":
+      case "workflows": {
+        if (subcommand === "install") {
+          const result = await installWorkflow(root, args._[2] || null, {
+            provider: args.provider,
+            scope: args.scope,
+            force: args.force,
+            dryRun: config.dryRun,
+            defaultProvider: config.provider,
+          });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            success(`${result.title} workflow ${config.dryRun ? "dry-run" : "installed"} (${result.skills.length} skills)`);
+            if (!result.cli_available) {
+              log(`${bold("note")}: ${result.cli_hint}`);
+            }
+            for (const item of result.skills) {
+              for (const installed of item.results || []) {
+                log(`${bold(item.skill)} ${installed.provider} ${installed.status} ${dim(installed.target_dir)}`);
+              }
+            }
+            log("");
+            log(bold("The flow:"));
+            for (const step of result.flow) {
+              log(`  - ${step}`);
+            }
+          }
+          return;
+        }
+
+        if (!subcommand || subcommand === "list") {
+          const result = await describeWorkflows(root);
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            if (result.detected) {
+              log(`Detected platform from git remote: ${bold(result.detected)} ${dim(`(${result.remote_url})`)}`);
+              log("");
+            }
+            for (const workflow of result.workflows) {
+              const cliState = workflow.cli_available ? green(`${workflow.cli} available`) : dim(`${workflow.cli} missing`);
+              log(`${bold(workflow.name.padEnd(6))} ${workflow.title}${workflow.detected ? green(" (detected)") : ""} — ${cliState}`);
+              log(`       ${dim(workflow.skills.join(", "))}`);
+            }
+            log("");
+            log(dim("Install one with: agentify workflow install [gh|glab|azure] (auto-detects from the git remote when omitted)"));
+          }
+          return;
+        }
+
+        throw new Error("workflow requires a subcommand: list or install");
       }
 
       case "models": {

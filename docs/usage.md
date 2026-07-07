@@ -114,6 +114,25 @@ models:
       model: haiku
 ```
 
+## Platform workflows
+
+`agentify workflow install` sets up a board-to-draft-PR workflow for your platform, delivered as a skill bundle the agent drives:
+
+```bash
+agentify workflow list               # bundles + CLI availability, detects your platform
+agentify workflow install            # auto-detects gh / glab / azure from the git remote
+agentify workflow install glab --provider claude --scope project
+```
+
+The flow on every platform: **triage** the board with an opt-in label (`agentify-ready`), **pick up** an item (the autopilot skill resolves full context with `gh`/`glab`/`az`), **implement in isolation** (`worktree-autopilot` creates a fresh branch + git worktree, verifies with the repo's tests, commits), and **raise a draft PR/MR** (`pr-creator`; the Azure bundle adds `pr-convention-learner`, which checks reviewer conventions learned from past PRs).
+
+### Worktrees and parallel issue-solving
+
+- One task → `worktree-autopilot`: isolated worktree, verified change, merge-back commands returned to you.
+- Many opted-in issues → `issue-killer`: one tmux pane + one worktree per issue, each running an interactive agent that ends in a draft PR. Supervise with `tmux attach -t issue-killer`.
+- Context is per-checkout: each worktree has its own `.agentify/` store, so tracking never bleeds between parallel tasks. The fan-out itself is recorded with `agentify ctx note` so the next session knows what's in flight.
+- Guardrails: issues are only picked up via opt-in labels or explicit URLs, PRs stay drafts, and nothing force-pushes or merges without an explicit ask.
+
 ## Git hooks (optional)
 
 ```bash

@@ -141,6 +141,26 @@ agentify models                                  # show the routing table + avai
 
 Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
 
+## Platform workflows
+
+Whether you're on GitHub, GitLab, or Azure DevOps, there's a prebuilt workflow to get things done — triage the board, pick up an item, implement it in an isolated worktree, and raise a draft PR:
+
+```bash
+agentify workflow list        # shows bundles + which platform CLI is installed
+agentify workflow install     # auto-detects gh/glab/azure from the git remote
+agentify workflow install azure --provider claude
+```
+
+| Platform | CLI | Bundle |
+| --- | --- | --- |
+| GitHub | `gh` | github-triage, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
+| GitLab | `glab` | gitlab-triage, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
+| Azure DevOps | `az` | azure-devops-triage, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator |
+
+**Worktrees and parallel work:** single tasks run through `worktree-autopilot` (fresh branch + `git worktree`, verify, commit, draft PR). When several opted-in issues are ready, `issue-killer` fans them out — one tmux pane and one worktree per issue, each running an interactive agent, supervised via `tmux attach -t issue-killer`. Every worktree has its own `.agentify/` store, so context tracking stays per-checkout, and `agentify ctx note` records what's in flight so later sessions know.
+
+Per-platform guides: [GitHub](https://ixigo.github.io/agentify/pages/workflow-gh.html) · [GitLab](https://ixigo.github.io/agentify/pages/workflow-glab.html) · [Azure DevOps](https://ixigo.github.io/agentify/pages/workflow-azure.html)
+
 ## What the agent sees
 
 At session start (via the `SessionStart` hook):

@@ -67,6 +67,19 @@ const COMMANDS = [
     ],
   }),
   command("models", "Show the model routing table"),
+  command("workflow", "Prebuilt platform workflows", {
+    aliases: ["workflows"],
+    subcommands: [
+      subcommand("list", "List workflows and CLI availability"),
+      subcommand("install", "Install a platform workflow bundle", {
+        flags: [
+          flag("--provider", { valueKind: "providers", description: "Skill install provider or all" }),
+          flag("--scope", { values: SCOPE_VALUES, description: "Install scope" }),
+          flag("--force", { description: "Replace existing skill files" }),
+        ],
+      }),
+    ],
+  }),
   command("scan", "Build the SQLite repository index"),
   command("up", "Run scan and check", {
     flags: [flag("--hook", { description: "Use hook-friendly validation" })],
