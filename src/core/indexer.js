@@ -2,10 +2,21 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import ts from "typescript";
-
 import { detectModules, detectStacks } from "./detect.js";
 import { exists, relative, walkFiles } from "./fs.js";
+
+// The TypeScript compiler takes ~140ms to load, which would otherwise be paid
+// by every CLI invocation — including the ctx hooks that fire on each agent
+// tool call. It is only needed when actually building the index, so it is
+// loaded on demand in buildRepositoryIndex.
+let ts;
+
+async function loadTypeScript() {
+  if (!ts) {
+    ({ default: ts } = await import("typescript"));
+  }
+  return ts;
+}
 
 const TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const SOURCE_EXTENSIONS = new Set([
@@ -1228,6 +1239,7 @@ async function buildModuleCommands(root, rootFiles, moduleInfo) {
 }
 
 export async function buildRepositoryIndex(root, config) {
+  await loadTypeScript();
   const generatedAt = new Date().toISOString();
   const filePaths = (await walkFiles(root, { respectIgnore: true })).map((file) => relative(root, file));
   const stacks = await detectStacks(root, config, { relFiles: filePaths });
