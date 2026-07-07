@@ -1,9 +1,10 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { buildRiskReport } from "./risk.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
-import { loadCommands, loadFiles, loadTests } from "./db/structural-store.js";
+import { loadCommands, loadFiles, loadModules, loadTests } from "./db/structural-store.js";
 import { resolveAgentifyPaths } from "./project-store.js";
 
 const TEST_SCHEMA_VERSION = "test-select-v1";
@@ -26,6 +27,31 @@ function appendFileArgs(command, args, testFiles) {
   return [...args, ...extra];
 }
 
+async function readTestScript(root, moduleRoot) {
+  try {
+    const raw = await fs.readFile(path.join(root, moduleRoot || ".", "package.json"), "utf8");
+    const script = JSON.parse(raw)?.scripts?.test;
+    return typeof script === "string" ? script.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+// `node --test <dir>` treats appended file paths as extra entry points and
+// crashes on directory arguments, so scripts based on node's test runner are
+// bypassed and the runner invoked directly with just the selected files.
+// Other runners (jest, vitest, mocha) treat extra positional args as filters,
+// where appending is safe.
+function buildRunnerArgs(script, commandInfo, testFiles) {
+  if (script && /^node\s+(--[\w-]+(=\S+)?\s+)*--test(\s|$)/.test(script)) {
+    return { command: "node", args: ["--test", ...testFiles] };
+  }
+  return {
+    command: commandInfo.command,
+    args: appendFileArgs(commandInfo.command, commandInfo.args, testFiles),
+  };
+}
+
 export async function buildTestSelection(root, options = {}) {
   const report = await buildRiskReport(root, options);
 
@@ -34,13 +60,16 @@ export async function buildTestSelection(root, options = {}) {
   let tests;
   let files;
   let commands;
+  let modules;
   try {
     tests = loadTests(db);
     files = loadFiles(db);
     commands = loadCommands(db);
+    modules = loadModules(db);
   } finally {
     closeIndexDatabase(db);
   }
+  const moduleRootById = new Map(modules.map((moduleInfo) => [moduleInfo.id, moduleInfo.root_path]));
 
   const changedSet = new Set(report.changed_files.map((item) => item.path));
   const impactedByPath = new Map(report.impacted.files.map((item) => [item.path, item]));
@@ -106,7 +135,7 @@ export async function buildTestSelection(root, options = {}) {
     groups.get(key).test_files.push(testInfo.path);
   }
 
-  const runGroups = [...groups.values()].map((group) => {
+  const runGroups = (await Promise.all([...groups.values()].map(async (group) => {
     if (!group.commandInfo) {
       return {
         module_id: group.module_id,
@@ -117,15 +146,16 @@ export async function buildTestSelection(root, options = {}) {
         note: "No indexed test command for this module; run these files with your test runner.",
       };
     }
-    const args = appendFileArgs(group.commandInfo.command, group.commandInfo.args, group.test_files);
+    const script = await readTestScript(root, moduleRootById.get(group.commandInfo.module_id) ?? ".");
+    const runner = buildRunnerArgs(script, group.commandInfo, group.test_files);
     return {
       module_id: group.commandInfo.module_id,
-      command: group.commandInfo.command,
-      args,
-      command_line: [group.commandInfo.command, ...args].map(shellQuote).join(" "),
+      command: runner.command,
+      args: runner.args,
+      command_line: [runner.command, ...runner.args].map(shellQuote).join(" "),
       test_files: group.test_files,
     };
-  }).sort((left, right) => String(left.module_id).localeCompare(String(right.module_id)));
+  }))).sort((left, right) => String(left.module_id).localeCompare(String(right.module_id)));
 
   const notes = [];
   if (report.changed_files.length === 0) {

@@ -23,9 +23,11 @@ agentify install
 
 1. Appends a managed guidance block to `CLAUDE.md` (created if missing) teaching the agent to use `agentify ctx`, `query`, and `risk`.
 2. Adds Claude Code hooks to `.claude/settings.json`:
-   - `SessionStart` runs `agentify ctx load --hook` and injects a context digest into the new session.
-   - `PostToolUse` (file edits and Bash) runs `agentify ctx track --hook` to record activity.
-   - `SessionEnd` records the session close.
+   - `SessionStart` runs `agentify ctx load --hook` and injects a context pointer (or digest) into the new session.
+   - `UserPromptSubmit` runs `agentify ctx match --hook` to inject only context related to each prompt.
+   - `PreToolUse` (Bash) runs `agentify ctx precheck --hook` to warn before repeating a previously-failed command.
+   - `PostToolUse` (file edits and Bash) runs `agentify ctx track --hook` to record activity and command failures.
+   - `SessionEnd` records the session close and triggers the background session summary.
 3. Writes baseline repo files: `.agentify.yaml` (config), `.agentignore`, `.guardrails`, and the `.agentify/` runtime directory (gitignored).
 4. Prints next steps.
 
@@ -51,7 +53,10 @@ You generally do not need to run anything — the agent does. Useful commands wh
 agentify status                  # is the integration installed? how much context is tracked?
 agentify ctx load                # see what the agent sees at session start
 agentify ctx note "gotcha: ..."  # leave a note for the agent's next session
+agentify ctx decision "chose X over Y because Z"   # record a durable decision
 agentify ctx handoff "task"      # write a handoff summary markdown
+agentify test --run              # run only the tests your current change affects
+agentify stats                   # what the delegate traffic cost this month
 ```
 
 ## Context tracking
@@ -64,6 +69,25 @@ Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/not
 ```
 
 The event log auto-compacts: past ~512 KB it is truncated to the most recent 1000 events. Command text is clipped to 200 characters and never includes command output. Hook-invoked commands (`--hook`) are designed to never fail and never block the agent.
+
+## Failure memory
+
+**Why:** agents rediscover the same dead ends. A command that failed three sessions ago gets retried verbatim, fails the same way, and burns the same tokens.
+
+**What happens:** command results are tracked, not just commands. A Bash tool call that exits non-zero is recorded with its exit code and an error snippet. Two things then use that record:
+
+1. The digest and per-task matches get a *"Commands that failed and were not retried successfully"* section — only commands whose **most recent** run failed; one later success clears the failure.
+2. A `PreToolUse` hook (`agentify ctx precheck --hook`, installed by `agentify install`) fires when the agent is about to run the *exact same command* that failed in a **previous** session, and injects a warning:
+
+```text
+Agentify: this exact command failed in a previous session (2026-07-07) (exit 1):
+error: relation "orders" already exists. If the underlying cause was not fixed
+since, try a different approach instead of retrying it as-is.
+```
+
+Warnings are deduplicated per session and never fire for failures the current session already saw (the agent was there). Check manually with `agentify ctx precheck "<command>"`.
+
+**When to care:** you don't run anything — it's automatic once installed. It matters most for expensive commands (migrations, deploys, long test suites) where a doomed retry costs minutes.
 
 ## Session summaries
 
@@ -81,9 +105,50 @@ agentify ctx share --off  # back to fully local
 
 Once committed, every teammate's agent sees your notes in its digest and per-task matches — "don't regenerate idempotency keys per attempt" becomes shared knowledge instead of personal memory. Events, summaries, and handoffs always stay local; only `notes.jsonl` is shared, and re-running `agentify install` or `scan` preserves whichever mode is active.
 
+## Stale-note flagging
+
+**Why:** the biggest failure mode of persistent agent memory is the confidently-wrong stale note. "The vault code is in src/pay/vault-legacy.js" is helpful until that file moves — then it actively misleads.
+
+**What happens:** whenever notes are injected (digest, per-task match, decisions list), any repo-relative file path mentioned in the note text is checked against the working tree. Paths that no longer exist get the note flagged in place:
+
+```text
+### Notes left for this session
+- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js — never regenerate per attempt
+- [2026-07-07] legacy card vault code is in src/pay/vault-legacy.js, do not touch without
+  compliance — STALE? references missing path(s): src/pay/vault-legacy.js; verify before trusting
+```
+
+The note isn't deleted — the knowledge may still be right, just relocated — but the agent is told to verify instead of trusting. `agentify ctx status` reports a `stale_note_count` so you can spot memory rot at a glance.
+
+## Decision log
+
+**Why:** "why did we choose X" gets relitigated every few weeks — by teammates and by agents, who will happily "improve" a settled trade-off they know nothing about.
+
+**How:**
+
+```bash
+agentify ctx decision "chose idempotency keys stored client-side over server-side dedup \
+  because the gateway retries before our server sees the request"
+
+agentify ctx decisions                              # list all decisions
+agentify ctx decisions "why client side idempotency keys"   # ranked query
+```
+
+```text
+Decisions matching "why client side idempotency keys":
+- [2026-07-07] chose idempotency keys stored client-side over server-side dedup
+  because the gateway retries before our server sees the request
+```
+
+Decisions are notes with `type: decision` (`ctx note --type decision` is equivalent): they live in the same `notes.jsonl`, get their own *"Decisions on record"* digest section, match per-task like any note, and are staleness-checked. Combined with `agentify ctx share`, the committed notes file doubles as a lightweight, queryable team ADR log — no separate docs/adr directory to maintain.
+
+**When to record one:** any time the agent (or you) makes a choice a future session could plausibly reverse without context — library picks, storage formats, API shapes, deliberately-rejected alternatives. The managed guidance block teaches the agent to do this on its own.
+
 ## Context injection modes
 
-By default (`context.injection: relevant` in `.agentify.yaml`) context arrives only when it matters: the session starts with a one-line pointer, and each prompt you type is matched against the store (token overlap on note text and file paths) — only related notes and files are injected, deduplicated per session, via the `UserPromptSubmit` hook. Asking about "payment retries" pulls the retry notes; a CSS question pulls nothing.
+By default (`context.injection: relevant` in `.agentify.yaml`) context arrives only when it matters: the session starts with a one-line pointer, and each prompt you type is matched against the store — only related notes, session summaries, files, and past failures are injected, deduplicated per session, via the `UserPromptSubmit` hook. Asking about "payment retries" pulls the retry notes; a CSS question pulls nothing.
+
+Matching is BM25-ranked over the whole context corpus with light plural stemming: a prompt about "payment **retries**" matches a note about the "**retry**" module, and rare distinctive terms outrank words that appear in every note — so long notes can't win by volume and boilerplate terms don't cause false matches.
 
 ```yaml
 context:
@@ -137,6 +202,67 @@ agentify risk --since origin/main
 ```
 
 All support `--json`. The CLAUDE.md block teaches the agent to run `agentify scan` itself when the index is stale.
+
+## Impact-aware test selection
+
+**Why:** agents run the full suite after every change because they can't tell which tests matter. On a suite that takes minutes, that's the slowest part of the loop.
+
+**How:**
+
+```bash
+agentify test                        # select tests affected by working-tree changes
+agentify test --since origin/main    # ...or by everything since a ref
+agentify test --run                  # select and run them
+```
+
+`agentify test` walks the import graph in the structural index from your changed files and picks only the test files that (a) changed themselves, (b) import changed code directly or transitively, or (c) are recorded as covering a changed file. Verified example — a repo with two test files where only `src/pay/retry.js` changed:
+
+```text
+Selected tests: 1 file(s) from 1 changed file(s)
+- test/retry.test.js (imports changed code)
+Run:
+- node --test test/retry.test.js
+```
+
+`test/dash.test.js` is untouched and not run. Selected files are grouped under the module's indexed test runner; `node --test` scripts are invoked directly (appending file args to `npm run test` breaks when the script pins its own paths), while jest/vitest/mocha-style runners get the files appended as filters. `--run` exits non-zero if any selected test fails. When changes have no related tests at all, the output says so and falls back to recommending the full suite — silence is never treated as coverage.
+
+**When to use:** the guidance block teaches the agent to run `agentify test --since <ref> --run` before finishing a change instead of the full suite. Requires `agentify scan` (the index).
+
+## Delegation usage: agentify stats
+
+**Why:** model routing only pays off if you can see it working. Stats make the delegate traffic — and what it costs — visible.
+
+**How:** every `agentify delegate` run is logged locally (`.agentify/context/delegations.jsonl`) with duration, token usage, and cost. Claude delegations run with `--output-format json`, so token counts and `total_cost_usd` are the provider's real numbers; other CLIs get ~4 chars/token estimates, and estimated rows are labeled as such.
+
+```bash
+agentify stats            # last 30 days
+agentify stats --days 7
+```
+
+Real output after one Haiku research delegation and one Codex review in a demo repo:
+
+```text
+Agentify stats — last 30 day(s)
+
+Sessions:
+- 1 session(s), 0 edit(s), 1 command(s) (1 failed), 4 note(s)
+
+Delegations:
+- total: 2 run(s), 50.1k in / 530 out, cost $0.0212 (1/2 reported)
+
+By kind:
+- research: 1 run(s), 49.9k in / 301 out, cost $0.0212
+- review: 1 run(s), 199 in / 229 out, cost n/a
+
+By model:
+- claude/haiku: 1 run(s), 49.9k in / 301 out, cost $0.0212
+- codex: 1 run(s), 199 in / 229 out, cost n/a
+
+Note: token counts for 1 run(s) are estimates (~4 chars/token); the provider
+CLI reported no usage.
+```
+
+Failures and cross-vendor fallbacks are counted per bucket, so a route whose CLI keeps falling back stands out.
 
 ## Model routing
 
@@ -230,6 +356,26 @@ agentify hooks status
 agentify hooks remove
 ```
 
+### Cross-vendor review on push (opt-in)
+
+**Why:** the model that wrote the code reviews it with the same blind spots. A different vendor's model catches different things — and the cheapest moment to catch them is before the push, not in PR review.
+
+**How:** set `hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`. From then on every `git push` runs `agentify review --push`: the outgoing commits are diffed against upstream and sent to the `review` route (Codex by default, i.e. not the vendor that wrote them). Real Codex output for a commit that added `ts: Date.now()` to a payment-retry payload:
+
+```text
+cross-vendor review by codex — diff since origin/main
+
+**Findings**
+- Medium: src/pay/retry.js now adds `ts: Date.now()` to the retry return value.
+  This makes retryPayment(2, "k1") non-deterministic and changes the public
+  shape from { attempt, key } to { attempt, key, ts }. For payment
+  retry/idempotency code, that is risky: callers that serialize, compare,
+  dedupe, cache, or sign the retry payload can now see different values for
+  the same attempt/key.
+```
+
+The review is **advisory**: it prints findings and the push proceeds regardless (`|| true` in the hook), stays silent when there is no upstream or nothing to review, and can be run manually any time with `agentify review --diff <ref>`. It's opt-in because a model review at push time costs real seconds and tokens — enable it on repos where a second opinion is worth that.
+
 ## Skills (optional)
 
 Agentify bundles a catalog of agent skills (TDD, PR workflows, triage, and more):
@@ -270,11 +416,27 @@ moduleStrategy: auto  # module clustering strategy
 hooks:
   preCommit: true     # managed git hooks (agentify hooks install)
   postMerge: true
+  prePush: false      # opt-in: cross-vendor review of outgoing commits
 cleanup:
   keepRuns: 20
   maxRunAgeDays: 14
 ```
 
-## Other agents
+## Other agents: MCP server
 
-Automatic hook tracking targets Claude Code; Codex is supported through `AGENTS.md` guidance (`--provider codex`). Any other agent (Gemini, OpenCode, ...) can still use Agentify directly — the commands are plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.
+Automatic hook tracking targets Claude Code; Codex is supported through `AGENTS.md` guidance (`--provider codex`). For everything else — Cursor, Zed, Windsurf, Claude Desktop, Gemini CLI, any MCP-capable client — Agentify speaks MCP:
+
+```bash
+agentify serve       # stdio MCP server; register it in your client
+```
+
+```bash
+# Claude Code (as an alternative or complement to hooks)
+claude mcp add agentify -- agentify serve
+```
+
+The server exposes six tools, all backed by the same store and index the hooks use: `ctx_load` (session digest), `ctx_note` (record a note or decision), `ctx_match` (context related to a described task), `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). Tool descriptions teach the client when to call each, so an MCP-connected agent gets the whole workflow — load context at start, note decisions, select tests before finishing — without any hook support. No extra dependencies; the server is part of the CLI and holds no state between calls.
+
+**When to use hooks vs MCP:** hooks are better in Claude Code (tracking is automatic and per-prompt injection is free); MCP is for clients without lifecycle hooks. Running both in Claude Code is fine — the note/query tools complement automatic tracking.
+
+Any other agent can still use the plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.

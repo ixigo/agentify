@@ -135,10 +135,80 @@
     <p class="tagline">Agentify gives AI coding agents lightweight, persistent context. Run <code>agentify install</code> once per repo — from then on the agent drives Agentify, not you.</p>
     <div class="cta">
       <a class="btn primary" href="#quick-start">Quick start</a>
+      <a class="btn" href="#why">Why Agentify</a>
+      <a class="btn" href="pages/usage.html">Usage guide</a>
       <a class="btn" href="https://github.com/ixigo/agentify">GitHub</a>
       <a class="btn" href="skill-catalog.html">Skill catalog</a>
     </div>
   </header>
+
+  <section id="why">
+    <h2>Why Agentify over a raw agent?</h2>
+    <p class="lede">Raw Claude Code and Codex start every session amnesiac: they re-derive project knowledge, retry known dead ends, run full test suites, and review their own code with their own blind spots. Agentify fixes each of those with plumbing, not prompting. <strong>Every terminal output below is captured from a real run</strong> in a small payment-service demo repo — the review findings are Codex's actual words, the costs are the provider's actual numbers.</p>
+
+    <h3>1 · It remembers what failed — and says so <em>before</em> the retry</h3>
+    <p>Command results are tracked, not just commands. When the agent is about to rerun something that failed in a previous session, a <code>PreToolUse</code> hook injects a warning first:</p>
+    <pre class="code"><code><span class="comment"># session 1: the agent runs a migration; it fails. sessions later, it tries again —</span>
+Agentify: this exact command failed in a previous session (2026-07-07) (exit 1):
+error: relation "orders" already exists. If the underlying cause was not fixed
+since, try a different approach instead of retrying it as-is.</code></pre>
+    <p style="color: var(--text-dim);">One later success clears the failure. Warnings dedupe per session and never fire for failures the current session already saw.</p>
+
+    <h3>2 · It runs the tests your change affects — not the whole suite</h3>
+    <p><code>agentify test</code> walks the import graph in the structural index from your changed files to the test files that actually exercise them:</p>
+    <pre class="code"><code><span class="green">$ agentify test</span>   <span class="comment"># only src/pay/retry.js was modified</span>
+Selected tests: 1 file(s) from 1 changed file(s)
+- test/retry.test.js (imports changed code)
+Run:
+- node --test test/retry.test.js</code></pre>
+    <p style="color: var(--text-dim);">The unrelated <code>test/dash.test.js</code> is skipped. <code>--run</code> executes the selection and exits non-zero on failure; when no related tests exist, it says so and recommends the full suite — silence is never treated as coverage.</p>
+
+    <h3>3 · A different vendor reviews the code — and catches real things</h3>
+    <p>The <code>review</code> route goes to the other vendor by default. This is Codex's unedited verdict on a commit that added <code>ts: Date.now()</code> to a retry payload:</p>
+    <pre class="code"><code><span class="green">$ agentify review --diff HEAD~1</span>
+cross-vendor review by codex — diff since HEAD~1
+
+**Findings**
+- Medium: src/pay/retry.js now adds `ts: Date.now()` to the retry return value.
+  This makes retryPayment(2, "k1") non-deterministic and changes the public shape
+  from { attempt, key } to { attempt, key, ts }. For payment retry/idempotency
+  code, that is risky: callers that serialize, compare, dedupe, cache, or sign
+  the retry payload can now see different values for the same attempt/key.</code></pre>
+    <p style="color: var(--text-dim);">Opt in with <code>hooks.prePush: true</code> and this runs on every <code>git push</code> — advisory, never blocking.</p>
+
+    <h3>4 · Its memory flags its own rot</h3>
+    <p>A note that references a file which no longer exists is the most dangerous kind of memory — confidently wrong. Notes are verified against the working tree at injection time:</p>
+    <pre class="code"><code>### Notes left for this session
+- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js — never regenerate per attempt
+- [2026-07-07] legacy card vault code is in src/pay/vault-legacy.js, do not touch without compliance
+  — <span class="accent">STALE? references missing path(s): src/pay/vault-legacy.js; verify before trusting</span></code></pre>
+
+    <h3>5 · Decisions stay decided</h3>
+    <p>Settled trade-offs get relitigated by every new session unless they're on record — and queryable:</p>
+    <pre class="code"><code><span class="green">$ agentify ctx decisions "why client side idempotency keys"</span>
+Decisions matching "why client side idempotency keys":
+- [2026-07-07] chose idempotency keys stored client-side over server-side dedup
+  because the gateway retries before our server sees the request</code></pre>
+    <p style="color: var(--text-dim);">With <code>agentify ctx share</code>, the committed notes file doubles as a lightweight team ADR log.</p>
+
+    <h3>6 · You can see what the routing costs</h3>
+    <p>Every delegation is logged with the provider's real usage numbers where the CLI reports them. Actual output after one Haiku research call and one Codex review:</p>
+    <pre class="code"><code><span class="green">$ agentify stats</span>
+Delegations:
+- total: 2 run(s), 50.1k in / 530 out, cost $0.0212 (1/2 reported)
+
+By kind:
+- research: 1 run(s), 49.9k in / 301 out, cost $0.0212
+- review:   1 run(s), 199 in / 229 out, cost n/a
+
+Note: token counts for 1 run(s) are estimates (~4 chars/token); the provider
+CLI reported no usage.</code></pre>
+
+    <h3>7 · It works beyond Claude Code and Codex</h3>
+    <p>Everything above is also exposed as an MCP server — Cursor, Zed, Windsurf, Claude Desktop, Gemini CLI, anything MCP-capable:</p>
+    <pre class="code"><code><span class="green">$ agentify serve</span>   <span class="comment"># stdio MCP server, zero extra dependencies</span>
+tools: ctx_load, ctx_note, ctx_match, query, risk, test_select</code></pre>
+  </section>
 
   <section id="how">
     <h2>How it works</h2>
@@ -146,9 +216,11 @@
     <pre class="code"><code><span class="green">agentify install</span>
   ├── CLAUDE.md             <span class="comment">← managed guidance block: how the agent should use agentify</span>
   ├── .claude/settings.json <span class="comment">← Claude Code hooks:</span>
-  │     SessionStart → agentify ctx load   <span class="comment">(inject context digest)</span>
-  │     PostToolUse  → agentify ctx track  <span class="comment">(record edits + commands)</span>
-  │     SessionEnd   → agentify ctx track  <span class="comment">(close out the session)</span>
+  │     SessionStart     → agentify ctx load     <span class="comment">(inject context digest)</span>
+  │     UserPromptSubmit → agentify ctx match    <span class="comment">(inject only task-relevant context)</span>
+  │     PreToolUse       → agentify ctx precheck <span class="comment">(warn before repeating a failed command)</span>
+  │     PostToolUse      → agentify ctx track    <span class="comment">(record edits, commands + failures)</span>
+  │     SessionEnd       → agentify ctx track    <span class="comment">(close out the session)</span>
   └── .agentify/            <span class="comment">← lightweight JSONL context store + structural index</span></code></pre>
 
     <div class="flow">
@@ -261,15 +333,18 @@ agentify workflow list      <span class="comment"># bundles + platform CLI avail
     <pre class="code"><code>## Agentify context (relevant to this task)
 
 ### Related notes from earlier sessions
-- [2026-07-05] payment retries: idempotency key lives in src/pay/retry.ts,
-  do not regenerate per attempt
+- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js
+  — never regenerate per attempt
+
+### Related commands that previously failed (avoid repeating as-is)
+- [2026-07-07] `npm run migrate` (exit 1) — error: relation "orders" already exists
 
 ### Files previously worked on that look related
-- src/pay/retry.ts (14 edits)
-- src/pay/retry.test.ts (9 edits)
+- src/pay/retry.js (14 edits)
+- test/retry.test.js (9 edits)
 
 Full history: `agentify ctx load`.</code></pre>
-    <p style="color: var(--text-dim);">Events are single-line JSON records under <code>.agentify/context/</code>. Command text is clipped, output is never captured, and secrets are redacted from run reports.</p>
+    <p style="color: var(--text-dim);">Matching is BM25-ranked with light stemming — "payment <em>retries</em>" finds the <em>retry</em> module's notes, rare terms outrank boilerplate, and injected items dedupe per session. Events are single-line JSON records under <code>.agentify/context/</code>. Command text is clipped, output is never captured, and secrets are redacted from run reports.</p>
   </section>
 
   <section id="commands">
@@ -283,16 +358,22 @@ Full history: `agentify ctx load`.</code></pre>
       <tr><td><code>agentify status</code></td><td>Integration + context-tracking status</td></tr>
       <tr><td><code>agentify ctx load</code></td><td>Digest of recent activity, notes, hot files</td></tr>
       <tr><td><code>agentify ctx note "&lt;text&gt;"</code></td><td>Record a note for future sessions</td></tr>
+      <tr><td><code>agentify ctx decision "&lt;text&gt;"</code></td><td>Record a durable decision; query later with <code>ctx decisions "&lt;topic&gt;"</code></td></tr>
+      <tr><td><code>agentify ctx precheck "&lt;cmd&gt;"</code></td><td>Did this command fail in an earlier session? (automatic via hook)</td></tr>
       <tr><td><code>agentify ctx handoff ["task"]</code></td><td>Write a handoff summary</td></tr>
       <tr><td><code>agentify delegate &lt;kind&gt; ["task"]</code></td><td>Shell a task out to the routed model (<code>--diff</code>, <code>--write</code>)</td></tr>
+      <tr><td><code>agentify review [--diff &lt;ref&gt;|--push]</code></td><td>Cross-vendor review of a change or outgoing commits</td></tr>
       <tr><td><code>agentify models</code></td><td>Model routing table + provider availability</td></tr>
+      <tr><td><code>agentify stats [--days N]</code></td><td>Delegation + session usage: runs, tokens, cost by kind and model</td></tr>
       <tr><td><code>agentify scan</code></td><td>Build the SQLite structural index</td></tr>
       <tr><td><code>agentify query …</code></td><td>owner, deps, changed, search, def, refs, callers, impacts</td></tr>
       <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>
+      <tr><td><code>agentify test [--since &lt;ref&gt;] [--run]</code></td><td>Select (and run) only the tests affected by a change</td></tr>
+      <tr><td><code>agentify serve</code></td><td>MCP server over stdio for any MCP-capable agent</td></tr>
       <tr><td><code>agentify up</code> / <code>agentify check</code></td><td>Refresh the index / validate freshness</td></tr>
       <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills (<a href="skill-catalog.html">browse the catalog</a>, <a href="pages/skill.html">command reference</a>)</td></tr>
       <tr><td><code>agentify workflow list|install</code></td><td>Platform workflows: <a href="pages/workflow-gh.html">GitHub</a>, <a href="pages/workflow-glab.html">GitLab</a>, <a href="pages/workflow-azure.html">Azure DevOps</a></td></tr>
-      <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan)</td></tr>
+      <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review)</td></tr>
       <tr><td><code>agentify doctor</code> / <code>clean</code> / <code>completion</code></td><td>Toolchain readiness, artifact pruning, shell completion</td></tr>
     </table>
     </div>
@@ -308,7 +389,7 @@ Full history: `agentify ctx load`.</code></pre>
   </section>
 
   <footer>
-    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/workflow-gh.html">GitHub workflow</a> · <a href="pages/workflow-glab.html">GitLab workflow</a> · <a href="pages/workflow-azure.html">Azure workflow</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
+    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="pages/usage.html">Usage guide</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/workflow-gh.html">GitHub workflow</a> · <a href="pages/workflow-glab.html">GitLab workflow</a> · <a href="pages/workflow-azure.html">Azure workflow</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
   </footer>
 </main>
 </body>

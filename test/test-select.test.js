@@ -58,10 +58,11 @@ test("buildTestSelection picks only tests related to the changed files", async (
 
   assert.equal(selection.run_groups.length, 1);
   const group = selection.run_groups[0];
-  assert.equal(group.command, "npm");
-  assert.ok(group.args.includes("--"), "npm needs -- before file args");
-  assert.ok(group.args.includes("src/core.test.ts"));
-  assert.match(group.command_line, /npm run test -- src\/core\.test\.ts/);
+  // node --test scripts are invoked directly: appending file paths to
+  // `npm run test` breaks when the script pins its own paths.
+  assert.equal(group.command, "node");
+  assert.deepEqual(group.args, ["--test", "src/core.test.ts"]);
+  assert.equal(group.command_line, "node --test src/core.test.ts");
 
   const rendered = renderTestSelection(selection);
   assert.match(rendered, /src\/core\.test\.ts/);
@@ -97,7 +98,7 @@ test("runTestSelection runs each group and reports pass/fail", async () => {
   const outcome = await runTestSelection(root, selection, { spawnImpl: fakeSpawn });
   assert.equal(outcome.passed, true);
   assert.equal(spawned.length, 1);
-  assert.equal(spawned[0].command, "npm");
+  assert.equal(spawned[0].command, "node");
 
   function failingSpawn() {
     const child = new EventEmitter();
@@ -106,4 +107,63 @@ test("runTestSelection runs each group and reports pass/fail", async () => {
   }
   const failed = await runTestSelection(root, selection, { spawnImpl: failingSpawn });
   assert.equal(failed.passed, false);
+});
+
+test("scripts that are not node --test keep the package-runner invocation with appended filters", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-select-jest-"));
+  await writeFile(
+    root,
+    "package.json",
+    JSON.stringify({ name: "jest-fixture", scripts: { test: "jest --coverage" } }, null, 2)
+  );
+  await writeFile(root, "src/core.js", "export function core() { return true; }\n");
+  await writeFile(
+    root,
+    "src/core.test.js",
+    "import { core } from './core.js';\ntest('core', () => expect(core()).toBe(true));\n"
+  );
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  config._suppressProgress = true;
+  await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "src/core.js" }],
+  });
+  const group = selection.run_groups.find((item) => item.command);
+  assert.ok(group, "expected a runnable group");
+  assert.notEqual(group.command, "node");
+  assert.ok(group.args.includes("src/core.test.js"));
+});
+
+test("node --test scripts with pinned paths produce a working direct invocation", async () => {
+  // Regression: `npm run test -- <files>` on a script like `node --test test/`
+  // made node treat `test/` plus the appended file as separate entry points
+  // and crash. The selection must bypass npm and call node --test directly.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-select-pinned-"));
+  await writeFile(
+    root,
+    "package.json",
+    JSON.stringify({ name: "pinned-fixture", type: "module", scripts: { test: "node --test test/" } }, null, 2)
+  );
+  await writeFile(root, "src/core.js", "export function core() { return true; }\n");
+  await writeFile(
+    root,
+    "test/core.test.js",
+    "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { core } from '../src/core.js';\ntest('core', () => assert.equal(core(), true));\n"
+  );
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  config._suppressProgress = true;
+  await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "src/core.js" }],
+  });
+  const group = selection.run_groups.find((item) => item.command);
+  assert.ok(group, "expected a runnable group");
+  assert.equal(group.command, "node");
+  assert.deepEqual(group.args, ["--test", "test/core.test.js"]);
+
+  // And it actually runs green.
+  const outcome = await runTestSelection(root, selection, { stdio: "ignore" });
+  assert.equal(outcome.passed, true, JSON.stringify(outcome.results));
 });
