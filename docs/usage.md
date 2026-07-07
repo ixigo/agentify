@@ -23,6 +23,16 @@ agentify install
 
 `agentify install --global` skips the repo files and instead writes the managed block and hooks into `~/.claude/CLAUDE.md` and `~/.claude/settings.json`, so every repo you work in gets context tracking.
 
+### Codex
+
+```bash
+agentify install --provider codex            # project: writes the block into AGENTS.md
+agentify install --provider codex --global   # global: ~/.codex/AGENTS.md
+agentify install --provider all              # Claude Code + Codex together
+```
+
+Codex has no lifecycle hooks, so the `AGENTS.md` block instructs Codex to run `agentify ctx load` at session start, record decisions with `agentify ctx note`, and write `agentify ctx handoff` before ending long tasks. Tracking is guidance-driven rather than automatic, but the context store and every command are shared between agents — notes left by a Claude Code session show up in the next Codex session and vice versa.
+
 Re-running install is safe: the managed block is replaced in place and hooks are deduplicated. `agentify uninstall [--global]` removes exactly what install added and nothing else.
 
 ## Daily use
@@ -125,4 +135,4 @@ cleanup:
 
 ## Other agents
 
-The hook integration targets Claude Code. Any other agent (Codex, Gemini, OpenCode) can still use Agentify directly — the commands are plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.
+Automatic hook tracking targets Claude Code; Codex is supported through `AGENTS.md` guidance (`--provider codex`). Any other agent (Gemini, OpenCode, ...) can still use Agentify directly — the commands are plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.

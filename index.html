@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentify — install once, your coding agent uses it automatically</title>
+<meta name="description" content="Agentify gives AI coding agents lightweight, persistent context. Install once per repo; Claude Code and Codex drive it internally.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --code-bg: #161b22;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-dim: #59636e;
+      --accent: #0969da;
+      --accent-2: #1a7f37;
+      --code-bg: #f6f8fa;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 0 24px 96px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header.hero { text-align: center; padding: 88px 0 48px; }
+  .hero pre.logo {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.25;
+    color: var(--accent);
+    display: inline-block;
+    text-align: left;
+    margin-bottom: 24px;
+  }
+  .hero h1 { font-size: 2.1rem; letter-spacing: -0.02em; margin-bottom: 12px; }
+  .hero p.tagline { font-size: 1.2rem; color: var(--text-dim); max-width: 640px; margin: 0 auto 28px; }
+  .hero .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn {
+    display: inline-block; padding: 10px 20px; border-radius: 8px;
+    border: 1px solid var(--border); font-weight: 600; font-size: 0.95rem;
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .btn.primary:hover { filter: brightness(1.1); text-decoration: none; }
+  .btn:hover { text-decoration: none; border-color: var(--accent); }
+
+  section { margin-top: 72px; }
+  h2 { font-size: 1.5rem; margin-bottom: 8px; letter-spacing: -0.01em; }
+  h3 { font-size: 1.05rem; margin: 24px 0 8px; }
+  p.lede { color: var(--text-dim); margin-bottom: 20px; }
+  section > p { margin-bottom: 12px; }
+
+  pre.code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    margin: 14px 0;
+  }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+  pre.code code { background: none; border: none; padding: 0; }
+  .comment { color: var(--text-dim); }
+  .accent { color: var(--accent); }
+  .green { color: var(--accent-2); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 20px; }
+  .card {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 1rem; }
+  .card p { color: var(--text-dim); font-size: 0.92rem; }
+  .card code { font-size: 0.8rem; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.92rem; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  td code { white-space: nowrap; }
+
+  .flow { display: grid; gap: 10px; margin-top: 18px; }
+  .flow .step {
+    display: flex; gap: 14px; align-items: baseline;
+    background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px;
+  }
+  .flow .num {
+    font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
+  }
+  .flow p { color: var(--text-dim); font-size: 0.95rem; }
+  .flow strong { color: var(--text); }
+
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 96px; padding: 28px 24px; text-align: center; color: var(--text-dim); font-size: 0.9rem;
+  }
+  .badge {
+    display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-dim); margin-left: 8px; vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <pre class="logo">    _                    _   _  __
+   / \   __ _  ___ _ __ | |_(_)/ _|_   _
+  / _ \ / _` |/ _ \ '_ \| __| | |_| | | |
+ / ___ \ (_| |  __/ | | | |_| |  _| |_| |
+/_/   \_\__, |\___|_| |_|\__|_|_|  \__, |
+        |___/                      |___/</pre>
+    <h1>Install once. Your coding agent uses it automatically.</h1>
+    <p class="tagline">Agentify gives AI coding agents lightweight, persistent context. Run <code>agentify install</code> once per repo — from then on the agent drives Agentify, not you.</p>
+    <div class="cta">
+      <a class="btn primary" href="#quick-start">Quick start</a>
+      <a class="btn" href="https://github.com/ixigo/agentify">GitHub</a>
+      <a class="btn" href="https://www.npmjs.com/package/agentify">npm</a>
+    </div>
+  </header>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p class="lede">One command wires Agentify into your agent's configuration, then stays out of your way.</p>
+    <pre class="code"><code><span class="green">agentify install</span>
+  ├── CLAUDE.md             <span class="comment">← managed guidance block: how the agent should use agentify</span>
+  ├── .claude/settings.json <span class="comment">← Claude Code hooks:</span>
+  │     SessionStart → agentify ctx load   <span class="comment">(inject context digest)</span>
+  │     PostToolUse  → agentify ctx track  <span class="comment">(record edits + commands)</span>
+  │     SessionEnd   → agentify ctx track  <span class="comment">(close out the session)</span>
+  └── .agentify/            <span class="comment">← lightweight JSONL context store + structural index</span></code></pre>
+
+    <div class="flow">
+      <div class="step"><span class="num">01</span><p><strong>Session starts</strong> — the hook injects a digest: recent notes, hot files, last activity from earlier sessions.</p></div>
+      <div class="step"><span class="num">02</span><p><strong>Agent works</strong> — file edits and shell commands are tracked automatically as compact JSONL (auto-compacted, capped at ~512&nbsp;KB).</p></div>
+      <div class="step"><span class="num">03</span><p><strong>Agent learns something worth keeping</strong> — it runs <code>agentify ctx note "..."</code> so the knowledge survives the session.</p></div>
+      <div class="step"><span class="num">04</span><p><strong>Session ends</strong> — tracked automatically; <code>agentify ctx handoff</code> writes a summary when wrapping up long work.</p></div>
+    </div>
+    <p style="margin-top:16px; color: var(--text-dim);">No daemon, no database server, no per-command wrapping. Install and uninstall are surgical: only the marker-delimited block and Agentify's own hook entries are ever touched.</p>
+  </section>
+
+  <section id="quick-start">
+    <h2>Quick start</h2>
+    <pre class="code"><code><span class="comment"># install the CLI</span>
+npm install -g agentify
+
+<span class="comment"># wire up a repo (CLAUDE.md + Claude Code hooks)</span>
+cd /path/to/your/repo
+<span class="green">agentify install</span>
+
+<span class="comment"># also works with Codex (writes AGENTS.md guidance)</span>
+agentify install --provider codex
+agentify install --provider all
+
+<span class="comment"># or one global setup instead of per-repo files</span>
+agentify install --global
+
+<span class="comment"># optional: build the structural index for query/risk</span>
+agentify scan
+
+<span class="comment"># check or undo at any time</span>
+agentify status
+agentify uninstall</code></pre>
+  </section>
+
+  <section id="works-with">
+    <h2>Works with</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Claude Code <span class="badge">automatic</span></h3>
+        <p>Hooks track every file edit and command with zero agent effort. A <code>SessionStart</code> hook injects the context digest into each new session. Guidance lives in <code>CLAUDE.md</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Codex <span class="badge">guidance-driven</span></h3>
+        <p>Codex has no lifecycle hooks, so <code>agentify install --provider codex</code> writes an <code>AGENTS.md</code> block teaching Codex to load context at session start and record notes as it works.</p>
+      </div>
+      <div class="card">
+        <h3>Any other agent <span class="badge">CLI</span></h3>
+        <p>Everything is a plain CLI with <code>--json</code> output: <code>ctx load</code>, <code>ctx note</code>, <code>query</code>, <code>risk</code>. Add equivalent guidance to your agent's instruction file.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="context">
+    <h2>What the agent sees</h2>
+    <p class="lede">At session start, the digest looks like this:</p>
+    <pre class="code"><code>## Agentify context (from previous sessions)
+Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent event(s).
+
+### Notes left for this session
+- [2026-07-05] payment retries: idempotency key lives in src/pay/retry.ts,
+  do not regenerate per attempt
+
+### Recently edited files
+- src/pay/retry.ts (14 edits)
+- src/pay/retry.test.ts (9 edits)
+
+### Recent commands
+- Run tests: `npm test -- retry`</code></pre>
+    <p style="color: var(--text-dim);">Events are single-line JSON records under <code>.agentify/context/</code>. Command text is clipped, output is never captured, and secrets are redacted from run reports.</p>
+  </section>
+
+  <section id="commands">
+    <h2>Commands</h2>
+    <p class="lede">All commands accept <code>--json</code> — which is how agents call them.</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Command</th><th>What it does</th></tr>
+      <tr><td><code>agentify install [--global] [--provider claude|codex|all]</code></td><td>Wire Agentify into the repo or your home config</td></tr>
+      <tr><td><code>agentify uninstall</code></td><td>Remove the managed block and hooks — nothing else</td></tr>
+      <tr><td><code>agentify status</code></td><td>Integration + context-tracking status</td></tr>
+      <tr><td><code>agentify ctx load</code></td><td>Digest of recent activity, notes, hot files</td></tr>
+      <tr><td><code>agentify ctx note "&lt;text&gt;"</code></td><td>Record a note for future sessions</td></tr>
+      <tr><td><code>agentify ctx handoff ["task"]</code></td><td>Write a handoff summary</td></tr>
+      <tr><td><code>agentify scan</code></td><td>Build the SQLite structural index</td></tr>
+      <tr><td><code>agentify query …</code></td><td>owner, deps, changed, search, def, refs, callers, impacts</td></tr>
+      <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>
+      <tr><td><code>agentify up</code> / <code>agentify check</code></td><td>Refresh the index / validate freshness</td></tr>
+      <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills</td></tr>
+      <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan)</td></tr>
+      <tr><td><code>agentify doctor</code> / <code>clean</code> / <code>completion</code></td><td>Toolchain readiness, artifact pruning, shell completion</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section id="design">
+    <h2>Design principles</h2>
+    <div class="grid">
+      <div class="card"><h3>Lightweight</h3><p>Context is plain JSONL. The event log auto-compacts past ~512&nbsp;KB. Hook commands are designed to never fail and never block the agent.</p></div>
+      <div class="card"><h3>Reversible</h3><p>Everything install writes is marker-delimited or prefix-identified. <code>uninstall</code> removes exactly what was added; your own config survives.</p></div>
+      <div class="card"><h3>Agent-first</h3><p>JSON output everywhere, structural queries over a deterministic index, and guidance blocks that teach the agent when to reach for each command.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="https://www.npmjs.com/package/agentify">npm</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
+  </footer>
+</main>
+</body>
+</html>

@@ -59,7 +59,10 @@ check "status"         $AG status --json
 check "skill list"     $AG skill list --json
 check "doctor"         $AG doctor --json
 check "clean dry-run"  $AG clean --dry-run --json
+check "install codex"  $AG install --provider codex --json
+test -f AGENTS.md && pass "AGENTS.md written" || fail "AGENTS.md written"
 check "uninstall"      $AG uninstall --json
+test ! -s AGENTS.md || ! grep -q "agentify:begin" AGENTS.md && pass "AGENTS.md cleaned" || fail "AGENTS.md cleaned"
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"

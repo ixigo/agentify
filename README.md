@@ -15,7 +15,7 @@
 
 > **Install once. Your coding agent uses it automatically.**
 
-Agentify gives AI coding agents lightweight, persistent context. You run `agentify install` once per repo; from then on **the agent drives Agentify, not you**. Claude Code hooks track what the agent touches, `CLAUDE.md` guidance teaches it to record notes and query the repo index, and every new session starts with a digest of what happened before.
+Agentify gives AI coding agents lightweight, persistent context. You run `agentify install` once per repo; from then on **the agent drives Agentify, not you**. With Claude Code, hooks track what the agent touches automatically; with Codex, an `AGENTS.md` guidance block drives the same workflow. Every new session starts with a digest of what happened before.
 
 Think of it like [`rtk`](https://github.com/rtk-ai/rtk): a tool you install into a project that wires itself into your agent's configuration and then stays out of your way.
 
@@ -48,6 +48,11 @@ npm install -g agentify   # or: pnpm add -g agentify
 cd /path/to/your/repo
 agentify install          # wire up this repo (CLAUDE.md + Claude Code hooks)
 
+# using Codex? this writes guidance into AGENTS.md instead
+agentify install --provider codex
+# or wire up both agents at once
+agentify install --provider all
+
 # optional: build the structural index for query/risk commands
 agentify scan
 ```
@@ -55,7 +60,8 @@ agentify scan
 Prefer a single global setup instead of per-repo files?
 
 ```bash
-agentify install --global   # writes ~/.claude/CLAUDE.md + ~/.claude/settings.json
+agentify install --global                    # ~/.claude/CLAUDE.md + ~/.claude/settings.json
+agentify install --global --provider codex   # ~/.codex/AGENTS.md
 ```
 
 Check or undo at any time:
@@ -71,7 +77,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 
 | Command | What it does |
 | --- | --- |
-| `agentify install [--global]` | Wire Agentify into the repo (or `~/.claude`) |
+| `agentify install [--global] [--provider claude\|codex\|all]` | Wire Agentify into the repo (or your home config) |
 | `agentify uninstall [--global]` | Remove the managed block and hooks |
 | `agentify status` | Integration + context-tracking status |
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
@@ -114,7 +120,7 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
 
 - Node.js 20+
 - Git
-- Claude Code for the automatic hook integration (other agents can still call `agentify ctx` / `query` / `risk` directly)
+- Claude Code for the automatic hook integration, or Codex for guidance-driven tracking via `AGENTS.md` (any other agent can still call `agentify ctx` / `query` / `risk` directly)
 
 ## Development
 
