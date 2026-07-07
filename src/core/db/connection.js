@@ -308,6 +308,32 @@ function openReadOnlyIndexDatabase(sourceDbPath, options) {
   }
 }
 
+function removeIndexDatabaseFiles(dbPath) {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    fs.rmSync(`${dbPath}${suffix}`, { force: true });
+  }
+}
+
+function assertWritableIndexIsUsable(db) {
+  const check = db.prepare("PRAGMA quick_check(1)").get();
+  const result = check ? Object.values(check)[0] : null;
+  if (result !== "ok") {
+    throw new Error(`index database failed integrity check: ${result || "unknown"}`);
+  }
+  const hasRepoMeta = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'repo_meta'").get();
+  if (!hasRepoMeta) {
+    return;
+  }
+  const row = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version' LIMIT 1").get();
+  if (!row) {
+    return;
+  }
+  const schemaVersion = JSON.parse(row.value_json);
+  if (schemaVersion !== DB_SCHEMA_VERSION) {
+    throw new Error(`index database schema version ${schemaVersion} does not match ${DB_SCHEMA_VERSION}`);
+  }
+}
+
 export function openIndexDatabase(root, options = {}) {
   const sourceDbPath = getIndexDbPath(root);
   const readOnly = Boolean(options.readOnly);
@@ -320,7 +346,24 @@ export function openIndexDatabase(root, options = {}) {
   }
 
   fs.mkdirSync(path.dirname(sourceDbPath), { recursive: true });
-  const opened = openDatabaseFile(sourceDbPath, options);
+  let opened;
+  try {
+    opened = openDatabaseFile(sourceDbPath, options);
+    assertWritableIndexIsUsable(opened.db);
+  } catch {
+    // The index is derived data: rather than wedging on a corrupt file or a
+    // database written by an older schema, start the file over and let the
+    // caller (scan/update) repopulate it.
+    if (opened) {
+      try {
+        opened.db.close();
+      } catch {
+        // Already unusable; removal below is what matters.
+      }
+    }
+    removeIndexDatabaseFiles(sourceDbPath);
+    opened = openDatabaseFile(sourceDbPath, options);
+  }
   configureIndexConnection(opened.db, opened.implementation, { readOnly: false });
 
   return opened.db;

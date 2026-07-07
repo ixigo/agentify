@@ -170,6 +170,63 @@ test("openIndexDatabase read-only rejects unsupported index schema version", asy
   );
 });
 
+test("openIndexDatabase writable open rebuilds a corrupt index database", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-rebuild-"));
+  const dbDir = path.join(root, ".agentify");
+  await fs.mkdir(dbDir, { recursive: true });
+  await fs.writeFile(path.join(dbDir, "index.db"), "not sqlite", "utf8");
+
+  const db = openIndexDatabase(root);
+  try {
+    const row = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version'").get();
+    assert.equal(JSON.parse(row.value_json), "3.1");
+  } finally {
+    closeIndexDatabase(db);
+  }
+});
+
+test("openIndexDatabase writable open rebuilds an index database with an old schema version", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-rebuild-"));
+  const oldDb = openIndexDatabase(root);
+  try {
+    oldDb.prepare("UPDATE repo_meta SET value_json = ? WHERE key = 'schema_version'")
+      .run(JSON.stringify("0.1"));
+    oldDb.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
+      .run("stale_marker", JSON.stringify("old"));
+  } finally {
+    closeIndexDatabase(oldDb);
+  }
+
+  const db = openIndexDatabase(root);
+  try {
+    const version = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version'").get();
+    assert.equal(JSON.parse(version.value_json), "3.1");
+    const marker = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'stale_marker'").get();
+    assert.equal(marker, undefined);
+  } finally {
+    closeIndexDatabase(db);
+  }
+});
+
+test("openIndexDatabase writable open preserves a healthy current-version database", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-rebuild-"));
+  const first = openIndexDatabase(root);
+  try {
+    first.prepare("INSERT OR REPLACE INTO repo_meta (key, value_json) VALUES (?, ?)")
+      .run("keep_marker", JSON.stringify("kept"));
+  } finally {
+    closeIndexDatabase(first);
+  }
+
+  const second = openIndexDatabase(root);
+  try {
+    const marker = second.prepare("SELECT value_json FROM repo_meta WHERE key = 'keep_marker'").get();
+    assert.equal(JSON.parse(marker.value_json), "kept");
+  } finally {
+    closeIndexDatabase(second);
+  }
+});
+
 test("structural store writes and searches repository index data", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-db-structural-"));
   const db = openIndexDatabase(root);
