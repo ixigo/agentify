@@ -471,3 +471,45 @@ test("precheckCommand warns on cross-session repeats only, and dedupes per sessi
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("extractNotePathRefs finds repo-relative paths and ignores noise", async () => {
+  const { extractNotePathRefs } = await import("../src/core/ctx.js");
+  assert.deepEqual(
+    extractNotePathRefs("idempotency key lives in src/pay/retry.ts, tests in src/pay/retry.test.ts."),
+    ["src/pay/retry.ts", "src/pay/retry.test.ts"],
+  );
+  assert.deepEqual(extractNotePathRefs("see `docs/usage.md` (and lib/a-b/c_d.js)"), ["docs/usage.md", "lib/a-b/c_d.js"]);
+  assert.deepEqual(extractNotePathRefs("plain words, no paths, version 1.2.3"), []);
+  assert.deepEqual(extractNotePathRefs("https://example.com/a/b.html stays out"), []);
+});
+
+test("stale notes are flagged in digest and match; existing paths are not", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-stale-"));
+  try {
+    await fs.mkdir(path.join(dir, "src/pay"), { recursive: true });
+    await fs.writeFile(path.join(dir, "src/pay/retry.ts"), "export {}\n", "utf8");
+
+    await addNote(dir, "payment retries idempotency key lives in src/pay/retry.ts");
+    await addNote(dir, "payment gateway config moved to src/pay/gateway-old.ts recently");
+
+    const snapshot = await loadContextSnapshot(dir);
+    const fresh = snapshot.notes.find((note) => note.note.includes("retry.ts"));
+    const stale = snapshot.notes.find((note) => note.note.includes("gateway-old.ts"));
+    assert.equal(fresh.stale_refs, undefined);
+    assert.deepEqual(stale.stale_refs, ["src/pay/gateway-old.ts"]);
+
+    const digest = renderContextDigest(snapshot);
+    assert.match(digest, /STALE\? references missing path\(s\): src\/pay\/gateway-old\.ts/);
+    assert.ok(!/retry\.ts[^\n]*STALE/.test(digest), "fresh note must not be flagged");
+
+    const { matchContext, renderMatchDigest } = await import("../src/core/ctx.js");
+    const matches = await matchContext(dir, "update the payment gateway config", { sessionId: "sx" });
+    const rendered = renderMatchDigest(matches);
+    assert.match(rendered, /STALE\?/);
+
+    const status = await contextStatus(dir);
+    assert.equal(status.stale_note_count, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

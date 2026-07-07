@@ -296,10 +296,58 @@ function renderFailureLine(item) {
   return item.err ? `${head} — ${item.err}` : head;
 }
 
+// Matches repo-relative path references like src/pay/retry.ts inside note text.
+const NOTE_PATH_REF_PATTERN = /(?:^|[\s`("'[])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8})/g;
+const MAX_NOTE_PATH_REFS = 8;
+
+export function extractNotePathRefs(text) {
+  const refs = new Set();
+  for (const match of String(text || "").matchAll(NOTE_PATH_REF_PATTERN)) {
+    const ref = match[1].replace(/[.,;:!?)\]]+$/, "");
+    if (ref.includes("/") && !ref.startsWith("http")) {
+      refs.add(ref);
+    }
+    if (refs.size >= MAX_NOTE_PATH_REFS) {
+      break;
+    }
+  }
+  return [...refs];
+}
+
+// Persistent memory's biggest failure mode is a confidently-wrong stale note.
+// Any note that references files that no longer exist gets flagged so the
+// agent re-verifies instead of trusting it.
+async function annotateNoteStaleness(root, notes) {
+  const cache = new Map();
+  const annotated = [];
+  for (const note of notes) {
+    const refs = extractNotePathRefs(note.note);
+    const missing = [];
+    for (const ref of refs) {
+      if (!cache.has(ref)) {
+        cache.set(ref, await exists(path.join(root, ref)));
+      }
+      if (!cache.get(ref)) {
+        missing.push(ref);
+      }
+    }
+    annotated.push(missing.length > 0 ? { ...note, stale_refs: missing } : note);
+  }
+  return annotated;
+}
+
+function noteLine(note) {
+  const staleSuffix = Array.isArray(note.stale_refs) && note.stale_refs.length > 0
+    ? ` — STALE? references missing path(s): ${note.stale_refs.join(", ")}; verify before trusting`
+    : "";
+  return `- [${String(note.ts || "").slice(0, 10)}] ${note.note}${staleSuffix}`;
+}
+
 export async function loadContextSnapshot(root, options = {}) {
   const paths = resolveContextPaths(root);
   const events = (await readJsonLines(paths.eventsPath)).slice(-(options.maxEvents || DEFAULT_DIGEST_EVENTS));
-  const notes = (await readJsonLines(paths.notesPath)).slice(-(options.maxNotes || 10));
+  const rawNotes = (await readJsonLines(paths.notesPath)).slice(-(options.maxNotes || 10));
+  const notes = options.verifyNotes === false ? rawNotes : await annotateNoteStaleness(root, rawNotes);
   const sessionSummaries = (await readJsonLines(paths.summariesPath)).slice(-(options.maxSummaries || 5));
   return { events, notes, sessionSummaries, summary: summarizeEvents(events) };
 }
@@ -326,7 +374,7 @@ export function renderContextDigest(snapshot) {
   if (notes.length > 0) {
     lines.push("", "### Notes left for this session");
     for (const note of notes) {
-      lines.push(`- [${String(note.ts || "").slice(0, 10)}] ${note.note}`);
+      lines.push(noteLine(note));
     }
   }
 
@@ -372,6 +420,7 @@ export async function contextStatus(root) {
     notes_path: paths.notesPath,
     event_count: snapshot.summary.eventCount,
     note_count: snapshot.notes.length,
+    stale_note_count: snapshot.notes.filter((note) => Array.isArray(note.stale_refs) && note.stale_refs.length > 0).length,
     session_count: snapshot.summary.sessionCount,
     last_event_at: snapshot.summary.lastEventAt,
     event_log_bytes: eventLogBytes,
@@ -561,7 +610,7 @@ export function renderMatchDigest(matches) {
   if (matches.notes.length > 0) {
     lines.push("", "### Related notes from earlier sessions");
     for (const item of matches.notes) {
-      lines.push(`- [${String(item.note.ts || "").slice(0, 10)}] ${item.note.note}`);
+      lines.push(noteLine(item.note));
     }
   }
   if (matches.files.length > 0) {

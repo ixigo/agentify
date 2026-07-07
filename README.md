@@ -36,7 +36,7 @@ Every session after that:
 
 1. **Session starts** -> the hook injects a digest: recent notes, hot files, last activity.
 2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB). Command failures are remembered: if the agent is about to rerun a command that failed in an earlier session and was never fixed, a warning is injected before it runs — no more rediscovering the same dead end every session.
-3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`.
+3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`. Notes are verified when injected: if a note references a file that no longer exists, it's flagged as possibly stale so the agent re-verifies instead of trusting outdated memory.
 4. **Session ends** -> a fast model compresses the session into a ~3-line handoff, stored for future sessions (`agentify ctx handoff` for explicit ones).
 
 No daemon, no database server, no per-command wrapping. Context tracking is plain JSONL under `.agentify/context/`.
