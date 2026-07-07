@@ -1,0 +1,46 @@
+provider: all
+strict: true
+languages: auto
+moduleStrategy: auto
+maxFilesPerModule: 20
+topKeyFilesPerModule: 15
+toolchain:
+  zoekt: false
+hooks:
+  preCommit: true
+  postMerge: true
+  prePush: false
+runtime:
+  store: local
+  sharedStorePath: null
+models:
+  routes:
+    quick:
+      provider: claude
+      model: haiku
+      use: Small, low-impact edits, mechanical changes, quick questions
+    implement:
+      provider: claude
+      model: sonnet
+      use: Standard feature work and multi-file refactors
+    heavy:
+      provider: claude
+      model: opus
+      use: Architecture decisions, deep debugging, high-risk changes
+    review:
+      provider: codex
+      model: null
+      use: Independent post-change code review by a different model vendor
+    research:
+      provider: claude
+      model: haiku
+      use: Fast exploration, summarization, and doc lookups
+context:
+  injection: relevant
+  sessionSummaries: true
+cleanup:
+  keepRuns: 20
+  maxRunAgeDays: 14
+  keepGhostRuns: 3
+  maxGhostAgeDays: 3
+  pruneInvalidSessions: true
