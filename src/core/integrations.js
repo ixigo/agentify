@@ -7,10 +7,50 @@ import { ensureDir, exists, readText } from "./fs.js";
 export const MANAGED_BLOCK_BEGIN = "<!-- agentify:begin -->";
 export const MANAGED_BLOCK_END = "<!-- agentify:end -->";
 export const MANAGED_HOOK_PREFIX = "agentify ctx ";
+export const INTEGRATION_PROVIDERS = ["claude", "codex"];
 
 const TRACKED_TOOL_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 
-export function buildManagedBlock() {
+const SHARED_BLOCK_LINES = [
+  "- `agentify ctx note \"<text>\"` — record a decision, gotcha, or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.",
+  "- `agentify ctx handoff` — write a handoff summary before ending a long task.",
+  "- `agentify query search|def|refs|callers|impacts` — structural queries over the repo index (`agentify scan` rebuilds it if stale).",
+  "- `agentify risk --since <ref>` — blast radius and suggested regression tests before finishing a change.",
+];
+
+export function normalizeIntegrationProvider(value, { fallback = "claude" } = {}) {
+  const provider = String(value ?? fallback).trim().toLowerCase();
+  if (provider === "all") {
+    return "all";
+  }
+  if (!INTEGRATION_PROVIDERS.includes(provider)) {
+    throw new Error(`Unsupported integration provider "${value}". Supported: ${INTEGRATION_PROVIDERS.join(", ")}, all`);
+  }
+  return provider;
+}
+
+export function resolveIntegrationProviders(value, { fallback = "claude" } = {}) {
+  const provider = normalizeIntegrationProvider(value, { fallback });
+  return provider === "all" ? [...INTEGRATION_PROVIDERS] : [provider];
+}
+
+export function buildManagedBlock(provider = "claude") {
+  if (provider === "codex") {
+    return [
+      MANAGED_BLOCK_BEGIN,
+      "## Agentify",
+      "",
+      "Agentify provides lightweight context tracking and repo intelligence for this workspace.",
+      "Codex has no automatic lifecycle hooks, so maintain context explicitly:",
+      "",
+      "- Run `agentify ctx load` at the start of every session to pick up notes, hot files, and recent activity from earlier sessions.",
+      ...SHARED_BLOCK_LINES,
+      "",
+      "All commands support `--json` for machine-readable output.",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+  }
+
   return [
     MANAGED_BLOCK_BEGIN,
     "## Agentify",
@@ -20,10 +60,7 @@ export function buildManagedBlock() {
     "Use these commands where they help:",
     "",
     "- `agentify ctx load` — recent activity, notes, and hot files from earlier sessions. Run it when starting work if the session did not already inject it.",
-    "- `agentify ctx note \"<text>\"` — record a decision, gotcha, or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.",
-    "- `agentify ctx handoff` — write a handoff summary before ending a long task.",
-    "- `agentify query search|def|refs|callers|impacts` — structural queries over the repo index (`agentify scan` rebuilds it if stale).",
-    "- `agentify risk --since <ref>` — blast radius and suggested regression tests before finishing a change.",
+    ...SHARED_BLOCK_LINES,
     "",
     "All commands support `--json` for machine-readable output.",
     MANAGED_BLOCK_END,
@@ -138,22 +175,38 @@ export function stripManagedHooks(settings) {
   return { settings: next, changed };
 }
 
-export function resolveIntegrationTargets(root, { global: isGlobal = false, homeDir = os.homedir() } = {}) {
+export function resolveIntegrationTargets(root, { global: isGlobal = false, provider = "claude", homeDir = os.homedir() } = {}) {
+  if (provider === "codex") {
+    if (isGlobal) {
+      return {
+        provider,
+        scope: "global",
+        memoryPath: path.join(homeDir, ".codex", "AGENTS.md"),
+        settingsPath: null,
+      };
+    }
+    return {
+      provider,
+      scope: "project",
+      memoryPath: path.join(root, "AGENTS.md"),
+      settingsPath: null,
+    };
+  }
+
   if (isGlobal) {
     const claudeDir = path.join(homeDir, ".claude");
     return {
+      provider: "claude",
       scope: "global",
-      claudeDir,
       memoryPath: path.join(claudeDir, "CLAUDE.md"),
       settingsPath: path.join(claudeDir, "settings.json"),
     };
   }
-  const claudeDir = path.join(root, ".claude");
   return {
+    provider: "claude",
     scope: "project",
-    claudeDir,
     memoryPath: path.join(root, "CLAUDE.md"),
-    settingsPath: path.join(claudeDir, "settings.json"),
+    settingsPath: path.join(root, ".claude", "settings.json"),
   };
 }
 
@@ -172,28 +225,33 @@ async function readSettings(settingsPath) {
   return parsed;
 }
 
-export async function installClaudeIntegration(root, options = {}) {
-  const targets = resolveIntegrationTargets(root, options);
+export async function installIntegration(root, options = {}) {
+  const provider = normalizeIntegrationProvider(options.provider);
+  const targets = resolveIntegrationTargets(root, { ...options, provider });
   const dryRun = options.dryRun === true;
 
   const memoryBefore = (await exists(targets.memoryPath)) ? await readText(targets.memoryPath) : "";
-  const memoryResult = applyManagedBlock(memoryBefore);
+  const memoryResult = applyManagedBlock(memoryBefore, buildManagedBlock(provider));
 
-  const settingsBefore = await readSettings(targets.settingsPath);
-  const settingsResult = mergeManagedHooks(settingsBefore);
+  let settingsResult = null;
+  if (targets.settingsPath) {
+    const settingsBefore = await readSettings(targets.settingsPath);
+    settingsResult = mergeManagedHooks(settingsBefore);
+  }
 
   if (!dryRun) {
     if (memoryResult.changed) {
       await ensureDir(path.dirname(targets.memoryPath));
       await fs.writeFile(targets.memoryPath, memoryResult.text, "utf8");
     }
-    if (settingsResult.changed) {
+    if (settingsResult?.changed) {
       await ensureDir(path.dirname(targets.settingsPath));
       await fs.writeFile(targets.settingsPath, `${JSON.stringify(settingsResult.settings, null, 2)}\n`, "utf8");
     }
   }
 
   return {
+    provider,
     scope: targets.scope,
     dry_run: dryRun,
     memory: {
@@ -201,16 +259,24 @@ export async function installClaudeIntegration(root, options = {}) {
       action: memoryResult.action,
       changed: memoryResult.changed,
     },
-    settings: {
-      path: targets.settingsPath,
-      changed: settingsResult.changed,
-      events: Object.keys(buildManagedHooks()),
-    },
+    settings: targets.settingsPath
+      ? {
+        path: targets.settingsPath,
+        changed: settingsResult.changed,
+        events: Object.keys(buildManagedHooks()),
+      }
+      : {
+        path: null,
+        changed: false,
+        supported: false,
+        note: "codex has no lifecycle hooks; the AGENTS.md guidance drives context tracking",
+      },
   };
 }
 
-export async function uninstallClaudeIntegration(root, options = {}) {
-  const targets = resolveIntegrationTargets(root, options);
+export async function uninstallIntegration(root, options = {}) {
+  const provider = normalizeIntegrationProvider(options.provider);
+  const targets = resolveIntegrationTargets(root, { ...options, provider });
   const dryRun = options.dryRun === true;
 
   let memoryChanged = false;
@@ -224,7 +290,7 @@ export async function uninstallClaudeIntegration(root, options = {}) {
   }
 
   let settingsChanged = false;
-  if (await exists(targets.settingsPath)) {
+  if (targets.settingsPath && (await exists(targets.settingsPath))) {
     const before = await readSettings(targets.settingsPath);
     const result = stripManagedHooks(before);
     settingsChanged = result.changed;
@@ -234,6 +300,7 @@ export async function uninstallClaudeIntegration(root, options = {}) {
   }
 
   return {
+    provider,
     scope: targets.scope,
     dry_run: dryRun,
     memory: { path: targets.memoryPath, changed: memoryChanged },
@@ -241,15 +308,16 @@ export async function uninstallClaudeIntegration(root, options = {}) {
   };
 }
 
-export async function claudeIntegrationStatus(root, options = {}) {
-  const targets = resolveIntegrationTargets(root, options);
+export async function integrationStatus(root, options = {}) {
+  const provider = normalizeIntegrationProvider(options.provider);
+  const targets = resolveIntegrationTargets(root, { ...options, provider });
 
   const memoryText = (await exists(targets.memoryPath)) ? await readText(targets.memoryPath) : "";
   const memoryInstalled = memoryText.includes(MANAGED_BLOCK_BEGIN) && memoryText.includes(MANAGED_BLOCK_END);
-  const memoryCurrent = memoryInstalled && !applyManagedBlock(memoryText).changed;
+  const memoryCurrent = memoryInstalled && !applyManagedBlock(memoryText, buildManagedBlock(provider)).changed;
 
   let hooksInstalled = false;
-  if (await exists(targets.settingsPath)) {
+  if (targets.settingsPath && (await exists(targets.settingsPath))) {
     try {
       const settings = await readSettings(targets.settingsPath);
       hooksInstalled = !mergeManagedHooks(settings).changed;
@@ -259,12 +327,20 @@ export async function claudeIntegrationStatus(root, options = {}) {
   }
 
   return {
+    provider,
     scope: targets.scope,
     memory: { path: targets.memoryPath, installed: memoryInstalled, current: memoryCurrent },
-    settings: { path: targets.settingsPath, installed: hooksInstalled },
-    installed: memoryInstalled && hooksInstalled,
+    settings: targets.settingsPath
+      ? { path: targets.settingsPath, installed: hooksInstalled }
+      : { path: null, installed: null, supported: false },
+    installed: targets.settingsPath ? memoryInstalled && hooksInstalled : memoryInstalled,
   };
 }
+
+// Back-compat aliases for the original Claude-specific names.
+export const installClaudeIntegration = installIntegration;
+export const uninstallClaudeIntegration = uninstallIntegration;
+export const claudeIntegrationStatus = integrationStatus;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

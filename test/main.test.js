@@ -121,7 +121,9 @@ test("runCli install --json writes managed integration and emits one payload", a
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "install");
   assert.equal(payload.scope, "project");
-  assert.ok(payload.claude.memory.changed);
+  assert.equal(payload.integrations.length, 1);
+  assert.equal(payload.integrations[0].provider, "claude");
+  assert.ok(payload.integrations[0].memory.changed);
 
   const memory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.match(memory, /<!-- agentify:begin -->/);
@@ -144,7 +146,8 @@ test("runCli uninstall removes the managed integration", async () => {
   const lines = await captureLog(() => runCli(["uninstall", "--root", root, "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "uninstall");
-  assert.equal(payload.memory.changed, true);
+  const claudeResult = payload.integrations.find((item) => item.provider === "claude");
+  assert.equal(claudeResult.memory.changed, true);
 
   const memory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.doesNotMatch(memory, /<!-- agentify:begin -->/);
@@ -156,7 +159,10 @@ test("runCli status --json reports integration and context state", async () => {
   const lines = await captureLog(() => runCli(["status", "--root", root, "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "status");
-  assert.equal(payload.integration.installed, true);
+  const claudeStatus = payload.integrations.find((item) => item.provider === "claude");
+  assert.equal(claudeStatus.installed, true);
+  const codexStatus = payload.integrations.find((item) => item.provider === "codex");
+  assert.equal(codexStatus.installed, false);
   assert.equal(payload.context.event_count, 0);
 });
 
@@ -332,4 +338,25 @@ test("cli.js --version prints the version and no stderr", async () => {
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
   const result = await execFileAsync(process.execPath, ["src/cli.js", "--version"], { cwd: repoRoot });
   assert.match(result.stdout, /^agentify v\d+\.\d+\.\d+/);
+});
+
+test("runCli install --provider codex writes AGENTS.md guidance", async () => {
+  const root = await tmpRoot("agentify-main-install-codex-");
+  const lines = await captureLog(() => runCli(["install", "--root", root, "--provider", "codex", "--json"]));
+  const payload = JSON.parse(lines[0]);
+  assert.equal(payload.integrations.length, 1);
+  assert.equal(payload.integrations[0].provider, "codex");
+  const agentsMd = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
+  assert.match(agentsMd, /<!-- agentify:begin -->/);
+  await assert.rejects(() => fs.access(path.join(root, ".claude", "settings.json")));
+});
+
+test("runCli install --provider all writes both integrations", async () => {
+  const root = await tmpRoot("agentify-main-install-all-");
+  const lines = await captureLog(() => runCli(["install", "--root", root, "--provider", "all", "--json"]));
+  const payload = JSON.parse(lines[0]);
+  assert.deepEqual(payload.integrations.map((item) => item.provider), ["claude", "codex"]);
+  await fs.access(path.join(root, "CLAUDE.md"));
+  await fs.access(path.join(root, "AGENTS.md"));
+  await fs.access(path.join(root, ".claude", "settings.json"));
 });

@@ -19,17 +19,24 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
-  command("install", "Install Agentify into this repo and its Claude Code config", {
+  command("install", "Install Agentify into this repo and its agent config", {
     aliases: ["init"],
     flags: [
-      flag("--global", { description: "Install into ~/.claude instead of the project" }),
+      flag("--global", { description: "Install into ~/.claude or ~/.codex instead of the project" }),
+      flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to install" }),
     ],
   }),
-  command("uninstall", "Remove the Agentify Claude Code integration", {
-    flags: [flag("--global", { description: "Uninstall from ~/.claude" })],
+  command("uninstall", "Remove the Agentify agent integration", {
+    flags: [
+      flag("--global", { description: "Uninstall from ~/.claude or ~/.codex" }),
+      flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to remove" }),
+    ],
   }),
   command("status", "Show integration and context-tracking status", {
-    flags: [flag("--global", { description: "Inspect the global integration" })],
+    flags: [
+      flag("--global", { description: "Inspect the global integration" }),
+      flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to inspect" }),
+    ],
   }),
   command("ctx", "Lightweight context tracking", {
     subcommands: [

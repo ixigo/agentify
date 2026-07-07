@@ -5,10 +5,11 @@ import { loadConfig, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runScan, runUpdate, runValidate } from "./core/commands.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import {
-  claudeIntegrationStatus,
-  installClaudeIntegration,
-  uninstallClaudeIntegration,
-} from "./core/claude-install.js";
+  installIntegration,
+  integrationStatus,
+  resolveIntegrationProviders,
+  uninstallIntegration,
+} from "./core/integrations.js";
 import {
   addNote,
   contextStatus,
@@ -259,23 +260,28 @@ async function runCtxCommand(root, config, args, subcommand) {
 
 async function runInstall(root, config, args) {
   const isGlobal = args.global === true;
+  const providers = resolveIntegrationProviders(args.provider);
 
   if (!isGlobal) {
     await writeDefaultConfig(root, config, { dryRun: config.dryRun });
     await ensureBaselineArtifacts(root, config);
   }
 
-  const integration = await installClaudeIntegration(root, {
-    global: isGlobal,
-    dryRun: config.dryRun,
-  });
+  const integrations = [];
+  for (const provider of providers) {
+    integrations.push(await installIntegration(root, {
+      provider,
+      global: isGlobal,
+      dryRun: config.dryRun,
+    }));
+  }
 
   const result = {
     command: "install",
     root,
-    scope: integration.scope,
+    scope: isGlobal ? "global" : "project",
     dry_run: Boolean(config.dryRun),
-    claude: integration,
+    integrations,
     wrote: isGlobal || config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify"],
   };
 
@@ -284,44 +290,75 @@ async function runInstall(root, config, args) {
     return;
   }
 
-  success(`Agentify installed (${integration.scope} scope)`);
-  log(`CLAUDE.md:     ${dim(integration.memory.path)} (${integration.memory.action})`);
-  log(`Claude hooks:  ${dim(integration.settings.path)} (${integration.settings.changed ? "updated" : "already current"})`);
+  success(`Agentify installed (${result.scope} scope)`);
+  for (const integration of integrations) {
+    log(`${bold(integration.provider)} guidance: ${dim(integration.memory.path)} (${integration.memory.action})`);
+    if (integration.settings.path) {
+      log(`${bold(integration.provider)} hooks:    ${dim(integration.settings.path)} (${integration.settings.changed ? "updated" : "already current"})`);
+    } else {
+      log(`${bold(integration.provider)} hooks:    ${dim("n/a — guidance-driven tracking")}`);
+    }
+  }
   if (!isGlobal) {
     log("");
-    log("Claude Code will now track context automatically in this repo.");
+    if (providers.includes("claude")) {
+      log("Claude Code will now track context automatically in this repo.");
+    }
+    if (providers.includes("codex")) {
+      log("Codex will follow the AGENTS.md guidance to load and record context.");
+    }
     log(`Optional: ${dim("agentify scan")} to build the structural index for query/risk commands.`);
     log(buildSkillInstallHint(config.provider, "project").message);
   }
 }
 
 async function runUninstall(root, config, args) {
-  const result = await uninstallClaudeIntegration(root, {
-    global: args.global === true,
-    dryRun: config.dryRun,
-  });
+  const providers = resolveIntegrationProviders(args.provider, { fallback: "all" });
+  const results = [];
+  for (const provider of providers) {
+    results.push(await uninstallIntegration(root, {
+      provider,
+      global: args.global === true,
+      dryRun: config.dryRun,
+    }));
+  }
   if (config.json) {
-    console.log(JSON.stringify({ command: "uninstall", ...result }, null, 2));
+    console.log(JSON.stringify({ command: "uninstall", integrations: results }, null, 2));
     return;
   }
-  success(`Agentify Claude integration removed (${result.scope} scope)`);
-  log(`CLAUDE.md:    ${dim(result.memory.path)} (${result.memory.changed ? "cleaned" : "no managed block"})`);
-  log(`Claude hooks: ${dim(result.settings.path)} (${result.settings.changed ? "cleaned" : "no managed hooks"})`);
+  success(`Agentify integration removed (${results[0].scope} scope)`);
+  for (const result of results) {
+    log(`${bold(result.provider)} guidance: ${dim(result.memory.path)} (${result.memory.changed ? "cleaned" : "no managed block"})`);
+    if (result.settings.path) {
+      log(`${bold(result.provider)} hooks:    ${dim(result.settings.path)} (${result.settings.changed ? "cleaned" : "no managed hooks"})`);
+    }
+  }
 }
 
 async function runStatus(root, config, args) {
-  const integration = await claudeIntegrationStatus(root, { global: args.global === true });
+  const providers = resolveIntegrationProviders(args.provider, { fallback: "all" });
+  const integrations = [];
+  for (const provider of providers) {
+    integrations.push(await integrationStatus(root, { provider, global: args.global === true }));
+  }
   const context = await contextStatus(root);
-  const result = { command: "status", integration, context };
+  const result = { command: "status", integrations, context };
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
   const state = (installed) => (installed ? green("installed") : dim("not installed"));
-  log(`Scope:        ${bold(integration.scope)}`);
-  log(`CLAUDE.md:    ${state(integration.memory.installed)}${integration.memory.installed && !integration.memory.current ? " (outdated block — rerun agentify install)" : ""}`);
-  log(`Claude hooks: ${state(integration.settings.installed)}`);
-  log(`Context:      ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
+  log(`Scope:   ${bold(integrations[0].scope)}`);
+  for (const integration of integrations) {
+    const memoryNote = integration.memory.installed && !integration.memory.current
+      ? " (outdated block — rerun agentify install)"
+      : "";
+    const hooksNote = integration.settings.supported === false
+      ? dim("guidance-driven")
+      : state(integration.settings.installed);
+    log(`${bold(integration.provider)}: guidance ${state(integration.memory.installed)}${memoryNote}, hooks ${hooksNote}`);
+  }
+  log(`Context: ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
 }
 
 export async function runCli(argv, runtime = {}) {

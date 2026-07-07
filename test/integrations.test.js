@@ -16,7 +16,7 @@ import {
   removeManagedBlock,
   stripManagedHooks,
   uninstallClaudeIntegration,
-} from "../src/core/claude-install.js";
+} from "../src/core/integrations.js";
 
 test("applyManagedBlock adds a managed block to empty and existing text", () => {
   const empty = applyManagedBlock("");
@@ -177,4 +177,46 @@ test("installClaudeIntegration dry-run does not touch the filesystem", async () 
   assert.equal(result.memory.changed, true);
   await assert.rejects(() => fs.access(path.join(root, "CLAUDE.md")));
   await assert.rejects(() => fs.access(path.join(root, ".claude", "settings.json")));
+});
+
+test("codex integration targets AGENTS.md and has no hook settings", async () => {
+  const { resolveIntegrationTargets, installIntegration, uninstallIntegration, integrationStatus } = await import("../src/core/integrations.js");
+
+  const projectTargets = resolveIntegrationTargets("/repo", { provider: "codex" });
+  assert.equal(projectTargets.memoryPath, path.join("/repo", "AGENTS.md"));
+  assert.equal(projectTargets.settingsPath, null);
+
+  const globalTargets = resolveIntegrationTargets("/repo", { provider: "codex", global: true, homeDir: "/home/u" });
+  assert.equal(globalTargets.memoryPath, path.join("/home/u", ".codex", "AGENTS.md"));
+  assert.equal(globalTargets.settingsPath, null);
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
+  try {
+    const installed = await installIntegration(dir, { provider: "codex" });
+    assert.equal(installed.provider, "codex");
+    assert.equal(installed.settings.supported, false);
+    const agentsMd = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    assert.ok(agentsMd.includes(MANAGED_BLOCK_BEGIN));
+    assert.ok(agentsMd.includes("Codex has no automatic lifecycle hooks"));
+
+    const status = await integrationStatus(dir, { provider: "codex" });
+    assert.equal(status.installed, true);
+    assert.equal(status.settings.supported, false);
+
+    const removed = await uninstallIntegration(dir, { provider: "codex" });
+    assert.equal(removed.memory.changed, true);
+    const after = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    assert.ok(!after.includes(MANAGED_BLOCK_BEGIN));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveIntegrationProviders expands all and rejects unknown providers", async () => {
+  const { resolveIntegrationProviders } = await import("../src/core/integrations.js");
+  assert.deepEqual(resolveIntegrationProviders(undefined), ["claude"]);
+  assert.deepEqual(resolveIntegrationProviders("codex"), ["codex"]);
+  assert.deepEqual(resolveIntegrationProviders("all"), ["claude", "codex"]);
+  assert.deepEqual(resolveIntegrationProviders(undefined, { fallback: "all" }), ["claude", "codex"]);
+  assert.throws(() => resolveIntegrationProviders("gemini"), /Unsupported integration provider/);
 });
