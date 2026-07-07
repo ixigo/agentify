@@ -12,10 +12,14 @@ import {
 } from "./core/integrations.js";
 import {
   addNote,
+  clearContext,
   contextStatus,
+  isContextPaused,
   loadContextSnapshot,
+  pauseContext,
   readHookPayload,
   renderContextDigest,
+  resumeContext,
   trackEvent,
   writeHandoff,
 } from "./core/ctx.js";
@@ -176,6 +180,9 @@ async function runCtxHook(action, root) {
       return;
     }
     if (action === "load") {
+      if (await isContextPaused(root)) {
+        return;
+      }
       const snapshot = await loadContextSnapshot(root);
       const digest = renderContextDigest(snapshot);
       if (digest) {
@@ -233,6 +240,9 @@ async function runCtxCommand(root, config, args, subcommand) {
       if (config.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
+        if (result.paused) {
+          log(`${bold("Tracking: paused")} — resume with \`agentify ctx resume\``);
+        }
         log(`Events: ${bold(String(result.event_count))} across ${bold(String(result.session_count))} session(s)`);
         log(`Notes:  ${bold(String(result.note_count))}`);
         log(`Log:    ${dim(result.events_path)} (${result.event_log_bytes} bytes)`);
@@ -256,8 +266,43 @@ async function runCtxCommand(root, config, args, subcommand) {
       return;
     }
 
+    case "pause": {
+      const result = await pauseContext(root);
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        success("Context tracking paused. New sessions start clean; nothing is tracked until `agentify ctx resume`.");
+      }
+      return;
+    }
+
+    case "resume": {
+      const result = await resumeContext(root);
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        success(result.was_paused ? "Context tracking resumed." : "Context tracking was not paused.");
+      }
+      return;
+    }
+
+    case "clear": {
+      const result = await clearContext(root, { archive: args.archive !== false });
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.archived.length > 0) {
+        success("Context cleared.");
+        for (const item of result.archived) {
+          log(`archived: ${dim(item)}`);
+        }
+      } else {
+        success("Context cleared (nothing to archive).");
+      }
+      return;
+    }
+
     default:
-      throw new Error("ctx requires a subcommand: track, note, load, status, or handoff");
+      throw new Error("ctx requires a subcommand: track, note, load, status, handoff, pause, resume, or clear");
   }
 }
 

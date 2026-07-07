@@ -47,6 +47,9 @@ const COMMANDS = [
       }),
       subcommand("status", "Show context tracking status"),
       subcommand("handoff", "Write a handoff summary"),
+      subcommand("pause", "Pause tracking and digest injection"),
+      subcommand("resume", "Resume tracking"),
+      subcommand("clear", "Archive and reset the context store"),
     ],
   }),
   command("delegate", "Shell a task out to the right model", {

@@ -181,3 +181,32 @@ test("writeHandoff writes a markdown file containing the task text", async () =>
   assert.ok(written.includes("wrapping up the checkout refactor"));
   assert.ok(written.includes("gotcha: config lives in .agentify.yaml"));
 });
+
+test("pause blocks tracking and digest state; resume and clear restore/reset", async () => {
+  const { pauseContext, resumeContext, clearContext, isContextPaused } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-pause-"));
+  try {
+    const payload = { session_id: "s1", hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "a.js" } };
+    await trackEvent(dir, payload);
+
+    await pauseContext(dir);
+    assert.equal(await isContextPaused(dir), true);
+    const paused = await trackEvent(dir, payload);
+    assert.equal(paused.tracked, false);
+    assert.equal(paused.paused, true);
+
+    const resumed = await resumeContext(dir);
+    assert.equal(resumed.was_paused, true);
+    assert.equal(await isContextPaused(dir), false);
+
+    // env override pauses without a marker
+    assert.equal(await isContextPaused(dir, { AGENTIFY_CTX: "off" }), true);
+
+    const cleared = await clearContext(dir);
+    assert.equal(cleared.archived.length, 1);
+    const status = await contextStatus(dir);
+    assert.equal(status.event_count, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

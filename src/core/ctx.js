@@ -18,6 +18,58 @@ export function resolveContextPaths(root) {
     eventsPath: path.join(contextRoot, "events.jsonl"),
     notesPath: path.join(contextRoot, "notes.jsonl"),
     handoffDir: path.join(contextRoot, "handoffs"),
+    pausedPath: path.join(contextRoot, "paused"),
+    archiveDir: path.join(contextRoot, "archive"),
+  };
+}
+
+export async function isContextPaused(root, env = process.env) {
+  if (String(env.AGENTIFY_CTX || "").toLowerCase() === "off") {
+    return true;
+  }
+  return exists(resolveContextPaths(root).pausedPath);
+}
+
+export async function pauseContext(root) {
+  const paths = resolveContextPaths(root);
+  await ensureDir(paths.contextRoot);
+  await fs.writeFile(paths.pausedPath, new Date().toISOString(), "utf8");
+  return { command: "ctx pause", paused: true, marker: paths.pausedPath };
+}
+
+export async function resumeContext(root) {
+  const paths = resolveContextPaths(root);
+  let wasPaused = false;
+  try {
+    await fs.unlink(paths.pausedPath);
+    wasPaused = true;
+  } catch {
+    wasPaused = false;
+  }
+  return { command: "ctx resume", paused: false, was_paused: wasPaused };
+}
+
+export async function clearContext(root, options = {}) {
+  const paths = resolveContextPaths(root);
+  const archived = [];
+  if (options.archive !== false) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const targetDir = path.join(paths.archiveDir, stamp);
+    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath]]) {
+      if (await exists(sourcePath)) {
+        await ensureDir(targetDir);
+        await fs.rename(sourcePath, path.join(targetDir, label));
+        archived.push(relative(root, path.join(targetDir, label)));
+      }
+    }
+  } else {
+    await fs.rm(paths.eventsPath, { force: true });
+    await fs.rm(paths.notesPath, { force: true });
+  }
+  return {
+    command: "ctx clear",
+    archived,
+    archive_dir: archived.length > 0 ? paths.archiveDir : null,
   };
 }
 
@@ -119,6 +171,9 @@ export function buildEventFromHookPayload(root, payload) {
 }
 
 export async function trackEvent(root, payload) {
+  if (await isContextPaused(root)) {
+    return { tracked: false, event: null, paused: true };
+  }
   const event = buildEventFromHookPayload(root, payload);
   if (!event) {
     return { tracked: false, event: null };
@@ -233,6 +288,7 @@ export async function contextStatus(root) {
 
   return {
     command: "ctx status",
+    paused: await isContextPaused(root),
     events_path: paths.eventsPath,
     notes_path: paths.notesPath,
     event_count: snapshot.summary.eventCount,

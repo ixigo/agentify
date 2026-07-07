@@ -65,6 +65,27 @@ Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/not
 
 The event log auto-compacts: past ~512 KB it is truncated to the most recent 1000 events. Command text is clipped to 200 characters and never includes command output. Hook-invoked commands (`--hook`) are designed to never fail and never block the agent.
 
+## Continuing vs starting from scratch
+
+Continuing is the default: every new session gets the digest injected and keeps accruing events. When you want a clean slate instead:
+
+```bash
+# one-off clean session — no digest, no tracking, nothing persisted
+AGENTIFY_CTX=off claude
+
+# switch tracking off until further notice (marker file in .agentify/context/)
+agentify ctx pause
+agentify ctx resume
+
+# archive the store and start over (moved to .agentify/context/archive/<timestamp>/)
+agentify ctx clear
+agentify ctx clear --archive=false   # hard delete instead of archiving
+```
+
+- **Pause** stops both the session-start digest and event tracking, so scratch work doesn't pollute the history. `agentify ctx status` shows the paused state.
+- **Clear** archives `events.jsonl` and `notes.jsonl` before resetting, so nothing is lost — restore by moving the files back.
+- **Mid-conversation**, just tell the agent "ignore the previous context" — the managed guidance block instructs it to disregard the digest on request (and to offer `ctx pause` when you want tracking off too).
+
 ## Structural index (optional but recommended)
 
 ```bash
