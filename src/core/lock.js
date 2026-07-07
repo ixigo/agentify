@@ -54,10 +54,13 @@ async function acquireLockFile(lockPath, operation) {
     host: os.hostname(),
   };
 
+  // Write the payload to a temp file and hard-link it into place: the lock
+  // file either exists with complete contents or not at all, so a crash can
+  // never leave an empty lock behind.
+  const tempPath = `${lockPath}.${process.pid}.${Date.now().toString(36)}.tmp`;
   try {
-    const handle = await fs.open(lockPath, "wx");
-    await handle.writeFile(JSON.stringify(lockData));
-    await handle.close();
+    await fs.writeFile(tempPath, JSON.stringify(lockData), { flag: "wx" });
+    await fs.link(tempPath, lockPath);
     let released = false;
     const release = async () => {
       if (released) {
@@ -96,8 +99,22 @@ async function acquireLockFile(lockPath, operation) {
         message: `Lock held by PID ${existing.pid} for '${existing.operation}' since ${existing.created_at || new Date(existing.acquired_at).toISOString()}`,
       };
     } catch {
+      // Unparseable lock (e.g. left by an interrupted write from an older
+      // version). Reclaim it once it is old enough to be stale rather than
+      // blocking until someone deletes it by hand.
+      try {
+        const stats = await fs.stat(lockPath);
+        if (Date.now() - stats.mtimeMs > LOCK_STALE_MS) {
+          await fs.unlink(lockPath);
+          return acquireLockFile(lockPath, operation);
+        }
+      } catch {
+        // Lock disappeared or is unstat-able; report it as held either way.
+      }
       return { acquired: false, lock_path: lockPath, message: "Lock exists but is unreadable" };
     }
+  } finally {
+    await fs.unlink(tempPath).catch(() => {});
   }
 }
 

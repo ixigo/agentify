@@ -51,6 +51,45 @@ test("acquireLock reclaims a stale lock when the recorded owner is gone", async 
   await assert.rejects(() => fs.access(path.join(root, ".agentify", ".lock")));
 });
 
+test("acquireLock reclaims a stale zero-byte lock left by an interrupted write", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-empty-"));
+  const lockPath = path.join(root, ".agentify", ".lock");
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
+  await fs.writeFile(lockPath, "", "utf8");
+  const staleTime = new Date(Date.now() - 301000);
+  await fs.utimes(lockPath, staleTime, staleTime);
+
+  const result = await acquireLock(root, "doc");
+
+  assert.equal(result.acquired, true);
+  const lockData = JSON.parse(await fs.readFile(lockPath, "utf8"));
+  assert.equal(lockData.pid, process.pid);
+  await result.release();
+});
+
+test("acquireLock reports a fresh unreadable lock as held instead of stealing it", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-fresh-empty-"));
+  const lockPath = path.join(root, ".agentify", ".lock");
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
+  await fs.writeFile(lockPath, "", "utf8");
+
+  const result = await acquireLock(root, "doc");
+
+  assert.equal(result.acquired, false);
+  assert.match(result.message, /unreadable/);
+});
+
+test("acquireLock leaves no temp files behind after acquire and release", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lock-tmp-"));
+  const result = await acquireLock(root, "doc");
+  assert.equal(result.acquired, true);
+  await result.release();
+
+  const leftovers = (await fs.readdir(path.join(root, ".agentify")))
+    .filter((name) => name.endsWith(".tmp"));
+  assert.deepEqual(leftovers, []);
+});
+
 test("acquireProjectStoreLock writes named shared-store lock files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-store-lock-"));
   const locksRoot = path.join(root, "locks");
