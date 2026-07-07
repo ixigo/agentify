@@ -491,66 +491,143 @@ export function normalizeInjectionMode(value, { fallback = "relevant" } = {}) {
   return INJECTION_MODES.includes(mode) ? mode : fallback;
 }
 
-export function tokenizeForMatch(text) {
-  return new Set(
-    String(text || "")
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((token) => token.length >= 3 && !MATCH_STOP_WORDS.has(token))
-  );
+// Light stemmer so "retries" matches "retry" and "configs" matches "config"
+// without dragging in a real stemming library.
+function lightStem(token) {
+  if (token.length > 4 && token.endsWith("ies")) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.length > 3 && token.endsWith("s") && !token.endsWith("ss") && !token.endsWith("us") && !token.endsWith("is")) {
+    return token.slice(0, -1);
+  }
+  return token;
 }
 
-function overlap(promptTokens, tokens) {
-  let count = 0;
-  const matched = [];
-  for (const token of tokens) {
-    if (promptTokens.has(token)) {
-      count += 1;
-      matched.push(token);
-    }
+function tokenListForMatch(text) {
+  return String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !MATCH_STOP_WORDS.has(token))
+    .map(lightStem);
+}
+
+export function tokenizeForMatch(text) {
+  return new Set(tokenListForMatch(text));
+}
+
+function termCounts(text) {
+  const counts = new Map();
+  for (const token of tokenListForMatch(text)) {
+    counts.set(token, (counts.get(token) || 0) + 1);
   }
-  return { count, matched };
+  return counts;
+}
+
+// BM25 over the whole context corpus (notes, summaries, files, failures), so
+// rare terms weigh more than common ones and long notes don't win by volume.
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+
+function buildBm25Index(docCountMaps) {
+  const documentFrequency = new Map();
+  let totalLength = 0;
+  for (const counts of docCountMaps) {
+    let length = 0;
+    for (const [term, count] of counts) {
+      length += count;
+      documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
+    }
+    totalLength += length;
+  }
+  const documentCount = Math.max(1, docCountMaps.length);
+  const averageLength = Math.max(1, totalLength / documentCount);
+  return {
+    averageLength,
+    idf(term) {
+      const df = documentFrequency.get(term) || 0;
+      return Math.log(1 + (documentCount - df + 0.5) / (df + 0.5));
+    },
+  };
+}
+
+function bm25Match(promptTokens, docCounts, index) {
+  let docLength = 0;
+  for (const count of docCounts.values()) {
+    docLength += count;
+  }
+  let score = 0;
+  const matched = [];
+  for (const term of promptTokens) {
+    const termFrequency = docCounts.get(term) || 0;
+    if (termFrequency === 0) {
+      continue;
+    }
+    matched.push(term);
+    const normalized = (termFrequency * (BM25_K1 + 1))
+      / (termFrequency + BM25_K1 * (1 - BM25_B + BM25_B * (docLength / index.averageLength)));
+    score += index.idf(term) * normalized;
+  }
+  return { score, matched };
+}
+
+// Two overlapping stems, or one distinctive (long) token, marks relevance.
+function passesRelevanceBar(matched) {
+  return matched.length >= 2 || matched.some((token) => token.length >= 8);
 }
 
 export function matchSnapshotToPrompt(snapshot, prompt) {
   const promptTokens = tokenizeForMatch(prompt);
   if (promptTokens.size === 0) {
-    return { notes: [], files: [] };
+    return { notes: [], summaries: [], files: [], failures: [] };
   }
 
+  const noteDocs = snapshot.notes.map((note) => ({ note, counts: termCounts(note.note) }));
+  const summaryDocs = (snapshot.sessionSummaries || []).map((item) => ({ item, counts: termCounts(item.summary) }));
+  const fileDocs = (snapshot.summary.hotFiles || []).map((item) => ({ item, counts: termCounts(item.file) }));
+  const failureDocs = (snapshot.summary.unresolvedFailures || []).map((item) => ({
+    item,
+    counts: termCounts(`${item.cmd} ${item.err || ""}`),
+  }));
+
+  const index = buildBm25Index([
+    ...noteDocs.map((doc) => doc.counts),
+    ...summaryDocs.map((doc) => doc.counts),
+    ...fileDocs.map((doc) => doc.counts),
+    ...failureDocs.map((doc) => doc.counts),
+  ]);
+
   const notes = [];
-  for (const note of snapshot.notes) {
-    const { count, matched } = overlap(promptTokens, tokenizeForMatch(note.note));
-    // Two overlapping tokens, or one distinctive (long) token, marks relevance.
-    if (count >= 2 || matched.some((token) => token.length >= 8)) {
-      notes.push({ key: `note:${note.ts}`, note, score: count });
+  for (const doc of noteDocs) {
+    const { score, matched } = bm25Match(promptTokens, doc.counts, index);
+    if (passesRelevanceBar(matched)) {
+      notes.push({ key: `note:${doc.note.ts}`, note: doc.note, score });
     }
   }
   notes.sort((left, right) => right.score - left.score);
 
   const sessionSummaries = [];
-  for (const item of snapshot.sessionSummaries || []) {
-    const { count, matched } = overlap(promptTokens, tokenizeForMatch(item.summary));
-    if (count >= 2 || matched.some((token) => token.length >= 8)) {
-      sessionSummaries.push({ key: `sum:${item.ts}`, item, score: count });
+  for (const doc of summaryDocs) {
+    const { score, matched } = bm25Match(promptTokens, doc.counts, index);
+    if (passesRelevanceBar(matched)) {
+      sessionSummaries.push({ key: `sum:${doc.item.ts}`, item: doc.item, score });
     }
   }
   sessionSummaries.sort((left, right) => right.score - left.score);
 
   const files = [];
-  for (const item of snapshot.summary.hotFiles) {
-    const { count } = overlap(promptTokens, tokenizeForMatch(item.file));
-    if (count >= 1) {
-      files.push({ key: `file:${item.file}`, file: item.file, edits: item.edits, score: count });
+  for (const doc of fileDocs) {
+    const { score, matched } = bm25Match(promptTokens, doc.counts, index);
+    if (matched.length >= 1) {
+      files.push({ key: `file:${doc.item.file}`, file: doc.item.file, edits: doc.item.edits, score });
     }
   }
   files.sort((left, right) => right.score - left.score);
 
   const failures = [];
-  for (const item of snapshot.summary.unresolvedFailures || []) {
-    const { count, matched } = overlap(promptTokens, tokenizeForMatch(`${item.cmd} ${item.err || ""}`));
-    if (count >= 2 || matched.some((token) => token.length >= 8)) {
-      failures.push({ key: `fail:${item.cmd}`, failure: item, score: count });
+  for (const doc of failureDocs) {
+    const { score, matched } = bm25Match(promptTokens, doc.counts, index);
+    if (passesRelevanceBar(matched)) {
+      failures.push({ key: `fail:${doc.item.cmd}`, failure: doc.item, score });
     }
   }
   failures.sort((left, right) => right.score - left.score);

@@ -513,3 +513,31 @@ test("stale notes are flagged in digest and match; existing paths are not", asyn
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("BM25 matching stems plurals and ranks rare terms above common ones", async () => {
+  const { matchSnapshotToPrompt } = await import("../src/core/ctx.js");
+
+  // "retries" in the prompt must match "retry" in a note via stemming.
+  const stemSnapshot = {
+    notes: [{ ts: "t1", note: "payment retry idempotency key regenerated per attempt" }],
+    sessionSummaries: [],
+    summary: { hotFiles: [], unresolvedFailures: [] },
+  };
+  const stemmed = matchSnapshotToPrompt(stemSnapshot, "why do payment retries double charge");
+  assert.equal(stemmed.notes.length, 1);
+
+  // Every note mentions "webpack"; only one mentions the rare term "sourcemaps".
+  // BM25 should rank the rare-term note first even though both match twice.
+  const rankSnapshot = {
+    notes: [
+      { ts: "t1", note: "webpack build config tweaked for speed, cache enabled webpack" },
+      { ts: "t2", note: "webpack sourcemaps broken in production build" },
+      { ts: "t3", note: "webpack dev server port changed" },
+    ],
+    sessionSummaries: [],
+    summary: { hotFiles: [], unresolvedFailures: [] },
+  };
+  const ranked = matchSnapshotToPrompt(rankSnapshot, "fix the webpack sourcemaps in the production build");
+  assert.ok(ranked.notes.length >= 2);
+  assert.match(ranked.notes[0].note.note, /sourcemaps/);
+});
