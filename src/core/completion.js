@@ -201,7 +201,7 @@ export const COMPLETION_METADATA = Object.freeze({
   },
 });
 
-export async function getCompletionValues(kind, { root = process.cwd() } = {}) {
+export async function getCompletionValues(kind, { root: _root = process.cwd() } = {}) {
   switch (kind) {
     case "providers":
       return [...SUPPORTED_PROVIDERS];

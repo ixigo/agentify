@@ -175,7 +175,7 @@ async function runStatus(root, config, args) {
   log(`Context: ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
 }
 
-export async function runCli(argv, runtime = {}) {
+export async function runCli(argv, _runtime = {}) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
 

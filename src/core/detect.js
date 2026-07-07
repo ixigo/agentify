@@ -472,7 +472,7 @@ export async function detectRustModules(root) {
       }
       const packageName = parseTomlStringField(memberCargoRaw, "name");
       modules.push({
-        id: (packageName || memberRoot).replace(/^@/, "").replace(/[\/@]/g, "-"),
+        id: (packageName || memberRoot).replace(/^@/, "").replace(/[/@]/g, "-"),
         name: packageName || path.posix.basename(memberRoot),
         rootPath: memberRoot,
         stack: "rust",
@@ -487,7 +487,7 @@ export async function detectRustModules(root) {
 
   const packageName = parseTomlStringField(rootCargoRaw, "name");
   return [{
-    id: (packageName || path.basename(root)).replace(/^@/, "").replace(/[\/@]/g, "-"),
+    id: (packageName || path.basename(root)).replace(/^@/, "").replace(/[/@]/g, "-"),
     name: packageName || path.basename(root),
     rootPath: ".",
     stack: "rust",

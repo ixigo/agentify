@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { detectModules, detectStacks } from "./detect.js";
-import { exists, relative, walkFiles } from "./fs.js";
+import { relative, walkFiles } from "./fs.js";
 
 // The TypeScript compiler takes ~140ms to load, which would otherwise be paid
 // by every CLI invocation — including the ctx hooks that fire on each agent
@@ -206,7 +206,7 @@ async function detectTypeScriptModules(root, config, relFiles) {
       }
       const pkg = await readJsonIfExists(path.join(root, file));
       modules.push({
-        id: (pkg?.name || moduleRoot).replace(/^@/, "").replace(/[\/@]/g, "-"),
+        id: (pkg?.name || moduleRoot).replace(/^@/, "").replace(/[/@]/g, "-"),
         name: pkg?.name || path.basename(moduleRoot),
         rootPath: moduleRoot,
         stack: "ts",
@@ -653,7 +653,7 @@ function collectGenericSymbols(language, text) {
           },
         },
         {
-          pattern: /^\s*(?:public|protected|private)\s+(?:static\s+)?[\w<>\[\], ?]+\s+([A-Za-z_]\w*)\s*\(/gm,
+          pattern: /^\s*(?:public|protected|private)\s+(?:static\s+)?[\w<>[\], ?]+\s+([A-Za-z_]\w*)\s*\(/gm,
           map(match, source) {
             return {
               name: match[1],
@@ -707,7 +707,7 @@ function collectGenericSymbols(language, text) {
           },
         },
         {
-          pattern: /^\s*(?:public|internal|protected|private)\s+(?:static\s+)?[\w<>\[\], ?]+\s+([A-Za-z_]\w*)\s*\(/gm,
+          pattern: /^\s*(?:public|internal|protected|private)\s+(?:static\s+)?[\w<>[\], ?]+\s+([A-Za-z_]\w*)\s*\(/gm,
           map(match, source) {
             return {
               name: match[1],

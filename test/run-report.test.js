@@ -303,7 +303,7 @@ test("createRunReporter uses live loader milestones on interactive stderr", asyn
   assert.match(stderr, /\x1b\[2K/);
   assert.match(stderr, /scan complete/);
   assert.match(stderr, /tests passed/);
-  assert.doesNotMatch(stderr, /  ~ scan: starting deterministic repository scan\n/);
+  assert.doesNotMatch(stderr, / {2}~ scan: starting deterministic repository scan\n/);
   assert.match(output, /\[agentify\] scan: starting deterministic repository scan/);
   assert.match(output, /\[agentify\] tests: passed/);
 });

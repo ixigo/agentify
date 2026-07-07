@@ -220,7 +220,7 @@ function renderProviderAuth(info) {
   return ui.yellow("unknown");
 }
 
-export async function runDoctor(root, config, options = {}) {
+export async function runDoctor(root, config, _options = {}) {
   const caps = await detectCapabilities({ ...config, root });
 
   if (config.json) {
