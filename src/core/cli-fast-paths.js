@@ -51,6 +51,7 @@ export async function printHelp() {
     `    ${c("test")}            ${d("Select and run only the tests affected by a change (--since, --run)")}`,
     `    ${c("serve")}           ${d("MCP server over stdio: ctx/query/risk/test tools for any MCP-capable agent")}`,
     `    ${c("stats")}           ${d("Session and delegation usage: runs, tokens, cost by kind and model (--days)")}`,
+    `    ${c("review")}          ${d("Cross-vendor review of a change (--diff <ref>, --push for outgoing commits)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check setup readiness, provider CLIs, and capability tier")}`,

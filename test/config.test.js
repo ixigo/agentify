@@ -16,7 +16,7 @@ test("loadConfig returns the trimmed default configuration", async () => {
   assert.equal(config.languages, "auto");
   assert.equal(config.moduleStrategy, "auto");
   assert.deepEqual(config.toolchain, { zoekt: false });
-  assert.deepEqual(config.hooks, { preCommit: true, postMerge: true });
+  assert.deepEqual(config.hooks, { preCommit: true, postMerge: true, prePush: false });
   assert.deepEqual(config.runtime, { store: "local", sharedStorePath: null });
   assert.deepEqual(config.cleanup, {
     keepRuns: 20,
@@ -38,7 +38,7 @@ test("loadConfig deep-merges repository .agentify.yaml overrides", async () => {
   const config = await loadConfig(root);
 
   assert.equal(config.provider, "codex");
-  assert.deepEqual(config.hooks, { preCommit: true, postMerge: false });
+  assert.deepEqual(config.hooks, { preCommit: true, postMerge: false, prePush: false });
   assert.equal(config.runtime.store, "shared");
   assert.equal(config.runtime.sharedStorePath, null);
 });
@@ -65,7 +65,7 @@ test("loadConfig drops the deprecated autoRefresh hook setting", async () => {
 
   const config = await loadConfig(root);
 
-  assert.deepEqual(config.hooks, { preCommit: false, postMerge: true });
+  assert.deepEqual(config.hooks, { preCommit: false, postMerge: true, prePush: false });
 });
 
 test("writeDefaultConfig creates .agentify.yaml and leaves an existing file untouched", async () => {

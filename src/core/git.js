@@ -167,6 +167,27 @@ export async function getHeadCommit(root) {
   }
 }
 
+export async function getUpstreamRef(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+      cwd: root,
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function hasDiffSince(root, ref) {
+  try {
+    await execFileAsync("git", ["diff", "--quiet", ref], { cwd: root });
+    return false;
+  } catch (error) {
+    // git diff --quiet exits 1 when there are differences.
+    return error?.code === 1;
+  }
+}
+
 export async function getHeadTree(root) {
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], {

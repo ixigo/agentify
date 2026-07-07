@@ -8,7 +8,7 @@ const isHelp = isHelpRequest(args);
 const isVersion = isVersionRequest(args);
 // Quiet commands run inside Claude Code hooks, shell completion, or an MCP
 // client; the banner would pollute their output (stdout is the MCP channel).
-const isQuiet = args.includes("completion") || args[0] === "ctx" || args[0] === "serve";
+const isQuiet = args.includes("completion") || args[0] === "ctx" || args[0] === "serve" || args.includes("--hook");
 
 async function main() {
   if (await handleFastPath(args)) {

@@ -120,7 +120,8 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify check` | Validate index freshness and generated artifacts |
 | `agentify serve` | MCP server over stdio — Agentify tools for any MCP-capable agent |
 | `agentify skill list|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
-| `agentify hooks install|remove|status` | Optional git hooks (pre-commit check, post-merge rescan) |
+| `agentify review [--diff <ref>] [--push]` | Cross-vendor review of a change (`--push` reviews outgoing commits) |
+| `agentify hooks install|remove|status` | Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review) |
 | `agentify doctor` | Toolchain and provider CLI readiness |
 | `agentify clean` | Prune stale generated artifacts |
 | `agentify completion zsh|bash|fish` | Shell completion |
@@ -165,6 +166,8 @@ agentify models                                  # show the routing table + avai
 | `research` | Claude Haiku | Fast exploration, summarization, doc lookups |
 
 Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
+
+Want a second vendor's eyes on every push? Enable the opt-in pre-push hook (`hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`): each `git push` triggers `agentify review --push` — an independent review of the outgoing commits by the other vendor's model. Advisory only; it never blocks the push.
 
 Every delegation is logged locally with duration, token usage, and cost (real numbers where the provider CLI reports them, ~4 chars/token estimates otherwise). `agentify stats` breaks it down by kind and model — so you can see what routing cheap work to cheap models is actually saving.
 

@@ -20,6 +20,8 @@ const DEFAULT_CONFIG = {
   hooks: {
     preCommit: true,
     postMerge: true,
+    // Opt-in: cross-vendor review of outgoing commits at push time.
+    prePush: false,
   },
   runtime: {
     store: "local",

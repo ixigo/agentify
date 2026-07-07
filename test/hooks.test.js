@@ -118,3 +118,24 @@ test("syncManagedHooks preserves mode when pruning disabled managed hook content
   assert.equal(await fs.readFile(hookPath, "utf8"), "#!/bin/sh\ncustom pre-commit step\n");
   assert.equal(fileMode((await fs.stat(hookPath)).mode), 0o710);
 });
+
+test("pre-push hook is opt-in: absent by default, installed when enabled, removed when disabled again", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-prepush-"));
+  const hooksDir = path.join(root, ".git", "hooks");
+  await fs.mkdir(hooksDir, { recursive: true });
+
+  // Default settings (and explicit false) never install pre-push.
+  const byDefault = await installHooks(root);
+  assert.ok(!byDefault.installed.includes("pre-push"));
+  await assert.rejects(() => fs.access(path.join(hooksDir, "pre-push")));
+
+  const enabled = await installHooks(root, { prePush: true });
+  assert.ok(enabled.installed.includes("pre-push"));
+  const prePush = await fs.readFile(path.join(hooksDir, "pre-push"), "utf8");
+  assert.match(prePush, /agentify review --push --hook \|\| true/);
+  assert.match(prePush, /never blocks the push/);
+
+  const disabled = await installHooks(root, { prePush: false });
+  assert.deepEqual(disabled.removed, ["pre-push"]);
+  await assert.rejects(() => fs.access(path.join(hooksDir, "pre-push")));
+});

@@ -15,13 +15,21 @@ const POST_MERGE_BODY = `${AGENTIFY_MARKER} post-merge hook
 agentify scan --json >/dev/null 2>&1 || true
 `;
 
+const PRE_PUSH_BODY = `${AGENTIFY_MARKER} pre-push hook
+# Independent cross-vendor review of outgoing commits (advisory — never blocks the push).
+# Enabled via hooks.prePush: true in .agentify.yaml.
+agentify review --push --hook || true
+`;
+
 const HOOK_BODIES = [
   { name: "pre-commit", configKey: "preCommit", body: PRE_COMMIT_BODY },
   { name: "post-merge", configKey: "postMerge", body: POST_MERGE_BODY },
+  // Opt-in: a delegated model review at push time costs real minutes and money.
+  { name: "pre-push", configKey: "prePush", body: PRE_PUSH_BODY, optIn: true },
 ];
 
-function isHookEnabled(settings, configKey) {
-  return settings?.[configKey] !== false;
+function isHookEnabled(settings, configKey, optIn = false) {
+  return optIn ? settings?.[configKey] === true : settings?.[configKey] !== false;
 }
 
 function renderHookScript(body) {
@@ -112,9 +120,9 @@ export async function installHooks(root, settings = {}) {
   const installed = [];
   const removed = [];
 
-  for (const { name, configKey, body } of HOOK_BODIES) {
+  for (const { name, configKey, body, optIn } of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
-    if (!isHookEnabled(settings, configKey)) {
+    if (!isHookEnabled(settings, configKey, optIn)) {
       if (await removeManagedHookBlock(hookPath)) {
         removed.push(name);
       }
@@ -161,14 +169,16 @@ export async function removeHooks(root) {
 
 export async function statusHooks(root) {
   const hooksDir = path.join(root, ".git", "hooks");
-  if (!(await exists(hooksDir))) return { preCommit: false, postMerge: false };
+  if (!(await exists(hooksDir))) return { preCommit: false, postMerge: false, prePush: false };
 
   const preCommit = await safeRead(path.join(hooksDir, "pre-commit"));
   const postMerge = await safeRead(path.join(hooksDir, "post-merge"));
+  const prePush = await safeRead(path.join(hooksDir, "pre-push"));
 
   return {
     preCommit: preCommit?.includes(AGENTIFY_MARKER) || false,
     postMerge: postMerge?.includes(AGENTIFY_MARKER) || false,
+    prePush: prePush?.includes(AGENTIFY_MARKER) || false,
   };
 }
 
@@ -184,11 +194,11 @@ export async function syncManagedHooks(root, { dryRun = false, settings = {} } =
 
   const results = [];
 
-  for (const { name, configKey, body } of HOOK_BODIES) {
+  for (const { name, configKey, body, optIn } of HOOK_BODIES) {
     const hookPath = path.join(hooksDir, name);
     const existing = await safeRead(hookPath);
 
-    if (!isHookEnabled(settings, configKey)) {
+    if (!isHookEnabled(settings, configKey, optIn)) {
       if (!existing) {
         results.push({ name, path: hookPath, managed: false, status: "skipped_disabled" });
         continue;

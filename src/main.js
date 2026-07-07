@@ -47,6 +47,7 @@ import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildTestSelection, renderTestSelection, runTestSelection } from "./core/test-select.js";
 import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
+import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -804,6 +805,41 @@ export async function runCli(argv, runtime = {}) {
         }
         if (config.json && result.exit_code !== 0) {
           process.exitCode = 1;
+        }
+        return;
+      }
+
+      case "review": {
+        // `review --push --hook` backs the opt-in pre-push git hook: review
+        // outgoing commits against upstream, advisory, silent when there is
+        // nothing to review.
+        const isHook = args.hook === true;
+        let diffRef = args.diff ? String(args.diff) : null;
+        if (args.push === true) {
+          diffRef = await getUpstreamRef(root);
+          if (!diffRef) {
+            if (!isHook) {
+              log("No upstream configured; nothing to review against. Set one with `git push -u` or pass --diff <ref>.");
+            }
+            return;
+          }
+          if (!(await hasDiffSince(root, diffRef))) {
+            if (!isHook) {
+              log(`No changes since ${diffRef}; nothing to review.`);
+            }
+            return;
+          }
+        }
+        const result = await runDelegate(root, config, "review", getPromptFromArgs(args, 1), { diffRef });
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log(dim(`cross-vendor review by ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? " (fallback)" : ""}${diffRef ? ` — diff since ${diffRef}` : ""}`));
+          log("");
+          log(result.output || dim("(no output)"));
+          if (result.exit_code !== 0 && !isHook) {
+            throw new Error(`review failed with exit code ${result.exit_code}${result.error ? `: ${result.error}` : ""}`);
+          }
         }
         return;
       }
