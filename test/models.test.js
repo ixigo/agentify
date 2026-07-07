@@ -64,11 +64,11 @@ test("pickRouteTarget uses the route provider and falls back across vendors", ()
 test("buildDelegateCommand builds provider CLI invocations", () => {
   assert.deepEqual(
     buildDelegateCommand({ provider: "claude", model: "haiku" }, "fix typo"),
-    ["claude", "-p", "fix typo", "--model", "haiku"]
+    ["claude", "-p", "fix typo", "--output-format", "json", "--model", "haiku"]
   );
   assert.deepEqual(
     buildDelegateCommand({ provider: "claude", model: "haiku" }, "fix typo", { write: true }),
-    ["claude", "-p", "fix typo", "--model", "haiku", "--permission-mode", "acceptEdits"]
+    ["claude", "-p", "fix typo", "--output-format", "json", "--model", "haiku", "--permission-mode", "acceptEdits"]
   );
   assert.deepEqual(
     buildDelegateCommand({ provider: "codex", model: null }, "review this"),

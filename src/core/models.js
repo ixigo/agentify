@@ -118,7 +118,8 @@ export function buildDelegateCommand(target, prompt, options = {}) {
     return argv;
   }
 
-  const argv = ["claude", "-p", prompt];
+  // JSON output carries real token usage and cost alongside the result text.
+  const argv = ["claude", "-p", prompt, "--output-format", "json"];
   if (target.model) {
     argv.push("--model", target.model);
   }
@@ -126,6 +127,29 @@ export function buildDelegateCommand(target, prompt, options = {}) {
     argv.push("--permission-mode", "acceptEdits");
   }
   return argv;
+}
+
+// Parse `claude -p --output-format json` stdout. Returns null when the output
+// is not the expected envelope (older CLI, plain-text fallback).
+export function parseClaudeJsonOutput(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(stdout || "").trim());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || typeof parsed.result !== "string") {
+    return null;
+  }
+  const usage = parsed.usage && typeof parsed.usage === "object" ? parsed.usage : {};
+  const inputTokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+    .reduce((total, key) => total + (typeof usage[key] === "number" ? usage[key] : 0), 0);
+  return {
+    output: parsed.result.trim(),
+    input_tokens: inputTokens > 0 ? inputTokens : null,
+    output_tokens: typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+    cost_usd: typeof parsed.total_cost_usd === "number" ? parsed.total_cost_usd : null,
+  };
 }
 
 async function buildDiffSection(root, diffRef) {
@@ -205,9 +229,19 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     timeoutMs: options.timeoutMs || DELEGATE_TIMEOUT_MS,
   }));
 
+  const startedAt = Date.now();
   const result = await exec(argv[0], argv.slice(1));
+  const durationMs = Date.now() - startedAt;
 
   let output = String(result.stdout || "").trim();
+  let usage = null;
+  if (target.provider === "claude") {
+    const parsed = parseClaudeJsonOutput(result.stdout);
+    if (parsed) {
+      output = parsed.output;
+      usage = parsed;
+    }
+  }
   if (lastMessagePath) {
     try {
       const lastMessage = (await fs.readFile(lastMessagePath, "utf8")).trim();
@@ -220,6 +254,26 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     await fs.unlink(lastMessagePath).catch(() => {});
   }
 
+  const tokensEstimated = usage?.input_tokens == null || usage?.output_tokens == null;
+  try {
+    const { recordDelegation, estimateTokens } = await import("./stats.js");
+    await recordDelegation(root, {
+      kind,
+      provider: target.provider,
+      model: target.model,
+      used_fallback: target.fallback,
+      write: options.write === true,
+      exit_code: result.code,
+      duration_ms: durationMs,
+      input_tokens: usage?.input_tokens ?? estimateTokens(prompt),
+      output_tokens: usage?.output_tokens ?? estimateTokens(output),
+      tokens_estimated: tokensEstimated,
+      cost_usd: usage?.cost_usd ?? null,
+    });
+  } catch {
+    // Stats are best-effort; a broken log must not fail the delegation.
+  }
+
   return {
     command: "delegate",
     kind,
@@ -229,6 +283,8 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     write: options.write === true,
     diff_ref: options.diffRef || null,
     exit_code: result.code,
+    duration_ms: durationMs,
+    ...(usage?.cost_usd != null ? { cost_usd: usage.cost_usd } : {}),
     output,
     ...(result.code !== 0 ? { error: String(result.stderr || "").trim().slice(0, 2000) } : {}),
   };

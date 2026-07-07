@@ -46,6 +46,7 @@ import {
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildTestSelection, renderTestSelection, runTestSelection } from "./core/test-select.js";
 import { runMcpServer } from "./core/mcp-server.js";
+import { buildStatsReport, renderStatsReport } from "./core/stats.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -822,6 +823,20 @@ export async function runCli(argv, runtime = {}) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           log(renderRiskReport(result));
+        }
+        return;
+      }
+
+      case "stats": {
+        const days = args.days !== undefined ? Number(args.days) : undefined;
+        if (args.days !== undefined && (!Number.isFinite(days) || days <= 0)) {
+          throw new Error("stats --days requires a positive number");
+        }
+        const report = await buildStatsReport(root, { days });
+        if (config.json) {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          log(renderStatsReport(report));
         }
         return;
       }

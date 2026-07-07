@@ -130,6 +130,9 @@ const COMMANDS = [
     flags: [flag("--since", { valueKind: "text", description: "Commit or ref" })],
   }),
   command("serve", "Run the MCP server over stdio"),
+  command("stats", "Session and delegation usage stats", {
+    flags: [flag("--days", { valueKind: "number", description: "Window in days (default 30)" })],
+  }),
   command("test", "Select and run tests affected by a change", {
     flags: [
       flag("--since", { valueKind: "text", description: "Commit or ref" }),
