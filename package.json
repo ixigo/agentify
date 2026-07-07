@@ -3,6 +3,7 @@
   "version": "0.4.0",
   "description": "Lightweight context tracking and repo intelligence for AI coding agents. Install once per repo: it wires Claude Code (hooks + CLAUDE.md) to use Agentify internally for context tracking, structural queries, and risk analysis.",
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
   "license": "MIT",
   "bin": {
     "agentify": "./src/cli.js"
