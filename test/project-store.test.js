@@ -13,7 +13,6 @@ import {
   getGitIdentity,
   resolveAgentifyPaths,
 } from "../src/core/project-store.js";
-import { linkProject } from "../src/core/link.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -139,103 +138,6 @@ test("AGENTIFY_DISABLE_LINK ignores an existing link.json", async () => {
   const disabled = await resolveAgentifyPaths(root, {}, { AGENTIFY_DISABLE_LINK: "1" });
   assert.equal(disabled.linked, false);
   assert.equal(disabled.mode, "local");
-});
-
-test("link --auto writes a v2 link.json and store metadata", async () => {
-  const parent = await mkTempDir("agentify-link-auto-");
-  const root = path.join(parent, "repo");
-  const sharedBase = path.join(parent, "shared");
-  await fs.mkdir(root, { recursive: true });
-  await initGitRepo(root);
-
-  const result = await linkProject(root, {
-    auto: true,
-    config: { runtime: { sharedStorePath: sharedBase } },
-    env: {},
-  });
-
-  assert.equal(result.mode, "auto");
-  assert.equal(result.linked, true);
-  assert.equal(result.changed, true);
-  assert.equal(result.project_store, path.join(sharedBase, result.repo_key));
-
-  const linkPath = path.join(await fs.realpath(root), ".agentify", "link.json");
-  const link = JSON.parse(await fs.readFile(linkPath, "utf8"));
-  assert.equal(link.schema_version, 2);
-  assert.equal(link.kind, "agentify-linked-project");
-  assert.equal(link.project_store, result.project_store);
-  assert.equal(link.repo_key, result.repo_key);
-  assert.ok(link.created_at);
-
-  const storeMetaPath = path.join(result.project_store, "store.json");
-  const storeMeta = JSON.parse(await fs.readFile(storeMetaPath, "utf8"));
-  assert.equal(storeMeta.kind, "agentify-project-store");
-  assert.equal(storeMeta.repo_key, result.repo_key);
-  assert.ok(storeMeta.last_used_at);
-});
-
-test("link --auto in two worktrees of the same repo resolves the same project store", async () => {
-  const parent = await mkTempDir("agentify-link-auto-share-");
-  const primary = path.join(parent, "primary");
-  const secondary = path.join(parent, "secondary");
-  const sharedBase = path.join(parent, "shared");
-  await fs.mkdir(primary, { recursive: true });
-  await initGitRepo(primary);
-  await execFileAsync("git", ["-C", primary, "worktree", "add", "-b", "task-b", secondary]);
-
-  const a = await linkProject(primary, {
-    auto: true,
-    config: { runtime: { sharedStorePath: sharedBase } },
-    env: {},
-  });
-  const b = await linkProject(secondary, {
-    auto: true,
-    config: { runtime: { sharedStorePath: sharedBase } },
-    env: {},
-  });
-
-  assert.equal(a.project_store, b.project_store);
-  assert.equal(a.repo_key, b.repo_key);
-
-  // Local runtime roots remain per-worktree.
-  const pathsA = await resolveAgentifyPaths(primary, {}, {});
-  const pathsB = await resolveAgentifyPaths(secondary, {}, {});
-  assert.notEqual(pathsA.sessionRoot, pathsB.sessionRoot);
-  assert.equal(pathsA.indexDb, pathsB.indexDb);
-});
-
-test("link --status reports link mode and presence", async () => {
-  const parent = await mkTempDir("agentify-link-status-");
-  const root = path.join(parent, "repo");
-  const sharedBase = path.join(parent, "shared");
-  await fs.mkdir(root, { recursive: true });
-  await initGitRepo(root);
-
-  const before = await linkProject(root, { status: true, config: {}, env: {} });
-  assert.equal(before.mode, "status");
-  assert.equal(before.linked, false);
-  assert.equal(before.runtime_mode, "local");
-
-  await linkProject(root, {
-    auto: true,
-    config: { runtime: { sharedStorePath: sharedBase } },
-    env: {},
-  });
-
-  const after = await linkProject(root, { status: true, config: {}, env: {} });
-  assert.equal(after.linked, true);
-  assert.equal(after.runtime_mode, "shared");
-  assert.ok(after.store_meta);
-  assert.equal(after.shared_artifacts.includes("index.db"), true);
-  assert.equal(after.local_artifacts.includes("session"), true);
-});
-
-test("link --auto outside a git repo throws a clear error", async () => {
-  const root = await mkTempDir("agentify-link-nogit-");
-  await assert.rejects(
-    () => linkProject(root, { auto: true, config: {}, env: {} }),
-    /not inside a Git repository/i,
-  );
 });
 
 test("describe helpers expose stable artifact categories", () => {

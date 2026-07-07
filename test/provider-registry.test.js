@@ -1,11 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { BOOTSTRAP_PROVIDERS } from "../src/core/bootstrap.js";
 import { SUPPORTED_PROVIDERS } from "../src/core/provider-command.js";
 import { SKILL_INSTALL_PROVIDERS } from "../src/core/skills.js";
 import {
-  BOOTSTRAP_PROVIDER_NAMES,
   EXECUTABLE_PROVIDER_NAMES,
   PROVIDER_DEFINITIONS,
   SKILL_INSTALL_PROVIDER_NAMES,
@@ -14,7 +12,6 @@ import {
 
 test("provider registry is the canonical source for provider capability lists", () => {
   assert.deepEqual(SUPPORTED_PROVIDERS, Object.keys(PROVIDER_DEFINITIONS));
-  assert.deepEqual(BOOTSTRAP_PROVIDERS, BOOTSTRAP_PROVIDER_NAMES);
   assert.deepEqual(SKILL_INSTALL_PROVIDERS, SKILL_INSTALL_PROVIDER_NAMES);
   assert.deepEqual(EXECUTABLE_PROVIDER_NAMES, ["codex", "claude", "gemini", "opencode"]);
 });

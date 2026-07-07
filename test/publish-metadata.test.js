@@ -113,7 +113,7 @@ test("npm pack dry-run includes the publishable CLI and documentation surface", 
     "LICENSE",
     "src/cli.js",
     "src/main.js",
-    "docs/DETAILED_README.md",
+    "docs/usage.md",
     "skills/auto-pilot/SKILL.md",
   ]) {
     assert.ok(packedPaths.has(requiredPath), `published package should include ${requiredPath}`);

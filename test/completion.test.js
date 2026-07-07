@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 
 import { generateCompletionScript, getCompletionValues } from "../src/core/completion.js";
 import { SUPPORTED_PROVIDERS } from "../src/core/provider-command.js";
-import { forkSession } from "../src/core/session.js";
 import { listBuiltinSkills } from "../src/core/skills.js";
 import { runCli } from "../src/main.js";
 
@@ -44,21 +43,20 @@ test("generateCompletionScript prints zsh, bash, and fish scripts from one metad
   assert.match(zsh, /^#compdef agentify/);
   assert.match(zsh, /agentify completion values "\$1" --root "\$PWD"/);
   assert.match(zsh, /compadd -- .*'completion'/);
-  assert.match(zsh, /compadd -- .*'run'/);
+  assert.match(zsh, /compadd -- .*'install'/);
   assert.match(zsh, /compadd -- .*'skill'/);
 
   assert.match(bash, /complete -F _agentify_completion agentify/);
   assert.match(bash, /agentify completion values "\$1" --root "\$PWD"/);
   assert.match(bash, /'completion'/);
-  assert.match(bash, /'run'/);
+  assert.match(bash, /'install'/);
   assert.match(bash, /'skill'/);
 
   assert.match(fish, /function __agentify_complete_providers/);
   assert.match(fish, /agentify completion values skills --root \(pwd\)/);
-  assert.match(fish, /complete -c agentify .* -a 'completion'/);
+  assert.match(fish, /complete -c agentify .* -a 'install'/);
   assert.match(fish, /__fish_seen_subcommand_from skill skills; and not __fish_seen_subcommand_from list install/);
-  assert.match(fish, /__fish_seen_subcommand_from sess session; and not __fish_seen_subcommand_from list run fork resume/);
-  assert.match(fish, /__fish_complete_path/);
+  assert.match(fish, /complete -c agentify -l 'root' -r/);
 });
 
 test("completion values use existing provider and skill sources of truth", async () => {
@@ -76,30 +74,11 @@ test("completion values use existing provider and skill sources of truth", async
   assert.match(skillOutput, /^worktree-autopilot$/m);
 });
 
-test("completion values sessions degrade silently when session state is missing or unreadable", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-sessions-"));
-  const missingOutput = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
+test("completion values rejects removed dynamic kinds", async () => {
+  await assert.rejects(
+    () => getCompletionValues("sessions"),
+    /unknown completion value kind "sessions"/,
   );
-  assert.equal(missingOutput, "");
-
-  await fs.mkdir(path.join(root, ".agents", "session", "broken"), { recursive: true });
-  await fs.writeFile(path.join(root, ".agents", "session", "broken", "session-manifest.json"), "{", "utf8");
-  const brokenOutput = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
-  );
-  assert.equal(brokenOutput, "");
-});
-
-test("completion values sessions list known session ids", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-session-list-"));
-  const created = await forkSession(root, { provider: "codex" }, { name: "completion test" });
-
-  const output = await captureStdout(() =>
-    runCli(["completion", "values", "sessions", "--root", root])
-  );
-
-  assert.deepEqual(output.trim().split("\n"), [created.sessionId]);
 });
 
 test("cli completion command writes only the script to stdout", async () => {

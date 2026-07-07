@@ -22,12 +22,13 @@ test("installHooks writes a valid post-merge refresh command", async () => {
   assert.deepEqual(result, { installed: ["pre-commit", "post-merge"], removed: [] });
 
   const postMerge = await fs.readFile(path.join(root, ".git", "hooks", "post-merge"), "utf8");
-  assert.match(postMerge, /Refreshes index, docs, and metadata after merge/);
-  assert.match(postMerge, /agentify scan --json >\/dev\/null 2>&1 && agentify doc --provider local --json >\/dev\/null 2>&1 \|\| true/);
+  assert.match(postMerge, /Refreshes the repository index after merge/);
+  assert.match(postMerge, /agentify scan --json >\/dev\/null 2>&1 \|\| true/);
+  assert.doesNotMatch(postMerge, /agentify doc/);
   assert.doesNotMatch(postMerge, /--skip-finalize/);
 });
 
-test("installed post-merge hook refreshes scan and local docs", async () => {
+test("installed post-merge hook refreshes only the scan index", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-run-"));
   const hooksDir = path.join(root, ".git", "hooks");
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-hooks-bin-"));
@@ -49,7 +50,6 @@ test("installed post-merge hook refreshes scan and local docs", async () => {
   const calls = (await fs.readFile(logPath, "utf8")).trim().split("\n");
   assert.deepEqual(calls, [
     "scan --json",
-    "doc --provider local --json",
   ]);
 });
 

@@ -69,29 +69,6 @@ test("runCli scan exits non-zero and emits a blocked JSON payload when the lock 
   assert.match(blocked.message, /Lock held by PID/);
 }));
 
-test("runCli doc exits non-zero and emits a blocked JSON payload when the lock is held", captureStdout(async (captured) => {
-  const root = await setupBlockedRepo("agentify-doc-blocked-");
-
-  await runCli(["doc", "--root", root, "--json"]);
-
-  assert.equal(process.exitCode, 1, "doc should exit non-zero on lock contention");
-
-  const payloads = captured
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const blocked = payloads.find((value) => value && value.status === "blocked");
-  assert.ok(blocked, "doc should emit a structured JSON payload on contention");
-  assert.equal(blocked.command, "doc");
-  assert.equal(blocked.reason, "lock_contention");
-  assert.equal(blocked.phase, "doc");
-}));
-
 test("runCli up exits non-zero, reports the blocked phase, and does not claim scan completion", captureStdout(async (captured) => {
   const root = await setupBlockedRepo("agentify-up-blocked-");
 
