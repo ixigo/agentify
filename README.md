@@ -159,6 +159,16 @@ agentify workflow install azure --provider claude
 
 **Worktrees and parallel work:** single tasks run through `worktree-autopilot` (fresh branch + `git worktree`, verify, commit, draft PR). When several opted-in issues are ready, `issue-killer` fans them out — one tmux pane and one worktree per issue, each running an interactive agent, supervised via `tmux attach -t issue-killer`. Every worktree has its own `.agentify/` store, so context tracking stays per-checkout, and `agentify ctx note` records what's in flight so later sessions know.
 
+**You never invoke the workflow by name.** The bundle installs as agent skills, and the agent matches them to plain requests — a typical day:
+
+```text
+"triage the new issues"           → github-triage labels the board, marks agentify-ready
+"pick up issue 231"               → gh-autopilot + worktree-autopilot: isolated branch,
+                                    implement, test, cross-vendor review, draft PR
+"kill everything agentify-ready"  → issue-killer fans out tmux worktree agents
+next session                      → the SessionStart digest recalls what's in flight
+```
+
 Per-platform guides: [GitHub](https://ixigo.github.io/agentify/pages/workflow-gh.html) · [GitLab](https://ixigo.github.io/agentify/pages/workflow-glab.html) · [Azure DevOps](https://ixigo.github.io/agentify/pages/workflow-azure.html)
 
 ## What the agent sees

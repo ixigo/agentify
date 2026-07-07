@@ -126,6 +126,40 @@ agentify workflow install glab --provider claude --scope project
 
 The flow on every platform: **triage** the board with an opt-in label (`agentify-ready`), **pick up** an item (the autopilot skill resolves full context with `gh`/`glab`/`az`), **implement in isolation** (`worktree-autopilot` creates a fresh branch + git worktree, verifies with the repo's tests, commits), and **raise a draft PR/MR** (`pr-creator`; the Azure bundle adds `pr-convention-learner`, which checks reviewer conventions learned from past PRs).
 
+### Do I have to invoke the workflow?
+
+No. The bundle installs as agent skills (`.claude/skills/` for Claude Code, `.codex/skills/` for Codex), and skills are matched to your request automatically — each skill declares when it applies (triage requests, issue/PR URLs, "pick up work", parallel fan-out). You talk to the agent normally; it picks the right skill. The only command a human ever runs is the one-time `agentify workflow install`.
+
+### A day with the workflow (GitHub example)
+
+```text
+9:05  you:   "triage the new issues"
+      agent: → github-triage: classifies each issue, applies the label state
+              machine, marks two small ones agentify-ready
+
+9:20  you:   "pick up issue 231"
+      agent: → gh-autopilot reads the issue + comments with gh
+             → worktree-autopilot: branch issue/231-retry-bug in a fresh
+               worktree, implements, runs the repo tests, commits
+             → agentify delegate review --diff origin/main  (Codex gives an
+               independent second opinion before the PR)
+             → pr-creator opens a draft PR
+             → agentify ctx note "231: retry bug was a stale idempotency key;
+               fix in src/pay/retry.ts, PR #232 draft"
+
+11:40 you:   "kill everything labeled agentify-ready"
+      agent: → issue-killer: one tmux pane + one worktree per issue, each
+               running its own agent toward a draft PR
+      you:   tmux attach -t issue-killer   # watch them work
+
+next morning, new session:
+      SessionStart hook injects the digest — yesterday's notes, the in-flight
+      fan-out, hot files — so you can just say "continue with the review
+      feedback on #232".
+```
+
+The same day works verbatim on GitLab ("triage the new issues" → gitlab-triage, draft MRs) and Azure DevOps ("pick up work item 4512" → ado-autopilot over `az boards`).
+
 ### Worktrees and parallel issue-solving
 
 - One task → `worktree-autopilot`: isolated worktree, verified change, merge-back commands returned to you.

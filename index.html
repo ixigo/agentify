@@ -226,6 +226,11 @@ agentify uninstall</code></pre>
     </div>
     <pre class="code"><code><span class="green">agentify workflow install</span>   <span class="comment"># auto-detects gh / glab / azure from the git remote</span>
 agentify workflow list      <span class="comment"># bundles + platform CLI availability</span></code></pre>
+    <p style="color: var(--text-dim);">You never invoke the workflow by name — the skills match plain requests. A typical day:</p>
+    <pre class="code"><code><span class="comment">"triage the new issues"</span>          → github-triage labels the board, marks agentify-ready
+<span class="comment">"pick up issue 231"</span>              → isolated worktree, implement, test, cross-vendor review, draft PR
+<span class="comment">"kill everything agentify-ready"</span> → issue-killer fans out parallel tmux worktree agents
+<span class="comment">next session</span>                     → the SessionStart digest recalls what's in flight</code></pre>
   </section>
 
   <section id="routing">
