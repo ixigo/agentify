@@ -155,7 +155,7 @@
       <div class="step"><span class="num">01</span><p><strong>You ask for something</strong> — each prompt is matched against the store and only <em>related</em> notes and files are injected (set <code>context.injection: digest</code> for the old always-on digest).</p></div>
       <div class="step"><span class="num">02</span><p><strong>Agent works</strong> — file edits and shell commands are tracked automatically as compact JSONL (auto-compacted, capped at ~512&nbsp;KB).</p></div>
       <div class="step"><span class="num">03</span><p><strong>Agent learns something worth keeping</strong> — it runs <code>agentify ctx note "..."</code> so the knowledge survives the session.</p></div>
-      <div class="step"><span class="num">04</span><p><strong>Session ends</strong> — tracked automatically; <code>agentify ctx handoff</code> writes a summary when wrapping up long work.</p></div>
+      <div class="step"><span class="num">04</span><p><strong>Session ends</strong> — a fast model compresses it into a ~3-line handoff for future sessions; <code>agentify ctx share</code> makes notes committable team memory.</p></div>
     </div>
     <p style="margin-top:16px; color: var(--text-dim);">No daemon, no database server, no per-command wrapping. Install and uninstall are surgical: only the marker-delimited block and Agentify's own hook entries are ever touched.</p>
   </section>

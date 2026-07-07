@@ -263,3 +263,69 @@ test("normalizeInjectionMode falls back on unknown values", async () => {
   assert.equal(normalizeInjectionMode("bogus"), "relevant");
   assert.equal(normalizeInjectionMode(undefined), "relevant");
 });
+
+test("summarizeSession writes once, respects thresholds, and lands in digest + match", async () => {
+  const { summarizeSession, loadContextSnapshot, renderContextDigest, matchSnapshotToPrompt } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-"));
+  try {
+    const edit = (sid, file) => trackEvent(dir, { session_id: sid, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file } });
+
+    // below threshold
+    await edit("thin-sess", "a.js");
+    const thin = await summarizeSession(dir, {}, "thin-sess", { runtime: { delegate: async () => ({ exit_code: 0, output: "x" }) } });
+    assert.equal(thin.status, "too_few_events");
+
+    for (let i = 0; i < 3; i += 1) {
+      await edit("full-sess", "src/pay/retry.ts");
+    }
+    const prompts = [];
+    const written = await summarizeSession(dir, {}, "full-sess", {
+      runtime: { delegate: async (prompt) => { prompts.push(prompt); return { exit_code: 0, output: "Fixed the payment retry idempotency bug; tests green." }; } },
+    });
+    assert.equal(written.status, "written");
+    assert.match(prompts[0], /src\/pay\/retry\.ts/);
+
+    const again = await summarizeSession(dir, {}, "full-sess", { runtime: { delegate: async () => ({ exit_code: 0, output: "nope" }) } });
+    assert.equal(again.status, "already_summarized");
+
+    const snapshot = await loadContextSnapshot(dir);
+    assert.equal(snapshot.sessionSummaries.length, 1);
+    assert.match(renderContextDigest(snapshot), /What recent sessions did/);
+
+    const matches = matchSnapshotToPrompt(snapshot, "why is payment retry double charging");
+    assert.equal(matches.summaries.length, 1);
+
+    const failed = await summarizeSession(dir, {}, "other", { runtime: { delegate: async () => ({ exit_code: 1, output: "" }) }, minEvents: 0 });
+    assert.equal(failed.status, "delegate_failed");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("shared-notes gitignore mode toggles and survives baseline rewrites", async () => {
+  const { ensureAgentifyGitignore, hasSharedNotesGitignore } = await import("../src/core/gitignore.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-share-"));
+  try {
+    const local = await ensureAgentifyGitignore(dir);
+    assert.equal(local.shared, false);
+
+    const shared = await ensureAgentifyGitignore(dir, { shared: true });
+    assert.equal(shared.shared, true);
+    const text = await fs.readFile(path.join(dir, ".gitignore"), "utf8");
+    assert.ok(hasSharedNotesGitignore(text));
+    assert.ok(text.includes(".agentify/context/*"));
+    assert.ok(!text.includes("\n.agentify/\n"));
+
+    // baseline rewrite without an explicit mode must preserve shared
+    const preserved = await ensureAgentifyGitignore(dir);
+    assert.equal(preserved.shared, true);
+
+    const off = await ensureAgentifyGitignore(dir, { shared: false });
+    assert.equal(off.shared, false);
+    const after = await fs.readFile(path.join(dir, ".gitignore"), "utf8");
+    assert.ok(!hasSharedNotesGitignore(after));
+    assert.ok(after.includes(".agentify/"));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

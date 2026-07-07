@@ -47,6 +47,12 @@ const COMMANDS = [
         flags: [flag("--hook", { description: "Hook mode: read stdin, never fail" })],
       }),
       subcommand("status", "Show context tracking status"),
+      subcommand("summarize", "Summarize a session into the context store", {
+        flags: [flag("--session", { valueKind: "text", description: "Session id" })],
+      }),
+      subcommand("share", "Make notes committable team memory", {
+        flags: [flag("--off", { description: "Return notes to local-only" })],
+      }),
       subcommand("handoff", "Write a handoff summary"),
       subcommand("pause", "Pause tracking and digest injection"),
       subcommand("resume", "Resume tracking"),

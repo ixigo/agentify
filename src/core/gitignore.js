@@ -16,6 +16,24 @@ export const AGENTIFY_GITIGNORE_PATTERNS = [
   "agentify-report.html",
 ];
 
+// Shared-context mode: everything under .agentify/ stays local except
+// context/notes.jsonl, which is committed as team memory. Gitignore cannot
+// re-include a file whose parent directory is excluded, hence the ladder.
+export const AGENTIFY_SHARED_GITIGNORE_PATTERNS = [
+  ".agentify/*",
+  "!.agentify/context",
+  ".agentify/context/*",
+  "!.agentify/context/notes.jsonl",
+  ".current_session/",
+  "AGENTIFY.md",
+  "docs/repo-map.md",
+  "docs/modules/",
+  "output.txt",
+  "agentify-report.html",
+];
+
+export const SHARED_NOTES_MARKER = "!.agentify/context/notes.jsonl";
+
 const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [
   ".agents/",
   ".agentify/work/",
@@ -24,17 +42,21 @@ const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [
 const AGENTIFY_GITIGNORE_HEADER =
   "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.";
 
-function getManagedGitignoreLines() {
+function getManagedGitignoreLines({ shared = false } = {}) {
   return [
     AGENTIFY_GITIGNORE_HEADER,
-    ...AGENTIFY_GITIGNORE_PATTERNS,
+    ...(shared ? AGENTIFY_SHARED_GITIGNORE_PATTERNS : AGENTIFY_GITIGNORE_PATTERNS),
   ];
 }
 
-export function renderAgentifyGitignoreBlock(preservedLines = []) {
+export function hasSharedNotesGitignore(text) {
+  return String(text || "").includes(SHARED_NOTES_MARKER);
+}
+
+export function renderAgentifyGitignoreBlock(preservedLines = [], { shared = false } = {}) {
   return [
     AGENTIFY_GITIGNORE_START,
-    ...getManagedGitignoreLines(),
+    ...getManagedGitignoreLines({ shared }),
     ...preservedLines,
     AGENTIFY_GITIGNORE_END,
     "",
@@ -47,7 +69,8 @@ function normalizeText(text) {
 
 function collectPreservedBlockLines(blockText) {
   const managedLines = new Set([
-    ...getManagedGitignoreLines(),
+    ...getManagedGitignoreLines({ shared: false }),
+    ...getManagedGitignoreLines({ shared: true }),
     ...LEGACY_AGENTIFY_GITIGNORE_PATTERNS,
   ].map((line) => line.trim()));
   const seen = new Set();
@@ -65,20 +88,22 @@ function collectPreservedBlockLines(blockText) {
   return preserved;
 }
 
-function applyAgentifyGitignoreBlock(existingText) {
+function applyAgentifyGitignoreBlock(existingText, { shared } = {}) {
   const normalized = normalizeText(existingText || "");
   const startIndex = normalized.indexOf(AGENTIFY_GITIGNORE_START);
   const endIndex = normalized.indexOf(AGENTIFY_GITIGNORE_END);
+  // Preserve the current mode unless the caller explicitly switches it.
+  const effectiveShared = shared === undefined ? hasSharedNotesGitignore(normalized) : shared;
 
   if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
     const afterEnd = endIndex + AGENTIFY_GITIGNORE_END.length;
     const blockText = normalized.slice(startIndex + AGENTIFY_GITIGNORE_START.length, endIndex);
-    const block = renderAgentifyGitignoreBlock(collectPreservedBlockLines(blockText));
+    const block = renderAgentifyGitignoreBlock(collectPreservedBlockLines(blockText), { shared: effectiveShared });
     const nextText = `${normalized.slice(0, startIndex)}${block}${normalized.slice(afterEnd).replace(/^\n+/, "")}`;
     return nextText.endsWith("\n") ? nextText : `${nextText}\n`;
   }
 
-  const block = renderAgentifyGitignoreBlock();
+  const block = renderAgentifyGitignoreBlock([], { shared: effectiveShared });
   const prefix = normalized.trimEnd();
   if (!prefix) {
     return block;
@@ -86,7 +111,7 @@ function applyAgentifyGitignoreBlock(existingText) {
   return `${prefix}\n\n${block}`;
 }
 
-export async function ensureAgentifyGitignore(root, { dryRun = false } = {}) {
+export async function ensureAgentifyGitignore(root, { dryRun = false, shared } = {}) {
   const gitignorePath = path.join(root, ".gitignore");
   let existing = null;
 
@@ -98,7 +123,7 @@ export async function ensureAgentifyGitignore(root, { dryRun = false } = {}) {
     }
   }
 
-  const next = applyAgentifyGitignoreBlock(existing || "");
+  const next = applyAgentifyGitignoreBlock(existing || "", { shared });
   const changed = existing === null || normalizeText(existing) !== next;
 
   if (changed && !dryRun) {
@@ -108,6 +133,7 @@ export async function ensureAgentifyGitignore(root, { dryRun = false } = {}) {
   return {
     path: gitignorePath,
     existed: existing !== null,
+    shared: hasSharedNotesGitignore(next),
     changed,
     status: existing === null
       ? dryRun ? "would_create" : "created"

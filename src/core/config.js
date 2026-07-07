@@ -30,6 +30,7 @@ const DEFAULT_CONFIG = {
   },
   context: {
     injection: "relevant",
+    sessionSummaries: true,
   },
   cleanup: {
     keepRuns: 20,

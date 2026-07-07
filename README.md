@@ -36,7 +36,7 @@ Every session after that:
 1. **Session starts** -> the hook injects a digest: recent notes, hot files, last activity.
 2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB).
 3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`.
-4. **Session ends** -> tracked automatically; `agentify ctx handoff` writes a summary when wrapping up long work.
+4. **Session ends** -> a fast model compresses the session into a ~3-line handoff, stored for future sessions (`agentify ctx handoff` for explicit ones).
 
 No daemon, no database server, no per-command wrapping. Context tracking is plain JSONL under `.agentify/context/`.
 
@@ -103,6 +103,8 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
 | `agentify ctx note "<text>"` | Record a note for future sessions |
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
+| `agentify ctx summarize` | ~3-line model-written session summary (automatic on session end) |
+| `agentify ctx share [--off]` | Make notes committable team memory |
 | `agentify ctx status` | Event/note counts, log size, paused state |
 | `agentify ctx pause\|resume\|clear` | Start from scratch: stop the digest + tracking, or archive and reset (`AGENTIFY_CTX=off` for one session) |
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |

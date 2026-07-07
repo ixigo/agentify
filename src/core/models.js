@@ -238,7 +238,13 @@ function runProviderProcess(command, args, { cwd, timeoutMs }) {
   return new Promise((resolve) => {
     // stdin must be closed: codex exec otherwise waits for extra input from
     // the pipe, and neither CLI needs interactive input in delegate mode.
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      // Delegated agent runs must not feed back into context tracking or
+      // spawn their own session summaries — that would recurse.
+      env: { ...process.env, AGENTIFY_CTX: "off" },
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;

@@ -65,6 +65,22 @@ Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/not
 
 The event log auto-compacts: past ~512 KB it is truncated to the most recent 1000 events. Command text is clipped to 200 characters and never includes command output. Hook-invoked commands (`--hook`) are designed to never fail and never block the agent.
 
+## Session summaries
+
+When a session ends, Agentify asks a fast model (the `quick` route) to compress it into a ~3-line handoff — "fixed the retry double-charge, root cause was a regenerated idempotency key, PR #232 open" — and stores it in `.agentify/context/summaries.jsonl`. Summaries appear in the digest ("What recent sessions did") and are matched per task like notes. This happens in a detached background process, so the SessionEnd hook returns instantly, sessions with fewer than 3 tracked events are skipped, and each session is summarized at most once. Disable with `context.sessionSummaries: false` in `.agentify.yaml`; run one manually with `agentify ctx summarize [--session <id>]`.
+
+## Team-shared notes
+
+By default all context is local to your checkout. `agentify ctx share` flips notes into committable team memory:
+
+```bash
+agentify ctx share        # .agentify/context/notes.jsonl becomes committable
+git add .agentify/context/notes.jsonl && git commit -m "share agent notes"
+agentify ctx share --off  # back to fully local
+```
+
+Once committed, every teammate's agent sees your notes in its digest and per-task matches — "don't regenerate idempotency keys per attempt" becomes shared knowledge instead of personal memory. Events, summaries, and handoffs always stay local; only `notes.jsonl` is shared, and re-running `agentify install` or `scan` preserves whichever mode is active.
+
 ## Context injection modes
 
 By default (`context.injection: relevant` in `.agentify.yaml`) context arrives only when it matters: the session starts with a one-line pointer, and each prompt you type is matched against the store (token overlap on note text and file paths) — only related notes and files are injected, deduplicated per session, via the `UserPromptSubmit` hook. Asking about "payment retries" pulls the retry notes; a CSS question pulls nothing.

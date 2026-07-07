@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { loadConfig, writeDefaultConfig } from "./core/config.js";
 import { ensureBaselineArtifacts, runScan, runUpdate, runValidate } from "./core/commands.js";
@@ -10,12 +12,14 @@ import {
   resolveIntegrationProviders,
   uninstallIntegration,
 } from "./core/integrations.js";
+import { ensureAgentifyGitignore } from "./core/gitignore.js";
 import {
   addNote,
   clearContext,
   contextStatus,
   isContextPaused,
   loadContextSnapshot,
+  latestSessionId,
   matchContext,
   normalizeInjectionMode,
   pauseContext,
@@ -23,6 +27,7 @@ import {
   renderContextDigest,
   renderMatchDigest,
   resumeContext,
+  summarizeSession,
   trackEvent,
   writeHandoff,
 } from "./core/ctx.js";
@@ -73,6 +78,7 @@ const BOOLEAN_FLAGS = new Set([
   "all",
   "strict",
   "write",
+  "off",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -188,7 +194,14 @@ async function runCtxHook(action, root) {
   try {
     const payload = await readHookPayload();
     if (action === "track") {
-      await trackEvent(root, payload);
+      const result = await trackEvent(root, payload);
+      if (
+        result.tracked
+        && payload?.hook_event_name === "SessionEnd"
+        && payload?.session_id
+      ) {
+        await maybeSpawnSessionSummary(root, String(payload.session_id));
+      }
       return;
     }
 
@@ -233,6 +246,25 @@ async function runCtxHook(action, root) {
     }
   } catch {
     // Swallow all hook errors: a broken hook must not block the agent.
+  }
+}
+
+async function maybeSpawnSessionSummary(root, sessionId) {
+  try {
+    const config = await loadConfig(root, {});
+    if (config.context?.sessionSummaries === false) {
+      return;
+    }
+    const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "cli.js");
+    // Detached so the SessionEnd hook returns immediately; the summary lands
+    // asynchronously via a delegated fast-model call.
+    const child = spawn(process.execPath, [cliPath, "ctx", "summarize", "--session", sessionId, "--hook", "--root", root], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+  } catch {
+    // Best-effort: never block the hook.
   }
 }
 
@@ -326,6 +358,46 @@ async function runCtxCommand(root, config, args, subcommand) {
       return;
     }
 
+    case "summarize": {
+      if (isHookMode) {
+        try {
+          await summarizeSession(root, config, args.session, {});
+        } catch {
+          // Hook-spawned: never fail.
+        }
+        return;
+      }
+      const sessionId = args.session || await latestSessionId(root);
+      if (!sessionId) {
+        throw new Error("ctx summarize found no tracked sessions; pass --session <id>");
+      }
+      const result = await summarizeSession(root, config, sessionId, {});
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.status === "written") {
+        success(`Session ${result.sid} summarized.`);
+        log(result.record.summary);
+      } else {
+        log(`No summary written (${result.status}).`);
+      }
+      return;
+    }
+
+    case "share": {
+      const enable = args.off !== true;
+      const result = await ensureAgentifyGitignore(root, { shared: enable, dryRun: config.dryRun });
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx share", shared: result.shared, gitignore: result.path, status: result.status }, null, 2));
+      } else if (enable) {
+        success("Team-shared notes enabled.");
+        log(".agentify/context/notes.jsonl is now committable — commit it and teammates' agents pick your notes up.");
+        log(dim("Everything else under .agentify/ stays local. Disable with `agentify ctx share --off`."));
+      } else {
+        success("Team-shared notes disabled; .agentify/ is fully local again.");
+      }
+      return;
+    }
+
     case "pause": {
       const result = await pauseContext(root);
       if (config.json) {
@@ -362,7 +434,7 @@ async function runCtxCommand(root, config, args, subcommand) {
     }
 
     default:
-      throw new Error("ctx requires a subcommand: track, note, load, match, status, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, load, match, status, summarize, share, handoff, pause, resume, or clear");
   }
 }
 
@@ -504,6 +576,15 @@ export async function runCli(argv, runtime = {}) {
   // never fail, even outside an initialized repo.
   if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load" || subcommand === "match")) {
     await runCtxHook(subcommand, root);
+    return;
+  }
+  if (command === "ctx" && args.hook === true && subcommand === "summarize") {
+    try {
+      const config = await loadConfig(root, {});
+      await summarizeSession(root, config, args.session, {});
+    } catch {
+      // Detached hook child: never fail.
+    }
     return;
   }
 

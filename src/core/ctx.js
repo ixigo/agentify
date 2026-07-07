@@ -21,6 +21,7 @@ export function resolveContextPaths(root) {
     pausedPath: path.join(contextRoot, "paused"),
     archiveDir: path.join(contextRoot, "archive"),
     injectedPath: path.join(contextRoot, "injected.json"),
+    summariesPath: path.join(contextRoot, "summaries.jsonl"),
   };
 }
 
@@ -56,7 +57,7 @@ export async function clearContext(root, options = {}) {
   if (options.archive !== false) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const targetDir = path.join(paths.archiveDir, stamp);
-    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath]]) {
+    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath]]) {
       if (await exists(sourcePath)) {
         await ensureDir(targetDir);
         await fs.rename(sourcePath, path.join(targetDir, label));
@@ -66,7 +67,9 @@ export async function clearContext(root, options = {}) {
   } else {
     await fs.rm(paths.eventsPath, { force: true });
     await fs.rm(paths.notesPath, { force: true });
+    await fs.rm(paths.summariesPath, { force: true });
   }
+  await fs.rm(paths.injectedPath, { force: true });
   return {
     command: "ctx clear",
     archived,
@@ -238,18 +241,27 @@ export async function loadContextSnapshot(root, options = {}) {
   const paths = resolveContextPaths(root);
   const events = (await readJsonLines(paths.eventsPath)).slice(-(options.maxEvents || DEFAULT_DIGEST_EVENTS));
   const notes = (await readJsonLines(paths.notesPath)).slice(-(options.maxNotes || 10));
-  return { events, notes, summary: summarizeEvents(events) };
+  const sessionSummaries = (await readJsonLines(paths.summariesPath)).slice(-(options.maxSummaries || 5));
+  return { events, notes, sessionSummaries, summary: summarizeEvents(events) };
 }
 
 export function renderContextDigest(snapshot) {
   const { summary, notes } = snapshot;
-  if (summary.eventCount === 0 && notes.length === 0) {
+  const sessionSummaries = snapshot.sessionSummaries || [];
+  if (summary.eventCount === 0 && notes.length === 0 && sessionSummaries.length === 0) {
     return "";
   }
 
   const lines = ["## Agentify context (from previous sessions)"];
   if (summary.lastEventAt) {
     lines.push(`Last tracked activity: ${summary.lastEventAt} across ${summary.sessionCount} session(s), ${summary.eventCount} recent event(s).`);
+  }
+
+  if (sessionSummaries.length > 0) {
+    lines.push("", "### What recent sessions did");
+    for (const item of sessionSummaries.slice(-3)) {
+      lines.push(`- [${String(item.ts || "").slice(0, 10)}] ${item.summary}`);
+    }
   }
 
   if (notes.length > 0) {
@@ -400,6 +412,15 @@ export function matchSnapshotToPrompt(snapshot, prompt) {
   }
   notes.sort((left, right) => right.score - left.score);
 
+  const sessionSummaries = [];
+  for (const item of snapshot.sessionSummaries || []) {
+    const { count, matched } = overlap(promptTokens, tokenizeForMatch(item.summary));
+    if (count >= 2 || matched.some((token) => token.length >= 8)) {
+      sessionSummaries.push({ key: `sum:${item.ts}`, item, score: count });
+    }
+  }
+  sessionSummaries.sort((left, right) => right.score - left.score);
+
   const files = [];
   for (const item of snapshot.summary.hotFiles) {
     const { count } = overlap(promptTokens, tokenizeForMatch(item.file));
@@ -409,7 +430,7 @@ export function matchSnapshotToPrompt(snapshot, prompt) {
   }
   files.sort((left, right) => right.score - left.score);
 
-  return { notes: notes.slice(0, 5), files: files.slice(0, 8) };
+  return { notes: notes.slice(0, 5), summaries: sessionSummaries.slice(0, 3), files: files.slice(0, 8) };
 }
 
 async function readInjectionLedger(root) {
@@ -438,10 +459,17 @@ async function writeInjectionLedger(root, ledger) {
 }
 
 export function renderMatchDigest(matches) {
-  if (matches.notes.length === 0 && matches.files.length === 0) {
+  const summaries = matches.summaries || [];
+  if (matches.notes.length === 0 && matches.files.length === 0 && summaries.length === 0) {
     return "";
   }
   const lines = ["## Agentify context (relevant to this task)"];
+  if (summaries.length > 0) {
+    lines.push("", "### Related past sessions");
+    for (const item of summaries) {
+      lines.push(`- [${String(item.item.ts || "").slice(0, 10)}] ${item.item.summary}`);
+    }
+  }
   if (matches.notes.length > 0) {
     lines.push("", "### Related notes from earlier sessions");
     for (const item of matches.notes) {
@@ -466,16 +494,98 @@ export async function matchContext(root, prompt, options = {}) {
   const ledger = await readInjectionLedger(root);
   const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
   const freshNotes = matches.notes.filter((item) => !seen.has(item.key));
+  const freshSummaries = (matches.summaries || []).filter((item) => !seen.has(item.key));
   const freshFiles = matches.files.filter((item) => !seen.has(item.key));
 
-  if (options.recordInjection !== false && (freshNotes.length > 0 || freshFiles.length > 0)) {
-    ledger[sid] = [...seen, ...freshNotes.map((item) => item.key), ...freshFiles.map((item) => item.key)];
+  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0)) {
+    ledger[sid] = [
+      ...seen,
+      ...freshNotes.map((item) => item.key),
+      ...freshSummaries.map((item) => item.key),
+      ...freshFiles.map((item) => item.key),
+    ];
     await writeInjectionLedger(root, ledger);
   }
 
   return {
     notes: freshNotes,
+    summaries: freshSummaries,
     files: freshFiles,
-    suppressed_as_seen: (matches.notes.length - freshNotes.length) + (matches.files.length - freshFiles.length),
+    suppressed_as_seen: (matches.notes.length - freshNotes.length)
+      + ((matches.summaries || []).length - freshSummaries.length)
+      + (matches.files.length - freshFiles.length),
   };
+}
+
+const SUMMARY_MIN_EVENTS = 3;
+const SUMMARY_MAX_LENGTH = 600;
+
+export async function summarizeSession(root, config, sessionIdInput, options = {}) {
+  const sid = String(sessionIdInput || "").trim().slice(0, 8);
+  if (!sid) {
+    throw new Error("ctx summarize requires --session <id>");
+  }
+  const paths = resolveContextPaths(root);
+
+  const existing = await readJsonLines(paths.summariesPath);
+  if (existing.some((record) => record.sid === sid)) {
+    return { command: "ctx summarize", sid, status: "already_summarized" };
+  }
+
+  const events = (await readJsonLines(paths.eventsPath)).filter((event) => event.sid === sid);
+  const meaningful = events.filter((event) => event.type === "edit" || event.type === "cmd");
+  if (meaningful.length < (options.minEvents ?? SUMMARY_MIN_EVENTS)) {
+    return { command: "ctx summarize", sid, status: "too_few_events", events: meaningful.length };
+  }
+
+  const notes = (await readJsonLines(paths.notesPath)).filter((note) => note.sid === sid);
+  const editCounts = new Map();
+  const commands = [];
+  for (const event of meaningful) {
+    if (event.type === "edit") {
+      editCounts.set(event.path, (editCounts.get(event.path) || 0) + 1);
+    } else if (event.cmd) {
+      commands.push(event.desc ? `${event.desc}: ${event.cmd}` : event.cmd);
+    }
+  }
+
+  const promptLines = [
+    "Below is the complete activity log of a finished coding session. It is the only information available — do not ask for more and do not mention missing context. Write a handoff of at most 3 short plain-text lines describing what the log shows: what was worked on, the apparent outcome, and any open thread. No headers, no preamble.",
+    "",
+    "Files edited:",
+    ...[...editCounts.entries()].map(([file, count]) => `- ${file} (${count} edit${count === 1 ? "" : "s"})`),
+  ];
+  if (commands.length > 0) {
+    promptLines.push("", "Commands run:", ...commands.slice(-10).map((command) => `- ${command}`));
+  }
+  if (notes.length > 0) {
+    promptLines.push("", "Notes recorded during the session:", ...notes.map((note) => `- ${note.note}`));
+  }
+
+  const delegate = options.runtime?.delegate
+    || (async (prompt) => {
+      const { runDelegate } = await import("./models.js");
+      return runDelegate(root, config, "quick", prompt, { timeoutMs: options.timeoutMs || 90000 });
+    });
+
+  const result = await delegate(promptLines.join("\n"));
+  const summary = clip(String(result?.output || ""), SUMMARY_MAX_LENGTH);
+  if (result?.exit_code !== 0 || !summary) {
+    return { command: "ctx summarize", sid, status: "delegate_failed", exit_code: result?.exit_code ?? null };
+  }
+
+  const record = { ts: new Date().toISOString(), sid, summary };
+  await appendJsonLine(paths.summariesPath, record);
+  return { command: "ctx summarize", sid, status: "written", record };
+}
+
+export async function latestSessionId(root) {
+  const paths = resolveContextPaths(root);
+  const events = await readJsonLines(paths.eventsPath);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.sid && events[index].sid !== "unknown") {
+      return events[index].sid;
+    }
+  }
+  return null;
 }
