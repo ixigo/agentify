@@ -6,3 +6,14 @@ node_modules/
 .codex/*
 .codex/skills/
 !.codex/skills/**
+
+# >>> agentify generated artifacts
+# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.
+.agentify/
+.current_session/
+AGENTIFY.md
+docs/repo-map.md
+docs/modules/
+output.txt
+agentify-report.html
+# <<< agentify generated artifacts

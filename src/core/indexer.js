@@ -1415,6 +1415,25 @@ export async function buildRepositoryIndex(root, config) {
     commandRows.push(...commands);
   }
 
+  // When no detected module sits at the repo root, root package.json scripts
+  // would otherwise never be indexed. Record them with module_id null so
+  // risk/test selection can still resolve a runner.
+  if (!moduleRows.some((moduleInfo) => moduleInfo.rootPath === ".") && rootPackageJson?.scripts) {
+    const packageManager = detectPackageManager(repoFiles, rootPackageJson);
+    for (const commandType of ["test", "build", "lint"]) {
+      if (!rootPackageJson.scripts[commandType]) {
+        continue;
+      }
+      const scriptCommand = buildScriptCommand(packageManager, ".", commandType);
+      commandRows.push({
+        module_id: null,
+        command_type: commandType,
+        command: scriptCommand.command,
+        args: scriptCommand.args,
+      });
+    }
+  }
+
   return {
     schema_version: "2.0",
     generated_at: generatedAt,

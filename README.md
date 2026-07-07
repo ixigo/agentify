@@ -114,6 +114,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
+| `agentify test [--since <ref>] [--run]` | Select (and run) only the tests affected by a change, via the structural index |
 | `agentify up` | scan -> check |
 | `agentify check` | Validate index freshness and generated artifacts |
 | `agentify skill list|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |

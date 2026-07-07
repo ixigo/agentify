@@ -17,6 +17,7 @@ const SHARED_BLOCK_LINES = [
   "- If the user says to ignore previous context or start from scratch, disregard the injected digest; run `agentify ctx pause` when they want tracking off, `agentify ctx resume` to turn it back on, or `agentify ctx clear` to archive and reset the store.",
   "- `agentify query search|def|refs|callers|impacts` — structural queries over the repo index (`agentify scan` rebuilds it if stale).",
   "- `agentify risk --since <ref>` — blast radius and suggested regression tests before finishing a change.",
+  "- `agentify test --since <ref> --run` — select and run only the tests affected by the change instead of the full suite.",
   "",
   "Model routing is configured (see `agentify models`). Shell out work to the model best suited for it instead of doing everything inline:",
   "",

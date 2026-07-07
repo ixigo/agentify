@@ -368,10 +368,10 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
   const directTestModules = new Set(directTests.map((testInfo) => testInfo.module_id).filter(Boolean));
   const directTestFilesByModule = new Map();
   for (const testInfo of directTests) {
-    if (!testInfo.module_id) continue;
-    const list = directTestFilesByModule.get(testInfo.module_id) || [];
+    const key = testInfo.module_id ?? null;
+    const list = directTestFilesByModule.get(key) || [];
     list.push(testInfo.file_path);
-    directTestFilesByModule.set(testInfo.module_id, list);
+    directTestFilesByModule.set(key, list);
   }
 
   const recommendations = [];
@@ -380,12 +380,22 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
       continue;
     }
     const moduleId = commandInfo.module_id;
-    const isImpacted = moduleId && impactedModuleIds.has(moduleId);
-    const hasDirectTests = moduleId && directTestModules.has(moduleId);
+    // A command without a module is the repo-root runner: it covers any impact.
+    const isRootCommand = moduleId == null;
+    const isImpacted = isRootCommand
+      ? impactedModuleIds.size > 0 || impactedFileSet.size > 0
+      : impactedModuleIds.has(moduleId);
+    const hasDirectTests = isRootCommand
+      ? directTests.length > 0
+      : directTestModules.has(moduleId);
     if (!isImpacted && !hasDirectTests) {
       continue;
     }
-    const directFiles = uniqSorted(directTestFilesByModule.get(moduleId) || []);
+    const directFiles = uniqSorted(
+      isRootCommand
+        ? directTests.map((testInfo) => testInfo.file_path)
+        : directTestFilesByModule.get(moduleId) || []
+    );
     const priority = clampScore(35 + (moduleScore.get(moduleId) || 0) + (hasDirectTests ? 20 : 0));
     recommendations.push({
       command: commandInfo.command,
@@ -394,8 +404,8 @@ function buildTestRecommendations(commands, tests, impactedModules, impactedFile
       module_id: moduleId,
       priority,
       reason: hasDirectTests
-        ? `Covers directly related test files for ${moduleId}.`
-        : `Covers impacted module ${moduleId}.`,
+        ? `Covers directly related test files for ${isRootCommand ? "the repository" : moduleId}.`
+        : `Covers impacted module ${isRootCommand ? "scope" : moduleId}.`,
       related_test_files: directFiles,
     });
   }

@@ -1,0 +1,2 @@
+# Keep local Agentify work artifacts out of repo scans
+.agentify/work/**

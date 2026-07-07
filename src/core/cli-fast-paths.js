@@ -48,6 +48,7 @@ export async function printHelp() {
     `    ${c("check")}           ${d("Validate index freshness and generated artifacts")}`,
     `    ${c("query")}           ${d("Query the repository index (owner, deps, changed, def, refs, callers, impacts)")}`,
     `    ${c("risk")}            ${d("Score PR blast radius and recommend regression tests")}`,
+    `    ${c("test")}            ${d("Select and run only the tests affected by a change (--since, --run)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
     `    ${c("doctor")}          ${d("Check setup readiness, provider CLIs, and capability tier")}`,

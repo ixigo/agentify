@@ -44,6 +44,7 @@ import {
   querySearch,
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
+import { buildTestSelection, renderTestSelection, runTestSelection } from "./core/test-select.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -820,6 +821,41 @@ export async function runCli(argv, runtime = {}) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           log(renderRiskReport(result));
+        }
+        return;
+      }
+
+      case "test": {
+        let selection;
+        try {
+          selection = await buildTestSelection(root, {
+            since: normalizeOptionalSince(args, "test"),
+            config,
+            artifactPaths: config._agentifyPaths,
+          });
+        } catch (error) {
+          throwWithIndexGuidance(error, root);
+        }
+        if (args.run === true && selection.run_groups.some((group) => group.command)) {
+          const outcome = await runTestSelection(root, selection);
+          if (config.json) {
+            console.log(JSON.stringify({ ...selection, run: outcome }, null, 2));
+          } else {
+            log(renderTestSelection(selection));
+            log(outcome.passed ? green("Selected tests passed.") : "Some selected tests failed.");
+          }
+          if (!outcome.passed) {
+            process.exitCode = 1;
+          }
+          return;
+        }
+        if (config.json) {
+          console.log(JSON.stringify(selection, null, 2));
+        } else {
+          log(renderTestSelection(selection));
+          if (selection.run_groups.some((group) => group.command)) {
+            log(dim("Run them now with `agentify test --run`."));
+          }
         }
         return;
       }

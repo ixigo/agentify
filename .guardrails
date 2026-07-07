@@ -1,0 +1,20 @@
+# Agentify Guardrails
+
+## Git Safety
+- Do not run `git reset --hard`, `git checkout -- <path>`, `git clean -fd`, or other destructive history or workspace resets unless the user explicitly asks.
+- Do not force-push, rewrite unrelated history, or delete branches unless the user explicitly asks.
+
+## Commit Quality
+- Use clear commit messages that describe the change.
+- Do not create placeholder commits like `wip`, `fix`, or `misc` unless the user explicitly asks.
+- Do not commit knowingly broken code just to checkpoint progress.
+
+## Protected Paths
+- Do not edit `.agentify/` or `docs/repo-map.md` directly; regenerate them through Agentify commands.
+- Do not edit provider-installed skill directories under `.codex/`, `.claude/`, `.gemini/`, or `.opencode/` unless the task is specifically about those files.
+- Put local architecture RFCs, notes, and scratch outputs under `.agentify/work/`.
+
+## Files To Avoid Touching Without Intent
+- `node_modules/`
+- lockfiles unless the task changes dependencies
+- repo config such as `.agentify.yaml`, `.gitignore`, `.agentignore`, and `.guardrails` unless the task is about repo policy or tooling

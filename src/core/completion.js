@@ -129,6 +129,12 @@ const COMMANDS = [
   command("risk", "Score PR blast radius", {
     flags: [flag("--since", { valueKind: "text", description: "Commit or ref" })],
   }),
+  command("test", "Select and run tests affected by a change", {
+    flags: [
+      flag("--since", { valueKind: "text", description: "Commit or ref" }),
+      flag("--run", { description: "Run the selected tests" }),
+    ],
+  }),
   command("skill", "Manage built-in agent skills", {
     aliases: ["skills"],
     subcommands: [
