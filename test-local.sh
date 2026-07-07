@@ -56,6 +56,7 @@ check "query def"      $AG query def --symbol helper --json
 check "query impacts"  $AG query impacts --file src/b.js --json
 check "risk"           $AG risk --json
 check "status"         $AG status --json
+check "models"         $AG models --json
 check "skill list"     $AG skill list --json
 check "doctor"         $AG doctor --json
 check "clean dry-run"  $AG clean --dry-run --json

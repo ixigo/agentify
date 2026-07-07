@@ -30,6 +30,7 @@ import {
   querySearch,
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
+import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { runDoctor } from "./core/toolchain.js";
 import { runClean } from "./core/cleanup.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
@@ -63,6 +64,7 @@ const BOOLEAN_FLAGS = new Set([
   "sessions",
   "all",
   "strict",
+  "write",
 ]);
 
 function toCamelCaseFlag(key) {
@@ -307,6 +309,7 @@ async function runInstall(root, config, args) {
     if (providers.includes("codex")) {
       log("Codex will follow the AGENTS.md guidance to load and record context.");
     }
+    log(`Model routing configured: small work → fast models, reviews → a different vendor. ${dim("agentify models")} shows the table.`);
     log(`Optional: ${dim("agentify scan")} to build the structural index for query/risk commands.`);
     log(buildSkillInstallHint(config.provider, "project").message);
   }
@@ -474,6 +477,52 @@ export async function runCli(argv, runtime = {}) {
           throwWithIndexGuidance(error, root);
         }
         console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      case "models": {
+        const result = await describeModelRoutes(config);
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log(`Provider CLIs: claude ${result.providers.claude ? green("available") : dim("missing")}, codex ${result.providers.codex ? green("available") : dim("missing")}`);
+          log("");
+          for (const route of result.routes) {
+            log(`${bold(route.kind.padEnd(10))} ${route.provider}${route.model !== "(cli default)" ? `/${route.model}` : ""} ${dim(`→ ${route.resolves_to}`)}`);
+            log(`           ${dim(route.use)}`);
+          }
+          log("");
+          log(dim("Override routes in .agentify.yaml under models.routes."));
+        }
+        return;
+      }
+
+      case "delegate": {
+        const kind = subcommand;
+        if (!kind) {
+          throw new Error('delegate requires a kind: agentify delegate <quick|implement|heavy|review|research> "task"');
+        }
+        const task = getPromptFromArgs(args, 2);
+        const result = await runDelegate(root, config, kind, task, {
+          diffRef: args.diff ? String(args.diff) : null,
+          write: args.write === true,
+          model: hasOwn(args, "model") ? args.model : undefined,
+          provider: hasOwn(args, "provider") ? args.provider : undefined,
+          timeoutMs: args.timeout ? Number(args.timeout) * 1000 : undefined,
+        });
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log(dim(`delegated to ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? " (fallback)" : ""}`));
+          log("");
+          log(result.output || dim("(no output)"));
+          if (result.exit_code !== 0) {
+            throw new Error(`delegate ${kind} failed with exit code ${result.exit_code}${result.error ? `: ${result.error}` : ""}`);
+          }
+        }
+        if (config.json && result.exit_code !== 0) {
+          process.exitCode = 1;
+        }
         return;
       }
 

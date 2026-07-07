@@ -84,6 +84,8 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify ctx note "<text>"` | Record a note for future sessions |
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
 | `agentify ctx status` | Event/note counts and log size |
+| `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
+| `agentify models` | Model routing table + provider availability |
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
@@ -96,6 +98,28 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify completion zsh|bash|fish` | Shell completion |
 
 All commands accept `--json` for machine-readable output — which is how agents are expected to call them.
+
+## Model routing
+
+`agentify install` also configures **model routing**: a table mapping kinds of work to the model best suited for it, written into `.agentify.yaml`. The guidance block teaches the agent to shell work out instead of doing everything inline:
+
+```bash
+agentify delegate quick "rename getUser to fetchUser in src/api.ts" --write
+agentify delegate review --diff origin/main     # independent review by a different vendor
+agentify delegate heavy "why does this deadlock under load?"
+agentify delegate research "what does RFC 6902 say about array patches?"
+agentify models                                  # show the routing table + availability
+```
+
+| Kind | Default route | Used for |
+| --- | --- | --- |
+| `quick` | Claude Haiku | Small, low-impact edits, mechanical changes, quick questions |
+| `implement` | Claude Sonnet | Standard feature work and multi-file refactors |
+| `heavy` | Claude Opus | Architecture decisions, deep debugging, high-risk changes |
+| `review` | Codex (CLI default model) | Independent post-change review by a different vendor |
+| `research` | Claude Haiku | Fast exploration, summarization, doc lookups |
+
+Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
 
 ## What the agent sees
 

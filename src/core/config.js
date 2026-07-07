@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
+import { DEFAULT_MODEL_ROUTES } from "./models.js";
+
 const DEFAULT_CONFIG = {
   provider: "local",
   strict: true,
@@ -22,6 +24,9 @@ const DEFAULT_CONFIG = {
   runtime: {
     store: "local",
     sharedStorePath: null,
+  },
+  models: {
+    routes: DEFAULT_MODEL_ROUTES,
   },
   cleanup: {
     keepRuns: 20,
@@ -154,6 +159,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     toolchain: config.toolchain,
     hooks: normalizeConfig(config).hooks,
     runtime: config.runtime,
+    models: config.models,
     cleanup: config.cleanup,
   };
 

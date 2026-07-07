@@ -16,6 +16,13 @@ const SHARED_BLOCK_LINES = [
   "- `agentify ctx handoff` — write a handoff summary before ending a long task.",
   "- `agentify query search|def|refs|callers|impacts` — structural queries over the repo index (`agentify scan` rebuilds it if stale).",
   "- `agentify risk --since <ref>` — blast radius and suggested regression tests before finishing a change.",
+  "",
+  "Model routing is configured (see `agentify models`). Shell out work to the model best suited for it instead of doing everything inline:",
+  "",
+  "- `agentify delegate quick \"<task>\"` — small, low-impact edits and quick questions go to a fast, cheap model. Add `--write` to let it apply edits.",
+  "- `agentify delegate review --diff <ref>` — after completing a change, get an independent review from a different model vendor before finishing.",
+  "- `agentify delegate heavy \"<task>\"` — architecture questions and gnarly debugging go to the strongest model.",
+  "- `agentify delegate research \"<question>\"` — fast lookups and summaries.",
 ];
 
 export function normalizeIntegrationProvider(value, { fallback = "claude" } = {}) {

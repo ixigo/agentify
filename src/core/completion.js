@@ -49,6 +49,24 @@ const COMMANDS = [
       subcommand("handoff", "Write a handoff summary"),
     ],
   }),
+  command("delegate", "Shell a task out to the right model", {
+    subcommands: [
+      subcommand("quick", "Small, low-impact edits and quick questions"),
+      subcommand("implement", "Standard feature work"),
+      subcommand("heavy", "Architecture and deep debugging"),
+      subcommand("review", "Independent post-change review", {
+        flags: [flag("--diff", { valueKind: "text", description: "Include git diff since ref" })],
+      }),
+      subcommand("research", "Fast lookups and summaries"),
+    ],
+    flags: [
+      flag("--write", { description: "Allow the delegated model to apply edits" }),
+      flag("--model", { valueKind: "text", description: "Override the route model" }),
+      flag("--provider", { values: ["claude", "codex"], description: "Override the route provider" }),
+      flag("--timeout", { valueKind: "number", description: "Timeout in seconds" }),
+    ],
+  }),
+  command("models", "Show the model routing table"),
   command("scan", "Build the SQLite repository index"),
   command("up", "Run scan and check", {
     flags: [flag("--hook", { description: "Use hook-friendly validation" })],

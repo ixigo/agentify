@@ -179,6 +179,10 @@ agentify install --global
 <span class="comment"># optional: build the structural index for query/risk</span>
 agentify scan
 
+<span class="comment"># shell work out to the right model</span>
+agentify delegate quick "rename getUser to fetchUser" --write
+agentify delegate review --diff origin/main
+
 <span class="comment"># check or undo at any time</span>
 agentify status
 agentify uninstall</code></pre>
@@ -200,6 +204,28 @@ agentify uninstall</code></pre>
         <p>Everything is a plain CLI with <code>--json</code> output: <code>ctx load</code>, <code>ctx note</code>, <code>query</code>, <code>risk</code>. Add equivalent guidance to your agent's instruction file.</p>
       </div>
     </div>
+  </section>
+
+  <section id="routing">
+    <h2>Model routing</h2>
+    <p class="lede">Install also sets up a routing table: each kind of work goes to the model best suited for it, and the agent is taught to delegate instead of doing everything inline.</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Kind</th><th>Default route</th><th>Used for</th></tr>
+      <tr><td><code>quick</code></td><td>Claude Haiku</td><td>Small, low-impact edits, mechanical changes, quick questions</td></tr>
+      <tr><td><code>implement</code></td><td>Claude Sonnet</td><td>Standard feature work and multi-file refactors</td></tr>
+      <tr><td><code>heavy</code></td><td>Claude Opus</td><td>Architecture decisions, deep debugging, high-risk changes</td></tr>
+      <tr><td><code>review</code></td><td>Codex</td><td>Independent post-change review by a different vendor</td></tr>
+      <tr><td><code>research</code></td><td>Claude Haiku</td><td>Fast exploration, summarization, doc lookups</td></tr>
+    </table>
+    </div>
+    <pre class="code"><code><span class="comment"># after finishing a change, the agent gets a second opinion from another vendor</span>
+<span class="green">agentify delegate review --diff origin/main</span>
+
+**Findings**
+- **High**: math.js:1 changes add(a, b) from addition to subtraction.
+  Callers expecting add(2, 1) === 3 now get 1 — a direct behavioral regression.</code></pre>
+    <p style="color: var(--text-dim);">Routes use version-independent model aliases so they don't rot, fall back across vendors when a CLI is missing, run read-only unless <code>--write</code> is passed, and are fully overridable in <code>.agentify.yaml</code> under <code>models.routes</code>.</p>
   </section>
 
   <section id="context">
@@ -233,6 +259,8 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
       <tr><td><code>agentify ctx load</code></td><td>Digest of recent activity, notes, hot files</td></tr>
       <tr><td><code>agentify ctx note "&lt;text&gt;"</code></td><td>Record a note for future sessions</td></tr>
       <tr><td><code>agentify ctx handoff ["task"]</code></td><td>Write a handoff summary</td></tr>
+      <tr><td><code>agentify delegate &lt;kind&gt; ["task"]</code></td><td>Shell a task out to the routed model (<code>--diff</code>, <code>--write</code>)</td></tr>
+      <tr><td><code>agentify models</code></td><td>Model routing table + provider availability</td></tr>
       <tr><td><code>agentify scan</code></td><td>Build the SQLite structural index</td></tr>
       <tr><td><code>agentify query …</code></td><td>owner, deps, changed, search, def, refs, callers, impacts</td></tr>
       <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>

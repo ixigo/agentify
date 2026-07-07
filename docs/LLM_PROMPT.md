@@ -23,4 +23,5 @@ After setup, the agent will automatically:
 
 - receive a context digest at every session start (SessionStart hook),
 - have its file edits and commands tracked (PostToolUse hook),
-- see guidance in CLAUDE.md for `agentify ctx note`, `agentify ctx handoff`, `agentify query`, and `agentify risk`.
+- see guidance in CLAUDE.md for `agentify ctx note`, `agentify ctx handoff`, `agentify query`, and `agentify risk`,
+- have model routing available: `agentify delegate quick|implement|heavy|review|research` shells work out to the best-suited model (`agentify models` shows the table).

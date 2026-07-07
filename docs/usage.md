@@ -80,6 +80,32 @@ agentify risk --since origin/main
 
 All support `--json`. The CLAUDE.md block teaches the agent to run `agentify scan` itself when the index is stale.
 
+## Model routing
+
+Install writes a `models.routes` table into `.agentify.yaml` mapping kinds of work to models. The agent (or you) can shell tasks out:
+
+```bash
+agentify models                                       # routing table + which CLIs are installed
+agentify delegate quick "fix the typo in README"      # small work → fast, cheap model
+agentify delegate quick "rename X to Y" --write       # allow the delegated model to edit files
+agentify delegate review --diff origin/main           # post-change review by the other vendor
+agentify delegate heavy "design the retry strategy"
+agentify delegate research "summarize how auth works here"
+```
+
+Defaults: `quick`/`research` → Claude Haiku, `implement` → Claude Sonnet, `heavy` → Claude Opus, `review` → Codex (its CLI default model). If a route's CLI is missing, Agentify falls back to the other vendor. Delegations are non-interactive and read-only unless `--write` is passed (`claude -p --permission-mode acceptEdits` / `codex exec --full-auto`). Override routes:
+
+```yaml
+models:
+  routes:
+    review:
+      provider: codex
+      model: null          # null = the codex CLI's configured default
+    quick:
+      provider: claude
+      model: haiku
+```
+
 ## Git hooks (optional)
 
 ```bash
