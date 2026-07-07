@@ -175,22 +175,20 @@ Per-platform guides: [GitHub](https://ixigo.github.io/agentify/pages/workflow-gh
 
 ## What the agent sees
 
-At session start (via the `SessionStart` hook):
+Context arrives when it's relevant, not as a firehose. Sessions start with a one-line pointer, and each prompt is matched against the store — only related notes and files get injected (deduplicated per session). Ask about payment retries:
 
 ```markdown
-## Agentify context (from previous sessions)
-Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent event(s).
-
-### Notes left for this session
+## Agentify context (relevant to this task)
+### Related notes from earlier sessions
 - [2026-07-05] payment retries: idempotency key lives in src/pay/retry.ts, do not regenerate per attempt
 
-### Recently edited files
+### Files previously worked on that look related
 - src/pay/retry.ts (14 edits)
 - src/pay/retry.test.ts (9 edits)
 
-### Recent commands
-- Run tests: `npm test -- retry`
 ```
+
+Prefer the old always-on behavior? Set `context.injection: digest` in `.agentify.yaml` (`off` disables injection entirely; tracking continues either way).
 
 ## Requirements
 

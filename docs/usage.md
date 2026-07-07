@@ -65,6 +65,19 @@ Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/not
 
 The event log auto-compacts: past ~512 KB it is truncated to the most recent 1000 events. Command text is clipped to 200 characters and never includes command output. Hook-invoked commands (`--hook`) are designed to never fail and never block the agent.
 
+## Context injection modes
+
+By default (`context.injection: relevant` in `.agentify.yaml`) context arrives only when it matters: the session starts with a one-line pointer, and each prompt you type is matched against the store (token overlap on note text and file paths) — only related notes and files are injected, deduplicated per session, via the `UserPromptSubmit` hook. Asking about "payment retries" pulls the retry notes; a CSS question pulls nothing.
+
+```yaml
+context:
+  injection: relevant   # match context to each task (default)
+  # injection: digest   # inject the full digest at every session start
+  # injection: off      # never inject (tracking continues; use ctx load manually)
+```
+
+`agentify ctx match "<task>"` previews what a given prompt would pull in. `agentify ctx load` always shows the full digest regardless of mode.
+
 ## Continuing vs starting from scratch
 
 Continuing is the default: every new session gets the digest injected and keeps accruing events. When you want a clean slate instead:

@@ -41,6 +41,7 @@ const COMMANDS = [
   command("ctx", "Lightweight context tracking", {
     subcommands: [
       subcommand("load", "Print a digest of recent activity and notes"),
+      subcommand("match", "Show context relevant to a task prompt"),
       subcommand("note", "Record a note for future sessions"),
       subcommand("track", "Record a context event from a Claude Code hook payload", {
         flags: [flag("--hook", { description: "Hook mode: read stdin, never fail" })],

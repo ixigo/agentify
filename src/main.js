@@ -16,9 +16,12 @@ import {
   contextStatus,
   isContextPaused,
   loadContextSnapshot,
+  matchContext,
+  normalizeInjectionMode,
   pauseContext,
   readHookPayload,
   renderContextDigest,
+  renderMatchDigest,
   resumeContext,
   trackEvent,
   writeHandoff,
@@ -171,6 +174,15 @@ export function parseArgs(argv) {
   return args;
 }
 
+async function resolveInjectionMode(root) {
+  try {
+    const config = await loadConfig(root, {});
+    return normalizeInjectionMode(config.context?.injection);
+  } catch {
+    return "relevant";
+  }
+}
+
 async function runCtxHook(action, root) {
   // Hook-invoked paths must never fail or pollute the transcript with errors.
   try {
@@ -179,12 +191,42 @@ async function runCtxHook(action, root) {
       await trackEvent(root, payload);
       return;
     }
+
+    if (await isContextPaused(root)) {
+      return;
+    }
+    const mode = await resolveInjectionMode(root);
+    if (mode === "off") {
+      return;
+    }
+
     if (action === "load") {
-      if (await isContextPaused(root)) {
+      const snapshot = await loadContextSnapshot(root);
+      if (mode === "digest") {
+        const digest = renderContextDigest(snapshot);
+        if (digest) {
+          process.stdout.write(`${digest}\n`);
+        }
         return;
       }
-      const snapshot = await loadContextSnapshot(root);
-      const digest = renderContextDigest(snapshot);
+      // relevant mode: a one-line pointer only — matched context arrives with
+      // each prompt via the UserPromptSubmit hook.
+      if (snapshot.summary.eventCount > 0 || snapshot.notes.length > 0) {
+        process.stdout.write(`Agentify is tracking context here (${snapshot.notes.length} note(s), ${snapshot.summary.eventCount} recent event(s)). Related notes are injected per task; run \`agentify ctx load\` for the full digest.\n`);
+      }
+      return;
+    }
+
+    if (action === "match") {
+      if (mode !== "relevant") {
+        return;
+      }
+      const prompt = String(payload?.prompt || "");
+      if (!prompt.trim()) {
+        return;
+      }
+      const matches = await matchContext(root, prompt, { sessionId: payload?.session_id });
+      const digest = renderMatchDigest(matches);
       if (digest) {
         process.stdout.write(`${digest}\n`);
       }
@@ -206,6 +248,24 @@ async function runCtxCommand(root, config, args, subcommand) {
       const payload = await readHookPayload();
       const result = await trackEvent(root, payload);
       console.log(JSON.stringify({ command: "ctx track", ...result }, null, 2));
+      return;
+    }
+
+    case "match": {
+      if (isHookMode) {
+        await runCtxHook("match", root);
+        return;
+      }
+      const prompt = getPromptFromArgs(args, 2);
+      if (!prompt) {
+        throw new Error('ctx match requires a prompt: agentify ctx match "<task>"');
+      }
+      const matches = await matchContext(root, prompt, { sessionId: args.session, recordInjection: false });
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx match", ...matches }, null, 2));
+      } else {
+        log(renderMatchDigest(matches) || "No related context found.");
+      }
       return;
     }
 
@@ -302,7 +362,7 @@ async function runCtxCommand(root, config, args, subcommand) {
     }
 
     default:
-      throw new Error("ctx requires a subcommand: track, note, load, status, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, load, match, status, handoff, pause, resume, or clear");
   }
 }
 
@@ -442,7 +502,7 @@ export async function runCli(argv, runtime = {}) {
 
   // Hook-invoked ctx commands run before config loading so they stay fast and
   // never fail, even outside an initialized repo.
-  if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load")) {
+  if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load" || subcommand === "match")) {
     await runCtxHook(subcommand, root);
     return;
   }

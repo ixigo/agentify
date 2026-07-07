@@ -28,6 +28,9 @@ const DEFAULT_CONFIG = {
   models: {
     routes: DEFAULT_MODEL_ROUTES,
   },
+  context: {
+    injection: "relevant",
+  },
   cleanup: {
     keepRuns: 20,
     maxRunAgeDays: 14,
@@ -160,6 +163,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     hooks: normalizeConfig(config).hooks,
     runtime: config.runtime,
     models: config.models,
+    context: config.context,
     cleanup: config.cleanup,
   };
 

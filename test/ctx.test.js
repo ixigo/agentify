@@ -210,3 +210,56 @@ test("pause blocks tracking and digest state; resume and clear restore/reset", a
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("matchSnapshotToPrompt scores notes and files by token overlap", async () => {
+  const { matchSnapshotToPrompt, tokenizeForMatch } = await import("../src/core/ctx.js");
+  assert.ok(tokenizeForMatch("Fix the payment retries now").has("payment"));
+  assert.ok(!tokenizeForMatch("fix the and for").has("the"));
+
+  const snapshot = {
+    notes: [
+      { ts: "2026-07-07T00:00:00Z", note: "payment retries: idempotency key in src/pay/retry.ts" },
+      { ts: "2026-07-07T00:00:01Z", note: "css grid layout fallback for safari" },
+    ],
+    summary: {
+      hotFiles: [
+        { file: "src/pay/retry.ts", edits: 4 },
+        { file: "src/ui/dash.css", edits: 2 },
+      ],
+    },
+  };
+  const matches = matchSnapshotToPrompt(snapshot, "the payment retry flow is double charging");
+  assert.equal(matches.notes.length, 1);
+  assert.match(matches.notes[0].note.note, /payment retries/);
+  assert.deepEqual(matches.files.map((item) => item.file), ["src/pay/retry.ts"]);
+
+  const none = matchSnapshotToPrompt(snapshot, "write a readme badge");
+  assert.equal(none.notes.length, 0);
+  assert.equal(none.files.length, 0);
+});
+
+test("matchContext dedupes injections per session via the ledger", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-match-"));
+  try {
+    await addNote(dir, "payment retries idempotency lives in retry.ts");
+    const first = await matchContext(dir, "fix the payment retries", { sessionId: "sess-a" });
+    assert.equal(first.notes.length, 1);
+    const second = await matchContext(dir, "fix the payment retries", { sessionId: "sess-a" });
+    assert.equal(second.notes.length, 0);
+    assert.equal(second.suppressed_as_seen >= 1, true);
+    // a different session sees it again
+    const other = await matchContext(dir, "fix the payment retries", { sessionId: "sess-b" });
+    assert.equal(other.notes.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("normalizeInjectionMode falls back on unknown values", async () => {
+  const { normalizeInjectionMode } = await import("../src/core/ctx.js");
+  assert.equal(normalizeInjectionMode("digest"), "digest");
+  assert.equal(normalizeInjectionMode("OFF"), "off");
+  assert.equal(normalizeInjectionMode("bogus"), "relevant");
+  assert.equal(normalizeInjectionMode(undefined), "relevant");
+});

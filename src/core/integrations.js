@@ -87,6 +87,14 @@ export function buildManagedHooks() {
         ],
       },
     ],
+    UserPromptSubmit: [
+      {
+        matcher: "",
+        hooks: [
+          { type: "command", command: "agentify ctx match --hook", timeout: 10 },
+        ],
+      },
+    ],
     PostToolUse: [
       {
         matcher: TRACKED_TOOL_MATCHER,

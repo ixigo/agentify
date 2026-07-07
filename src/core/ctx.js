@@ -20,6 +20,7 @@ export function resolveContextPaths(root) {
     handoffDir: path.join(contextRoot, "handoffs"),
     pausedPath: path.join(contextRoot, "paused"),
     archiveDir: path.join(contextRoot, "archive"),
+    injectedPath: path.join(contextRoot, "injected.json"),
   };
 }
 
@@ -343,4 +344,138 @@ export async function readHookPayload(stream = process.stdin) {
   } catch {
     return null;
   }
+}
+
+export const INJECTION_MODES = ["relevant", "digest", "off"];
+const MATCH_STOP_WORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "when", "what",
+  "where", "how", "why", "can", "could", "should", "would", "please", "make",
+  "add", "fix", "use", "using", "you", "your", "our", "are", "not", "but",
+  "then", "than", "them", "there", "here", "also", "just", "need", "want",
+  "let", "lets", "get", "got", "has", "have", "had", "was", "were", "will",
+  "does", "did", "doing", "done", "about", "some", "any", "all", "one",
+  "file", "files", "code", "issue", "change", "changes", "update",
+]);
+const MAX_INJECTION_SESSIONS = 30;
+
+export function normalizeInjectionMode(value, { fallback = "relevant" } = {}) {
+  const mode = String(value ?? fallback).trim().toLowerCase();
+  return INJECTION_MODES.includes(mode) ? mode : fallback;
+}
+
+export function tokenizeForMatch(text) {
+  return new Set(
+    String(text || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 3 && !MATCH_STOP_WORDS.has(token))
+  );
+}
+
+function overlap(promptTokens, tokens) {
+  let count = 0;
+  const matched = [];
+  for (const token of tokens) {
+    if (promptTokens.has(token)) {
+      count += 1;
+      matched.push(token);
+    }
+  }
+  return { count, matched };
+}
+
+export function matchSnapshotToPrompt(snapshot, prompt) {
+  const promptTokens = tokenizeForMatch(prompt);
+  if (promptTokens.size === 0) {
+    return { notes: [], files: [] };
+  }
+
+  const notes = [];
+  for (const note of snapshot.notes) {
+    const { count, matched } = overlap(promptTokens, tokenizeForMatch(note.note));
+    // Two overlapping tokens, or one distinctive (long) token, marks relevance.
+    if (count >= 2 || matched.some((token) => token.length >= 8)) {
+      notes.push({ key: `note:${note.ts}`, note, score: count });
+    }
+  }
+  notes.sort((left, right) => right.score - left.score);
+
+  const files = [];
+  for (const item of snapshot.summary.hotFiles) {
+    const { count } = overlap(promptTokens, tokenizeForMatch(item.file));
+    if (count >= 1) {
+      files.push({ key: `file:${item.file}`, file: item.file, edits: item.edits, score: count });
+    }
+  }
+  files.sort((left, right) => right.score - left.score);
+
+  return { notes: notes.slice(0, 5), files: files.slice(0, 8) };
+}
+
+async function readInjectionLedger(root) {
+  const paths = resolveContextPaths(root);
+  if (!(await exists(paths.injectedPath))) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(await readText(paths.injectedPath));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeInjectionLedger(root, ledger) {
+  const paths = resolveContextPaths(root);
+  const sids = Object.keys(ledger);
+  if (sids.length > MAX_INJECTION_SESSIONS) {
+    for (const sid of sids.slice(0, sids.length - MAX_INJECTION_SESSIONS)) {
+      delete ledger[sid];
+    }
+  }
+  await ensureDir(paths.contextRoot);
+  await fs.writeFile(paths.injectedPath, `${JSON.stringify(ledger)}\n`, "utf8");
+}
+
+export function renderMatchDigest(matches) {
+  if (matches.notes.length === 0 && matches.files.length === 0) {
+    return "";
+  }
+  const lines = ["## Agentify context (relevant to this task)"];
+  if (matches.notes.length > 0) {
+    lines.push("", "### Related notes from earlier sessions");
+    for (const item of matches.notes) {
+      lines.push(`- [${String(item.note.ts || "").slice(0, 10)}] ${item.note.note}`);
+    }
+  }
+  if (matches.files.length > 0) {
+    lines.push("", "### Files previously worked on that look related");
+    for (const item of matches.files) {
+      lines.push(`- ${item.file} (${item.edits} edit${item.edits === 1 ? "" : "s"})`);
+    }
+  }
+  lines.push("", "Full history: `agentify ctx load`.");
+  return lines.join("\n");
+}
+
+export async function matchContext(root, prompt, options = {}) {
+  const sid = String(options.sessionId || "unknown").slice(0, 8);
+  const snapshot = await loadContextSnapshot(root, { maxNotes: options.maxNotes || 100 });
+  const matches = matchSnapshotToPrompt(snapshot, prompt);
+
+  const ledger = await readInjectionLedger(root);
+  const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
+  const freshNotes = matches.notes.filter((item) => !seen.has(item.key));
+  const freshFiles = matches.files.filter((item) => !seen.has(item.key));
+
+  if (options.recordInjection !== false && (freshNotes.length > 0 || freshFiles.length > 0)) {
+    ledger[sid] = [...seen, ...freshNotes.map((item) => item.key), ...freshFiles.map((item) => item.key)];
+    await writeInjectionLedger(root, ledger);
+  }
+
+  return {
+    notes: freshNotes,
+    files: freshFiles,
+    suppressed_as_seen: (matches.notes.length - freshNotes.length) + (matches.files.length - freshFiles.length),
+  };
 }
