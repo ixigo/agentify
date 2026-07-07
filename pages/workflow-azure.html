@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Azure DevOps workflow</title>
-  <meta name="description" content="The prebuilt Azure DevOps agent workflow — from board to draft PR with the az CLI. azure-devops-triage, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator.">
+  <meta name="description" content="The prebuilt Azure DevOps agent workflow — from board to draft PR with the az CLI. azure-devops-triage, grill-me, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator.">
   <link rel="stylesheet" href="command-style.css">
   <style>
     .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -74,7 +74,7 @@
           <div class="move flow-step">
             <span class="tag"><span class="step-no">1</span>triage the board</span>
             <h3>azure-devops-triage</h3>
-            <p>Inspects work-item fields, comments, states, and tags with <code>az</code>, then recommends changes by default. Maps GitHub-style states to whatever active states the process template uses (<code>New</code>, <code>Active</code>, <code>To Do</code>, <code>Committed</code>), and opts an item in with the <code>agentify-ready</code> tag when the project uses tags.</p>
+            <p>Inspects work-item fields, comments, states, and tags with <code>az</code>, then recommends changes by default. Maps GitHub-style states to whatever active states the process template uses (<code>New</code>, <code>Active</code>, <code>To Do</code>, <code>Committed</code>), and opts an item in with the <code>agentify-ready</code> tag when the project uses tags. New work items are shaped first: the <strong>grill-me</strong> skill interviews you one question at a time until the requirement is concrete, then files it with <code>az boards work-item create</code>.</p>
           </div>
           <div class="move flow-step">
             <span class="tag"><span class="step-no">2</span>pick up an item</span>
@@ -114,10 +114,11 @@
       <div class="container">
         <span class="section-label">bundle</span>
         <h2>What <span class="accent">workflow install azure</span> lays down.</h2>
-        <p class="section-lede">Seven skills, installed together and templated for your provider.</p>
+        <p class="section-lede">Eight skills, installed together and templated for your provider.</p>
 
         <div class="artifact-list">
           <div class="artifact"><strong>azure-devops-triage</strong><span>Inspects Azure Boards fields, states, and tags.</span></div>
+          <div class="artifact"><strong>grill-me</strong><span>Interviews you until a new item is concrete, then files it with <code>az boards work-item create</code>.</span></div>
           <div class="artifact"><strong>ado-autopilot</strong><span>Resolves work item / PR context with <code>az</code>.</span></div>
           <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in items.</span></div>
           <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>

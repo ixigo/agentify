@@ -62,6 +62,17 @@ Example requests:
 - "What's ready for agents to pick up?"
 - "Are there any unlabeled issues?"
 
+## Workflow: Create a New Issue
+
+When the user asks to create a new issue — or triage surfaces work that needs one — do not file it straight away:
+
+1. Invoke the `grill-me` skill first: interview the user one question at a time (each with a recommended answer) until the requirement is concrete — scope, acceptance criteria, affected code, risks. Explore the codebase instead of asking when the repo can answer.
+2. Summarize the resulting plan and confirm the user wants it published.
+3. Only then create the issue(s) with `gh issue create`, grouped by type (feature/fix/chore/docs/test) as grill-me's plan defines, with the AI disclaimer at the top of each body.
+4. Apply the state-machine labels to the new issue immediately so it enters the normal triage flow.
+
+Skip the interview only when the user hands over an already-complete spec and explicitly asks to file it verbatim.
+
 ## Workflow: Show What Needs Attention
 
 When the maintainer asks for an overview, query GitHub and present a summary grouped into three buckets:

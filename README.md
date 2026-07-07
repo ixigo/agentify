@@ -153,9 +153,9 @@ agentify workflow install azure --provider claude
 
 | Platform | CLI | Bundle |
 | --- | --- | --- |
-| GitHub | `gh` | github-triage, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
-| GitLab | `glab` | gitlab-triage, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
-| Azure DevOps | `az` | azure-devops-triage, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator |
+| GitHub | `gh` | github-triage, grill-me, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
+| GitLab | `glab` | gitlab-triage, grill-me, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator |
+| Azure DevOps | `az` | azure-devops-triage, grill-me, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator |
 
 **Worktrees and parallel work:** single tasks run through `worktree-autopilot` (fresh branch + `git worktree`, verify, commit, draft PR). When several opted-in issues are ready, `issue-killer` fans them out — one tmux pane and one worktree per issue, each running an interactive agent, supervised via `tmux attach -t issue-killer`. Every worktree has its own `.agentify/` store, so context tracking stays per-checkout, and `agentify ctx note` records what's in flight so later sessions know.
 
@@ -165,6 +165,7 @@ agentify workflow install azure --provider claude
 "triage the new issues"           → github-triage labels the board, marks agentify-ready
 "pick up issue 231"               → gh-autopilot + worktree-autopilot: isolated branch,
                                     implement, test, cross-vendor review, draft PR
+"file an issue for rate limiting" → grill-me interviews you until it's concrete, then files it
 "kill everything agentify-ready"  → issue-killer fans out tmux worktree agents
 next session                      → the SessionStart digest recalls what's in flight
 ```

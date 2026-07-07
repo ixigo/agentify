@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · GitLab workflow</title>
-  <meta name="description" content="The prebuilt GitLab agent workflow — from board to draft MR with the glab CLI. gitlab-triage, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
+  <meta name="description" content="The prebuilt GitLab agent workflow — from board to draft MR with the glab CLI. gitlab-triage, grill-me, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
   <link rel="stylesheet" href="command-style.css">
   <style>
     .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -74,7 +74,7 @@
           <div class="move flow-step">
             <span class="tag"><span class="step-no">1</span>triage the board</span>
             <h3>gitlab-triage</h3>
-            <p>Runs issues through a conservative state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — preferring existing project labels over inventing new ones. Confirms the repo with <code>glab repo view</code> before any mutation. Opting in means <code>ready-for-agent</code> (plus <code>agentify-ready</code> for fan-out).</p>
+            <p>Runs issues through a conservative state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — preferring existing project labels over inventing new ones. Confirms the repo with <code>glab repo view</code> before any mutation. Opting in means <code>ready-for-agent</code> (plus <code>agentify-ready</code> for fan-out). New issues are shaped first: the <strong>grill-me</strong> skill interviews you one question at a time until the requirement is concrete, then files it with <code>glab issue create</code>.</p>
           </div>
           <div class="move flow-step">
             <span class="tag"><span class="step-no">2</span>pick up an item</span>
@@ -109,10 +109,11 @@
       <div class="container">
         <span class="section-label">bundle</span>
         <h2>What <span class="accent">workflow install glab</span> lays down.</h2>
-        <p class="section-lede">Six skills, installed together and templated for your provider.</p>
+        <p class="section-lede">Seven skills, installed together and templated for your provider.</p>
 
         <div class="artifact-list">
           <div class="artifact"><strong>gitlab-triage</strong><span>Conservative label/state management for issues.</span></div>
+          <div class="artifact"><strong>grill-me</strong><span>Interviews you until a new item is concrete, then files it with <code>glab issue create</code>.</span></div>
           <div class="artifact"><strong>glab-autopilot</strong><span>Resolves GitLab issue/MR context with <code>glab</code>.</span></div>
           <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in issues.</span></div>
           <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>

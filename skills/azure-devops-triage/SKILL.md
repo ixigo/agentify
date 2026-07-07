@@ -44,6 +44,17 @@ default, and mutate only when the user explicitly asks.
 7. If implementation is requested and the item is ready, hand the resolved
    context to `ado-autopilot` or `worktree-autopilot`.
 
+## Workflow: Create a New Work Item
+
+When the user asks to create a new work item — or triage surfaces work that needs one — do not file it straight away:
+
+1. Invoke the `grill-me` skill first: interview the user one question at a time (each with a recommended answer) until the requirement is concrete — scope, acceptance criteria, affected code, risks. Explore the codebase instead of asking when the repo can answer.
+2. Summarize the resulting plan and confirm the user wants it published.
+3. Only then create the work item(s) with `az boards work-item create --type <Bug|Task|User Story> --title ...`, mapping grill-me's feature/fix/chore/docs/test grouping onto the project's work item types.
+4. Apply the agreed tags (for example `agentify-ready`) so the item enters the normal triage flow.
+
+Skip the interview only when the user hands over an already-complete spec and explicitly asks to file it verbatim.
+
 ## Conservative State Mapping
 
 Azure Boards process templates vary. Treat these as suggestions, not universal

@@ -147,6 +147,11 @@ No. The bundle installs as agent skills (`.claude/skills/` for Claude Code, `.co
              → agentify ctx note "231: retry bug was a stale idempotency key;
                fix in src/pay/retry.ts, PR #232 draft"
 
+10:15 you:   "we should rate-limit the webhook endpoint — file an issue"
+      agent: → grill-me interviews you one question at a time (each with a
+              recommended answer) until scope and acceptance criteria are
+              concrete, then files it with gh issue create and labels it
+
 11:40 you:   "kill everything labeled agentify-ready"
       agent: → issue-killer: one tmux pane + one worktree per issue, each
                running its own agent toward a draft PR

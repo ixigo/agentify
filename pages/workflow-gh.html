@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · GitHub workflow</title>
-  <meta name="description" content="The prebuilt GitHub agent workflow — from board to draft PR with the gh CLI. github-triage, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
+  <meta name="description" content="The prebuilt GitHub agent workflow — from board to draft PR with the gh CLI. github-triage, grill-me, gh-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
   <link rel="stylesheet" href="command-style.css">
   <style>
     .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -74,7 +74,7 @@
           <div class="move flow-step">
             <span class="tag"><span class="step-no">1</span>triage the board</span>
             <h3>github-triage</h3>
-            <p>Runs issues through a label-based state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — with exactly one state and one category label each. Opting in means moving an issue to <code>ready-for-agent</code> (and tagging <code>agentify-ready</code> for fan-out).</p>
+            <p>Runs issues through a label-based state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — with exactly one state and one category label each. Opting in means moving an issue to <code>ready-for-agent</code> (and tagging <code>agentify-ready</code> for fan-out). New issues are shaped first: the <strong>grill-me</strong> skill interviews you one question at a time until the requirement is concrete, then files it with <code>gh issue create</code>.</p>
           </div>
           <div class="move flow-step">
             <span class="tag"><span class="step-no">2</span>pick up an item</span>
@@ -109,10 +109,11 @@
       <div class="container">
         <span class="section-label">bundle</span>
         <h2>What <span class="accent">workflow install gh</span> lays down.</h2>
-        <p class="section-lede">Six skills, installed together and templated for your provider.</p>
+        <p class="section-lede">Seven skills, installed together and templated for your provider.</p>
 
         <div class="artifact-list">
           <div class="artifact"><strong>github-triage</strong><span>Label-based state machine for incoming issues.</span></div>
+          <div class="artifact"><strong>grill-me</strong><span>Interviews you until a new item is concrete, then files it with <code>gh issue create</code>.</span></div>
           <div class="artifact"><strong>gh-autopilot</strong><span>Resolves GitHub issue/PR context with <code>gh</code>.</span></div>
           <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in issues.</span></div>
           <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>
