@@ -6,9 +6,9 @@ const args = process.argv.slice(2);
 const isJson = args.includes("--json");
 const isHelp = isHelpRequest(args);
 const isVersion = isVersionRequest(args);
-// Quiet commands run inside Claude Code hooks or shell completion; the banner
-// would pollute their output.
-const isQuiet = args.includes("completion") || args[0] === "ctx";
+// Quiet commands run inside Claude Code hooks, shell completion, or an MCP
+// client; the banner would pollute their output (stdout is the MCP channel).
+const isQuiet = args.includes("completion") || args[0] === "ctx" || args[0] === "serve";
 
 async function main() {
   if (await handleFastPath(args)) {

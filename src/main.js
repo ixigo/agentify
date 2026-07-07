@@ -45,6 +45,7 @@ import {
 } from "./core/query.js";
 import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildTestSelection, renderTestSelection, runTestSelection } from "./core/test-select.js";
+import { runMcpServer } from "./core/mcp-server.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
@@ -822,6 +823,12 @@ export async function runCli(argv, runtime = {}) {
         } else {
           log(renderRiskReport(result));
         }
+        return;
+      }
+
+      case "serve": {
+        // MCP server over stdio: stdout is the protocol channel.
+        await runMcpServer(root, config);
         return;
       }
 

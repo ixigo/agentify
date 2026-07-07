@@ -117,6 +117,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify test [--since <ref>] [--run]` | Select (and run) only the tests affected by a change, via the structural index |
 | `agentify up` | scan -> check |
 | `agentify check` | Validate index freshness and generated artifacts |
+| `agentify serve` | MCP server over stdio — Agentify tools for any MCP-capable agent |
 | `agentify skill list|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
 | `agentify hooks install|remove|status` | Optional git hooks (pre-commit check, post-merge rescan) |
 | `agentify doctor` | Toolchain and provider CLI readiness |
@@ -124,6 +125,23 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify completion zsh|bash|fish` | Shell completion |
 
 All commands accept `--json` for machine-readable output — which is how agents are expected to call them.
+
+## Beyond Claude Code and Codex: MCP
+
+Hooks are Claude Code-specific and `AGENTS.md` guidance is best-effort. For every other agent — Cursor, Zed, Windsurf, Gemini CLI, Claude Desktop — Agentify speaks [MCP](https://modelcontextprotocol.io):
+
+```bash
+agentify serve        # stdio MCP server, run from the repo root
+```
+
+```bash
+# Claude Code (as an alternative or complement to hooks)
+claude mcp add agentify -- agentify serve
+
+# Cursor/Zed/anything else: register `agentify serve` as a stdio MCP server
+```
+
+Exposed tools: `ctx_load`, `ctx_note`, `ctx_match` (persistent context), `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
 
 ## Model routing
 

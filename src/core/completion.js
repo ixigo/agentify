@@ -129,6 +129,7 @@ const COMMANDS = [
   command("risk", "Score PR blast radius", {
     flags: [flag("--since", { valueKind: "text", description: "Commit or ref" })],
   }),
+  command("serve", "Run the MCP server over stdio"),
   command("test", "Select and run tests affected by a change", {
     flags: [
       flag("--since", { valueKind: "text", description: "Commit or ref" }),
