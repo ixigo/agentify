@@ -98,16 +98,22 @@ function composeHookContent(existing, body) {
   return `${remaining}\n\n${body.trimEnd()}\n`;
 }
 
-async function removeManagedHookBlock(hookPath) {
-  const content = await safeRead(hookPath);
-  if (!content || !content.includes(AGENTIFY_MARKER)) return false;
-
-  const { remaining } = stripAgentifyBlock(content);
+// After stripping the managed block: keep the hook if the user had their own
+// content in it, otherwise delete the file entirely.
+async function writeRemainingOrDelete(hookPath, remaining) {
   if (remaining && remaining !== "#!/bin/sh") {
     await writeTextPreservingMode(hookPath, `${remaining}\n`);
   } else {
     await fs.unlink(hookPath).catch(() => {});
   }
+}
+
+async function removeManagedHookBlock(hookPath) {
+  const content = await safeRead(hookPath);
+  if (!content || !content.includes(AGENTIFY_MARKER)) return false;
+
+  const { remaining } = stripAgentifyBlock(content);
+  await writeRemainingOrDelete(hookPath, remaining);
   return true;
 }
 
@@ -150,18 +156,9 @@ export async function removeHooks(root) {
 
   const removed = [];
   for (const { name } of HOOK_BODIES) {
-    const hookPath = path.join(hooksDir, name);
-    const content = await safeRead(hookPath);
-    if (!content || !content.includes(AGENTIFY_MARKER)) continue;
-
-    const { remaining } = stripAgentifyBlock(content);
-    if (remaining && remaining !== "#!/bin/sh") {
-      await writeText(hookPath, `${remaining}\n`);
-      await fs.chmod(hookPath, 0o755);
-    } else {
-      await fs.unlink(hookPath).catch(() => {});
+    if (await removeManagedHookBlock(path.join(hooksDir, name))) {
+      removed.push(name);
     }
-    removed.push(name);
   }
 
   return removed;
@@ -211,11 +208,7 @@ export async function syncManagedHooks(root, { dryRun = false, settings = {} } =
       }
 
       if (!dryRun) {
-        if (remaining && remaining !== "#!/bin/sh") {
-          await writeTextPreservingMode(hookPath, `${remaining}\n`);
-        } else {
-          await fs.unlink(hookPath).catch(() => {});
-        }
+        await writeRemainingOrDelete(hookPath, remaining);
       }
 
       results.push({
