@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { ensureDir, exists, readText, relative } from "./fs.js";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
+import { redactSensitiveText } from "./redact.js";
 
 const MAX_EVENT_LOG_BYTES = 512 * 1024;
 const COMPACTED_EVENT_LINES = 1000;
@@ -184,13 +185,13 @@ export function buildEventFromHookPayload(root, payload) {
     return {
       ...base,
       type: "cmd",
-      cmd: clip(toolInput.command),
-      ...(toolInput.description ? { desc: clip(toolInput.description, 100) } : {}),
+      cmd: clip(redactSensitiveText(toolInput.command)),
+      ...(toolInput.description ? { desc: clip(redactSensitiveText(toolInput.description), 100) } : {}),
       ...(failure
         ? {
           fail: true,
           ...(failure.exitCode !== null ? { exit: failure.exitCode } : {}),
-          ...(failure.snippet ? { err: clip(failure.snippet) } : {}),
+          ...(failure.snippet ? { err: clip(redactSensitiveText(failure.snippet)) } : {}),
         }
         : {}),
     };

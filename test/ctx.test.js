@@ -43,6 +43,27 @@ test("buildEventFromHookPayload maps Bash tool payloads to cmd events and clips 
   assert.ok(event.cmd.endsWith("…"));
 });
 
+test("buildEventFromHookPayload redacts secrets from commands, descriptions, and error snippets", () => {
+  const event = buildEventFromHookPayload("/repo", {
+    session_id: "sess",
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: {
+      command: "curl -H 'Authorization: Bearer abcdef1234567890' https://api.example.com",
+      description: "call api with API_KEY=supersecretvalue",
+    },
+    tool_response: {
+      exitCode: 1,
+      stderr: "request failed: OPENAI_TOKEN=sk-abcdefghijklmnop rejected",
+    },
+  });
+  assert.equal(event.type, "cmd");
+  assert.ok(!event.cmd.includes("abcdef1234567890"), `cmd leaked secret: ${event.cmd}`);
+  assert.ok(event.cmd.includes("[REDACTED]"));
+  assert.ok(!event.desc.includes("supersecretvalue"), `desc leaked secret: ${event.desc}`);
+  assert.ok(!event.err.includes("sk-abcdefghijklmnop"), `err leaked secret: ${event.err}`);
+});
+
 test("buildEventFromHookPayload maps SessionEnd payloads", () => {
   const event = buildEventFromHookPayload("/repo", {
     session_id: "sess",
