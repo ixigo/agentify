@@ -213,19 +213,51 @@ export async function trackEvent(root, payload) {
   return { tracked: true, event, compacted };
 }
 
+export const NOTE_TYPES = ["note", "decision"];
+
 export async function addNote(root, text, options = {}) {
   const note = String(text || "").trim();
   if (!note) {
     throw new Error("ctx note requires non-empty text");
   }
+  const type = String(options.type || "note").trim().toLowerCase();
+  if (!NOTE_TYPES.includes(type)) {
+    throw new Error(`Unknown note type "${options.type}". Supported: ${NOTE_TYPES.join(", ")}`);
+  }
   const record = {
     ts: new Date().toISOString(),
     sid: shortSessionId(options.session || process.env.CLAUDE_SESSION_ID || ""),
+    ...(type !== "note" ? { type } : {}),
     note: note.length > 2000 ? `${note.slice(0, 1999)}…` : note,
   };
   const paths = resolveContextPaths(root);
   await appendJsonLine(paths.notesPath, record);
   return { path: paths.notesPath, record };
+}
+
+export async function listDecisions(root, query, options = {}) {
+  const paths = resolveContextPaths(root);
+  const notes = await readJsonLines(paths.notesPath);
+  const rawDecisions = notes.filter((note) => note.type === "decision");
+  const decisions = options.verifyNotes === false ? rawDecisions : await annotateNoteStaleness(root, rawDecisions);
+
+  const trimmedQuery = String(query || "").trim();
+  if (!trimmedQuery) {
+    return { decisions, query: null };
+  }
+
+  const promptTokens = tokenizeForMatch(trimmedQuery);
+  const docs = decisions.map((decision) => ({ decision, counts: termCounts(decision.note) }));
+  const index = buildBm25Index(docs.map((doc) => doc.counts));
+  const matched = [];
+  for (const doc of docs) {
+    const { score, matched: matchedTerms } = bm25Match(promptTokens, doc.counts, index);
+    if (matchedTerms.length >= 1) {
+      matched.push({ decision: doc.decision, score });
+    }
+  }
+  matched.sort((left, right) => right.score - left.score);
+  return { decisions: matched.map((item) => item.decision), query: trimmedQuery };
 }
 
 function summarizeEvents(events) {
@@ -337,10 +369,11 @@ async function annotateNoteStaleness(root, notes) {
 }
 
 function noteLine(note) {
+  const typePrefix = note.type === "decision" ? "[decision] " : "";
   const staleSuffix = Array.isArray(note.stale_refs) && note.stale_refs.length > 0
     ? ` — STALE? references missing path(s): ${note.stale_refs.join(", ")}; verify before trusting`
     : "";
-  return `- [${String(note.ts || "").slice(0, 10)}] ${note.note}${staleSuffix}`;
+  return `- [${String(note.ts || "").slice(0, 10)}] ${typePrefix}${note.note}${staleSuffix}`;
 }
 
 export async function loadContextSnapshot(root, options = {}) {
@@ -371,9 +404,19 @@ export function renderContextDigest(snapshot) {
     }
   }
 
-  if (notes.length > 0) {
+  const decisions = notes.filter((note) => note.type === "decision");
+  const plainNotes = notes.filter((note) => note.type !== "decision");
+
+  if (decisions.length > 0) {
+    lines.push("", "### Decisions on record (query with `agentify ctx decisions \"<topic>\"`)");
+    for (const note of decisions.slice(-5)) {
+      lines.push(noteLine(note));
+    }
+  }
+
+  if (plainNotes.length > 0) {
     lines.push("", "### Notes left for this session");
-    for (const note of notes) {
+    for (const note of plainNotes) {
       lines.push(noteLine(note));
     }
   }

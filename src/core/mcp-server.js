@@ -34,16 +34,19 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "ctx_note",
-      description: "Record a note for future agent sessions working in this repository: decisions, gotchas, open threads, or anything worth remembering. Notes are surfaced to later sessions when relevant.",
+      description: "Record a note for future agent sessions working in this repository: gotchas, open threads, or anything worth remembering. Use type \"decision\" for durable technical decisions with rationale (\"chose X over Y because Z\") — decisions are kept queryable so settled questions are not relitigated. Notes are surfaced to later sessions when relevant.",
       inputSchema: {
         type: "object",
-        properties: { text: { type: "string", description: "The note to record" } },
+        properties: {
+          text: { type: "string", description: "The note to record" },
+          type: { type: "string", enum: ["note", "decision"], description: "Kind of note (default: note)" },
+        },
         required: ["text"],
         additionalProperties: false,
       },
       async handler(args) {
-        const result = await addNote(root, args.text);
-        return `Noted: ${result.record.note}`;
+        const result = await addNote(root, args.text, { type: args.type });
+        return `${result.record.type === "decision" ? "Decision recorded" : "Noted"}: ${result.record.note}`;
       },
     },
     {

@@ -12,7 +12,8 @@ export const INTEGRATION_PROVIDERS = ["claude", "codex"];
 const TRACKED_TOOL_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash";
 
 const SHARED_BLOCK_LINES = [
-  "- `agentify ctx note \"<text>\"` — record a decision, gotcha, or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.",
+  "- `agentify ctx note \"<text>\"` — record a gotcha or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.",
+  "- `agentify ctx decision \"chose X over Y because Z\"` — record a durable technical decision with its rationale. Query later with `agentify ctx decisions \"<topic>\"` before revisiting settled questions.",
   "- `agentify ctx handoff` — write a handoff summary before ending a long task.",
   "- If the user says to ignore previous context or start from scratch, disregard the injected digest; run `agentify ctx pause` when they want tracking off, `agentify ctx resume` to turn it back on, or `agentify ctx clear` to archive and reset the store.",
   "- `agentify query search|def|refs|callers|impacts` — structural queries over the repo index (`agentify scan` rebuilds it if stale).",

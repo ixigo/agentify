@@ -103,10 +103,11 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify status` | Integration + context-tracking status |
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
 | `agentify ctx note "<text>"` | Record a note for future sessions |
+| `agentify ctx decision "<text>"` | Record a durable technical decision; `agentify ctx decisions "<topic>"` answers "why did we choose X" later |
 | `agentify ctx precheck "<cmd>"` | Check whether a command failed in an earlier session (automatic via PreToolUse hook) |
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
 | `agentify ctx summarize` | ~3-line model-written session summary (automatic on session end) |
-| `agentify ctx share [--off]` | Make notes committable team memory |
+| `agentify ctx share [--off]` | Make notes committable team memory — with decisions, that's a lightweight team ADR log |
 | `agentify ctx status` | Event/note counts, log size, paused state |
 | `agentify ctx pause\|resume\|clear` | Start from scratch: stop the digest + tracking, or archive and reset (`AGENTIFY_CTX=off` for one session) |
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |

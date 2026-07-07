@@ -541,3 +541,36 @@ test("BM25 matching stems plurals and ranks rare terms above common ones", async
   assert.ok(ranked.notes.length >= 2);
   assert.match(ranked.notes[0].note.note, /sourcemaps/);
 });
+
+test("decision notes: typed storage, digest section, and queryable list", async () => {
+  const { listDecisions } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-decisions-"));
+  try {
+    await assert.rejects(() => addNote(dir, "x", { type: "bogus" }), /Unknown note type/);
+
+    await addNote(dir, "chose postgres over mongo because of transactional guarantees", { type: "decision" });
+    await addNote(dir, "chose vitest over jest because of ESM support", { type: "decision" });
+    await addNote(dir, "plain gotcha about the flaky CI runner");
+
+    const snapshot = await loadContextSnapshot(dir);
+    const digest = renderContextDigest(snapshot);
+    assert.match(digest, /### Decisions on record/);
+    assert.match(digest, /postgres over mongo/);
+    // Plain note stays in the notes section, not decisions.
+    const decisionsSection = digest.split("### Decisions on record")[1].split("###")[0];
+    assert.ok(!decisionsSection.includes("flaky CI runner"));
+
+    const all = await listDecisions(dir, "");
+    assert.equal(all.decisions.length, 2);
+    assert.equal(all.query, null);
+
+    const matched = await listDecisions(dir, "why did we pick the database postgres");
+    assert.equal(matched.decisions.length, 1);
+    assert.match(matched.decisions[0].note, /postgres/);
+
+    const none = await listDecisions(dir, "kubernetes ingress");
+    assert.equal(none.decisions.length, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

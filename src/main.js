@@ -18,6 +18,7 @@ import {
   clearContext,
   contextStatus,
   isContextPaused,
+  listDecisions,
   loadContextSnapshot,
   latestSessionId,
   matchContext,
@@ -360,11 +361,45 @@ async function runCtxCommand(root, config, args, subcommand) {
 
     case "note": {
       const text = getPromptFromArgs(args, 2);
-      const result = await addNote(root, text, { session: args.session });
+      const result = await addNote(root, text, { session: args.session, type: args.type });
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx note", ...result }, null, 2));
       } else {
-        success("Noted.");
+        success(result.record.type === "decision" ? "Decision recorded." : "Noted.");
+      }
+      return;
+    }
+
+    case "decision": {
+      // Shorthand: `agentify ctx decision "<text>"` === `ctx note --type decision`.
+      const text = getPromptFromArgs(args, 2);
+      const result = await addNote(root, text, { session: args.session, type: "decision" });
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx decision", ...result }, null, 2));
+      } else {
+        success("Decision recorded.");
+      }
+      return;
+    }
+
+    case "decisions": {
+      const result = await listDecisions(root, getPromptFromArgs(args, 2));
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx decisions", ...result }, null, 2));
+        return;
+      }
+      if (result.decisions.length === 0) {
+        log(result.query
+          ? `No decisions matching "${result.query}". Run \`agentify ctx decisions\` to list all.`
+          : 'No decisions recorded yet. Record one with `agentify ctx decision "chose X over Y because Z"`.');
+        return;
+      }
+      log(result.query ? `Decisions matching "${result.query}":` : "Decisions on record:");
+      for (const decision of result.decisions) {
+        const stale = Array.isArray(decision.stale_refs) && decision.stale_refs.length > 0
+          ? ` ${dim(`(stale? missing: ${decision.stale_refs.join(", ")})`)}`
+          : "";
+        log(`- [${String(decision.ts || "").slice(0, 10)}] ${decision.note}${stale}`);
       }
       return;
     }
@@ -476,7 +511,7 @@ async function runCtxCommand(root, config, args, subcommand) {
     }
 
     default:
-      throw new Error("ctx requires a subcommand: track, note, load, match, precheck, status, summarize, share, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, decision, decisions, load, match, precheck, status, summarize, share, handoff, pause, resume, or clear");
   }
 }
 
