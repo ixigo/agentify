@@ -95,6 +95,14 @@ export function buildManagedHooks() {
         ],
       },
     ],
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          { type: "command", command: "agentify ctx precheck --hook", timeout: 10 },
+        ],
+      },
+    ],
     PostToolUse: [
       {
         matcher: TRACKED_TOOL_MATCHER,

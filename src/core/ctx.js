@@ -129,6 +129,23 @@ async function compactEventLogIfNeeded(eventsPath) {
   return true;
 }
 
+export function detectCommandFailure(toolResponse) {
+  const response = toolResponse && typeof toolResponse === "object" && !Array.isArray(toolResponse) ? toolResponse : null;
+  if (!response) {
+    return null;
+  }
+  const exitCode = [response.exit_code, response.exitCode, response.code].find((value) => typeof value === "number");
+  const failed = response.success === false
+    || response.is_error === true
+    || response.isError === true
+    || (typeof exitCode === "number" && exitCode !== 0);
+  if (!failed) {
+    return null;
+  }
+  const snippet = String(response.stderr || response.error || response.stdout || "").trim();
+  return { exitCode: typeof exitCode === "number" ? exitCode : null, snippet };
+}
+
 export function buildEventFromHookPayload(root, payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -163,11 +180,19 @@ export function buildEventFromHookPayload(root, payload) {
     if (!toolInput.command) {
       return null;
     }
+    const failure = detectCommandFailure(payload.tool_response);
     return {
       ...base,
       type: "cmd",
       cmd: clip(toolInput.command),
       ...(toolInput.description ? { desc: clip(toolInput.description, 100) } : {}),
+      ...(failure
+        ? {
+          fail: true,
+          ...(failure.exitCode !== null ? { exit: failure.exitCode } : {}),
+          ...(failure.snippet ? { err: clip(failure.snippet) } : {}),
+        }
+        : {}),
     };
   }
 
@@ -206,6 +231,7 @@ export async function addNote(root, text, options = {}) {
 function summarizeEvents(events) {
   const editCounts = new Map();
   const commands = [];
+  const commandOutcomes = new Map();
   let lastEventAt = null;
   const sessions = new Set();
 
@@ -220,6 +246,12 @@ function summarizeEvents(events) {
       editCounts.set(event.path, (editCounts.get(event.path) || 0) + 1);
     } else if (event?.type === "cmd" && event.cmd) {
       commands.push(event);
+      const entry = commandOutcomes.get(event.cmd) || { failCount: 0 };
+      entry.last = event;
+      if (event.fail) {
+        entry.failCount += 1;
+      }
+      commandOutcomes.set(event.cmd, entry);
     }
   }
 
@@ -228,13 +260,40 @@ function summarizeEvents(events) {
     .slice(0, 15)
     .map(([file, count]) => ({ file, edits: count }));
 
+  // A failure is "unresolved" when the most recent run of that exact command failed.
+  const unresolvedFailures = [...commandOutcomes.values()]
+    .filter((entry) => entry.last.fail)
+    .sort((left, right) => String(right.last.ts || "").localeCompare(String(left.last.ts || "")))
+    .slice(0, 5)
+    .map((entry) => ({
+      cmd: entry.last.cmd,
+      ts: entry.last.ts,
+      sid: entry.last.sid,
+      failCount: entry.failCount,
+      ...(entry.last.exit !== undefined ? { exit: entry.last.exit } : {}),
+      ...(entry.last.err ? { err: entry.last.err } : {}),
+    }));
+
   return {
     hotFiles,
     recentCommands: commands.slice(-5),
+    unresolvedFailures,
     lastEventAt,
     sessionCount: sessions.size,
     eventCount: events.length,
   };
+}
+
+function renderFailureLine(item) {
+  const parts = [`\`${item.cmd}\``];
+  if (item.exit !== undefined) {
+    parts.push(`(exit ${item.exit})`);
+  }
+  if (item.failCount > 1) {
+    parts.push(`failed ${item.failCount}x`);
+  }
+  const head = parts.join(" ");
+  return item.err ? `${head} — ${item.err}` : head;
 }
 
 export async function loadContextSnapshot(root, options = {}) {
@@ -278,6 +337,13 @@ export function renderContextDigest(snapshot) {
     }
   }
 
+  if (summary.unresolvedFailures.length > 0) {
+    lines.push("", "### Commands that failed and were not retried successfully");
+    for (const item of summary.unresolvedFailures) {
+      lines.push(`- [${String(item.ts || "").slice(0, 10)}] ${renderFailureLine(item)}`);
+    }
+  }
+
   if (summary.recentCommands.length > 0) {
     lines.push("", "### Recent commands");
     for (const command of summary.recentCommands) {
@@ -310,6 +376,7 @@ export async function contextStatus(root) {
     last_event_at: snapshot.summary.lastEventAt,
     event_log_bytes: eventLogBytes,
     hot_files: snapshot.summary.hotFiles,
+    unresolved_failures: snapshot.summary.unresolvedFailures,
   };
 }
 
@@ -430,7 +497,21 @@ export function matchSnapshotToPrompt(snapshot, prompt) {
   }
   files.sort((left, right) => right.score - left.score);
 
-  return { notes: notes.slice(0, 5), summaries: sessionSummaries.slice(0, 3), files: files.slice(0, 8) };
+  const failures = [];
+  for (const item of snapshot.summary.unresolvedFailures || []) {
+    const { count, matched } = overlap(promptTokens, tokenizeForMatch(`${item.cmd} ${item.err || ""}`));
+    if (count >= 2 || matched.some((token) => token.length >= 8)) {
+      failures.push({ key: `fail:${item.cmd}`, failure: item, score: count });
+    }
+  }
+  failures.sort((left, right) => right.score - left.score);
+
+  return {
+    notes: notes.slice(0, 5),
+    summaries: sessionSummaries.slice(0, 3),
+    files: files.slice(0, 8),
+    failures: failures.slice(0, 3),
+  };
 }
 
 async function readInjectionLedger(root) {
@@ -460,10 +541,17 @@ async function writeInjectionLedger(root, ledger) {
 
 export function renderMatchDigest(matches) {
   const summaries = matches.summaries || [];
-  if (matches.notes.length === 0 && matches.files.length === 0 && summaries.length === 0) {
+  const failures = matches.failures || [];
+  if (matches.notes.length === 0 && matches.files.length === 0 && summaries.length === 0 && failures.length === 0) {
     return "";
   }
   const lines = ["## Agentify context (relevant to this task)"];
+  if (failures.length > 0) {
+    lines.push("", "### Related commands that previously failed (avoid repeating as-is)");
+    for (const item of failures) {
+      lines.push(`- [${String(item.failure.ts || "").slice(0, 10)}] ${renderFailureLine(item.failure)}`);
+    }
+  }
   if (summaries.length > 0) {
     lines.push("", "### Related past sessions");
     for (const item of summaries) {
@@ -496,13 +584,15 @@ export async function matchContext(root, prompt, options = {}) {
   const freshNotes = matches.notes.filter((item) => !seen.has(item.key));
   const freshSummaries = (matches.summaries || []).filter((item) => !seen.has(item.key));
   const freshFiles = matches.files.filter((item) => !seen.has(item.key));
+  const freshFailures = (matches.failures || []).filter((item) => !seen.has(item.key));
 
-  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0)) {
+  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0 || freshFailures.length > 0)) {
     ledger[sid] = [
       ...seen,
       ...freshNotes.map((item) => item.key),
       ...freshSummaries.map((item) => item.key),
       ...freshFiles.map((item) => item.key),
+      ...freshFailures.map((item) => item.key),
     ];
     await writeInjectionLedger(root, ledger);
   }
@@ -511,10 +601,64 @@ export async function matchContext(root, prompt, options = {}) {
     notes: freshNotes,
     summaries: freshSummaries,
     files: freshFiles,
+    failures: freshFailures,
     suppressed_as_seen: (matches.notes.length - freshNotes.length)
       + ((matches.summaries || []).length - freshSummaries.length)
-      + (matches.files.length - freshFiles.length),
+      + (matches.files.length - freshFiles.length)
+      + ((matches.failures || []).length - freshFailures.length),
   };
+}
+
+export async function precheckCommand(root, payload, options = {}) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (String(payload.tool_name || "") !== "Bash") {
+    return null;
+  }
+  const toolInput = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input : {};
+  if (!toolInput.command) {
+    return null;
+  }
+  const normalized = clip(toolInput.command);
+  const sid = shortSessionId(payload.session_id);
+
+  const paths = resolveContextPaths(root);
+  const events = await readJsonLines(paths.eventsPath);
+  let last = null;
+  for (const event of events) {
+    if (event?.type === "cmd" && event.cmd === normalized) {
+      last = event;
+    }
+  }
+  // Only warn when the most recent run of this exact command failed, and it
+  // happened in a different session — the agent already saw same-session failures.
+  if (!last?.fail || last.sid === sid) {
+    return null;
+  }
+
+  const key = `precheck:${normalized}`;
+  if (options.recordInjection !== false) {
+    const ledger = await readInjectionLedger(root);
+    const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
+    if (seen.has(key)) {
+      return null;
+    }
+    ledger[sid] = [...seen, key];
+    await writeInjectionLedger(root, ledger);
+  }
+
+  return { command: normalized, event: last };
+}
+
+export function renderPrecheckWarning(warning) {
+  if (!warning?.event) {
+    return "";
+  }
+  const when = String(warning.event.ts || "").slice(0, 10);
+  const detail = warning.event.err ? `: ${warning.event.err}` : "";
+  const exit = warning.event.exit !== undefined ? ` (exit ${warning.event.exit})` : "";
+  return `Agentify: this exact command failed in a previous session (${when})${exit}${detail}. If the underlying cause was not fixed since, try a different approach instead of retrying it as-is.`;
 }
 
 const SUMMARY_MIN_EVENTS = 3;

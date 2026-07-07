@@ -25,16 +25,17 @@ Think of it like [`rtk`](https://github.com/rtk-ai/rtk): a tool you install into
 agentify install
   |-- CLAUDE.md             <- managed guidance block: how the agent should use agentify
   |-- .claude/settings.json <- Claude Code hooks:
-  |     SessionStart -> agentify ctx load   (inject context digest)
-  |     PostToolUse  -> agentify ctx track  (record edits + commands)
-  |     SessionEnd   -> agentify ctx track  (close out the session)
+  |     SessionStart -> agentify ctx load     (inject context digest)
+  |     PreToolUse   -> agentify ctx precheck (warn before repeating a failed command)
+  |     PostToolUse  -> agentify ctx track    (record edits + commands + failures)
+  |     SessionEnd   -> agentify ctx track    (close out the session)
   `-- .agentify/            <- lightweight JSONL context store + optional repo index
 ```
 
 Every session after that:
 
 1. **Session starts** -> the hook injects a digest: recent notes, hot files, last activity.
-2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB).
+2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB). Command failures are remembered: if the agent is about to rerun a command that failed in an earlier session and was never fixed, a warning is injected before it runs — no more rediscovering the same dead end every session.
 3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`.
 4. **Session ends** -> a fast model compresses the session into a ~3-line handoff, stored for future sessions (`agentify ctx handoff` for explicit ones).
 
@@ -102,6 +103,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify status` | Integration + context-tracking status |
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
 | `agentify ctx note "<text>"` | Record a note for future sessions |
+| `agentify ctx precheck "<cmd>"` | Check whether a command failed in an earlier session (automatic via PreToolUse hook) |
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
 | `agentify ctx summarize` | ~3-line model-written session summary (automatic on session end) |
 | `agentify ctx share [--off]` | Make notes committable team memory |

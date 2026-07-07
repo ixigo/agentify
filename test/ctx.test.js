@@ -329,3 +329,145 @@ test("shared-notes gitignore mode toggles and survives baseline rewrites", async
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("buildEventFromHookPayload marks failed Bash commands with fail, exit, and err", () => {
+  const failed = buildEventFromHookPayload("/repo", {
+    session_id: "s1",
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "pnpm test" },
+    tool_response: { exit_code: 1, stderr: "2 tests failed: retry.test.ts" },
+  });
+  assert.equal(failed.fail, true);
+  assert.equal(failed.exit, 1);
+  assert.match(failed.err, /retry\.test\.ts/);
+
+  const viaSuccessFlag = buildEventFromHookPayload("/repo", {
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "make build" },
+    tool_response: { success: false, error: "missing target" },
+  });
+  assert.equal(viaSuccessFlag.fail, true);
+  assert.match(viaSuccessFlag.err, /missing target/);
+
+  const succeeded = buildEventFromHookPayload("/repo", {
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "pnpm test" },
+    tool_response: { exit_code: 0, stdout: "ok" },
+  });
+  assert.equal(succeeded.fail, undefined);
+
+  // No response at all (older hook payloads) — still tracked, just no failure info.
+  const noResponse = buildEventFromHookPayload("/repo", {
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls" },
+  });
+  assert.equal(noResponse.fail, undefined);
+});
+
+test("digest surfaces unresolved failures; a later success clears them", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-fail-"));
+  try {
+    const bash = (command, toolResponse, session = "s1") => trackEvent(dir, {
+      session_id: session,
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_response: toolResponse,
+    });
+
+    await bash("pnpm test", { exit_code: 1, stderr: "FAIL retry.test.ts" });
+    await bash("make deploy", { exit_code: 2, stderr: "no credentials" });
+
+    let snapshot = await loadContextSnapshot(dir);
+    assert.equal(snapshot.summary.unresolvedFailures.length, 2);
+    let digest = renderContextDigest(snapshot);
+    assert.match(digest, /failed and were not retried successfully/);
+    assert.match(digest, /pnpm test/);
+
+    // Retry succeeds -> failure is resolved and drops out.
+    await bash("pnpm test", { exit_code: 0, stdout: "all green" });
+    snapshot = await loadContextSnapshot(dir);
+    assert.deepEqual(snapshot.summary.unresolvedFailures.map((item) => item.cmd), ["make deploy"]);
+
+    const status = await contextStatus(dir);
+    assert.equal(status.unresolved_failures.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("matchContext surfaces related past failures", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-failmatch-"));
+  try {
+    await trackEvent(dir, {
+      session_id: "s1",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "docker compose up payment-gateway" },
+      tool_response: { exit_code: 125, stderr: "port 8443 already allocated" },
+    });
+    const matches = await matchContext(dir, "start the payment gateway with docker compose", { sessionId: "s2" });
+    assert.equal(matches.failures.length, 1);
+    assert.match(matches.failures[0].failure.cmd, /payment-gateway/);
+
+    const { renderMatchDigest } = await import("../src/core/ctx.js");
+    const digest = renderMatchDigest(matches);
+    assert.match(digest, /previously failed/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("precheckCommand warns on cross-session repeats only, and dedupes per session", async () => {
+  const { precheckCommand, renderPrecheckWarning } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-precheck-"));
+  try {
+    await trackEvent(dir, {
+      session_id: "old-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "terraform apply" },
+      tool_response: { exit_code: 1, stderr: "state lock held" },
+    });
+
+    const payload = (session) => ({
+      session_id: session,
+      tool_name: "Bash",
+      tool_input: { command: "terraform apply" },
+    });
+
+    // Same session that saw the failure: no warning.
+    assert.equal(await precheckCommand(dir, payload("old-session")), null);
+
+    // New session: warned once, then deduped.
+    const warning = await precheckCommand(dir, payload("new-session"));
+    assert.ok(warning);
+    assert.match(renderPrecheckWarning(warning), /failed in a previous session/);
+    assert.match(renderPrecheckWarning(warning), /state lock held/);
+    assert.equal(await precheckCommand(dir, payload("new-session")), null);
+
+    // Unknown command: no warning.
+    assert.equal(await precheckCommand(dir, {
+      session_id: "new-session",
+      tool_name: "Bash",
+      tool_input: { command: "echo hello" },
+    }), null);
+
+    // After the command later succeeds, no more warnings anywhere.
+    await trackEvent(dir, {
+      session_id: "old-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "terraform apply" },
+      tool_response: { exit_code: 0 },
+    });
+    assert.equal(await precheckCommand(dir, payload("third-session")), null);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

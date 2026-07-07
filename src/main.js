@@ -23,9 +23,11 @@ import {
   matchContext,
   normalizeInjectionMode,
   pauseContext,
+  precheckCommand,
   readHookPayload,
   renderContextDigest,
   renderMatchDigest,
+  renderPrecheckWarning,
   resumeContext,
   summarizeSession,
   trackEvent,
@@ -243,6 +245,20 @@ async function runCtxHook(action, root) {
       if (digest) {
         process.stdout.write(`${digest}\n`);
       }
+      return;
+    }
+
+    if (action === "precheck") {
+      const warning = await precheckCommand(root, payload);
+      if (warning) {
+        // PreToolUse hooks inject via structured JSON; plain stdout is ignored.
+        process.stdout.write(`${JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            additionalContext: renderPrecheckWarning(warning),
+          },
+        })}\n`);
+      }
     }
   } catch {
     // Swallow all hook errors: a broken hook must not block the agent.
@@ -297,6 +313,28 @@ async function runCtxCommand(root, config, args, subcommand) {
         console.log(JSON.stringify({ command: "ctx match", ...matches }, null, 2));
       } else {
         log(renderMatchDigest(matches) || "No related context found.");
+      }
+      return;
+    }
+
+    case "precheck": {
+      if (isHookMode) {
+        await runCtxHook("precheck", root);
+        return;
+      }
+      const command = getPromptFromArgs(args, 2);
+      if (!command) {
+        throw new Error('ctx precheck requires a command: agentify ctx precheck "<command>"');
+      }
+      const warning = await precheckCommand(root, {
+        tool_name: "Bash",
+        tool_input: { command },
+        session_id: args.session,
+      }, { recordInjection: false });
+      if (config.json) {
+        console.log(JSON.stringify({ command: "ctx precheck", warning }, null, 2));
+      } else {
+        log(warning ? renderPrecheckWarning(warning) : "No prior failure recorded for this command.");
       }
       return;
     }
@@ -434,7 +472,7 @@ async function runCtxCommand(root, config, args, subcommand) {
     }
 
     default:
-      throw new Error("ctx requires a subcommand: track, note, load, match, status, summarize, share, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, load, match, precheck, status, summarize, share, handoff, pause, resume, or clear");
   }
 }
 
@@ -574,7 +612,7 @@ export async function runCli(argv, runtime = {}) {
 
   // Hook-invoked ctx commands run before config loading so they stay fast and
   // never fail, even outside an initialized repo.
-  if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load" || subcommand === "match")) {
+  if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load" || subcommand === "match" || subcommand === "precheck")) {
     await runCtxHook(subcommand, root);
     return;
   }
