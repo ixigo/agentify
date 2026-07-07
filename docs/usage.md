@@ -4,9 +4,17 @@ Agentify is installed once per repo (or once globally) and is then driven by you
 
 ## Install
 
-```bash
-npm install -g agentify   # or: pnpm add -g agentify
+Agentify is installed straight from GitHub:
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
+```
+
+The installer checks Node.js 20+ and git, runs `npm install -g` against the GitHub repo, and verifies the CLI. Equivalent manual command: `npm install -g github:ixigo/agentify`. Pin a ref with `AGENTIFY_REF=<branch|tag|sha>`.
+
+Then wire up your repo:
+
+```bash
 cd /path/to/your/repo
 agentify install
 ```

@@ -136,7 +136,7 @@
     <div class="cta">
       <a class="btn primary" href="#quick-start">Quick start</a>
       <a class="btn" href="https://github.com/ixigo/agentify">GitHub</a>
-      <a class="btn" href="https://www.npmjs.com/package/agentify">npm</a>
+      <a class="btn" href="skill-catalog.html">Skill catalog</a>
     </div>
   </header>
 
@@ -162,8 +162,9 @@
 
   <section id="quick-start">
     <h2>Quick start</h2>
-    <pre class="code"><code><span class="comment"># install the CLI</span>
-npm install -g agentify
+    <pre class="code"><code><span class="comment"># install the CLI straight from GitHub</span>
+curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
+<span class="comment"># (equivalent: npm install -g github:ixigo/agentify)</span>
 
 <span class="comment"># wire up a repo (CLAUDE.md + Claude Code hooks)</span>
 cd /path/to/your/repo
@@ -265,7 +266,7 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
       <tr><td><code>agentify query …</code></td><td>owner, deps, changed, search, def, refs, callers, impacts</td></tr>
       <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>
       <tr><td><code>agentify up</code> / <code>agentify check</code></td><td>Refresh the index / validate freshness</td></tr>
-      <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills</td></tr>
+      <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills (<a href="skill-catalog.html">browse the catalog</a>, <a href="pages/skill.html">command reference</a>)</td></tr>
       <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan)</td></tr>
       <tr><td><code>agentify doctor</code> / <code>clean</code> / <code>completion</code></td><td>Toolchain readiness, artifact pruning, shell completion</td></tr>
     </table>
@@ -282,7 +283,7 @@ Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent even
   </section>
 
   <footer>
-    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="https://www.npmjs.com/package/agentify">npm</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
+    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/skill.html">Skill command</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Usage guide</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
   </footer>
 </main>
 </body>

@@ -42,9 +42,29 @@ No daemon, no database server, no per-command wrapping. Context tracking is plai
 
 ## Quick start
 
-```bash
-npm install -g agentify   # or: pnpm add -g agentify
+Agentify installs straight from GitHub (no npm registry release needed):
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
+```
+
+<details>
+<summary>Other install methods</summary>
+
+```bash
+# npm can install directly from git
+npm install -g github:ixigo/agentify
+
+# or clone + link for development
+git clone https://github.com/ixigo/agentify.git && cd agentify
+pnpm install && pnpm link --global
+```
+
+Pin a branch, tag, or commit with the installer: `AGENTIFY_REF=v0.3.0 bash install.sh`.
+
+</details>
+
+```bash
 cd /path/to/your/repo
 agentify install          # wire up this repo (CLAUDE.md + Claude Code hooks)
 
