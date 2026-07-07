@@ -13,637 +13,121 @@
 [![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
 [![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-> **Turn any Git repo into an AI-agent-ready workspace.**
+> **Install once. Your coding agent uses it automatically.**
 
-Agentify indexes your codebase, writes agent-facing context, validates repo state, and wraps provider CLIs (Codex, Claude, Gemini, OpenCode) so AI coding agents start with rich context and leave the repo refreshed.
+Agentify gives AI coding agents lightweight, persistent context. You run `agentify install` once per repo; from then on **the agent drives Agentify, not you**. Claude Code hooks track what the agent touches, `CLAUDE.md` guidance teaches it to record notes and query the repo index, and every new session starts with a digest of what happened before.
 
-> [!WARNING]
-> Agentify is under active development. Test on a sandbox repo before running it on production code.
+Think of it like [`rtk`](https://github.com/rtk-ai/rtk): a tool you install into a project that wires itself into your agent's configuration and then stays out of your way.
 
----
+## How it works
 
-## 🚀 Quick Start
-
-Pick your path. **Skip the section that doesn't apply to you.**
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### 👤 [For Humans](#-for-humans)
-
-You'll install and run Agentify yourself.
-
-**Best when:** you want full control, are exploring features, or are setting up a long-lived workflow.
-
-</td>
-<td width="50%" valign="top">
-
-### 🤖 [For Agents](#-for-agents)
-
-Paste a single prompt to your AI assistant — it handles install, bootstrap, and verification.
-
-**Best when:** you want zero-touch setup. Hand the work to Claude/Codex/Gemini and review the result.
-
-</td>
-</tr>
-</table>
-
----
-
-## 👤 For Humans
-
-<details >
-<summary><b>1. Prerequisites</b></summary>
-
-| Tool | Version | Required |
-| --- | --- | --- |
-| Node.js | 20+ | ✅ |
-| pnpm | latest | ✅ |
-| Git | any recent | ✅ |
-| Provider CLI | `codex` / `claude` / `gemini` / `opencode` | optional, only for provider-backed runs |
-
-</details>
-
-<details >
-<summary><b>2. Install Agentify</b></summary>
-
-```bash
-git clone https://github.com/ixigo/agentify.git
-cd agentify
-pnpm install
-pnpm link --global
-agentify --version
+```
+agentify install
+  |-- CLAUDE.md             <- managed guidance block: how the agent should use agentify
+  |-- .claude/settings.json <- Claude Code hooks:
+  |     SessionStart -> agentify ctx load   (inject context digest)
+  |     PostToolUse  -> agentify ctx track  (record edits + commands)
+  |     SessionEnd   -> agentify ctx track  (close out the session)
+  `-- .agentify/            <- lightweight JSONL context store + optional repo index
 ```
 
-</details>
+Every session after that:
 
-<details >
-<summary><b>3. Bootstrap a target repo</b></summary>
+1. **Session starts** -> the hook injects a digest: recent notes, hot files, last activity.
+2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB).
+3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`.
+4. **Session ends** -> tracked automatically; `agentify ctx handoff` writes a summary when wrapping up long work.
+
+No daemon, no database server, no per-command wrapping. Context tracking is plain JSONL under `.agentify/context/`.
+
+## Quick start
 
 ```bash
+npm install -g agentify   # or: pnpm add -g agentify
+
 cd /path/to/your/repo
-git rev-parse --is-inside-work-tree   # confirm you're inside a Git repo
-agentify doctor                        # check pnpm, provider CLI, and toolchain readiness
+agentify install          # wire up this repo (CLAUDE.md + Claude Code hooks)
+
+# optional: build the structural index for query/risk commands
+agentify scan
 ```
 
-**macOS — fastest path:**
+Prefer a single global setup instead of per-repo files?
 
 ```bash
-agentify this --provider codex
-agentify up
-agentify check
+agentify install --global   # writes ~/.claude/CLAUDE.md + ~/.claude/settings.json
 ```
 
-**Linux / CI / pre-provisioned machines:**
+Check or undo at any time:
 
 ```bash
-agentify init --provider codex
-agentify up
-agentify check
+agentify status
+agentify uninstall            # removes only Agentify's managed block and hooks
 ```
 
-</details>
+Both install and uninstall are surgical: they only touch content between `<!-- agentify:begin -->` / `<!-- agentify:end -->` markers and hook entries whose command starts with `agentify ctx`. Your own CLAUDE.md content and hooks are preserved.
 
-<details>
-<summary><b>4. Run a task</b></summary>
+## Commands
 
-```bash
-# Bounded one-shot
-agentify run --provider codex "add tests for the checkout retry logic"
-
-# After first provider-backed run, provider is remembered
-agentify run "implement the retry backoff"
-agentify check
-
-# Long workstream with durable session memory
-agentify sess run --provider codex --name "checkout-retries"
-agentify sess resume --session <session-id> "finish the implementation"
-agentify handoff --session <session-id> "handoff for the next agent"
-```
-
-</details>
-
-<details>
-<summary><b>5. Optional: install skills</b></summary>
-
-Skills are opt-in. Install only if you need them:
-
-```bash
-agentify skill install all --provider codex --scope project
-agentify skill install caveman --provider codex --scope project   # terse output mode
-agentify skill install glab-autopilot --provider codex --scope project
-agentify skill install gitlab-triage --provider codex --scope project
-agentify skill install ado-autopilot --provider codex --scope project
-agentify skill install figma-ui-build --provider codex --scope project
-agentify skill install ui-screenshot-eval --provider codex --scope project
-```
-
-GitLab skills require the GitLab CLI: `glab auth status` and `glab repo view`
-should succeed in the target repository before the skill mutates issues or
-merge requests.
-Azure DevOps skills use Azure CLI plus the Azure DevOps extension. Verify with `az extension show --name azure-devops`, `az account show`, and `az devops configure --list`.
-UI screenshot eval uses Playwright from the target frontend repo and stores before/after artifacts under `.agentify/ui-eval/`.
-Figma UI build uses a user-provided Figma node picture plus cached node metadata in `.figma-ui-build/`, recommends local component matches, and then uses `ui-screenshot-eval` for the visual validation loop.
-
-</details>
-
----
-
-## 🤖 For Agents
-
-> **Copy the block below and paste it to your AI agent (Claude, Codex, Gemini, OpenCode).** The agent will install Agentify, bootstrap the current repo, and verify the result without further input.
-
-````markdown
-You are setting up Agentify in the user's current Git repository.
-
-## Goal
-Install the Agentify CLI (if missing), bootstrap this repo, run the validation
-pipeline, and report a one-line status. Stop and ask the user before any
-destructive action.
-
-## Pre-flight
-1. Confirm we are inside a Git work tree:
-   `git rev-parse --is-inside-work-tree`
-   If not a Git repo, ask the user to run `git init` first. Do not init silently.
-2. Confirm Node.js >= 20 (`node -v`) and pnpm is available (`pnpm -v`).
-   If pnpm is missing, install it via `npm i -g pnpm` only after confirming with the user.
-
-## Install Agentify (skip if `agentify --version` works)
-```bash
-git clone https://github.com/ixigo/agentify.git ~/.agentify-cli
-cd ~/.agentify-cli && pnpm install && pnpm link --global
-agentify --version
-```
-
-## Bootstrap the target repo
-Run from the *target repo*, not from the Agentify checkout.
-
-```bash
-cd <target-repo>
-agentify doctor
-
-# macOS:
-agentify this --provider codex
-# OR (Linux / CI / already provisioned):
-# agentify init --provider codex
-
-agentify up
-agentify check
-```
-
-## Defaults & rules
-- Default provider: `codex`. If the user mentions Claude / Gemini / OpenCode,
-  swap `--provider` accordingly.
-- Do **not** install skills unless the user explicitly asks.
-- Do **not** modify `.gitignore`, `.agentignore`, or `.guardrails` outside of
-  what `agentify init`/`agentify this` produces.
-- If `agentify check` fails, surface the failure verbatim and stop.
-
-## Report
-Reply with: provider used, files created/modified (from `git status`), and
-the result of `agentify check` (pass/fail + first failing line if any).
-````
-
-That's it. The agent will leave the repo with `.agentify.yaml`, `.agentignore`, `.guardrails`, an updated `.gitignore`, an `AGENTIFY.md`, and a populated `.agentify/` index.
-
----
-
-## 🧠 What Agentify Creates
-
-```text
-.agentify.yaml              # repo policy (committed)
-.agentignore                # paths agentify ignores (committed)
-.guardrails                 # safety rules for agents (committed)
-.gitignore                  # managed block added (committed)
-AGENTIFY.md                 # agent-facing repo overview (generated, gitignored)
-docs/repo-map.md            # routing map (generated, gitignored)
-<module>/AGENTIFY.md        # per-module context (generated, gitignored)
-.agentify/index.db            # SQLite repo index (gitignored)
-.agentify/runs/, .agentify/session/   # run + session state (gitignored)
-.agentify/work/             # scratch / staging inside runtime root (gitignored)
-```
-
-Commit `.agentify.yaml`, `.agentignore`, `.guardrails`, and the managed `.gitignore` block. Everything under `.agentify/` is local runtime.
-
----
-
-## 📚 Useful Commands
-
-`agentify doctor` is read-only and reports `pnpm`, external provider binaries/auth, analysis tool capability tier, optional memory tooling, and semantic health when requested.
-
-| Goal | Command |
+| Command | What it does |
 | --- | --- |
-| Check readiness | `agentify doctor` |
-| Bootstrap (macOS) | `agentify this --provider codex` |
-| Bootstrap (manual) | `agentify init --provider codex` |
-| Build repository index | `agentify index` |
-| Refresh index + checks + tests | `agentify up` |
-| Validate repo state | `agentify check` |
-| Hook-friendly validate | `agentify check --hook` |
-| Preview task context | `agentify plan "your task"` |
-| Search indexed context | `agentify query search --term auth` |
-| Search routed context | `agentify context search auth` |
-| Find symbol references | `agentify query refs --symbol useAuth` |
-| Open provider with context | `agentify run` |
-| Resume last provider session | `agentify run --resume` |
-| Run a bounded task | `agentify run "your task"` |
-| Use RTK output compression guidance | `agentify run --rtk "your task"` |
-| Create an AFK implementation plan | `agentify afk create "your task"` |
-| Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
-| Use Git worktrees with shared Agentify artifacts | [Worktree guide](#using-agentify-with-git-worktrees-worktrunk-tmux-and-codex) |
-| Routed retrieval mode | `agentify run --context-mode routed "your task"` |
-| Inject selected context | `agentify run --with-context "your task"` |
-| Start a durable session | `agentify sess run --name "<stream>"` |
-| Cross-agent handoff | `agentify handoff --session <id> "next task"` |
-| Install built-in skills | `agentify skill install all --provider codex --scope project` |
-| Install GitLab issue/MR skill | `agentify skill install glab-autopilot --provider codex --scope project` |
-| Sync repo files after upgrade | `agentify sync` |
+| `agentify install [--global]` | Wire Agentify into the repo (or `~/.claude`) |
+| `agentify uninstall [--global]` | Remove the managed block and hooks |
+| `agentify status` | Integration + context-tracking status |
+| `agentify ctx load` | Digest of recent activity, notes, hot files |
+| `agentify ctx note "<text>"` | Record a note for future sessions |
+| `agentify ctx handoff ["task"]` | Write a handoff summary |
+| `agentify ctx status` | Event/note counts and log size |
+| `agentify scan` | Build the SQLite structural index |
+| `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
+| `agentify risk --since <ref>` | Blast radius + suggested regression tests |
+| `agentify up` | scan -> check |
+| `agentify check` | Validate index freshness and generated artifacts |
+| `agentify skill list|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
+| `agentify hooks install|remove|status` | Optional git hooks (pre-commit check, post-merge rescan) |
+| `agentify doctor` | Toolchain and provider CLI readiness |
+| `agentify clean` | Prune stale generated artifacts |
+| `agentify completion zsh|bash|fish` | Shell completion |
 
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default. Provider-backed `run`, `sess`, and doc-generation subprocesses are sanitized too. Generic commands supplied after `--` get runtime essentials but no provider credentials unless they are explicitly opted in with `providerEnv.*`. Configure `tests.env.*` or `providerEnv.*` in `.agentify.yaml` when a command needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment).
+All commands accept `--json` for machine-readable output — which is how agents are expected to call them.
 
----
+## What the agent sees
 
-## 🛣️ Routed Context Mode
+At session start (via the `SessionStart` hook):
 
-Agentify cannot delete tokens from a provider context that is already running. **Routed mode prevents bloat before launch:** `plan`, `run --with-context`, and `sess *` send a bounded prompt with ranked summaries, file slices, related tests, and session memory instead of dumping the whole repo.
+```markdown
+## Agentify context (from previous sessions)
+Last tracked activity: 2026-07-07T07:37:01Z across 3 session(s), 214 recent event(s).
 
-```bash
-agentify plan "add analytics tests"
-agentify context search analytics
-agentify context fetch src/analytics/report.ts --symbol buildReport
-agentify context fetch src/analytics/report.ts --lines 20:60
-agentify sess resume --session <id> "write tests from the prepared compacted context"
+### Notes left for this session
+- [2026-07-05] payment retries: idempotency key lives in src/pay/retry.ts, do not regenerate per attempt
+
+### Recently edited files
+- src/pay/retry.ts (14 edits)
+- src/pay/retry.test.ts (9 edits)
+
+### Recent commands
+- Run tests: `npm test -- retry`
 ```
 
-`AGENTIFY.md`, `docs/repo-map.md`, module docs, and `context.json` are summaries and routing metadata. Treat `agentify context fetch ...` and selected file slices in a plan as exact code.
+## Requirements
 
-Reported `prompt_bytes` and `session_context_bytes` are UTF-8 byte estimates for Agentify-managed material — **not** a provider token count or a guarantee about live provider context size.
+- Node.js 20+
+- Git
+- Claude Code for the automatic hook integration (other agents can still call `agentify ctx` / `query` / `risk` directly)
 
-Routed artifacts are local/generated under `.agentify/`, `AGENTIFY.md`, `docs/repo-map.md`, and `docs/modules/`. Agentify sanitizes test, provider, and generic wrapped-command subprocess envs by default. **Agentify is not a secret redactor** — keep secrets out of the repo, add paths to `.agentignore`, and only opt variables into `tests.env.*` / `providerEnv.*` when needed.
-
----
-
-## Using Agentify with Git worktrees, Worktrunk, tmux, and Codex
-
-Use shared runtime mode when a repo is set up for parallel AI work. The current worktree keeps active sessions, scratch files, and temporary state local; expensive repo-level artifacts move to a shared project store so a new branch or tmux pane does not rebuild the same index from scratch.
-
-### Recommended Setup
-
-```bash
-wt switch my-task
-agentify link --auto
-agentify up
-codex
-```
-
-`wt switch my-task` creates or opens the task worktree. `agentify link --auto` writes `<worktree>/.agentify/link.json` so this worktree points at the shared Agentify project store for the same Git repository. `agentify up` refreshes the shared artifacts and leaves branch-local runtime state in the current worktree.
-
-### Config Setup
-
-Commit this in `.agentify.yaml` for repos where shared worktree reuse should be the normal setup:
-
-```yaml
-runtime:
-  store: shared
-  worktreeAutoLink: true
-```
-
-Use `shared` for repositories that are routinely opened in multiple Git worktrees, Worktrunk tasks, or tmux panes. Use `local` when every checkout should keep an independent `.agentify/` runtime. Use `auto` when you want Agentify to prefer shared mode in Git worktrees while keeping simple single-checkout repos local.
-
-### What Is Shared Vs. Local
-
-| Artifact | Location in Local Mode | Location in Shared Mode | Rationale |
-|---|---|---|---|
-| `index.db` | `.agentify/index.db` | `<projectStore>/index.db` | Expensive repo-level artifact |
-| `cache/` | `.agentify/cache/` | `<projectStore>/cache/` | Reusable generated data |
-| `semantic/` | `.agentify/semantic/` | `<projectStore>/semantic/` | Reusable repo-level facts |
-| `context/` | `.agentify/context/` | `<projectStore>/context/` | Reusable context cache, if metadata-valid |
-| `repo-map/` | `.agentify/repo-map/` | `<projectStore>/repo-map/` | Expensive and repo-level |
-| `embeddings/` | `.agentify/embeddings/` | `<projectStore>/embeddings/` | Expensive and reusable |
-| `runs/` | `.agentify/runs/` | `<worktree>/.agentify/runs/` | Active execution state |
-| `session/` | `.agentify/session/` | `<worktree>/.agentify/session/` | Branch/task-specific |
-| `work/` | `.agentify/work/` | `<worktree>/.agentify/work/` | Scratch state |
-| `tmp/` | `.agentify/tmp/` | `<worktree>/.agentify/tmp/` | Process-local temp data |
-| `link.json` | N/A | `<worktree>/.agentify/link.json` | Worktree attachment metadata |
-| `store.json` | N/A | `<projectStore>/store.json` | Shared store metadata |
-| `index.meta.json` | `.agentify/index.meta.json` | `<projectStore>/index.meta.json` | Index freshness metadata |
-
-### Troubleshooting
-
-**Cache not reused**
-
-Run:
-
-```bash
-agentify link --status
-agentify cache status
-```
-
-The most common causes are a dirty working tree, an index schema mismatch, or a changed `HEAD`/tree compared with the shared `index.meta.json`. Run `agentify up` after resolving local changes or after upgrading Agentify.
-
-**Link invalid or corrupt**
-
-Inspect the status first:
-
-```bash
-agentify link --status
-```
-
-If the link points at the wrong store or cannot be parsed, remove only the pointer and re-link:
-
-```bash
-rm .agentify/link.json
-agentify link --auto
-```
-
-**Store stale**
-
-Refresh the shared artifacts from the current worktree:
-
-```bash
-agentify up
-```
-
-For cache cleanup, dry-run first and target the shared store explicitly:
-
-```bash
-agentify cache clean --shared --dry-run
-agentify cache clean --shared --yes
-```
-
-**Worktree belongs to another repo**
-
-This means the existing link metadata was created for a different Git common directory. Use it as a safety signal: verify you are in the intended checkout, then recreate the link from this worktree.
-
-```bash
-agentify link --status
-rm .agentify/link.json
-agentify link --auto
-```
-
-**Reset shared store**
-
-Prefer targeted cache cleanup:
-
-```bash
-agentify cache clean --shared --dry-run
-agentify cache clean --shared --yes
-agentify up
-```
-
-If the shared store itself must be removed, find the `Project store` with `agentify link --status`, close other agents using the same repo, delete that project-store directory manually, then run `agentify link --auto` and `agentify up` again.
-
-### Migration From Manual Symlink Workaround
-
-If `.agentify` is a symlink, do not run `rm -rf .agentify`; that can remove the symlink target. Use this sequence from the worktree:
-
-```bash
-rm .agentify
-mkdir .agentify
-agentify link --auto
-agentify up
-```
-
-If `.agentify` is a real directory, move or back it up first when it contains session data you still need. `agentify link --auto` can migrate reusable shared artifacts, but branch-local `runs/`, `session/`, `work/`, and `tmp/` should stay local to the worktree.
-
-### Rollout Cheatsheet
-
-| Mode | Use When | Setup |
-| --- | --- | --- |
-| `local` | Single checkout, isolated experiment, or a repo where worktrees must not share generated artifacts | Keep `runtime.store: local` or omit `runtime` |
-| `shared` | Default for parallel AI work with Git worktrees, Worktrunk, tmux panes, or repeated Codex sessions on the same repo | Commit `runtime.store: shared` and run `agentify link --auto` |
-| `auto` | Mixed repos where worktrees should share but ordinary single-checkout use should stay simple | Commit `runtime.store: auto` with `worktreeAutoLink: true` |
-
----
-
-## 🗿 Caveman Mode
-
-Terse provider answers for lower output-token spend, technical details preserved.
-
-```bash
-# As a skill
-agentify skill install caveman --provider codex --scope project
-
-# Per-run
-agentify run --caveman=ultra "summarize the risky auth paths"
-AGENTIFY_CAVEMAN=full agentify run "map the checkout module"
-```
-
-Levels: `lite`, `full`, `ultra`, `wenyan`, `wenyan-lite`, `wenyan-full`, `wenyan-ultra`. Commit messages, PR descriptions, code, and safety-critical confirmations stay normal prose. Adapted from MIT-licensed [caveman](https://github.com/JuliusBrussee/caveman).
-
----
-
-| Goal | Command |
-| --- | --- |
-| Check local readiness | `agentify doctor` |
-| Set up the current repo on macOS | `agentify this --provider codex` |
-| Set up manually | `agentify init --provider codex` |
-| Build the repository index only | `agentify index` |
-| Refresh index, checks, and detected tests | `agentify up` |
-| Validate repo state | `agentify check` |
-| Validate after intentional source edits | `agentify check --hook` |
-| Preview rich task context | `agentify plan "your task"` |
-| Search indexed repo context | `agentify query search --term auth` |
-| Search routed context | `agentify context search auth` |
-| Navigate semantic TS/JS facts | `agentify query refs --symbol useAuth` |
-| Open provider with context | `agentify run` |
-| Continue previous provider conversation | `agentify run --resume` |
-| Run a bounded task | `agentify run "your task"` |
-| Create an AFK implementation plan | `agentify afk create "your task"` |
-| Run an AFK plan in a fresh worktree | `agentify afk run .agentify/planned/<slug>.md` |
-| Use Git worktrees with shared Agentify artifacts | [Worktree guide](#using-agentify-with-git-worktrees-worktrunk-tmux-and-codex) |
-| Run with routed retrieval | `agentify run --context-mode routed "your task"` |
-| Run with Agentify-selected context injected | `agentify run --with-context "your task"` |
-| Start durable multi-run work | `agentify sess run --name "<stream>"` |
-| Write a cross-agent handoff bundle | `agentify handoff --session <id> "next task"` |
-| Install optional built-in skills into the repo | `agentify skill install all --provider codex --scope project` |
-| Update Agentify-owned repo files after upgrading the CLI | `agentify sync` |
-| Generate shell completion | `agentify completion zsh` |
-
-### Shell Completion
-
-`agentify completion <zsh|bash|fish>` prints a completion script for commands, flags, providers, skills, sessions, and paths. It is print-only: Agentify does not edit `~/.zshrc`, `~/.bashrc`, fish config, or completion directories automatically.
-
-```bash
-# zsh or bash, current shell only
-source <(agentify completion zsh)
-source <(agentify completion bash)
-
-# fish, current shell only
-agentify completion fish | source
-```
-
-For persistent setup, save the generated script into your shell's completion location. For example, zsh can load an `_agentify` file from a directory on `fpath`, and fish can load `~/.config/fish/completions/agentify.fish`.
-
-For persistent zsh completion:
-
-```bash
-mkdir -p ~/.zsh/completions
-agentify completion zsh > ~/.zsh/completions/_agentify
-```
-
-Then add the completion directory before `compinit` in `~/.zshrc`:
-
-```bash
-fpath=(~/.zsh/completions $fpath)
-autoload -Uz compinit && compinit
-```
-
-Reload zsh and verify tab completion:
-
-```bash
-source ~/.zshrc
-agentify <TAB>
-agentify completion <TAB>
-agentify run --provider <TAB>
-```
-
-If you are testing from this checkout and `agentify` is not on your `PATH`, use `source <(node src/cli.js completion zsh)` for the current shell.
-
-Dynamic completions use the current repo. Providers and installed skills appear when configured, sessions appear after Agentify has session state, and paths come from the shell's working directory.
-
-> **Note** — `agentify up` runs the repo's detected test command in a **sanitized environment** by default and enforces `tests.timeoutMs` to avoid hanging indefinitely. Agentify detects common JavaScript/TypeScript, Python, Go, Rust, .NET, Java/Kotlin, and Swift test commands; if a non-JS stack is detected but no runnable test command is known, the test phase reports `unsupported` instead of silently skipping. The host shell's environment is not forwarded wholesale to test, provider, or generic wrapped-command subprocesses; configure `tests.env.*` / `providerEnv.*` in `.agentify.yaml` if a subprocess needs specific variables. See [docs/DETAILED_README.md](./docs/DETAILED_README.md#project-test-environment) for the allowlist and override schema.
-
-## 📖 CLI Reference
-
-<details>
-<summary><b>Commands</b></summary>
-
-| Command | Description |
-| --- | --- |
-| `init` | Create baseline Agentify artifacts |
-| `link` | Link this git worktree to a shared Agentify project store (`--auto`, `--from`, `--status`) |
-| `worktree` | Worktree helpers: `attach` (alias for `link --auto`) and `status` |
-| `index` | Build the SQLite repository index |
-| `scan` | Alias for `index` |
-| `doc` | Generate docs, metadata, key-file headers |
-| `up` | scan → optional doc → check → test pipeline |
-| `sync` | Upgrade repo-owned Agentify files, then refresh |
-| `check` | Validate freshness, schemas, safety rules |
-| `plan` | Preview planner-selected context for a task |
-| `context` | Search, fetch, compact, and inspect routed context |
-| `run` | Run provider with auto-refresh |
-| `afk` | Create and run fresh-session autonomous plans |
-| `exec` | Advanced wrapper for custom agent commands |
-| `handoff` | Write cross-agent handoff bundle for a session |
-| `this` | Bootstrap macOS repo for provider-backed workflow |
-| `query` | Query the repo index (owner, deps, changed, def, refs, callers, impacts) |
-| `risk` | Score PR blast radius, recommend regression tests |
-| `skill` | Manage built-in agent skills |
-| `sess` | Manage provider-backed sessions |
-| `memory` | Manage agent memory helpers |
-| `issue-killer` | Launch labelled GitHub issues into supervised tmux worktrees |
-| `hooks` | Install/remove git hooks |
-| `doctor` | Setup readiness + provider CLI health + capability tier |
-| `semantic` | Refresh semantic TS/JS facts |
-| `clean` | Prune stale generated artifacts |
-| `cache` | Manage the content cache |
-| `completion` | Generate shell completion scripts and dynamic values |
-
-</details>
-
-<details>
-<summary><b>Options</b></summary>
-
-| Option | Description |
-| --- | --- |
-| `--provider <local\|codex\|claude\|gemini\|opencode>` | Choose provider. `skill install` also accepts comma lists and `all`. |
-| `--strict <true\|false>` | Fail closed on validation issues |
-| `--shared-store` | With `init`, use the default shared worktree store and auto-link this checkout |
-| `--languages <auto\|ts\|python\|go\|rust\|dotnet\|java\|kotlin\|swift>` | Override language detection |
-| `--dry-run` | Report planned changes without writing |
-| `--docs` | Generate docs during refresh (on by default; `--docs=false` to skip) |
-| `--headers` | Apply `@agentify` headers to source files (off by default) |
-| `--semantic` | Detailed semantic diagnostics with doctor |
-| `--provider-timeout-ms <ms>` | Fail provider doc calls after N ms |
-| `--ghost` | Route outputs to `.current_session/` |
-| `--json` | Machine-readable JSON output only |
-| `--explain` | Include planner score breakdowns for plan output |
-| `--interactive`, `-i` | Force interactive mode (template providers default to interactive for `run`/`sess`) |
-| `--continue` | Resume the provider's most recent session for `run`; omitted means a fresh provider task |
-| `--resume` | Alias for `run --continue`; with `session`/`sess`, resume Agentify session context |
-| `--rtk` | Opt into RTK command-output compression guidance for provider prompts and test wrapping for `up` |
-| `--context-mode <compact|routed>` | Use compact prompts or routed bounded retrieval prompts. `direct` is accepted as an alias for `compact`. |
-| `--with-context` | Inject planner-selected files, tests, and memory into `run` |
-| `--bypass-permissions` | Explicitly enable `issue-killer` YOLO mode. Permission bypass is off by default. |
-| `--explain-plan` | Print planner output before executing `run` |
-| `--current-worktree` | Run AFK execution in the current checkout instead of an isolated worktree |
-| `--allow-dirty` | Allow AFK current-worktree execution with local changes |
-| `--no-commit` | Do not auto-commit successful AFK worktree changes |
-| `--cleanup <keep\|delete\|ask>` | Choose AFK plan cleanup after `afk run` |
-| `--planned` | Prune AFK planned artifacts with `clean` |
-| `--sessions` | Prune AFK session artifacts with `clean` |
-| `--all` | Include optional cleanup groups |
-| `--caveman[=level]` | Terse output (`lite`, `full`, `ultra`, `wenyan*`) |
-| `--root <path>` | Target repo root (default: cwd) |
-| `--scope <project\|user>` | Skill install scope |
-| `--hook` | Hook-friendly validation: skip source body diffing |
-
-</details>
-
-<details>
-<summary><b>Exec flags</b></summary>
-
-| Flag | Description |
-| --- | --- |
-| `--fail-on-stale` | Exit 80 if validation fails post-refresh |
-| `--timeout <seconds>` | Kill wrapped command after N seconds |
-| `--skip-refresh` | Skip post-command refresh |
-
-</details>
-
----
-
-## 🧩 Optional Accelerators
-
-- **RTK** — optional command-output compression for long test, lint, git, gh, package-manager, container, cloud, and log commands during AI-assisted workflows. Agentify does not vendor RTK or modify global RTK/Codex config. Install RTK separately, verify the correct binary with `rtk gain`, then opt in per invocation with `--rtk` or via `.agentify.yaml`:
-
-```bash
-brew install rtk
-# or: cargo install --git https://github.com/rtk-ai/rtk
-
-rtk --version
-rtk gain
-
-agentify doctor
-agentify run --provider codex --rtk "fix noisy checkout tests"
-agentify sess run --provider codex --rtk --name checkout-tests "continue the test fix"
-agentify up --rtk
-```
-
-```yaml
-toolchain:
-  rtk:
-    enabled: true
-    command: rtk
-    providerInstruction: true
-    wrapProjectTests: true
-```
-
-Set `AGENTIFY_RTK_CMD=/absolute/path/to/rtk` for custom installs. Codex support is prompt guidance only; use `rtk <command>` for large shell output and `rtk proxy <command>` when raw output is required.
-
-- **MemPalace** — local AI memory backend that mines `agentify sess` transcripts and surfaces relevant prior context on recall. Install: `pipx install mempalace` (Python 3.9+). Keep `mempalace` on `PATH` or set `AGENTIFY_MEMPALACE_CMD`. Setup: [docs/usage.md § 6](./docs/usage.md).
-
----
-
-## 📚 Learn More
-
-- [docs/DETAILED_README.md](./docs/DETAILED_README.md) — full command guide, provider behavior, semantic indexing, sessions, generated artifacts, dev notes
-- [docs/usage.md](./docs/usage.md) — step-by-step Codex-oriented operating guide
-- [docs/ADVANCED_ONBOARDING.md](./docs/ADVANCED_ONBOARDING.md) — team rollout patterns
-- [docs/LLM_PROMPT.md](./docs/LLM_PROMPT.md) — single-file instruction prompt for any AI coding agent
-- [docs/QNA.md](./docs/QNA.md) — common questions
-
----
-
-## 🛠️ Development
+## Development
 
 ```bash
 git clone https://github.com/ixigo/agentify.git
 cd agentify
 pnpm install
-pnpm test
+node --test
+pnpm link --global   # for local CLI testing
 ```
 
-License: [MIT](./LICENSE)
+More detail in [docs/usage.md](./docs/usage.md). Agent-facing setup prompt in [docs/LLM_PROMPT.md](./docs/LLM_PROMPT.md).
+
+## License
+
+MIT
