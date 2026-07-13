@@ -6,6 +6,7 @@ import { buildRiskReport } from "./risk.js";
 import { closeIndexDatabase, openIndexDatabase } from "./db/connection.js";
 import { loadCommands, loadFiles, loadModules, loadTests } from "./db/structural-store.js";
 import { resolveAgentifyPaths } from "./project-store.js";
+import { recordValueEvent } from "./value-telemetry.js";
 
 const TEST_SCHEMA_VERSION = "test-select-v1";
 
@@ -173,6 +174,7 @@ export async function buildTestSelection(root, options = {}) {
     since: options.since || null,
     changed_file_count: report.changed_files.length,
     impacted_file_count: report.impacted.files.length,
+    indexed_test_count: tests.length,
     selected_tests: selectedTests,
     run_groups: runGroups,
     risk: report.risk,
@@ -182,6 +184,7 @@ export async function buildTestSelection(root, options = {}) {
 
 export async function runTestSelection(root, selection, options = {}) {
   const spawnImpl = options.spawnImpl || spawn;
+  const startedAt = Date.now();
   const results = [];
   for (const group of selection.run_groups) {
     if (!group.command) {
@@ -199,10 +202,29 @@ export async function runTestSelection(root, selection, options = {}) {
     });
     results.push({ module_id: group.module_id, command_line: group.command_line, exit_code: exitCode });
   }
-  return {
+  const outcome = {
     results,
     passed: results.every((item) => item.skipped || item.exit_code === 0),
   };
+  const ranGroups = results.filter((item) => !item.skipped).length;
+  if (options.recordValue !== false && ranGroups > 0) {
+    try {
+      const selectedFiles = selection.selected_tests?.length || 0;
+      const indexedFiles = Number(selection.indexed_test_count) || selectedFiles;
+      await recordValueEvent(root, {
+        type: "focused_test_run",
+        selected_test_files: selectedFiles,
+        indexed_test_files: indexedFiles,
+        full_suite_files_avoided: Math.max(0, indexedFiles - selectedFiles),
+        run_groups: ranGroups,
+        passed: outcome.passed,
+        duration_ms: Date.now() - startedAt,
+      });
+    } catch {
+      // Test execution results must not depend on value telemetry.
+    }
+  }
+  return outcome;
 }
 
 export function renderTestSelection(selection) {

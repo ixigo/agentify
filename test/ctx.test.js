@@ -657,7 +657,7 @@ test("extractNotePathRefs finds repo-relative paths and ignores noise", async ()
   assert.deepEqual(extractNotePathRefs("https://example.com/a/b.html stays out"), []);
 });
 
-test("stale notes are flagged in digest and match; existing paths are not", async () => {
+test("stale notes are flagged in the full digest and rejected from task injection", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-stale-"));
   try {
     await fs.mkdir(path.join(dir, "src/pay"), { recursive: true });
@@ -679,7 +679,8 @@ test("stale notes are flagged in digest and match; existing paths are not", asyn
     const { matchContext, renderMatchDigest } = await import("../src/core/ctx.js");
     const matches = await matchContext(dir, "update the payment gateway config", { sessionId: "sx" });
     const rendered = renderMatchDigest(matches);
-    assert.match(rendered, /STALE\?/);
+    assert.equal(rendered, "");
+    assert.equal(matches.stale_rejected, 1);
 
     const status = await contextStatus(dir);
     assert.equal(status.stale_note_count, 1);

@@ -17,6 +17,7 @@ import {
   normalizeInjectionMode,
   pauseContext,
   precheckCommand,
+  recordContextDigestInjection,
   readHookPayload,
   renderContextDigest,
   renderMatchDigest,
@@ -68,6 +69,7 @@ export async function runCtxHook(action, root) {
       if (mode === "digest") {
         const digest = renderContextDigest(snapshot);
         if (digest) {
+          await recordContextDigestInjection(root, snapshot, digest, { sessionId: payload?.session_id });
           process.stdout.write(`${digest}\n`);
         }
         return;
@@ -197,6 +199,7 @@ export async function runCtxCommand(root, config, args, subcommand) {
         console.log(JSON.stringify({ command: "ctx load", ...snapshot }, null, 2));
       } else {
         const digest = renderContextDigest(snapshot);
+        await recordContextDigestInjection(root, snapshot, digest, { sessionId: args.session });
         log(digest || "No tracked context yet. Context accrues automatically once `agentify install` hooks are active.");
       }
       return;
