@@ -77,6 +77,20 @@ const COMMANDS = [
     ],
   }),
   command("models", "Show the model routing table"),
+  command("eval", "Paired Agentify vs plain-Claude benchmarks", {
+    subcommands: [
+      subcommand("init", "Create a sample eval task manifest"),
+      subcommand("run", "Run a paired eval task", {
+        flags: [
+          flag("--repeat", { valueKind: "number", description: "Attempts per arm" }),
+          flag("--arms", { valueKind: "text", description: "Comma-separated arms (agentify, plain-safe, plain-project)" }),
+          flag("--resume", { valueKind: "text", description: "Resume a run id, executing only missing attempts" }),
+          flag("--keep-workspaces", { description: "Keep disposable clone workspaces for inspection" }),
+        ],
+      }),
+      subcommand("list", "List eval tasks and past runs"),
+    ],
+  }),
   command("workflow", "Prebuilt platform workflows", {
     aliases: ["workflows"],
     subcommands: [

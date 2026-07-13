@@ -114,6 +114,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
 | `agentify models` | Model routing table + provider availability |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
+| `agentify eval init\|run\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading |
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
@@ -172,6 +173,23 @@ Defaults use version-independent Claude aliases and the Codex CLI's configured d
 Want a second vendor's eyes on every push? Enable the opt-in pre-push hook (`hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`): each `git push` triggers `agentify review --push` — an independent review of the outgoing commits by the other vendor's model. Advisory only; it never blocks the push.
 
 Every delegation is logged locally with duration, token usage, and cost (real numbers where the provider CLI reports them, ~4 chars/token estimates otherwise). `agentify stats` breaks it down by kind and model — so you can see what routing cheap work to cheap models is actually saving.
+
+## Paired evaluation: does Agentify actually help?
+
+Cost only means something next to task success. `agentify eval` runs the same task, prompt, pinned Claude model, and budget through paired arms and grades each attempt with deterministic checks — so you can see whether Agentify's context raises pass rate or lowers cost per pass versus plain Claude:
+
+- **`agentify`** — normal integration: hooks, guidance block, seeded context.
+- **`plain-safe`** — `claude --safe-mode`: a vanilla-Claude baseline with no CLAUDE.md, hooks, skills, or MCP.
+- **`plain-project`** — only Agentify's managed CLAUDE.md/settings blocks removed; unrelated project guidance kept.
+
+```bash
+agentify eval init my-task          # commit-pinned manifest in evals/my-task.yaml
+agentify eval run my-task --dry-run # exact arm commands + maximum possible spend, no provider call
+agentify eval run my-task --repeat 3
+agentify eval list                  # tasks and past runs with per-arm pass rates
+```
+
+Every attempt runs in a disposable clone at the manifest's immutable `base_ref` — never in your checkout — with a hard per-attempt budget/turn/timeout ceiling, so a run can never spend more than `arms × repeats × cap`. Pass/fail comes from the manifest's `grader.commands` and `forbidden_paths`, never from the provider exit code. Artifacts (patch, provider output, per-attempt grades) land under `.agentify/evals/runs/`, spend is recorded toward the same rolling budget caps as delegations, and interrupted runs resume with `--resume <run-id>` re-executing only missing attempts.
 
 ## Platform workflows
 

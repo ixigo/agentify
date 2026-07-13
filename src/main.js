@@ -35,6 +35,7 @@ import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
+import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
 import { runClean } from "./core/cleanup.js";
@@ -480,6 +481,100 @@ export async function runCli(argv, _runtime = {}) {
           }
         }
         return;
+      }
+
+      case "eval": {
+        if (subcommand === "init") {
+          const result = await initEvalTask(root, args._[2] || "sample", config, { dryRun: config.dryRun });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            success(`Eval task ${config.dryRun ? "dry-run" : "created"}: ${path.relative(root, result.path)}`);
+            log(`Edit the prompt, grader commands, and budgets, then preview with ${dim(`agentify eval run ${result.task.id} --dry-run`)}.`);
+          }
+          return;
+        }
+
+        if (subcommand === "run") {
+          const taskRef = args._[2];
+          // --resume reconstructs everything from the stored run; no task
+          // argument is needed (or used).
+          if (!taskRef && !hasOwn(args, "resume")) {
+            throw new Error('eval run requires a task: agentify eval run <task-id-or-path> [--repeat N] [--dry-run], or agentify eval run --resume <run-id>');
+          }
+          const result = await runEval(root, config, taskRef, {
+            repeat: hasOwn(args, "repeat") ? args.repeat : undefined,
+            arms: hasOwn(args, "arms") ? String(args.arms) : undefined,
+            dryRun: config.dryRun === true,
+            resume: hasOwn(args, "resume") ? String(args.resume) : undefined,
+            keepWorkspaces: args.keepWorkspaces === true,
+          });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          if (result.dry_run) {
+            log(`Eval dry-run for ${bold(result.task_id)} @ ${result.base_sha.slice(0, 12)} — no provider call was made.`);
+            log(`Model ${bold(result.model)}, profile ${result.profile}, arms ${result.arms.join(" vs ")}, repeat ${result.repeat}.`);
+            log(`Per-attempt ceiling: $${result.limits.max_budget_usd} / ${result.limits.max_turns} turns / ${result.limits.timeout_seconds}s.`);
+            log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)} (${result.attempts.length} attempt(s) × per-run cap).`);
+            log("");
+            for (const attempt of result.attempts) {
+              log(`${bold(attempt.attempt_id.padEnd(18))} ${dim(attempt.argv.map((part) => (part.length > 60 ? `${part.slice(0, 57)}...` : part)).join(" "))}`);
+            }
+            return;
+          }
+          log(`Eval run ${bold(result.run_id)} — task ${result.task_id} @ ${result.base_sha.slice(0, 12)}, model ${result.model}.`);
+          if (result.budget_warning) {
+            log(dim(`budget warning: ${result.budget_warning}`));
+          }
+          if (result.version_warning) {
+            log(dim(`version warning: ${result.version_warning}`));
+          }
+          log("");
+          for (const [arm, bucket] of Object.entries(result.summary.by_arm)) {
+            const passRate = bucket.pass_rate === null ? "n/a" : `${Math.round(bucket.pass_rate * 100)}%`;
+            const cost = bucket.costed_attempts > 0 ? `$${bucket.cost_usd.toFixed(4)}` : "cost n/a";
+            const costPerPass = bucket.cost_per_pass_usd !== null ? `, $${bucket.cost_per_pass_usd.toFixed(4)}/pass` : "";
+            log(`${bold(arm.padEnd(14))} ${bucket.passes}/${bucket.attempts} passed (${passRate}), ${cost}${costPerPass}`);
+          }
+          log("");
+          log(dim(`Artifacts: ${result.artifacts_root} (patches, provider output, per-attempt grades)`));
+          return;
+        }
+
+        if (!subcommand || subcommand === "list") {
+          const result = await listEvals(root, config);
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          if (result.tasks.length === 0) {
+            log("No eval tasks found. Create one with `agentify eval init <name>`.");
+          } else {
+            log(bold("Tasks:"));
+            for (const task of result.tasks) {
+              if (task.invalid) {
+                log(`- ${task.path}: invalid (${task.error})`);
+              } else {
+                log(`- ${bold(task.id)} ${dim(`${task.model}, ${task.arms.join(" vs ")}, $${task.max_budget_usd}/attempt`)}${task.description ? ` — ${task.description}` : ""}`);
+              }
+            }
+          }
+          if (result.runs.length > 0) {
+            log("");
+            log(bold("Runs:"));
+            for (const run of result.runs.slice(0, 10)) {
+              const armBits = Object.entries(run.summary.by_arm)
+                .map(([arm, bucket]) => `${arm} ${bucket.passes}/${bucket.attempts}`)
+                .join(", ");
+              log(`- ${bold(run.run_id)} ${run.task_id} (${run.attempts_completed}/${run.attempts_planned} attempts) ${dim(armBits)}`);
+            }
+          }
+          return;
+        }
+
+        throw new Error("eval requires a subcommand: init, run, or list");
       }
 
       case "risk": {
