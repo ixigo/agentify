@@ -7,6 +7,18 @@ import { promisify } from "node:util";
 
 import { checkRollingBudget, describeBudgetSource, resolveBudgetPolicy, resolveRouteLimits } from "./budget.js";
 import { getChangedFilesSince } from "./git.js";
+import {
+  ROUTE_POLICY_VERSION,
+  buildFallbackChain,
+  classifyTaskIntent,
+  isAliasModel,
+  loadRouteEvidence,
+  resolveProfileDefinitions,
+  resolveProfileSelection,
+  resolveRouteTier,
+  selectFromChain,
+  selectTier,
+} from "./profiles.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,10 +81,10 @@ export const DEFAULT_MODEL_ROUTES = {
   },
 };
 
-const FALLBACKS = {
-  claude: { provider: "codex", model: null },
-  codex: { provider: "claude", model: "opus" },
-};
+// Cross-vendor fallback is tier-equivalent and profile-bounded (see
+// profiles.js): a missing provider falls back to the OTHER vendor's model at
+// the same capability tier instead of a hard-coded model. This is what stops
+// a missing Codex from silently becoming Claude opus (issue #295).
 
 export function resolveModelRoutes(config = {}) {
   const configured = config.models?.routes && typeof config.models.routes === "object"
@@ -127,16 +139,153 @@ export async function detectDelegateProviders(runtime = {}) {
   return { claude, codex };
 }
 
-export function pickRouteTarget(route, availability) {
-  const provider = route.provider;
-  if (availability[provider]) {
-    return { provider, model: route.model ?? null, fallback: false };
+export function pickRouteTarget(route, availability, { kind, profileName = "balanced", config = {} } = {}) {
+  const chain = buildFallbackChain({ kind, route, profileName, config });
+  const target = selectFromChain(chain, availability);
+  if (!target) {
+    return null;
   }
-  const fallback = FALLBACKS[provider];
-  if (fallback && availability[fallback.provider]) {
-    return { provider: fallback.provider, model: fallback.model, fallback: true };
+  return { provider: target.provider, model: target.model, fallback: target.fallback };
+}
+
+// Resolve the full routing decision for one delegate run: governing profile,
+// capability tier (evidence-adjusted, never past hard ceilings), fallback
+// chain, limits, and alias-drift status. Deterministic for a fixed
+// config/evidence, and returned verbatim by `route explain` / `--dry-run`.
+export async function resolveRoutePolicy(root, config, kindInput, options = {}) {
+  const routes = resolveModelRoutes(config);
+  const kind = normalizeRouteKind(kindInput, routes);
+  const requestedRoute = routes[kind];
+  const route = { ...requestedRoute };
+
+  const profileSelection = resolveProfileSelection(config, options, options.env || process.env);
+  const definitions = resolveProfileDefinitions(config);
+  const definition = definitions[profileSelection.name];
+
+  const explicitOverride = options.provider !== undefined
+    || (options.model !== undefined && options.model !== null);
+  if (options.provider) {
+    route.provider = String(options.provider);
+    route.model = options.model ?? null;
   }
-  return null;
+  if (options.model !== undefined && options.model !== null) {
+    route.model = String(options.model);
+  }
+
+  const evidence = options.evidence !== undefined ? options.evidence : await loadRouteEvidence(root);
+  let tierDecision;
+  if (explicitOverride) {
+    // Explicit --provider/--model wins over every profile: the profile still
+    // governs budgets/telemetry, but tier selection is skipped entirely.
+    const tier = resolveRouteTier(kind, route);
+    tierDecision = {
+      base_tier: tier,
+      selected: { provider: route.provider, model: route.model ?? null, tier, reason: "explicit_override" },
+      considered: [],
+    };
+  } else {
+    tierDecision = selectTier({ kind, route, profileName: profileSelection.name, definition, evidence, config });
+  }
+  const selected = tierDecision.selected;
+
+  const chain = buildFallbackChain({
+    kind,
+    route: { ...route, provider: selected.provider, model: selected.model },
+    tier: selected.tier,
+    profileName: profileSelection.name,
+    config,
+  });
+
+  return {
+    policy_version: ROUTE_POLICY_VERSION,
+    profile: {
+      name: profileSelection.name,
+      source: profileSelection.source,
+      objective: definition.objective,
+      quality_floor: definition.qualityFloor,
+      max_tier_raise: definition.maxTierRaise,
+    },
+    kind,
+    requested: {
+      provider: requestedRoute.provider,
+      model: requestedRoute.model ?? null,
+      tier: resolveRouteTier(kind, requestedRoute),
+    },
+    selected: {
+      provider: selected.provider,
+      model: selected.model ?? null,
+      tier: selected.tier,
+      reason: selected.reason,
+    },
+    explicit_override: explicitOverride,
+    alias_drift: {
+      // Aliases (or a null CLI-default model) can change behavior across
+      // provider releases without a config change; pin full model IDs in
+      // governed profiles to silence this.
+      requested_is_alias: isAliasModel(requestedRoute.provider, requestedRoute.model),
+      selected_is_alias: isAliasModel(selected.provider, selected.model),
+    },
+    fallback_chain: chain,
+    evidence_summary: {
+      source: evidence?.source ?? null,
+      runs_scanned: evidence?.runs_scanned ?? 0,
+      considered: tierDecision.considered.map((candidate) => ({
+        provider: candidate.provider,
+        model: candidate.model ?? null,
+        tier: candidate.tier,
+        role: candidate.role,
+        evidence: candidate.evidence,
+      })),
+    },
+  };
+}
+
+// Dry-run routing explanation for `agentify route explain` and
+// `delegate --dry-run`: everything the policy would do, no provider spawned.
+export async function explainRoute(root, config, task, options = {}) {
+  const routes = resolveModelRoutes(config);
+  let kind = options.kind ? normalizeRouteKind(options.kind, routes) : null;
+  let intent = null;
+  if (!kind) {
+    intent = classifyTaskIntent(task);
+    kind = intent.kind;
+  }
+  const policy = await resolveRoutePolicy(root, config, kind, options);
+  const budgetPolicy = resolveBudgetPolicy(config);
+  const rolling = await checkRollingBudget(root, budgetPolicy);
+  const cliOverrides = {
+    maxBudgetUsd: options.maxBudgetUsd,
+    maxTurns: options.maxTurns,
+    effort: options.effort,
+  };
+  const limits = resolveRouteLimits({ ...routes[kind], model: policy.selected.model, provider: policy.selected.provider }, cliOverrides);
+  const availability = await detectDelegateProviders(options.runtime || {});
+  const target = selectFromChain(policy.fallback_chain, availability);
+  return {
+    command: "route",
+    task: task || null,
+    intent,
+    signals: {
+      write: options.write === true,
+      intent: intent ? intent.kind : kind,
+      intent_source: intent ? intent.matched_rule : "explicit_kind",
+      diff_ref: options.diffRef || null,
+      remaining_budget_usd: rolling.remaining_usd,
+      evidence_runs: policy.evidence_summary.runs_scanned,
+    },
+    policy,
+    limits: {
+      max_budget_usd: limits.maxBudgetUsd,
+      max_turns: limits.maxTurns,
+      timeout_seconds: limits.timeoutSeconds,
+      effort: limits.effort,
+    },
+    budget_source: describeBudgetSource(kind, config, cliOverrides),
+    providers: availability,
+    resolves_to: target
+      ? { provider: target.provider, model: target.model, tier: target.tier, fallback: target.fallback, fallback_reason: target.fallback_reason }
+      : null,
+  };
 }
 
 // Which of the configured ceilings the selected provider CLI can enforce
@@ -375,18 +524,24 @@ async function recordDelegationSafe(root, record) {
 export async function runDelegate(root, config, kindInput, task, options = {}) {
   const routes = resolveModelRoutes(config);
   const kind = normalizeRouteKind(kindInput, routes);
+
+  // Dry run: return the full routing explanation without starting a provider
+  // process or recording spend.
+  if (options.dryRun === true) {
+    const explained = await explainRoute(root, config, task, { ...options, kind });
+    return { ...explained, command: "delegate", dry_run: true };
+  }
+
+  // The route carries the hard ceilings; tier/model selection below never
+  // changes them. A profile chooses how to operate inside the envelope.
   const route = { ...routes[kind] };
-  if (options.provider) {
-    route.provider = String(options.provider);
-    route.model = options.model ?? null;
-  }
-  if (options.model !== undefined && options.model !== null) {
-    route.model = String(options.model);
-  }
+  const routePolicy = await resolveRoutePolicy(root, config, kind, options);
+  route.provider = routePolicy.selected.provider;
+  route.model = routePolicy.selected.model;
 
   // Validate budgets before anything else: an invalid ceiling must fail
   // before a provider process can start. CLI flags override the route; a
-  // manual provider/model override never drops the ceiling.
+  // manual provider/model/profile override never drops the ceiling.
   const policy = resolveBudgetPolicy(config);
   const cliOverrides = {
     maxBudgetUsd: options.maxBudgetUsd,
@@ -397,7 +552,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   const budgetSource = describeBudgetSource(kind, config, cliOverrides);
 
   const availability = await detectDelegateProviders(options.runtime || {});
-  const target = pickRouteTarget(route, availability);
+  const target = selectFromChain(routePolicy.fallback_chain, availability);
   if (!target) {
     throw new Error(
       `No available CLI for delegate kind "${kind}" (wanted ${route.provider}${route.model ? `/${route.model}` : ""}). Install the claude or codex CLI, or override the route in .agentify.yaml under models.routes.`,
@@ -409,6 +564,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   }
 
   const runId = options.runId || randomUUID();
+  const explicitProfile = options.profile ?? (options.env || process.env)?.AGENTIFY_PROFILE ?? null;
   const baseRecord = {
     schema: DELEGATION_SCHEMA_VERSION,
     run_id: runId,
@@ -418,15 +574,20 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     requested_provider: route.provider,
     requested_model: route.model ?? null,
     used_fallback: target.fallback,
-    fallback_reason: target.fallback ? "provider_unavailable" : null,
+    fallback_reason: target.fallback ? target.fallback_reason : null,
     write: options.write === true,
     budget_limit: limits.maxBudgetUsd,
     max_turns: limits.maxTurns,
     budget_source: budgetSource,
-    // Reserved for the profile contract (#295): recorded now so the schema is
-    // stable before profiles exist.
-    requested_profile: options.profile ?? null,
-    resolved_profile: options.profile ?? null,
+    // Profile contract (#295): requested is what the user explicitly asked
+    // for this run (CLI/env), resolved is the profile that actually governed
+    // routing after full precedence.
+    requested_profile: explicitProfile ? String(explicitProfile).trim().toLowerCase() : null,
+    resolved_profile: routePolicy.profile.name,
+    profile_source: routePolicy.profile.source,
+    policy_version: routePolicy.policy_version,
+    capability_tier: target.tier,
+    tier_reason: routePolicy.selected.reason,
   };
 
   // Rolling caps count spend already recorded locally; at the cap, block mode
@@ -572,6 +733,12 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     model: target.model,
     resolved_model: usage?.resolved_model ?? null,
     used_fallback: target.fallback,
+    fallback_reason: target.fallback ? target.fallback_reason : null,
+    profile: routePolicy.profile.name,
+    profile_source: routePolicy.profile.source,
+    policy_version: routePolicy.policy_version,
+    capability_tier: target.tier,
+    tier_reason: routePolicy.selected.reason,
     write: options.write === true,
     diff_ref: options.diffRef || null,
     status,
@@ -628,20 +795,34 @@ function runProviderProcess(command, args, { cwd, timeoutMs }) {
   });
 }
 
-export async function describeModelRoutes(config, runtime = {}) {
+export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const routes = resolveModelRoutes(config);
   const policy = resolveBudgetPolicy(config);
+  const profileSelection = resolveProfileSelection(config, options, options.env || process.env);
+  const definitions = resolveProfileDefinitions(config);
+  const definition = definitions[profileSelection.name];
   const availability = await detectDelegateProviders(runtime);
   const entries = Object.entries(routes).map(([kind, route]) => {
-    const target = pickRouteTarget(route, availability);
+    const chain = buildFallbackChain({ kind, route, profileName: profileSelection.name, config });
+    const target = selectFromChain(chain, availability);
     const limits = resolveRouteLimits(route);
     return {
       kind,
       provider: route.provider,
       model: route.model ?? "(cli default)",
+      tier: resolveRouteTier(kind, route),
       use: route.use || "",
       available: Boolean(target),
       resolves_to: target ? `${target.provider}${target.model ? `/${target.model}` : ""}${target.fallback ? " (fallback)" : ""}` : "unavailable",
+      fallback_chain: chain.entries.map((entry) => ({
+        provider: entry.provider,
+        model: entry.model ?? "(cli default)",
+        tier: entry.tier,
+        reason: entry.reason,
+      })),
+      // Aliases resolve outside Agentify's control and can drift across
+      // provider releases; governed profiles should pin full model IDs.
+      model_is_alias: isAliasModel(route.provider, route.model),
       limits: {
         max_budget_usd: limits.maxBudgetUsd,
         max_turns: limits.maxTurns,
@@ -655,6 +836,17 @@ export async function describeModelRoutes(config, runtime = {}) {
     command: "models",
     providers: availability,
     budget: policy,
+    profile: {
+      name: profileSelection.name,
+      source: profileSelection.source,
+      objective: definition.objective,
+      quality_floor: definition.qualityFloor,
+      max_tier_raise: definition.maxTierRaise,
+      policy_version: ROUTE_POLICY_VERSION,
+    },
+    alias_drift_warning: entries.some((entry) => entry.model_is_alias)
+      ? "Some routes use version-independent aliases or the provider CLI default; the resolved model can change across provider releases. Pin full model IDs under models.routes to remove drift. Requested and resolved models are recorded separately per run."
+      : null,
     routes: entries,
   };
 }

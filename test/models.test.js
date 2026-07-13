@@ -49,21 +49,33 @@ test("normalizeRouteKind rejects unknown kinds", () => {
   assert.throws(() => normalizeRouteKind("bogus", routes), /Unknown delegate kind/);
 });
 
-test("pickRouteTarget uses the route provider and falls back across vendors", () => {
+test("pickRouteTarget uses the route provider and falls back tier-equivalently", () => {
   const route = { provider: "codex", model: null };
   assert.deepEqual(
     pickRouteTarget(route, { claude: true, codex: true }),
     { provider: "codex", model: null, fallback: false }
   );
+  // A missing Codex falls back to the SAME capability tier on Claude — the
+  // review route is balanced tier, so sonnet, never a silent opus upgrade.
+  assert.deepEqual(
+    pickRouteTarget(route, { claude: true, codex: false }, { kind: "review" }),
+    { provider: "claude", model: "sonnet", fallback: true }
+  );
+  // Without a kind, the tier defaults to balanced.
   assert.deepEqual(
     pickRouteTarget(route, { claude: true, codex: false }),
+    { provider: "claude", model: "sonnet", fallback: true }
+  );
+  // A frontier-tier route may fall back to opus — the tier earned it.
+  assert.deepEqual(
+    pickRouteTarget({ provider: "codex", model: null }, { claude: true, codex: false }, { kind: "heavy" }),
     { provider: "claude", model: "opus", fallback: true }
   );
   assert.equal(pickRouteTarget(route, { claude: false, codex: false }), null);
 
   const claudeRoute = { provider: "claude", model: "haiku" };
   assert.deepEqual(
-    pickRouteTarget(claudeRoute, { claude: false, codex: true }),
+    pickRouteTarget(claudeRoute, { claude: false, codex: true }, { kind: "quick" }),
     { provider: "codex", model: null, fallback: true }
   );
 });
@@ -166,9 +178,22 @@ test("describeModelRoutes reports availability, resolution, limits, and enforcem
   assert.equal(described.providers.codex, false);
   const review = described.routes.find((route) => route.kind === "review");
   assert.equal(review.available, true);
-  assert.match(review.resolves_to, /claude\/opus \(fallback\)/);
+  // Tier-equivalent fallback: review is balanced tier, so a missing Codex
+  // resolves to sonnet, not a silent opus cost-class upgrade.
+  assert.match(review.resolves_to, /claude\/sonnet \(fallback\)/);
+  assert.equal(review.tier, "balanced");
+  assert.deepEqual(review.fallback_chain.map((entry) => `${entry.provider}:${entry.model}:${entry.tier}`), [
+    "codex:(cli default):balanced",
+    "claude:sonnet:balanced",
+  ]);
   const quick = described.routes.find((route) => route.kind === "quick");
   assert.equal(quick.resolves_to, "claude/haiku");
+
+  // The governing profile and alias drift are part of the surface.
+  assert.equal(described.profile.name, "balanced");
+  assert.equal(described.profile.source, "default");
+  assert.ok(described.alias_drift_warning, "default alias routes carry a drift warning");
+  assert.equal(quick.model_is_alias, true);
 
   // Every default route carries a hard ceiling, and the display reports
   // whether the resolved provider can enforce it natively.
