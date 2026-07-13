@@ -48,3 +48,23 @@ test("redactSensitiveText tolerates non-string input", () => {
   assert.equal(redactSensitiveText(undefined), "");
   assert.equal(redactSensitiveText(42), "42");
 });
+
+test("redactSensitiveText masks URL credentials and HTTP auth schemes", () => {
+  assert.equal(
+    redactSensitiveText("DATABASE_URL is postgres://alice:hunter2@example.com/db"),
+    "DATABASE_URL is postgres://alice:[REDACTED]@example.com/db",
+  );
+  assert.equal(
+    redactSensitiveText("Authorization: Basic dXNlcjpwYXNzd29yZA=="),
+    "Authorization: Basic [REDACTED]",
+  );
+  assert.equal(
+    redactSensitiveText("proxy uses Digest abcdef1234567890"),
+    "proxy uses Digest [REDACTED]",
+  );
+  // URLs without credentials stay untouched.
+  assert.equal(
+    redactSensitiveText("fetch https://example.com/path?x=1"),
+    "fetch https://example.com/path?x=1",
+  );
+});
