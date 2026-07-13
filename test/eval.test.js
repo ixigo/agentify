@@ -332,14 +332,14 @@ test("failing grader and forbidden-path edits fail the attempt despite provider 
 });
 
 test("forbidden-path edits are caught even when .gitignore hides them", async () => {
-  const { dir } = await makeRepo({ gitignore: ".agentify/\n" });
+  const { dir } = await makeRepo({ gitignore: "secrets/\n" });
   // The fake writes into an ignored, forbidden directory and also does the
   // legitimate task.
-  const fake = await makeFakeClaude('mkdir -p .agentify/context && echo poisoned > .agentify/context/evil.txt && echo done > solution.txt');
+  const fake = await makeFakeClaude('mkdir -p secrets && echo poisoned > secrets/evil.txt && echo done > solution.txt');
   try {
     await writeTask(dir, baseTask({
       arms: ["agentify", "plain-safe"],
-      forbidden_paths: [".agentify/**"],
+      forbidden_paths: ["secrets/**"],
     }));
     const result = await runEval(dir, {}, "sample", { env: fake.env, runtime });
     for (const attempt of result.attempts) {
@@ -347,7 +347,31 @@ test("forbidden-path edits are caught even when .gitignore hides them", async ()
     }
     const runDir = path.join(dir, result.artifacts_root);
     const record = JSON.parse(await fs.readFile(path.join(runDir, "attempts", result.attempts[0].attempt_id, "result.json"), "utf8"));
-    assert.deepEqual(record.grade.forbidden_violations.map((violation) => violation.path), [".agentify/context/evil.txt"]);
+    assert.deepEqual(record.grade.forbidden_violations.map((violation) => violation.path), ["secrets/evil.txt"]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(fake.binDir, { recursive: true, force: true });
+  }
+});
+
+test("agentify-arm hook writes to .agentify are never graded as provider work", async () => {
+  const { dir } = await makeRepo({ gitignore: ".agentify/\n" });
+  // Simulate live context hooks appending telemetry mid-attempt alongside the
+  // real task work.
+  const fake = await makeFakeClaude('mkdir -p .agentify/context && echo "{}" >> .agentify/context/events.jsonl && echo done > solution.txt');
+  try {
+    await writeTask(dir, baseTask({
+      arms: ["agentify", "plain-safe"],
+      forbidden_paths: [".claude/**", "CLAUDE.md"],
+    }));
+    const result = await runEval(dir, {}, "sample", { env: fake.env, runtime });
+    const runDir = path.join(dir, result.artifacts_root);
+    for (const attempt of result.attempts) {
+      assert.equal(attempt.pass, true, `${attempt.attempt_id} must not fail on harness bookkeeping`);
+      const record = JSON.parse(await fs.readFile(path.join(runDir, "attempts", attempt.attempt_id, "result.json"), "utf8"));
+      assert.deepEqual(record.grade.changed_paths, ["solution.txt"]);
+      assert.deepEqual(record.grade.forbidden_violations, []);
+    }
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
     await fs.rm(fake.binDir, { recursive: true, force: true });
@@ -368,7 +392,9 @@ test("interrupted runs resume only the missing attempts", async () => {
     await fs.rm(path.join(runDir, "attempts", lostAttempt, "result.json"));
     await fs.rm(fake.logPath, { force: true });
 
-    const resumed = await runEval(dir, {}, "sample", { resume: first.run_id, env: fake.env, runtime });
+    // Resume needs no task argument: everything is reconstructed from the
+    // stored, validated run metadata.
+    const resumed = await runEval(dir, {}, undefined, { resume: first.run_id, env: fake.env, runtime });
     assert.equal(resumed.resumed, true);
     assert.equal(resumed.executed_attempts, 1);
     assert.equal(resumed.attempts.length, 4);
@@ -377,10 +403,10 @@ test("interrupted runs resume only the missing attempts", async () => {
 
     // Resume ids are strict single path components — no traversal, no lookup
     // of arbitrary names.
-    await assert.rejects(runEval(dir, {}, "sample", { resume: "nope", env: fake.env, runtime }), /Invalid eval run id/);
-    await assert.rejects(runEval(dir, {}, "sample", { resume: "../../escape", env: fake.env, runtime }), /Invalid eval run id/);
+    await assert.rejects(runEval(dir, {}, undefined, { resume: "nope", env: fake.env, runtime }), /Invalid eval run id/);
+    await assert.rejects(runEval(dir, {}, undefined, { resume: "../../escape", env: fake.env, runtime }), /Invalid eval run id/);
     await assert.rejects(
-      runEval(dir, {}, "sample", { resume: first.run_id.replace(/.$/, (c) => (c === "0" ? "1" : "0")), env: fake.env, runtime }),
+      runEval(dir, {}, undefined, { resume: first.run_id.replace(/.$/, (c) => (c === "0" ? "1" : "0")), env: fake.env, runtime }),
       /No eval run found to resume/,
     );
   } finally {

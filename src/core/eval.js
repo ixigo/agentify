@@ -216,7 +216,9 @@ export async function initEvalTask(root, name, config = {}, { dryRun = false } =
         "echo 'replace with deterministic checks (tests, linters, forbidden-change checks)' && exit 1",
       ],
     },
-    forbidden_paths: [".agentify/**", ".claude/**", "CLAUDE.md"],
+    // .agentify/** needs no entry here: the harness's own runtime store is
+    // always excluded from grading capture.
+    forbidden_paths: [".claude/**", "CLAUDE.md"],
     profile: "balanced",
     seed_context: true,
   };
@@ -462,6 +464,8 @@ async function stageAll(workspace, forbiddenPatterns = []) {
   // recursively.
   const output = await git(workspace, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]);
   const hidden = output.split("\0").filter(Boolean)
+    // .agentify/ is harness bookkeeping, excluded from grading entirely.
+    .filter((entry) => entry !== ".agentify/" && !entry.startsWith(".agentify/"))
     .filter((entry) => matchesForbiddenPath(entry, forbiddenPatterns).length > 0);
   for (let index = 0; index < hidden.length; index += 100) {
     await git(workspace, ["add", "-f", "--", ...hidden.slice(index, index + 100)]);
@@ -491,10 +495,15 @@ async function captureChanges(workspace, forbiddenPatterns) {
   // attempt. HEAD is the arm-setup commit, so the diff is exactly the
   // provider's work.
   await stageAll(workspace, forbiddenPatterns);
-  const patch = await git(workspace, ["diff", "--cached", "HEAD"]) || "";
+  // The workspace's .agentify/ runtime store is always excluded: in the
+  // agentify arm the live hooks write context events there by design, and
+  // grading harness bookkeeping as provider work would corrupt the paired
+  // comparison (and trip forbidden-path checks on the arm's own telemetry).
+  const pathspec = ["--", ".", ":(exclude).agentify"];
+  const patch = await git(workspace, ["diff", "--cached", "HEAD", ...pathspec]) || "";
   // NUL-delimited so non-ASCII/special filenames are never C-quoted into a
   // form the forbidden matcher would miss.
-  const nameOutput = await git(workspace, ["diff", "--cached", "--name-only", "-z", "HEAD"]) || "";
+  const nameOutput = await git(workspace, ["diff", "--cached", "--name-only", "-z", "HEAD", ...pathspec]) || "";
   const changedPaths = nameOutput.split("\0").filter(Boolean);
   return { patch, changedPaths };
 }

@@ -497,8 +497,10 @@ export async function runCli(argv, _runtime = {}) {
 
         if (subcommand === "run") {
           const taskRef = args._[2];
-          if (!taskRef) {
-            throw new Error('eval run requires a task: agentify eval run <task-id-or-path> [--repeat N] [--dry-run] [--resume <run-id>]');
+          // --resume reconstructs everything from the stored run; no task
+          // argument is needed (or used).
+          if (!taskRef && !hasOwn(args, "resume")) {
+            throw new Error('eval run requires a task: agentify eval run <task-id-or-path> [--repeat N] [--dry-run], or agentify eval run --resume <run-id>');
           }
           const result = await runEval(root, config, taskRef, {
             repeat: hasOwn(args, "repeat") ? args.repeat : undefined,
