@@ -285,39 +285,192 @@ test("normalizeInjectionMode falls back on unknown values", async () => {
   assert.equal(normalizeInjectionMode(undefined), "relevant");
 });
 
-test("summarizeSession writes once, respects thresholds, and lands in digest + match", async () => {
+test("summarizeSession default is extractive: zero provider calls, writes once, lands in digest + match", async () => {
   const { summarizeSession, loadContextSnapshot, renderContextDigest, matchSnapshotToPrompt } = await import("../src/core/ctx.js");
+  const { addNote } = await import("../src/core/ctx.js");
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-"));
   try {
     const edit = (sid, file) => trackEvent(dir, { session_id: sid, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file } });
+    const delegateCalls = [];
+    const spyRuntime = { delegate: async (prompt) => { delegateCalls.push(prompt); return { exit_code: 0, output: "model text" }; } };
 
-    // below threshold
+    // below threshold (covers no-op and read-only sessions too: they have no
+    // meaningful events at all)
     await edit("thin-sess", "a.js");
-    const thin = await summarizeSession(dir, {}, "thin-sess", { runtime: { delegate: async () => ({ exit_code: 0, output: "x" }) } });
+    const thin = await summarizeSession(dir, {}, "thin-sess", { runtime: spyRuntime });
     assert.equal(thin.status, "too_few_events");
 
     for (let i = 0; i < 3; i += 1) {
       await edit("full-sess", "src/pay/retry.ts");
     }
-    const prompts = [];
-    const written = await summarizeSession(dir, {}, "full-sess", {
-      runtime: { delegate: async (prompt) => { prompts.push(prompt); return { exit_code: 0, output: "Fixed the payment retry idempotency bug; tests green." }; } },
-    });
+    await addNote(dir, "idempotency key was regenerated on retry", { session: "full-sess" });
+    const written = await summarizeSession(dir, {}, "full-sess", { runtime: spyRuntime });
     assert.equal(written.status, "written");
-    assert.match(prompts[0], /src\/pay\/retry\.ts/);
+    assert.equal(written.record.mode, "extractive");
+    assert.match(written.record.summary, /src\/pay\/retry\.ts \(3x\)/);
+    assert.match(written.record.summary, /idempotency key was regenerated/);
+    // The default mode must start zero provider processes.
+    assert.equal(delegateCalls.length, 0);
 
-    const again = await summarizeSession(dir, {}, "full-sess", { runtime: { delegate: async () => ({ exit_code: 0, output: "nope" }) } });
+    const again = await summarizeSession(dir, {}, "full-sess", { runtime: spyRuntime });
     assert.equal(again.status, "already_summarized");
 
     const snapshot = await loadContextSnapshot(dir);
     assert.equal(snapshot.sessionSummaries.length, 1);
     assert.match(renderContextDigest(snapshot), /What recent sessions did/);
 
-    const matches = matchSnapshotToPrompt(snapshot, "why is payment retry double charging");
+    const matches = matchSnapshotToPrompt(snapshot, "payment retry idempotency bug");
+    assert.equal(matches.summaries.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveSummaryMode maps legacy booleans and unknown values onto the mode set", async () => {
+  const { resolveSummaryMode, summarizeSession } = await import("../src/core/ctx.js");
+  assert.equal(resolveSummaryMode({}), "extractive");
+  assert.equal(resolveSummaryMode({ context: { sessionSummaries: true } }), "extractive");
+  assert.equal(resolveSummaryMode({ context: { sessionSummaries: false } }), "off");
+  assert.equal(resolveSummaryMode({ context: { sessionSummaries: "llm" } }), "llm");
+  assert.equal(resolveSummaryMode({ context: { sessionSummaries: "OFF" } }), "off");
+  assert.equal(resolveSummaryMode({ context: { sessionSummaries: "bogus" } }), "extractive");
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-off-"));
+  try {
+    const disabled = await summarizeSession(dir, { context: { sessionSummaries: false } }, "any-sess", {});
+    assert.equal(disabled.status, "disabled");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("summarizeSession skips sessions whose meaningful activity duplicates an existing summary", async () => {
+  const { summarizeSession } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-dup-"));
+  try {
+    const edit = (sid, file) => trackEvent(dir, { session_id: sid, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file } });
+    for (const sid of ["sess-one", "sess-two"]) {
+      for (let i = 0; i < 3; i += 1) {
+        await edit(sid, "src/same.js");
+      }
+    }
+    const first = await summarizeSession(dir, {}, "sess-one", {});
+    assert.equal(first.status, "written");
+    const second = await summarizeSession(dir, {}, "sess-two", {});
+    assert.equal(second.status, "duplicate_session");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("extractive summaries cover commands-only sessions and surface open failures", async () => {
+  const { summarizeSession } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-cmd-"));
+  try {
+    const cmd = (command, response, description) => trackEvent(dir, {
+      session_id: "cmd-sess",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command, ...(description ? { description } : {}) },
+      tool_response: response,
+    });
+    await cmd("pnpm lint", { exit_code: 0 }, "Lint the project");
+    await cmd("pnpm build", { exit_code: 0 });
+    await cmd("pnpm test", { exit_code: 1, stderr: "2 failing" }, "Run the test suite");
+
+    const written = await summarizeSession(dir, {}, "cmd-sess", {});
+    assert.equal(written.status, "written");
+    assert.match(written.record.summary, /Ran 3 command\(s\), 1 failed/);
+    assert.match(written.record.summary, /Open: `pnpm test` still failing — 2 failing/);
+
+    // The most recent failure wins even when an earlier command fails again
+    // later (Map updates must not keep stale insertion order).
+    const cmd2 = (command, response) => trackEvent(dir, {
+      session_id: "order-sess",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_response: response,
+    });
+    await cmd2("cmd-a", { exit_code: 1, stderr: "first" });
+    await cmd2("cmd-b", { exit_code: 1, stderr: "middle" });
+    await cmd2("cmd-a", { exit_code: 1, stderr: "latest" });
+    const ordered = await summarizeSession(dir, {}, "order-sess", {});
+    assert.match(ordered.record.summary, /Open: `cmd-a` still failing — latest/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("llm summary mode is budgeted, receives only the extractive summary, and fails open", async () => {
+  const { summarizeSession } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-llm-"));
+  const llmConfig = { context: { sessionSummaries: "llm", summary: { llmMinEvents: 3, maxBudgetUsd: 0.02 } } };
+  try {
+    const edit = (sid, file) => trackEvent(dir, { session_id: sid, hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: file } });
+    for (const sid of ["llm-sess", "llm-fail", "llm-thin"]) {
+      for (let i = 0; i < 3; i += 1) {
+        await edit(sid, `src/${sid}.js`);
+      }
+    }
+
+    const prompts = [];
+    const ok = await summarizeSession(dir, llmConfig, "llm-sess", {
+      runtime: { delegate: async (prompt) => { prompts.push(prompt); return { exit_code: 0, output: "Refined handoff.", cost_usd: 0.001 }; } },
+    });
+    assert.equal(ok.status, "written");
+    assert.equal(ok.record.mode, "llm");
+    assert.equal(ok.record.summary, "Refined handoff.");
+    assert.equal(ok.record.cost_usd, 0.001);
+    // The model sees the extractive summary, never the raw activity log.
+    assert.match(prompts[0], /Edited 1 file\(s\): src\/llm-sess\.js \(3x\)/);
+    assert.ok(!prompts[0].includes("Files edited:"));
+
+    // Any delegate failure (including a budget stop) falls open to extractive.
+    const fallback = await summarizeSession(dir, llmConfig, "llm-fail", {
+      runtime: { delegate: async () => ({ exit_code: 2, output: "" }) },
+    });
+    assert.equal(fallback.status, "written");
+    assert.equal(fallback.record.mode, "extractive");
+    assert.equal(fallback.record.llm_fallback, true);
+
+    // Below llmMinEvents the model is not consulted at all.
+    const thinCalls = [];
+    const thin = await summarizeSession(dir, { context: { sessionSummaries: "llm", summary: { llmMinEvents: 10 } } }, "llm-thin", {
+      runtime: { delegate: async (prompt) => { thinCalls.push(prompt); return { exit_code: 0, output: "x" }; } },
+    });
+    assert.equal(thin.status, "written");
+    assert.equal(thin.record.mode, "extractive");
+    assert.equal(thinCalls.length, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("summary injection usage is recorded for the stats maintenance view", async () => {
+  const { summarizeSession, matchContext, resolveContextPaths } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-sum-usage-"));
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      await trackEvent(dir, { session_id: "use-sess", hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: "src/checkout/idempotency.ts" } });
+    }
+    const written = await summarizeSession(dir, {}, "use-sess", {});
+    assert.equal(written.status, "written");
+
+    const matches = await matchContext(dir, "checkout idempotency handling", { sessionId: "later-session" });
     assert.equal(matches.summaries.length, 1);
 
-    const failed = await summarizeSession(dir, {}, "other", { runtime: { delegate: async () => ({ exit_code: 1, output: "" }) }, minEvents: 0 });
-    assert.equal(failed.status, "delegate_failed");
+    const usageRaw = await fs.readFile(resolveContextPaths(dir).summaryUsagePath, "utf8");
+    const usage = JSON.parse(usageRaw.trim());
+    assert.match(usage.key, /^sum:/);
+    assert.equal(usage.summary_ts, written.record.ts);
+
+    const { buildStatsReport } = await import("../src/core/stats.js");
+    const report = await buildStatsReport(dir, { days: 7 });
+    assert.equal(report.summaries.count, 1);
+    assert.equal(report.summaries.by_mode.extractive, 1);
+    assert.equal(report.summaries.injected_unique, 1);
+    assert.equal(report.summaries.injection_rate, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

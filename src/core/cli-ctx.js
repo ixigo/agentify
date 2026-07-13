@@ -21,6 +21,7 @@ import {
   renderContextDigest,
   renderMatchDigest,
   renderPrecheckWarning,
+  resolveSummaryMode,
   resumeContext,
   summarizeSession,
   trackEvent,
@@ -115,7 +116,7 @@ export async function runCtxHook(action, root) {
 async function maybeSpawnSessionSummary(root, sessionId) {
   try {
     const config = await loadConfig(root, {});
-    if (config.context?.sessionSummaries === false) {
+    if (resolveSummaryMode(config) === "off") {
       return;
     }
     const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../cli.js");

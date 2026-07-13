@@ -92,7 +92,20 @@ Warnings are deduplicated per session and never fire for failures the current se
 
 ## Session summaries
 
-When a session ends, Agentify asks a fast model (the `quick` route) to compress it into a ~3-line handoff — "fixed the retry double-charge, root cause was a regenerated idempotency key, PR #232 open" — and stores it in `.agentify/context/summaries.jsonl`. Summaries appear in the digest ("What recent sessions did") and are matched per task like notes. This happens in a detached background process, so the SessionEnd hook returns instantly, sessions with fewer than 3 tracked events are skipped, and each session is summarized at most once. Disable with `context.sessionSummaries: false` in `.agentify.yaml`; run one manually with `agentify ctx summarize [--session <id>]`.
+When a session ends, Agentify compresses it into a short handoff — "Edited 3 file(s): src/pay/retry.ts (3x)… Ran 5 command(s), 1 failed… Open: `pnpm test` still failing" — and stores it in `.agentify/context/summaries.jsonl`. Summaries appear in the digest ("What recent sessions did") and are matched per task like notes. This happens in a detached background process, so the SessionEnd hook returns instantly; no-op sessions, sessions with fewer than 3 tracked events, duplicate sessions, and already-summarized sessions are skipped.
+
+By default the summary is **extractive**: built deterministically from the tracked evidence (edited files, command outcomes, notes/decisions, unresolved failures) with zero model cost. An LLM-refined summary is an explicit, budgeted opt-in — it receives only the extractive summary (never the raw activity log), runs on the `quick` route under `context.summary.maxBudgetUsd`, and falls back to the extractive text on any failure:
+
+```yaml
+context:
+  sessionSummaries: extractive   # extractive (default) | llm | off — legacy true/false still work
+  summary:
+    maxChars: 600
+    llmMinEvents: 20             # llm mode only kicks in for sessions this large
+    maxBudgetUsd: 0.03
+```
+
+Run one manually with `agentify ctx summarize [--session <id>]`; `agentify stats` shows summary counts, LLM spend, and how often summaries are later injected.
 
 ## Team-shared notes
 
@@ -233,7 +246,9 @@ Run:
 
 **Why:** model routing only pays off if you can see it working. Stats make the delegate traffic — and what it costs — visible.
 
-**How:** every `agentify delegate` run is logged locally (`.agentify/context/delegations.jsonl`) with duration, token usage, and cost. Claude delegations run with `--output-format json`, so token counts and `total_cost_usd` are the provider's real numbers; other CLIs get ~4 chars/token estimates, and estimated rows are labeled as such.
+**How:** every `agentify delegate` run is logged locally (`.agentify/context/delegations.jsonl`) as a versioned `delegation-v2` record: fresh input, cache-read, cache-write, and output tokens kept separate; provider-reported cost (never fabricated); the requested alias vs the resolved model ID; latency phases; and the budget ceiling the run operated under. Prompts are stored only as a hash — no prompt text or command arguments land in telemetry. Claude delegations run with `--output-format json`, so token counts and `total_cost_usd` are the provider's real numbers; Codex runs with `--json` for its usage stream (its final answer comes via `--output-last-message`); anything unreported gets ~4 chars/token estimates, and estimated rows are labeled as such. Old `stats-v1` lines still count in totals and are marked as legacy aggregates.
+
+The report includes P50/P95 latency, cache read/write/fresh ratios, daily cost trend, cost-reporting coverage, fallback reasons, budget-stopped runs, and a session-summary maintenance view (count, LLM spend, injection rate).
 
 ```bash
 agentify stats            # last 30 days
@@ -290,6 +305,26 @@ models:
       provider: claude
       model: haiku
 ```
+
+### Budgets
+
+Every route carries a hard per-run ceiling — dollars, agent turns, and wall-clock — so no Agentify-initiated paid run is ever unbounded. Claude delegations receive `--max-budget-usd`/`--max-turns` natively (plus `--no-session-persistence` for one-shot runs); providers without an in-flight dollar stop (Codex) are covered by the pre-run rolling check and the timeout — `agentify models` shows which limits each route can enforce natively. Cross-vendor fallback keeps the original ceiling; it never resets or raises the budget. Invalid budgets fail before any provider process starts.
+
+```yaml
+models:
+  budget:
+    dailyUsd: 5            # rolling caps over locally recorded spend (null = no cap)
+    monthlyUsd: 50
+    onLimit: block         # block (default) or warn
+  routes:
+    quick:
+      maxBudgetUsd: 0.10   # per-run ceilings
+      maxTurns: 4
+      timeoutSeconds: 120
+      effort: null
+```
+
+Per-run overrides: `agentify delegate quick "…" --max-budget-usd 0.05 --max-turns 2 --effort low` (also on `agentify review`). Budget-stopped runs are reported distinctly from provider failures and timeouts, in both human and `--json` output.
 
 ## Platform workflows
 
