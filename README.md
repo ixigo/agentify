@@ -114,7 +114,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
 | `agentify models` | Model routing table + provider availability |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
-| `agentify eval init\|run\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading |
+| `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
@@ -190,6 +190,8 @@ agentify eval list                  # tasks and past runs with per-arm pass rate
 ```
 
 Every attempt runs in a disposable clone at the manifest's immutable `base_ref` — never in your checkout — with a hard per-attempt budget/turn/timeout ceiling, so a run can never spend more than `arms × repeats × cap`. Pass/fail comes from the manifest's `grader.commands` and `forbidden_paths`, never from the provider exit code. Artifacts (patch, provider output, per-attempt grades) land under `.agentify/evals/runs/`, spend is recorded toward the same rolling budget caps as delegations, and interrupted runs resume with `--resume <run-id>` re-executing only missing attempts.
+
+Turn a run into a decision with `agentify eval report [run-id] --format json|md|html`: per-arm pass rates with 95% confidence intervals, provider-reported vs unreported cost kept separate, cost per passing task, paired deltas with discordant-pair counts, and a cost-quality frontier with marginal dollars per additional pass. Underpowered, partial, or unpaired runs are labeled and never produce a confident winner. For CI, `agentify eval compare current.json baseline.json --fail-on 'pass_rate_drop>0.02' --fail-on 'cost_per_pass_increase>0.10' --fail-on 'p95_latency_increase>0.20'` exits 0 when gates pass, 1 on a violation (naming the exact gate), and 2 on invalid input.
 
 ## Platform workflows
 
