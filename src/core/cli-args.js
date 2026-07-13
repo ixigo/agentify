@@ -25,6 +25,7 @@ const BOOLEAN_FLAGS = new Set([
   "strict",
   "write",
   "off",
+  "keepWorkspaces",
 ]);
 
 function toCamelCaseFlag(key) {

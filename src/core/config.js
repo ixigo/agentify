@@ -48,6 +48,12 @@ const DEFAULT_CONFIG = {
       maxBudgetUsd: 0.03,
     },
   },
+  eval: {
+    // Where committed eval task manifests live, relative to the repo root.
+    tasksDir: "evals",
+    // How many eval run artifact directories to retain under .agentify/evals.
+    keepRuns: 20,
+  },
   cleanup: {
     keepRuns: 20,
     maxRunAgeDays: 14,
