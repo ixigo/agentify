@@ -28,6 +28,7 @@ agentify install
   |     SessionStart -> agentify ctx load     (inject context digest)
   |     PreToolUse   -> agentify ctx precheck (warn before repeating a failed command)
   |     PostToolUse  -> agentify ctx track    (record edits + commands + failures)
+  |     ExitPlanMode -> plan-to-html.mjs      (save approved plans to plans/*.html)
   |     SessionEnd   -> agentify ctx track    (close out the session)
   `-- .agentify/            <- lightweight JSONL context store + optional repo index
 ```
@@ -92,7 +93,7 @@ agentify status
 agentify uninstall            # removes only Agentify's managed block and hooks
 ```
 
-Both install and uninstall are surgical: they only touch content between `<!-- agentify:begin -->` / `<!-- agentify:end -->` markers and hook entries whose command starts with `agentify ctx`. Your own CLAUDE.md content and hooks are preserved.
+Both install and uninstall are surgical: they only touch content between `<!-- agentify:begin -->` / `<!-- agentify:end -->` markers, Agentify-managed hook entries, and Agentify's generated `.claude/hooks/plan-to-html.mjs` file. Your own CLAUDE.md content and hooks are preserved.
 
 ## Commands
 

@@ -27,11 +27,12 @@ agentify install
    - `UserPromptSubmit` runs `agentify ctx match --hook` to inject only context related to each prompt.
    - `PreToolUse` (Bash) runs `agentify ctx precheck --hook` to warn before repeating a previously-failed command.
    - `PostToolUse` (file edits and Bash) runs `agentify ctx track --hook` to record activity and command failures.
+   - `PostToolUse` (`ExitPlanMode`) runs `.claude/hooks/plan-to-html.mjs` to save approved plans as standalone files under `plans/`.
    - `SessionEnd` records the session close and triggers the background session summary.
 3. Writes baseline repo files: `.agentify.yaml` (config), `.agentignore`, `.guardrails`, and the `.agentify/` runtime directory (gitignored).
 4. Prints next steps.
 
-`agentify install --global` skips the repo files and instead writes the managed block and hooks into `~/.claude/CLAUDE.md` and `~/.claude/settings.json`, so every repo you work in gets context tracking.
+`agentify install --global` skips the repo files and instead writes the managed block and hooks into `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, and `~/.claude/hooks/plan-to-html.mjs`, so every repo you work in gets context tracking and plan rendering.
 
 ### Codex
 

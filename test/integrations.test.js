@@ -7,6 +7,8 @@ import path from "node:path";
 import {
   MANAGED_BLOCK_BEGIN,
   MANAGED_BLOCK_END,
+  PLAN_RENDERER_MARKER,
+  PLAN_RENDERER_SCRIPT_NAME,
   applyManagedBlock,
   buildManagedBlock,
   buildManagedHooks,
@@ -81,6 +83,10 @@ test("mergeManagedHooks merges into existing settings and preserves user hooks",
   for (const event of Object.keys(buildManagedHooks())) {
     assert.ok(Array.isArray(merged.settings.hooks[event]));
   }
+  const planHook = merged.settings.hooks.PostToolUse.find((entry) => entry.matcher === "ExitPlanMode");
+  assert.ok(planHook);
+  assert.match(planHook.hooks[0].command, new RegExp(PLAN_RENDERER_SCRIPT_NAME));
+  assert.equal(planHook.hooks[0].statusMessage, "Rendering plan to HTML...");
   // Unrelated settings untouched.
   assert.deepEqual(merged.settings.permissions, { allow: ["Bash"] });
 
@@ -115,6 +121,7 @@ test("installClaudeIntegration and uninstallClaudeIntegration round-trip at proj
   assert.equal(install.scope, "project");
   assert.equal(install.memory.changed, true);
   assert.equal(install.settings.changed, true);
+  assert.equal(install.settings.renderer.changed, true);
 
   const memory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.ok(memory.includes("# Existing project memory"));
@@ -122,25 +129,33 @@ test("installClaudeIntegration and uninstallClaudeIntegration round-trip at proj
 
   const settings = JSON.parse(await fs.readFile(path.join(root, ".claude", "settings.json"), "utf8"));
   assert.ok(Array.isArray(settings.hooks.PostToolUse));
+  assert.ok(settings.hooks.PostToolUse.some((entry) => entry.matcher === "ExitPlanMode"));
+  const rendererPath = path.join(root, ".claude", "hooks", PLAN_RENDERER_SCRIPT_NAME);
+  const renderer = await fs.readFile(rendererPath, "utf8");
+  assert.ok(renderer.includes(PLAN_RENDERER_MARKER));
 
   const statusInstalled = await claudeIntegrationStatus(root);
   assert.equal(statusInstalled.installed, true);
   assert.equal(statusInstalled.memory.installed, true);
   assert.equal(statusInstalled.memory.current, true);
   assert.equal(statusInstalled.settings.installed, true);
+  assert.equal(statusInstalled.settings.renderer.installed, true);
 
   // Idempotent reinstall.
   const reinstall = await installClaudeIntegration(root);
   assert.equal(reinstall.memory.changed, false);
   assert.equal(reinstall.settings.changed, false);
+  assert.equal(reinstall.settings.renderer.changed, false);
 
   const uninstall = await uninstallClaudeIntegration(root);
   assert.equal(uninstall.memory.changed, true);
   assert.equal(uninstall.settings.changed, true);
+  assert.equal(uninstall.settings.renderer.changed, true);
 
   const afterMemory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.ok(afterMemory.includes("# Existing project memory"));
   assert.ok(!afterMemory.includes(MANAGED_BLOCK_BEGIN));
+  await assert.rejects(() => fs.access(rendererPath));
 
   const statusRemoved = await claudeIntegrationStatus(root);
   assert.equal(statusRemoved.installed, false);

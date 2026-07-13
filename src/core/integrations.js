@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { ensureDir, exists, readText } from "./fs.js";
 
@@ -8,8 +9,13 @@ export const MANAGED_BLOCK_BEGIN = "<!-- agentify:begin -->";
 export const MANAGED_BLOCK_END = "<!-- agentify:end -->";
 export const MANAGED_HOOK_PREFIX = "agentify ctx ";
 export const INTEGRATION_PROVIDERS = ["claude", "codex"];
+export const PLAN_RENDERER_SCRIPT_NAME = "plan-to-html.mjs";
+export const PLAN_RENDERER_MANAGED_ARG = "--agentify-managed";
+export const PLAN_RENDERER_MARKER = "Managed by Agentify: plan-to-html hook";
 
 const TRACKED_TOOL_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Bash";
+const PLAN_RENDERER_MATCHER = "ExitPlanMode";
+const PLAN_RENDERER_SOURCE_PATH = fileURLToPath(new URL("../hooks/plan-to-html.mjs", import.meta.url));
 
 const SHARED_BLOCK_LINES = [
   "- `agentify ctx note \"<text>\"` — record a gotcha or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.",
@@ -79,7 +85,11 @@ export function buildManagedBlock(provider = "claude") {
   ].join("\n");
 }
 
-export function buildManagedHooks() {
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+export function buildManagedHooks({ planRendererPath = path.join(".claude", "hooks", PLAN_RENDERER_SCRIPT_NAME) } = {}) {
   return {
     SessionStart: [
       {
@@ -110,6 +120,17 @@ export function buildManagedHooks() {
         matcher: TRACKED_TOOL_MATCHER,
         hooks: [
           { type: "command", command: "agentify ctx track --hook", timeout: 10 },
+        ],
+      },
+      {
+        matcher: PLAN_RENDERER_MATCHER,
+        hooks: [
+          {
+            type: "command",
+            command: `node ${shellQuote(planRendererPath)} ${PLAN_RENDERER_MANAGED_ARG}`,
+            timeout: 30,
+            statusMessage: "Rendering plan to HTML...",
+          },
         ],
       },
     ],
@@ -148,7 +169,14 @@ export function removeManagedBlock(existingText) {
 
 function isManagedHookEntry(entry) {
   return Array.isArray(entry?.hooks)
-    && entry.hooks.some((hook) => typeof hook?.command === "string" && hook.command.startsWith(MANAGED_HOOK_PREFIX));
+    && entry.hooks.some((hook) => {
+      if (typeof hook?.command !== "string") {
+        return false;
+      }
+      return hook.command.startsWith(MANAGED_HOOK_PREFIX)
+        || hook.command.includes(PLAN_RENDERER_MANAGED_ARG)
+        || (entry.matcher === PLAN_RENDERER_MATCHER && hook.command.includes(PLAN_RENDERER_SCRIPT_NAME));
+    });
 }
 
 export function mergeManagedHooks(settings, managedHooks = buildManagedHooks()) {
@@ -228,6 +256,7 @@ export function resolveIntegrationTargets(root, { global: isGlobal = false, prov
       scope: "global",
       memoryPath: path.join(claudeDir, "CLAUDE.md"),
       settingsPath: path.join(claudeDir, "settings.json"),
+      planRendererPath: path.join(claudeDir, "hooks", PLAN_RENDERER_SCRIPT_NAME),
     };
   }
   return {
@@ -235,6 +264,7 @@ export function resolveIntegrationTargets(root, { global: isGlobal = false, prov
     scope: "project",
     memoryPath: path.join(root, "CLAUDE.md"),
     settingsPath: path.join(root, ".claude", "settings.json"),
+    planRendererPath: path.join(root, ".claude", "hooks", PLAN_RENDERER_SCRIPT_NAME),
   };
 }
 
@@ -253,6 +283,44 @@ async function readSettings(settingsPath) {
   return parsed;
 }
 
+async function buildPlanRendererResult(planRendererPath, { dryRun = false } = {}) {
+  if (!planRendererPath) {
+    return null;
+  }
+  const source = await fs.readFile(PLAN_RENDERER_SOURCE_PATH, "utf8");
+  const current = (await exists(planRendererPath)) ? await readText(planRendererPath) : "";
+  const changed = current !== source;
+  if (changed && !dryRun) {
+    await ensureDir(path.dirname(planRendererPath));
+    await fs.writeFile(planRendererPath, source, { encoding: "utf8", mode: 0o755 });
+    await fs.chmod(planRendererPath, 0o755);
+  }
+  return { path: planRendererPath, changed };
+}
+
+async function removePlanRenderer(planRendererPath, { dryRun = false } = {}) {
+  if (!planRendererPath || !(await exists(planRendererPath))) {
+    return planRendererPath ? { path: planRendererPath, changed: false } : null;
+  }
+  const current = await readText(planRendererPath);
+  const isManaged = current.includes(PLAN_RENDERER_MARKER);
+  if (!isManaged) {
+    return { path: planRendererPath, changed: false, skipped: true };
+  }
+  if (!dryRun) {
+    await fs.rm(planRendererPath, { force: true });
+  }
+  return { path: planRendererPath, changed: true };
+}
+
+async function isPlanRendererCurrent(planRendererPath) {
+  if (!planRendererPath || !(await exists(planRendererPath))) {
+    return false;
+  }
+  const source = await fs.readFile(PLAN_RENDERER_SOURCE_PATH, "utf8");
+  return (await readText(planRendererPath)) === source;
+}
+
 export async function installIntegration(root, options = {}) {
   const provider = normalizeIntegrationProvider(options.provider);
   const targets = resolveIntegrationTargets(root, { ...options, provider });
@@ -262,9 +330,11 @@ export async function installIntegration(root, options = {}) {
   const memoryResult = applyManagedBlock(memoryBefore, buildManagedBlock(provider));
 
   let settingsResult = null;
+  let planRendererResult = null;
   if (targets.settingsPath) {
     const settingsBefore = await readSettings(targets.settingsPath);
-    settingsResult = mergeManagedHooks(settingsBefore);
+    settingsResult = mergeManagedHooks(settingsBefore, buildManagedHooks(targets));
+    planRendererResult = await buildPlanRendererResult(targets.planRendererPath, { dryRun });
   }
 
   if (!dryRun) {
@@ -290,8 +360,9 @@ export async function installIntegration(root, options = {}) {
     settings: targets.settingsPath
       ? {
         path: targets.settingsPath,
-        changed: settingsResult.changed,
-        events: Object.keys(buildManagedHooks()),
+        changed: settingsResult.changed || planRendererResult.changed,
+        events: Object.keys(buildManagedHooks(targets)),
+        renderer: planRendererResult,
       }
       : {
         path: null,
@@ -318,6 +389,7 @@ export async function uninstallIntegration(root, options = {}) {
   }
 
   let settingsChanged = false;
+  let planRendererResult = null;
   if (targets.settingsPath && (await exists(targets.settingsPath))) {
     const before = await readSettings(targets.settingsPath);
     const result = stripManagedHooks(before);
@@ -326,13 +398,17 @@ export async function uninstallIntegration(root, options = {}) {
       await fs.writeFile(targets.settingsPath, `${JSON.stringify(result.settings, null, 2)}\n`, "utf8");
     }
   }
+  if (targets.planRendererPath) {
+    planRendererResult = await removePlanRenderer(targets.planRendererPath, { dryRun });
+    settingsChanged = settingsChanged || Boolean(planRendererResult?.changed);
+  }
 
   return {
     provider,
     scope: targets.scope,
     dry_run: dryRun,
     memory: { path: targets.memoryPath, changed: memoryChanged },
-    settings: { path: targets.settingsPath, changed: settingsChanged },
+    settings: { path: targets.settingsPath, changed: settingsChanged, renderer: planRendererResult },
   };
 }
 
@@ -345,10 +421,12 @@ export async function integrationStatus(root, options = {}) {
   const memoryCurrent = memoryInstalled && !applyManagedBlock(memoryText, buildManagedBlock(provider)).changed;
 
   let hooksInstalled = false;
+  let rendererInstalled = false;
   if (targets.settingsPath && (await exists(targets.settingsPath))) {
     try {
       const settings = await readSettings(targets.settingsPath);
-      hooksInstalled = !mergeManagedHooks(settings).changed;
+      rendererInstalled = await isPlanRendererCurrent(targets.planRendererPath);
+      hooksInstalled = !mergeManagedHooks(settings, buildManagedHooks(targets)).changed && rendererInstalled;
     } catch {
       hooksInstalled = false;
     }
@@ -359,7 +437,11 @@ export async function integrationStatus(root, options = {}) {
     scope: targets.scope,
     memory: { path: targets.memoryPath, installed: memoryInstalled, current: memoryCurrent },
     settings: targets.settingsPath
-      ? { path: targets.settingsPath, installed: hooksInstalled }
+      ? {
+        path: targets.settingsPath,
+        installed: hooksInstalled,
+        renderer: { path: targets.planRendererPath, installed: rendererInstalled },
+      }
       : { path: null, installed: null, supported: false },
     installed: targets.settingsPath ? memoryInstalled && hooksInstalled : memoryInstalled,
   };

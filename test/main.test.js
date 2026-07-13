@@ -340,6 +340,22 @@ test("cli.js --version prints the version and no stderr", async () => {
   assert.match(result.stdout, /^agentify v\d+\.\d+\.\d+/);
 });
 
+test("plan-to-html hook script renders manual markdown to plans html", async () => {
+  const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
+  const root = await tmpRoot("agentify-main-plan-html-");
+  const mdPath = path.join(root, "plan.md");
+  await fs.writeFile(mdPath, "# Plan Title\n\n- Ship it\n", "utf8");
+
+  await execFileAsync(process.execPath, ["src/hooks/plan-to-html.mjs", "--md", mdPath, "--cwd", root], { cwd: repoRoot });
+
+  const files = await fs.readdir(path.join(root, "plans"));
+  assert.equal(files.length, 1);
+  assert.match(files[0], /plan-title\.html$/);
+  const html = await fs.readFile(path.join(root, "plans", files[0]), "utf8");
+  assert.match(html, /<h1>Plan Title<\/h1>/);
+  assert.match(html, /<li>Ship it<\/li>/);
+});
+
 test("runCli install --provider codex writes AGENTS.md guidance", async () => {
   const root = await tmpRoot("agentify-main-install-codex-");
   const lines = await captureLog(() => runCli(["install", "--root", root, "--provider", "codex", "--json"]));
@@ -359,4 +375,7 @@ test("runCli install --provider all writes both integrations", async () => {
   await fs.access(path.join(root, "CLAUDE.md"));
   await fs.access(path.join(root, "AGENTS.md"));
   await fs.access(path.join(root, ".claude", "settings.json"));
+  await fs.access(path.join(root, ".claude", "hooks", "plan-to-html.mjs"));
+  const settings = JSON.parse(await fs.readFile(path.join(root, ".claude", "settings.json"), "utf8"));
+  assert.ok(settings.hooks.PostToolUse.some((entry) => entry.matcher === "ExitPlanMode"));
 });
