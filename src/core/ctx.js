@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -23,6 +24,7 @@ export function resolveContextPaths(root) {
     archiveDir: path.join(contextRoot, "archive"),
     injectedPath: path.join(contextRoot, "injected.json"),
     summariesPath: path.join(contextRoot, "summaries.jsonl"),
+    summaryUsagePath: path.join(contextRoot, "summary-usage.jsonl"),
   };
 }
 
@@ -58,7 +60,7 @@ export async function clearContext(root, options = {}) {
   if (options.archive !== false) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const targetDir = path.join(paths.archiveDir, stamp);
-    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath]]) {
+    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath]]) {
       if (await exists(sourcePath)) {
         await ensureDir(targetDir);
         await fs.rename(sourcePath, path.join(targetDir, label));
@@ -69,6 +71,7 @@ export async function clearContext(root, options = {}) {
     await fs.rm(paths.eventsPath, { force: true });
     await fs.rm(paths.notesPath, { force: true });
     await fs.rm(paths.summariesPath, { force: true });
+    await fs.rm(paths.summaryUsagePath, { force: true });
   }
   await fs.rm(paths.injectedPath, { force: true });
   return {
@@ -105,7 +108,12 @@ async function readJsonLines(targetPath) {
       continue;
     }
     try {
-      records.push(JSON.parse(trimmed));
+      const parsed = JSON.parse(trimmed);
+      // Valid JSON that is not an object (null, numbers, arrays) would blow
+      // up downstream field access; skip it like a corrupt line.
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        records.push(parsed);
+      }
     } catch {
       // Skip corrupt lines rather than failing hook execution.
     }
@@ -765,6 +773,20 @@ export async function matchContext(root, prompt, options = {}) {
       ...freshFailures.map((item) => item.key),
     ];
     await writeInjectionLedger(root, ledger);
+    // Usage telemetry: lets `agentify stats` show whether generated session
+    // summaries are ever actually injected, and how old they were at use.
+    try {
+      const paths = resolveContextPaths(root);
+      for (const item of freshSummaries) {
+        await appendJsonLine(paths.summaryUsagePath, {
+          ts: new Date().toISOString(),
+          key: item.key,
+          summary_ts: item.item?.ts || null,
+        });
+      }
+    } catch {
+      // Best-effort: usage telemetry must never break injection.
+    }
   }
 
   return {
@@ -833,12 +855,104 @@ export function renderPrecheckWarning(warning) {
 
 const SUMMARY_MIN_EVENTS = 3;
 const SUMMARY_MAX_LENGTH = 600;
+const SUMMARY_LLM_MIN_EVENTS = 20;
+const SUMMARY_LLM_MAX_BUDGET_USD = 0.03;
+
+export const SUMMARY_MODES = ["extractive", "llm", "off"];
+
+// Session summaries default to a zero-cost deterministic extraction; invoking
+// a model is an explicitly configured, budgeted refinement. Legacy boolean
+// configs map onto the modes: `true` (the old default, which used a model)
+// maps to the free extractive mode, `false` stays off.
+export function resolveSummaryMode(config = {}) {
+  const raw = config.context?.sessionSummaries;
+  if (raw === false || raw === "off" || raw === "false") {
+    return "off";
+  }
+  if (raw === true || raw === null || raw === undefined) {
+    return "extractive";
+  }
+  const mode = String(raw).trim().toLowerCase();
+  return SUMMARY_MODES.includes(mode) ? mode : "extractive";
+}
+
+function resolveSummarySettings(config = {}) {
+  const raw = config.context?.summary && typeof config.context.summary === "object" ? config.context.summary : {};
+  const positive = (value, fallback) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback);
+  return {
+    maxChars: positive(raw.maxChars, SUMMARY_MAX_LENGTH),
+    llmMinEvents: positive(raw.llmMinEvents, SUMMARY_LLM_MIN_EVENTS),
+    maxBudgetUsd: positive(raw.maxBudgetUsd, SUMMARY_LLM_MAX_BUDGET_USD),
+  };
+}
+
+// Two sessions with identical meaningful activity would produce identical
+// summaries; the fingerprint lets the second one be skipped.
+function summaryFingerprint(meaningful, notes) {
+  const descriptors = meaningful.map((event) => (event.type === "edit"
+    ? ["e", event.path]
+    : ["c", event.cmd, event.fail ? 1 : 0, event.exit ?? null, event.err || "", event.desc || ""]));
+  const noteDescriptors = notes.map((note) => [note.type || "note", note.note]);
+  return createHash("sha256").update(JSON.stringify([descriptors, noteDescriptors])).digest("hex").slice(0, 16);
+}
+
+// Deterministic summary straight from the tracked evidence: edited files,
+// command outcomes, notes/decisions, and unresolved failures. Zero model cost.
+export function buildExtractiveSummary({ editCounts, commands, notes, maxChars = SUMMARY_MAX_LENGTH }) {
+  const segments = [];
+
+  const editEntries = [...editCounts.entries()].sort((left, right) => right[1] - left[1]);
+  if (editEntries.length > 0) {
+    const top = editEntries.slice(0, 4)
+      .map(([file, count]) => (count > 1 ? `${file} (${count}x)` : file))
+      .join(", ");
+    const more = editEntries.length > 4 ? ` and ${editEntries.length - 4} more` : "";
+    segments.push(`Edited ${editEntries.length} file(s): ${top}${more}.`);
+  }
+
+  if (commands.length > 0) {
+    const failed = commands.filter((event) => event.fail);
+    const lastDescribed = [...commands].reverse().find((event) => event.desc);
+    const label = lastDescribed ? `; last: ${lastDescribed.desc}` : "";
+    segments.push(`Ran ${commands.length} command(s)${failed.length > 0 ? `, ${failed.length} failed` : ""}${label}.`);
+
+    // The most recent still-failing command is the open thread a future
+    // session most needs to know about.
+    const outcomes = new Map();
+    for (const event of commands) {
+      // Delete-then-set keeps Map insertion order aligned with recency, so
+      // the final .pop() really is the most recent unresolved failure.
+      outcomes.delete(event.cmd);
+      outcomes.set(event.cmd, event);
+    }
+    const unresolved = [...outcomes.values()].filter((event) => event.fail).pop();
+    if (unresolved) {
+      segments.push(`Open: \`${unresolved.cmd}\` still failing${unresolved.err ? ` — ${unresolved.err}` : ""}.`);
+    }
+  }
+
+  const decisions = notes.filter((note) => note.type === "decision");
+  const plainNotes = notes.filter((note) => note.type !== "decision");
+  for (const decision of decisions.slice(-2)) {
+    segments.push(`Decision: ${decision.note}`);
+  }
+  for (const note of plainNotes.slice(-2)) {
+    segments.push(`Note: ${note.note}`);
+  }
+
+  return clip(segments.join(" "), maxChars);
+}
 
 export async function summarizeSession(root, config, sessionIdInput, options = {}) {
   const sid = String(sessionIdInput || "").trim().slice(0, 8);
   if (!sid) {
     throw new Error("ctx summarize requires --session <id>");
   }
+  const mode = options.mode || resolveSummaryMode(config);
+  if (mode === "off") {
+    return { command: "ctx summarize", sid, status: "disabled" };
+  }
+  const settings = resolveSummarySettings(config);
   const paths = resolveContextPaths(root);
 
   const existing = await readJsonLines(paths.summariesPath);
@@ -848,47 +962,81 @@ export async function summarizeSession(root, config, sessionIdInput, options = {
 
   const events = (await readJsonLines(paths.eventsPath)).filter((event) => event.sid === sid);
   const meaningful = events.filter((event) => event.type === "edit" || event.type === "cmd");
+  // No-op and read-only sessions produce no meaningful events and are skipped.
   if (meaningful.length < (options.minEvents ?? SUMMARY_MIN_EVENTS)) {
     return { command: "ctx summarize", sid, status: "too_few_events", events: meaningful.length };
   }
 
   const notes = (await readJsonLines(paths.notesPath)).filter((note) => note.sid === sid);
+  const fingerprint = summaryFingerprint(meaningful, notes);
+  if (existing.some((record) => record.fp === fingerprint)) {
+    return { command: "ctx summarize", sid, status: "duplicate_session", fp: fingerprint };
+  }
+
   const editCounts = new Map();
   const commands = [];
   for (const event of meaningful) {
     if (event.type === "edit") {
       editCounts.set(event.path, (editCounts.get(event.path) || 0) + 1);
     } else if (event.cmd) {
-      commands.push(event.desc ? `${event.desc}: ${event.cmd}` : event.cmd);
+      commands.push(event);
     }
   }
 
-  const promptLines = [
-    "Below is the complete activity log of a finished coding session. It is the only information available — do not ask for more and do not mention missing context. Write a handoff of at most 3 short plain-text lines describing what the log shows: what was worked on, the apparent outcome, and any open thread. No headers, no preamble.",
-    "",
-    "Files edited:",
-    ...[...editCounts.entries()].map(([file, count]) => `- ${file} (${count} edit${count === 1 ? "" : "s"})`),
-  ];
-  if (commands.length > 0) {
-    promptLines.push("", "Commands run:", ...commands.slice(-10).map((command) => `- ${command}`));
-  }
-  if (notes.length > 0) {
-    promptLines.push("", "Notes recorded during the session:", ...notes.map((note) => `- ${note.note}`));
+  const startedAt = Date.now();
+  const extractive = buildExtractiveSummary({ editCounts, commands, notes, maxChars: settings.maxChars });
+  if (!extractive) {
+    return { command: "ctx summarize", sid, status: "too_few_events", events: meaningful.length };
   }
 
-  const delegate = options.runtime?.delegate
-    || (async (prompt) => {
-      const { runDelegate } = await import("./models.js");
-      return runDelegate(root, config, "quick", prompt, { timeoutMs: options.timeoutMs || 90000 });
-    });
+  let summary = extractive;
+  let usedMode = "extractive";
+  let costUsd = null;
+  let llmFellBack = false;
 
-  const result = await delegate(promptLines.join("\n"));
-  const summary = clip(String(result?.output || ""), SUMMARY_MAX_LENGTH);
-  if (result?.exit_code !== 0 || !summary) {
-    return { command: "ctx summarize", sid, status: "delegate_failed", exit_code: result?.exit_code ?? null };
+  // LLM refinement is opt-in, budgeted via the quick route, receives only the
+  // extractive summary (never the full activity log), and fails open to the
+  // extractive text.
+  if (mode === "llm" && meaningful.length >= settings.llmMinEvents) {
+    const prompt = [
+      "Rewrite the following session handoff to be clearer and more useful for the next coding session. Keep every fact; add nothing. At most 3 short plain-text lines, no headers, no preamble.",
+      "",
+      extractive,
+    ].join("\n");
+    const delegate = options.runtime?.delegate
+      || (async (input) => {
+        const { runDelegate } = await import("./models.js");
+        return runDelegate(root, config, "quick", input, {
+          timeoutMs: options.timeoutMs || 90000,
+          maxBudgetUsd: settings.maxBudgetUsd,
+        });
+      });
+    try {
+      const result = await delegate(prompt);
+      const refined = clip(String(result?.output || ""), settings.maxChars);
+      if (result?.exit_code === 0 && refined) {
+        summary = refined;
+        usedMode = "llm";
+        costUsd = typeof result.cost_usd === "number" ? result.cost_usd : null;
+      } else {
+        llmFellBack = true;
+      }
+    } catch {
+      llmFellBack = true;
+    }
   }
 
-  const record = { ts: new Date().toISOString(), sid, summary };
+  const record = {
+    ts: new Date().toISOString(),
+    sid,
+    summary,
+    mode: usedMode,
+    events: meaningful.length,
+    gen_ms: Date.now() - startedAt,
+    fp: fingerprint,
+    ...(costUsd !== null ? { cost_usd: costUsd } : {}),
+    ...(llmFellBack ? { llm_fallback: true } : {}),
+  };
   await appendJsonLine(paths.summariesPath, record);
   return { command: "ctx summarize", sid, status: "written", record };
 }

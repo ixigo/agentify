@@ -1,43 +1,70 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { checkRollingBudget, describeBudgetSource, resolveBudgetPolicy, resolveRouteLimits } from "./budget.js";
 import { getChangedFilesSince } from "./git.js";
 
 const execFileAsync = promisify(execFile);
 
 export const DELEGATE_TIMEOUT_MS = 600000;
+export const DELEGATION_SCHEMA_VERSION = "delegation-v2";
 
 // Route defaults are chosen to stay stable across model releases: Claude Code
 // accepts version-independent aliases (haiku/sonnet/opus), and Codex uses the
 // CLI's own configured default when model is null. Everything is overridable
 // under `models.routes` in .agentify.yaml.
+//
+// Every default route carries a hard ceiling (dollars, turns, wall-clock) so
+// no Agentify-initiated paid run is ever unbounded. Fallback across vendors
+// keeps the original ceiling — it never resets or raises the budget.
 export const DEFAULT_MODEL_ROUTES = {
   quick: {
     provider: "claude",
     model: "haiku",
+    maxBudgetUsd: 0.10,
+    maxTurns: 4,
+    timeoutSeconds: 120,
+    effort: null,
     use: "Small, low-impact edits, mechanical changes, quick questions",
   },
   implement: {
     provider: "claude",
     model: "sonnet",
+    maxBudgetUsd: 1.00,
+    maxTurns: 30,
+    timeoutSeconds: 600,
+    effort: null,
     use: "Standard feature work and multi-file refactors",
   },
   heavy: {
     provider: "claude",
     model: "opus",
+    maxBudgetUsd: 2.50,
+    maxTurns: 40,
+    timeoutSeconds: 600,
+    effort: null,
     use: "Architecture decisions, deep debugging, high-risk changes",
   },
   review: {
     provider: "codex",
     model: null,
+    maxBudgetUsd: 0.75,
+    maxTurns: 20,
+    timeoutSeconds: 600,
+    effort: null,
     use: "Independent post-change code review by a different model vendor",
   },
   research: {
     provider: "claude",
     model: "haiku",
+    maxBudgetUsd: 0.25,
+    maxTurns: 6,
+    timeoutSeconds: 300,
+    effort: null,
     use: "Fast exploration, summarization, and doc lookups",
   },
 };
@@ -58,7 +85,17 @@ export function resolveModelRoutes(config = {}) {
   }
   for (const [kind, route] of Object.entries(configured)) {
     if (!routes[kind] && route && typeof route === "object" && route.provider) {
-      routes[kind] = { use: "", model: null, ...route };
+      // Custom routes get conservative default ceilings too — a route the
+      // user adds must not be the one uncapped path.
+      routes[kind] = {
+        use: "",
+        model: null,
+        maxBudgetUsd: 1.00,
+        maxTurns: 30,
+        timeoutSeconds: 600,
+        effort: null,
+        ...route,
+      };
     }
   }
   return routes;
@@ -102,11 +139,26 @@ export function pickRouteTarget(route, availability) {
   return null;
 }
 
+// Which of the configured ceilings the selected provider CLI can enforce
+// natively, in-flight. Anything else is covered by Agentify's pre-run rolling
+// budget check and the wall-clock timeout — an in-flight hard dollar stop is
+// unavailable for those providers.
+export function describeLimitEnforcement(provider) {
+  if (provider === "claude") {
+    return { budget_usd: "native", turns: "native", timeout: "agentify" };
+  }
+  return { budget_usd: "pre-run-only", turns: "unavailable", timeout: "agentify" };
+}
+
 export function buildDelegateCommand(target, prompt, options = {}) {
   const write = options.write === true;
+  const limits = options.limits || {};
 
   if (target.provider === "codex") {
-    const argv = ["codex", "exec", "--skip-git-repo-check"];
+    // --json emits the JSONL event stream (token usage); the final answer is
+    // still captured via --output-last-message. Codex has no native dollar or
+    // turn cap — those are enforced by Agentify's pre-run check and timeout.
+    const argv = ["codex", "exec", "--skip-git-repo-check", "--json"];
     if (target.model) {
       argv.push("--model", target.model);
     }
@@ -123,14 +175,33 @@ export function buildDelegateCommand(target, prompt, options = {}) {
   if (target.model) {
     argv.push("--model", target.model);
   }
+  if (limits.maxBudgetUsd != null) {
+    argv.push("--max-budget-usd", String(limits.maxBudgetUsd));
+  }
+  if (limits.maxTurns != null) {
+    argv.push("--max-turns", String(limits.maxTurns));
+  }
+  if (limits.effort) {
+    argv.push("--effort", String(limits.effort));
+  }
+  if (options.persistSession !== true) {
+    // Delegated runs are one-shot; keeping session state would only add cost.
+    argv.push("--no-session-persistence");
+  }
   if (write) {
     argv.push("--permission-mode", "acceptEdits");
   }
   return argv;
 }
 
+function numberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 // Parse `claude -p --output-format json` stdout. Returns null when the output
-// is not the expected envelope (older CLI, plain-text fallback).
+// is not the expected envelope (older CLI, plain-text fallback). Budget/turn
+// stops arrive as a result envelope with an error subtype and possibly no
+// result text, so those are accepted too.
 export function parseClaudeJsonOutput(stdout) {
   let parsed;
   try {
@@ -138,17 +209,98 @@ export function parseClaudeJsonOutput(stdout) {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || typeof parsed.result !== "string") {
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  const isEnvelope = typeof parsed.result === "string"
+    || (parsed.type === "result" && typeof parsed.subtype === "string");
+  if (!isEnvelope) {
     return null;
   }
   const usage = parsed.usage && typeof parsed.usage === "object" ? parsed.usage : {};
-  const inputTokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
-    .reduce((total, key) => total + (typeof usage[key] === "number" ? usage[key] : 0), 0);
+  const fresh = numberOrNull(usage.input_tokens);
+  const cacheWrite = numberOrNull(usage.cache_creation_input_tokens);
+  const cacheRead = numberOrNull(usage.cache_read_input_tokens);
+  const outputTokens = numberOrNull(usage.output_tokens);
+  const aggregateInput = (fresh || 0) + (cacheWrite || 0) + (cacheRead || 0);
+
+  // `modelUsage` keys are the resolved model IDs behind the requested alias.
+  // A single key is an unambiguous resolution; anything else stays null
+  // rather than guessed.
+  const modelUsage = parsed.modelUsage && typeof parsed.modelUsage === "object" && !Array.isArray(parsed.modelUsage)
+    ? parsed.modelUsage
+    : null;
+  const resolvedModels = modelUsage ? Object.keys(modelUsage) : [];
+
   return {
-    output: parsed.result.trim(),
-    input_tokens: inputTokens > 0 ? inputTokens : null,
-    output_tokens: typeof usage.output_tokens === "number" ? usage.output_tokens : null,
-    cost_usd: typeof parsed.total_cost_usd === "number" ? parsed.total_cost_usd : null,
+    output: typeof parsed.result === "string" ? parsed.result.trim() : "",
+    input_tokens: aggregateInput > 0 ? aggregateInput : null,
+    output_tokens: outputTokens,
+    cost_usd: numberOrNull(parsed.total_cost_usd),
+    usage: {
+      fresh_input_tokens: fresh,
+      cache_write_tokens: cacheWrite,
+      cache_read_tokens: cacheRead,
+      output_tokens: outputTokens,
+    },
+    resolved_model: resolvedModels.length === 1 ? resolvedModels[0] : null,
+    resolved_models: resolvedModels,
+    subtype: typeof parsed.subtype === "string" ? parsed.subtype : null,
+    num_turns: numberOrNull(parsed.num_turns),
+  };
+}
+
+// Parse `codex exec --json` JSONL stdout. Usage events may appear as a plain
+// `usage` object or nested token-count info; the last one seen wins (streams
+// report cumulative totals). Codex reports no dollar cost — cost stays null
+// rather than invented.
+export function parseCodexJsonOutput(stdout) {
+  let usage = null;
+  let model = null;
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith("{")) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!event || typeof event !== "object") continue;
+    const candidate = [
+      event.msg?.info?.total_token_usage,
+      event.info?.total_token_usage,
+      event.usage,
+      event.msg?.usage,
+    ].find((value) => value && typeof value === "object"
+      && (typeof value.input_tokens === "number" || typeof value.output_tokens === "number"));
+    if (candidate) {
+      usage = candidate;
+    }
+    const modelCandidate = [event.model, event.msg?.model].find((value) => typeof value === "string" && value.trim());
+    if (modelCandidate) {
+      model = modelCandidate.trim();
+    }
+  }
+  if (!usage) {
+    return null;
+  }
+  const inputTokens = numberOrNull(usage.input_tokens);
+  const cachedTokens = numberOrNull(usage.cached_input_tokens);
+  const outputTokens = numberOrNull(usage.output_tokens);
+  const fresh = inputTokens !== null && cachedTokens !== null ? Math.max(0, inputTokens - cachedTokens) : inputTokens;
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cost_usd: null,
+    usage: {
+      fresh_input_tokens: fresh,
+      cache_write_tokens: null,
+      cache_read_tokens: cachedTokens,
+      output_tokens: outputTokens,
+    },
+    resolved_model: model,
+    resolved_models: model ? [model] : [],
   };
 }
 
@@ -190,6 +342,36 @@ export function buildDelegatePrompt(kind, task, options = {}) {
   return sections.filter(Boolean).join("\n\n");
 }
 
+// Classify how the run ended so budget-triggered termination is
+// distinguishable from provider failure and timeout in both human and JSON
+// output.
+function classifyRunStatus(result, parsed) {
+  const subtype = String(parsed?.subtype || "");
+  if (/budget/i.test(subtype)) {
+    return { status: "budget_stopped", budget_stop_reason: "max_budget_usd" };
+  }
+  if (/max_turns/i.test(subtype)) {
+    return { status: "budget_stopped", budget_stop_reason: "max_turns" };
+  }
+  if (/delegate timed out/.test(String(result.stderr || ""))) {
+    return { status: "timeout", budget_stop_reason: null };
+  }
+  return { status: result.code === 0 ? "ok" : "provider_error", budget_stop_reason: null };
+}
+
+function promptHash(prompt) {
+  return createHash("sha256").update(String(prompt || "")).digest("hex").slice(0, 16);
+}
+
+async function recordDelegationSafe(root, record) {
+  try {
+    const { recordDelegation } = await import("./stats.js");
+    await recordDelegation(root, record);
+  } catch {
+    // Stats are best-effort; a broken log must not fail the delegation.
+  }
+}
+
 export async function runDelegate(root, config, kindInput, task, options = {}) {
   const routes = resolveModelRoutes(config);
   const kind = normalizeRouteKind(kindInput, routes);
@@ -201,6 +383,18 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   if (options.model !== undefined && options.model !== null) {
     route.model = String(options.model);
   }
+
+  // Validate budgets before anything else: an invalid ceiling must fail
+  // before a provider process can start. CLI flags override the route; a
+  // manual provider/model override never drops the ceiling.
+  const policy = resolveBudgetPolicy(config);
+  const cliOverrides = {
+    maxBudgetUsd: options.maxBudgetUsd,
+    maxTurns: options.maxTurns,
+    effort: options.effort,
+  };
+  const limits = resolveRouteLimits(route, cliOverrides);
+  const budgetSource = describeBudgetSource(kind, config, cliOverrides);
 
   const availability = await detectDelegateProviders(options.runtime || {});
   const target = pickRouteTarget(route, availability);
@@ -214,25 +408,90 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     throw new Error(`delegate ${kind} requires a task: agentify delegate ${kind} "<task>"`);
   }
 
+  const runId = options.runId || randomUUID();
+  const baseRecord = {
+    schema: DELEGATION_SCHEMA_VERSION,
+    run_id: runId,
+    kind,
+    provider: target.provider,
+    model: target.model,
+    requested_provider: route.provider,
+    requested_model: route.model ?? null,
+    used_fallback: target.fallback,
+    fallback_reason: target.fallback ? "provider_unavailable" : null,
+    write: options.write === true,
+    budget_limit: limits.maxBudgetUsd,
+    max_turns: limits.maxTurns,
+    budget_source: budgetSource,
+    // Reserved for the profile contract (#295): recorded now so the schema is
+    // stable before profiles exist.
+    requested_profile: options.profile ?? null,
+    resolved_profile: options.profile ?? null,
+  };
+
+  // Rolling caps count spend already recorded locally; at the cap, block mode
+  // refuses to start a new provider process at all.
+  const rolling = await checkRollingBudget(root, policy);
+  let budgetWarning = null;
+  if (rolling.exceeded) {
+    const w = rolling.exceeded_window;
+    const message = `${w.window} spend $${w.spent_usd.toFixed(4)} has reached the models.budget cap of $${w.limit_usd}`;
+    if (policy.onLimit === "block") {
+      const blocked = {
+        command: "delegate",
+        ...baseRecord,
+        status: "budget_blocked",
+        budget_stop_reason: `rolling_${w.window}_cap`,
+        budget_remaining: 0,
+        exit_code: 2,
+        duration_ms: 0,
+        output: "",
+        error: `budget blocked: ${message} (set models.budget.onLimit: warn to override)`,
+      };
+      await recordDelegationSafe(root, {
+        ...baseRecord,
+        status: "budget_blocked",
+        budget_stop_reason: blocked.budget_stop_reason,
+        budget_remaining: 0,
+        exit_code: 2,
+        duration_ms: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        tokens_estimated: false,
+        cost_usd: null,
+      });
+      return blocked;
+    }
+    budgetWarning = message;
+  }
+
+  const promptStart = Date.now();
   const diffSection = options.diffRef ? await buildDiffSection(root, options.diffRef) : null;
   const prompt = buildDelegatePrompt(kind, task, { diffSection });
+  const promptMs = Date.now() - promptStart;
+
   const lastMessagePath = target.provider === "codex"
     ? path.join(os.tmpdir(), `agentify-delegate-${process.pid}-${Math.random().toString(36).slice(2)}.md`)
     : null;
   const argv = buildDelegateCommand(target, prompt, {
     write: options.write === true,
     lastMessagePath,
+    limits,
+    persistSession: options.persistSession === true,
   });
 
+  const timeoutMs = options.timeoutMs
+    || (limits.timeoutSeconds != null ? limits.timeoutSeconds * 1000 : DELEGATE_TIMEOUT_MS);
   const exec = options.runtime?.exec || ((command, args) => runProviderProcess(command, args, {
     cwd: root,
-    timeoutMs: options.timeoutMs || DELEGATE_TIMEOUT_MS,
+    timeoutMs,
   }));
 
   const startedAt = Date.now();
   const result = await exec(argv[0], argv.slice(1));
-  const durationMs = Date.now() - startedAt;
+  const providerMs = Date.now() - startedAt;
 
+  const parseStart = Date.now();
   let output = String(result.stdout || "").trim();
   let usage = null;
   if (target.provider === "claude") {
@@ -240,6 +499,14 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     if (parsed) {
       output = parsed.output;
       usage = parsed;
+    }
+  } else if (target.provider === "codex") {
+    const parsed = parseCodexJsonOutput(result.stdout);
+    if (parsed) {
+      usage = parsed;
+      // JSONL event stream is not the answer; without the last-message file
+      // there is no human-readable output.
+      output = "";
     }
   }
   if (lastMessagePath) {
@@ -253,38 +520,70 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     }
     await fs.unlink(lastMessagePath).catch(() => {});
   }
+  const parseMs = Date.now() - parseStart;
+  const durationMs = Date.now() - promptStart;
+
+  const { status, budget_stop_reason: budgetStopReason } = classifyRunStatus(result, usage);
+  const costUsd = usage?.cost_usd ?? null;
+  const budgetRemaining = rolling.remaining_usd === null
+    ? null
+    : Math.max(0, rolling.remaining_usd - (costUsd || 0));
 
   const tokensEstimated = usage?.input_tokens == null || usage?.output_tokens == null;
+  let estimateTokens = (text) => Math.max(String(text || "").length === 0 ? 0 : 1, Math.round(String(text || "").length / 4));
   try {
-    const { recordDelegation, estimateTokens } = await import("./stats.js");
-    await recordDelegation(root, {
-      kind,
-      provider: target.provider,
-      model: target.model,
-      used_fallback: target.fallback,
-      write: options.write === true,
-      exit_code: result.code,
-      duration_ms: durationMs,
-      input_tokens: usage?.input_tokens ?? estimateTokens(prompt),
-      output_tokens: usage?.output_tokens ?? estimateTokens(output),
-      tokens_estimated: tokensEstimated,
-      cost_usd: usage?.cost_usd ?? null,
-    });
+    ({ estimateTokens } = await import("./stats.js"));
   } catch {
-    // Stats are best-effort; a broken log must not fail the delegation.
+    // Keep the local estimator; stats are best-effort.
   }
+  await recordDelegationSafe(root, {
+    ...baseRecord,
+    resolved_model: usage?.resolved_model ?? null,
+    status,
+    exit_code: result.code,
+    duration_ms: durationMs,
+    latency: {
+      prompt_ms: promptMs,
+      provider_ms: providerMs,
+      parse_ms: parseMs,
+      total_ms: durationMs,
+    },
+    usage: {
+      fresh_input_tokens: usage?.usage?.fresh_input_tokens ?? null,
+      cache_write_tokens: usage?.usage?.cache_write_tokens ?? null,
+      cache_read_tokens: usage?.usage?.cache_read_tokens ?? null,
+      output_tokens: usage?.usage?.output_tokens ?? null,
+    },
+    input_tokens: usage?.input_tokens ?? estimateTokens(prompt),
+    output_tokens: usage?.output_tokens ?? estimateTokens(output),
+    tokens_estimated: tokensEstimated,
+    cost_usd: costUsd,
+    cost_source: costUsd !== null ? "provider" : "unreported",
+    budget_remaining: budgetRemaining,
+    budget_stop_reason: budgetStopReason,
+    prompt_sha256: promptHash(prompt),
+  });
 
   return {
     command: "delegate",
+    run_id: runId,
     kind,
     provider: target.provider,
     model: target.model,
+    resolved_model: usage?.resolved_model ?? null,
     used_fallback: target.fallback,
     write: options.write === true,
     diff_ref: options.diffRef || null,
+    status,
     exit_code: result.code,
     duration_ms: durationMs,
-    ...(usage?.cost_usd != null ? { cost_usd: usage.cost_usd } : {}),
+    budget_limit: limits.maxBudgetUsd,
+    max_turns: limits.maxTurns,
+    budget_source: budgetSource,
+    budget_stop_reason: budgetStopReason,
+    budget_remaining: budgetRemaining,
+    ...(budgetWarning ? { budget_warning: budgetWarning } : {}),
+    ...(costUsd != null ? { cost_usd: costUsd } : {}),
     output,
     ...(result.code !== 0 ? { error: String(result.stderr || "").trim().slice(0, 2000) } : {}),
   };
@@ -331,9 +630,11 @@ function runProviderProcess(command, args, { cwd, timeoutMs }) {
 
 export async function describeModelRoutes(config, runtime = {}) {
   const routes = resolveModelRoutes(config);
+  const policy = resolveBudgetPolicy(config);
   const availability = await detectDelegateProviders(runtime);
   const entries = Object.entries(routes).map(([kind, route]) => {
     const target = pickRouteTarget(route, availability);
+    const limits = resolveRouteLimits(route);
     return {
       kind,
       provider: route.provider,
@@ -341,7 +642,19 @@ export async function describeModelRoutes(config, runtime = {}) {
       use: route.use || "",
       available: Boolean(target),
       resolves_to: target ? `${target.provider}${target.model ? `/${target.model}` : ""}${target.fallback ? " (fallback)" : ""}` : "unavailable",
+      limits: {
+        max_budget_usd: limits.maxBudgetUsd,
+        max_turns: limits.maxTurns,
+        timeout_seconds: limits.timeoutSeconds,
+        effort: limits.effort,
+      },
+      enforcement: describeLimitEnforcement(target ? target.provider : route.provider),
     };
   });
-  return { command: "models", providers: availability, routes: entries };
+  return {
+    command: "models",
+    providers: availability,
+    budget: policy,
+    routes: entries,
+  };
 }

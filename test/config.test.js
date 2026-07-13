@@ -25,6 +25,40 @@ test("loadConfig returns the trimmed default configuration", async () => {
     maxGhostAgeDays: 3,
     pruneInvalidSessions: true,
   });
+  assert.deepEqual(config.models.budget, { dailyUsd: null, monthlyUsd: null, onLimit: "block" });
+  assert.equal(config.context.sessionSummaries, "extractive");
+  assert.deepEqual(config.context.summary, { maxChars: 600, llmMinEvents: 20, maxBudgetUsd: 0.03 });
+});
+
+test("loadConfig merges budget and summary overrides and keeps legacy boolean summaries", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-budget-"));
+  await fs.writeFile(
+    path.join(root, ".agentify.yaml"),
+    [
+      "models:",
+      "  budget:",
+      "    dailyUsd: 2.5",
+      "  routes:",
+      "    quick:",
+      "      maxBudgetUsd: 0.05",
+      "context:",
+      "  sessionSummaries: true",
+      "  summary:",
+      "    llmMinEvents: 5",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const config = await loadConfig(root);
+  assert.equal(config.models.budget.dailyUsd, 2.5);
+  assert.equal(config.models.budget.onLimit, "block");
+  assert.equal(config.models.routes.quick.maxBudgetUsd, 0.05);
+  assert.equal(config.models.routes.quick.maxTurns, 4);
+  // Legacy boolean survives the merge untouched; mode mapping happens in ctx.
+  assert.equal(config.context.sessionSummaries, true);
+  assert.equal(config.context.summary.llmMinEvents, 5);
+  assert.equal(config.context.summary.maxChars, 600);
 });
 
 test("loadConfig deep-merges repository .agentify.yaml overrides", async () => {

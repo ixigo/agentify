@@ -31,6 +31,37 @@ test("parseClaudeJsonOutput extracts result, usage, and cost; rejects non-envelo
   assert.equal(parseClaudeJsonOutput(""), null);
 });
 
+test("parseClaudeJsonOutput keeps cache categories separate and resolves the model from modelUsage", () => {
+  const parsed = parseClaudeJsonOutput(JSON.stringify({
+    type: "result",
+    result: "done",
+    total_cost_usd: 0.2,
+    usage: {
+      input_tokens: 1000,
+      cache_creation_input_tokens: 4000,
+      cache_read_input_tokens: 500000,
+      output_tokens: 800,
+    },
+    modelUsage: { "claude-haiku-4-5-20251001": { costUSD: 0.2 } },
+  }));
+  assert.equal(parsed.usage.fresh_input_tokens, 1000);
+  assert.equal(parsed.usage.cache_write_tokens, 4000);
+  assert.equal(parsed.usage.cache_read_tokens, 500000);
+  assert.equal(parsed.usage.output_tokens, 800);
+  assert.equal(parsed.input_tokens, 505000);
+  assert.equal(parsed.resolved_model, "claude-haiku-4-5-20251001");
+
+  // Multiple resolved models (subagents) is ambiguous: stays null, not guessed.
+  const multi = parseClaudeJsonOutput(JSON.stringify({
+    type: "result",
+    result: "done",
+    usage: {},
+    modelUsage: { "model-a": {}, "model-b": {} },
+  }));
+  assert.equal(multi.resolved_model, null);
+  assert.deepEqual(multi.resolved_models, ["model-a", "model-b"]);
+});
+
 test("buildStatsReport aggregates delegations by kind and target within the window", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-"));
   try {
@@ -90,6 +121,99 @@ test("buildStatsReport excludes records outside the window and handles empty sto
     await fs.appendFile(resolveDelegationsPath(dir), `${JSON.stringify(old)}\n`, "utf8");
     const report = await buildStatsReport(dir, { days: 30 });
     assert.equal(report.delegations.totals.count, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildStatsReport separates cache categories, reports percentiles, daily trend, and marks legacy records", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-v2-"));
+  try {
+    const { resolveDelegationsPath } = await import("../src/core/stats.js");
+    await fs.mkdir(path.dirname(resolveDelegationsPath(dir)), { recursive: true });
+    const today = new Date().toISOString();
+    const v2 = (overrides) => JSON.stringify({
+      ts: today,
+      schema: "delegation-v2",
+      kind: "quick",
+      provider: "claude",
+      model: "haiku",
+      exit_code: 0,
+      tokens_estimated: false,
+      ...overrides,
+    });
+    const legacy = JSON.stringify({
+      ts: today, kind: "quick", provider: "claude", model: "haiku", exit_code: 0,
+      input_tokens: 100, output_tokens: 10, cost_usd: 0.01,
+    });
+    const lines = [
+      v2({
+        duration_ms: 1000, input_tokens: 505000, output_tokens: 800, cost_usd: 0.2,
+        usage: { fresh_input_tokens: 1000, cache_read_tokens: 500000, cache_write_tokens: 4000, output_tokens: 800 },
+        used_fallback: true, fallback_reason: "provider_unavailable",
+      }),
+      v2({
+        duration_ms: 9000, input_tokens: 2000, output_tokens: 100,
+        usage: { fresh_input_tokens: 2000, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 100 },
+        budget_stop_reason: "max_turns", exit_code: 1,
+      }),
+      legacy,
+      "{corrupt json line",
+      "null",
+      "[1,2]",
+      '"just a string"',
+    ];
+    await fs.appendFile(resolveDelegationsPath(dir), `${lines.join("\n")}\n`, "utf8");
+
+    const report = await buildStatsReport(dir, { days: 7 });
+    assert.equal(report.schema_version, "stats-v2");
+    assert.equal(report.delegations.totals.count, 3);
+    assert.equal(report.delegations.totals.fresh_input_tokens, 3000);
+    assert.equal(report.delegations.totals.cache_read_tokens, 500000);
+    assert.equal(report.delegations.totals.cache_write_tokens, 4000);
+    assert.equal(report.delegations.totals.legacy_records, 1);
+    assert.equal(report.delegations.totals.budget_stops, 1);
+    assert.equal(report.delegations.latency.p50_ms, 1000);
+    assert.equal(report.delegations.latency.p95_ms, 9000);
+    assert.ok(Math.abs(report.delegations.cache.read_ratio - 500000 / 507000) < 1e-9);
+    assert.equal(report.delegations.cost_coverage.reported_records, 2);
+    assert.equal(report.delegations.cost_coverage.total_records, 3);
+    assert.equal(report.delegations.fallback_reasons.provider_unavailable, 1);
+    assert.equal(report.delegations.daily.length, 1);
+    assert.equal(report.delegations.daily[0].runs, 3);
+    assert.ok(Math.abs(report.delegations.daily[0].cost_usd - 0.21) < 1e-9);
+
+    const rendered = renderStatsReport(report);
+    assert.match(rendered, /cache: /);
+    assert.match(rendered, /P50 /);
+    assert.match(rendered, /legacy aggregate/);
+    assert.match(rendered, /budget-stopped/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("delegation telemetry stores a prompt hash but never the prompt text", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-privacy-"));
+  try {
+    const secretTask = "rotate the AWS key sk-super-secret-value in prod";
+    await runDelegate(dir, {}, "quick", secretTask, {
+      runtime: {
+        commandExists: async (command) => command === "claude",
+        exec: async () => ({ code: 0, stdout: "ok", stderr: "" }),
+      },
+    });
+    const { resolveDelegationsPath } = await import("../src/core/stats.js");
+    const line = (await fs.readFile(resolveDelegationsPath(dir), "utf8")).trim();
+    assert.ok(!line.includes("sk-super-secret-value"));
+    assert.ok(!line.includes(secretTask));
+    const record = JSON.parse(line);
+    assert.equal(record.schema, "delegation-v2");
+    assert.match(record.prompt_sha256, /^[0-9a-f]{16}$/);
+    assert.ok(record.run_id);
+    assert.equal(record.requested_profile, null);
+    assert.ok(record.latency.provider_ms >= 0);
+    assert.equal(record.cost_source, "unreported");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

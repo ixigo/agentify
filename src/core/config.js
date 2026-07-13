@@ -29,10 +29,24 @@ const DEFAULT_CONFIG = {
   },
   models: {
     routes: DEFAULT_MODEL_ROUTES,
+    // Rolling caps over locally recorded spend; null means no rolling cap.
+    // Per-run ceilings live on each route (maxBudgetUsd/maxTurns/timeoutSeconds).
+    budget: {
+      dailyUsd: null,
+      monthlyUsd: null,
+      onLimit: "block",
+    },
   },
   context: {
     injection: "relevant",
-    sessionSummaries: true,
+    // extractive (default, zero model cost) | llm (budgeted opt-in) | off.
+    // Legacy boolean values are still accepted: true → extractive, false → off.
+    sessionSummaries: "extractive",
+    summary: {
+      maxChars: 600,
+      llmMinEvents: 20,
+      maxBudgetUsd: 0.03,
+    },
   },
   cleanup: {
     keepRuns: 20,

@@ -360,13 +360,31 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           log(`Provider CLIs: claude ${result.providers.claude ? green("available") : dim("missing")}, codex ${result.providers.codex ? green("available") : dim("missing")}`);
+          if (result.budget.dailyUsd !== null || result.budget.monthlyUsd !== null) {
+            const caps = [
+              result.budget.dailyUsd !== null ? `daily $${result.budget.dailyUsd}` : null,
+              result.budget.monthlyUsd !== null ? `monthly $${result.budget.monthlyUsd}` : null,
+            ].filter(Boolean).join(", ");
+            log(`Rolling caps: ${caps} (${result.budget.onLimit} at limit)`);
+          }
           log("");
           for (const route of result.routes) {
             log(`${bold(route.kind.padEnd(10))} ${route.provider}${route.model !== "(cli default)" ? `/${route.model}` : ""} ${dim(`→ ${route.resolves_to}`)}`);
             log(`           ${dim(route.use)}`);
+            const limits = route.limits;
+            const limitParts = [
+              limits.max_budget_usd !== null ? `$${limits.max_budget_usd}/run` : "no $ cap",
+              limits.max_turns !== null ? `${limits.max_turns} turns` : "no turn cap",
+              limits.timeout_seconds !== null ? `${limits.timeout_seconds}s timeout` : null,
+              ...(limits.effort ? [`effort ${limits.effort}`] : []),
+            ].filter(Boolean).join(" · ");
+            const enforcement = route.enforcement.budget_usd === "native"
+              ? "enforced natively"
+              : "$ cap pre-run only (provider has no in-flight dollar stop)";
+            log(`           ${dim(`limits: ${limitParts} — ${enforcement}`)}`);
           }
           log("");
-          log(dim("Override routes in .agentify.yaml under models.routes."));
+          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget."));
         }
         return;
       }
@@ -383,14 +401,30 @@ export async function runCli(argv, _runtime = {}) {
           model: hasOwn(args, "model") ? args.model : undefined,
           provider: hasOwn(args, "provider") ? args.provider : undefined,
           timeoutMs: args.timeout ? Number(args.timeout) * 1000 : undefined,
+          maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
+          maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
+          effort: hasOwn(args, "effort") ? args.effort : undefined,
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
+          if (result.status === "budget_blocked") {
+            throw new Error(`delegate ${kind} was not started: ${result.error}`);
+          }
           log(dim(`delegated to ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? " (fallback)" : ""}`));
+          if (result.budget_warning) {
+            log(dim(`budget warning: ${result.budget_warning}`));
+          }
           log("");
           log(result.output || dim("(no output)"));
-          if (result.exit_code !== 0) {
+          if (result.status === "budget_stopped") {
+            log("");
+            log(`Run stopped by its budget ceiling (${result.budget_stop_reason}); the result above may be partial. Raise the route limit or pass --max-budget-usd/--max-turns to allow more.`);
+          } else if (result.status === "timeout") {
+            log("");
+            log(`Run stopped by the wall-clock timeout, not by the provider. Raise timeoutSeconds on the route or pass --timeout.`);
+          }
+          if (result.exit_code !== 0 && result.status !== "budget_stopped") {
             throw new Error(`delegate ${kind} failed with exit code ${result.exit_code}${result.error ? `: ${result.error}` : ""}`);
           }
         }
@@ -421,14 +455,27 @@ export async function runCli(argv, _runtime = {}) {
             return;
           }
         }
-        const result = await runDelegate(root, config, "review", getPromptFromArgs(args, 1), { diffRef });
+        const result = await runDelegate(root, config, "review", getPromptFromArgs(args, 1), {
+          diffRef,
+          maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
+          maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
+          effort: hasOwn(args, "effort") ? args.effort : undefined,
+        });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
+          if (result.status === "budget_blocked") {
+            if (isHook) return;
+            throw new Error(`review was not started: ${result.error}`);
+          }
           log(dim(`cross-vendor review by ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? " (fallback)" : ""}${diffRef ? ` — diff since ${diffRef}` : ""}`));
           log("");
           log(result.output || dim("(no output)"));
-          if (result.exit_code !== 0 && !isHook) {
+          if (result.status === "budget_stopped") {
+            log("");
+            log(`Review stopped by its budget ceiling (${result.budget_stop_reason}); findings above may be partial.`);
+          }
+          if (result.exit_code !== 0 && result.status !== "budget_stopped" && !isHook) {
             throw new Error(`review failed with exit code ${result.exit_code}${result.error ? `: ${result.error}` : ""}`);
           }
         }
