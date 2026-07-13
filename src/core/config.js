@@ -28,6 +28,12 @@ const DEFAULT_CONFIG = {
     sharedStorePath: null,
   },
   models: {
+    // The optimization profile (cost | balanced | performance) is NOT
+    // defaulted here on purpose: profile resolution lives in profiles.js so
+    // that "balanced (default)" is distinguishable from an explicit
+    // `models.profile` set by the repo. writeDefaultConfig pins it for new
+    // configs. Precedence: --provider/--model > --profile > AGENTIFY_PROFILE
+    // > models.profile > balanced.
     routes: DEFAULT_MODEL_ROUTES,
     // Rolling caps over locally recorded spend; null means no rolling cap.
     // Per-run ceilings live on each route (maxBudgetUsd/maxTurns/timeoutSeconds).
@@ -185,7 +191,9 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     toolchain: config.toolchain,
     hooks: normalizeConfig(config).hooks,
     runtime: config.runtime,
-    models: config.models,
+    // Pin the default profile explicitly in new configs so the routing
+    // policy is visible and versionable from day one.
+    models: { profile: "balanced", ...config.models },
     context: config.context,
     cleanup: config.cleanup,
   };

@@ -32,6 +32,8 @@ const SHARED_BLOCK_LINES = [
   "- `agentify delegate review --diff <ref>` — after completing a change, get an independent review from a different model vendor before finishing.",
   "- `agentify delegate heavy \"<task>\"` — architecture questions and gnarly debugging go to the strongest model.",
   "- `agentify delegate research \"<question>\"` — fast lookups and summaries.",
+  "- `agentify delegate auto \"<task>\"` — let Agentify classify the task and pick the route; `agentify route explain \"<task>\"` shows the decision without running it.",
+  "- Routing profiles: pass `--profile cost|balanced|performance` ONLY when the user explicitly asks to optimize for cost (\"go all in on cost\", \"minimize spend\") or performance (\"go all in on performance\", \"maximize correctness\"). Never infer a profile from urgency or task wording; the configured default applies otherwise.",
   "",
   "For issue-board work (triage, pick up an item, implement in an isolated worktree, raise a draft PR), prebuilt platform workflows exist: `agentify workflow install` detects GitHub, GitLab, or Azure DevOps from the git remote and installs the skill bundle. `agentify workflow list` shows what each bundle does.",
 ];

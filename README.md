@@ -158,7 +158,9 @@ agentify delegate quick "rename getUser to fetchUser in src/api.ts" --write
 agentify delegate review --diff origin/main     # independent review by a different vendor
 agentify delegate heavy "why does this deadlock under load?"
 agentify delegate research "what does RFC 6902 say about array patches?"
+agentify delegate auto "fix the failing checkout flow"   # classify the task, pick the route
 agentify models                                  # show the routing table + availability
+agentify route explain "design the migration" --profile performance   # dry-run the decision
 ```
 
 | Kind | Default route | Used for |
@@ -169,7 +171,15 @@ agentify models                                  # show the routing table + avai
 | `review` | Codex (CLI default model) | Independent post-change review by a different vendor |
 | `research` | Claude Haiku | Fast exploration, summarization, doc lookups |
 
-Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
+Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically **at the same capability tier** (economy/balanced/frontier) — a missing Codex never silently upgrades a review to a frontier-priced model. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
+
+**Routing profiles** choose how to route inside the hard budget ceilings (never widening them). Set `models.profile` in `.agentify.yaml`, `AGENTIFY_PROFILE`, or `--profile` per run — explicit `--provider`/`--model` always wins:
+
+- `cost` — cheapest evaluated route meeting a quality floor; never downgrades without sufficient eval evidence.
+- `balanced` (default) — lowest measured cost per passing task; with no eval evidence it behaves exactly like the manual routes.
+- `performance` — highest measured pass rate within your ceilings; escalates only on measured gains, not price.
+
+Profiles feed on locally recorded `agentify eval` runs; recommendations never rewrite your config (no self-modifying router). `agentify route explain "<task>"` or `delegate --dry-run` shows the full decision: profile, tier, limits, fallback chain, and the evidence behind it, with alias-drift warnings when routes use unpinned model aliases.
 
 Want a second vendor's eyes on every push? Enable the opt-in pre-push hook (`hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`): each `git push` triggers `agentify review --push` — an independent review of the outgoing commits by the other vendor's model. Advisory only; it never blocks the push.
 

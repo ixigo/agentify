@@ -61,6 +61,7 @@ const COMMANDS = [
   }),
   command("delegate", "Shell a task out to the right model", {
     subcommands: [
+      subcommand("auto", "Classify the task and pick the route automatically"),
       subcommand("quick", "Small, low-impact edits and quick questions"),
       subcommand("implement", "Standard feature work"),
       subcommand("heavy", "Architecture and deep debugging"),
@@ -74,9 +75,21 @@ const COMMANDS = [
       flag("--model", { valueKind: "text", description: "Override the route model" }),
       flag("--provider", { values: ["claude", "codex"], description: "Override the route provider" }),
       flag("--timeout", { valueKind: "number", description: "Timeout in seconds" }),
+      flag("--profile", { values: ["cost", "balanced", "performance"], description: "Optimization profile for this run" }),
+      flag("--dry-run", { description: "Explain the routing decision without running" }),
     ],
   }),
-  command("models", "Show the model routing table"),
+  command("route", "Explain routing decisions", {
+    subcommands: [
+      subcommand("explain", "Show profile, tier, limits, fallback chain, and evidence for a task", {
+        flags: [
+          flag("--kind", { values: ["quick", "implement", "heavy", "review", "research"], description: "Explain a specific route instead of classifying the task" }),
+          flag("--profile", { values: ["cost", "balanced", "performance"], description: "Optimization profile to explain under" }),
+        ],
+      }),
+    ],
+  }),
+  command("models", "Show the model routing table and active profile"),
   command("eval", "Paired Agentify vs plain-Claude benchmarks", {
     subcommands: [
       subcommand("init", "Create a sample eval task manifest"),

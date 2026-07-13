@@ -35,7 +35,8 @@ import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
 import { defaultValueReportPath, buildValueReport, renderValueHtml, renderValueReport } from "./core/value-report.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
-import { describeModelRoutes, runDelegate } from "./core/models.js";
+import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
+import { classifyTaskIntent } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import {
   COMPARE_EXIT_ERROR,
@@ -58,6 +59,59 @@ import { writePrivateText } from "./core/fs.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
 
 export { parseArgs };
+
+// Human rendering shared by `route explain` and `delegate --dry-run`: the
+// full routing decision — profile, signals, tier, limits, fallback chain,
+// and the eval evidence behind it — without running anything.
+function printRouteExplanation(result) {
+  const policy = result.policy;
+  const profile = policy.profile;
+  log(`Profile: ${bold(profile.name)} (${profile.source}) — ${profile.objective} ${dim(`· ${policy.policy_version}`)}`);
+  if (result.intent) {
+    log(`Intent: ${result.intent.kind} ${dim(`(rule: ${result.intent.matched_rule}${result.intent.matched_text ? `, matched "${result.intent.matched_text}"` : ""})`)}`);
+  } else {
+    log(`Route: ${policy.kind} ${dim("(explicit)")}`);
+  }
+  const selected = policy.selected;
+  log(`Selected: ${bold(`${selected.provider}${selected.model ? `/${selected.model}` : ""}`)} ${dim(`tier ${selected.tier} — ${selected.reason}`)}`);
+  if (result.resolves_to) {
+    const resolved = result.resolves_to;
+    log(`Resolves to: ${resolved.provider}${resolved.model ? `/${resolved.model}` : ""}${resolved.fallback ? ` (fallback: ${resolved.fallback_reason})` : ""}`);
+  } else {
+    log("Resolves to: unavailable (no provider CLI installed for this chain)");
+  }
+  const limits = result.limits;
+  const limitParts = [
+    limits.max_budget_usd !== null ? `$${limits.max_budget_usd}/run` : "no $ cap",
+    limits.max_turns !== null ? `${limits.max_turns} turns` : "no turn cap",
+    limits.timeout_seconds !== null ? `${limits.timeout_seconds}s timeout` : null,
+    ...(limits.effort ? [`effort ${limits.effort}`] : []),
+  ].filter(Boolean).join(" · ");
+  log(`Limits: ${limitParts} ${dim(`(source: ${result.budget_source})`)}`);
+  if (result.signals.remaining_budget_usd !== null && result.signals.remaining_budget_usd !== undefined) {
+    log(`Remaining rolling budget: $${result.signals.remaining_budget_usd.toFixed(4)}`);
+  }
+  log(`Fallback chain ${dim(`(max tier ${policy.fallback_chain.max_tier})`)}:`);
+  policy.fallback_chain.entries.forEach((entry, index) => {
+    log(`  ${index + 1}. ${entry.provider}${entry.model ? `/${entry.model}` : dim("/(cli default)")} ${dim(`tier ${entry.tier} — ${entry.reason}`)}`);
+  });
+  const evidence = policy.evidence_summary;
+  if (evidence.runs_scanned > 0 && evidence.considered.some((candidate) => candidate.evidence)) {
+    log("Evidence:");
+    for (const candidate of evidence.considered) {
+      const stats = candidate.evidence;
+      const detail = stats
+        ? `${stats.passes}/${stats.attempts} pass (${stats.pass_rate !== null ? `${(stats.pass_rate * 100).toFixed(1)}%` : "n/a"})${stats.cost_per_pass_usd !== null ? ` · $${stats.cost_per_pass_usd}/pass` : ""}${stats.sufficient ? "" : " · underpowered"}`
+        : "no recorded attempts";
+      log(`  ${candidate.provider}${candidate.model ? `/${candidate.model}` : "/(cli default)"} (${candidate.role}): ${detail}`);
+    }
+  } else {
+    log(dim(`Evidence: ${evidence.runs_scanned} eval run(s) scanned — no sufficient evidence, using configured defaults.`));
+  }
+  if (policy.alias_drift.requested_is_alias || policy.alias_drift.selected_is_alias) {
+    log(dim("Alias drift: this route uses a version-independent alias or the provider CLI default; the resolved model can change across provider releases. Pin full model IDs under models.routes to remove drift."));
+  }
+}
 
 function isMissingIndexError(error) {
   return error instanceof Error && /missing index database at /.test(error.message);
@@ -373,6 +427,7 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           log(`Provider CLIs: claude ${result.providers.claude ? green("available") : dim("missing")}, codex ${result.providers.codex ? green("available") : dim("missing")}`);
+          log(`Profile: ${bold(result.profile.name)} (${result.profile.source}) — ${result.profile.objective} ${dim(`· ${result.profile.policy_version}`)}`);
           if (result.budget.dailyUsd !== null || result.budget.monthlyUsd !== null) {
             const caps = [
               result.budget.dailyUsd !== null ? `daily $${result.budget.dailyUsd}` : null,
@@ -396,18 +451,58 @@ export async function runCli(argv, _runtime = {}) {
               : "$ cap pre-run only (provider has no in-flight dollar stop)";
             log(`           ${dim(`limits: ${limitParts} — ${enforcement}`)}`);
           }
+          if (result.alias_drift_warning) {
+            log("");
+            log(dim(`Alias drift: ${result.alias_drift_warning}`));
+          }
           log("");
-          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget."));
+          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget; profile under models.profile."));
+        }
+        return;
+      }
+
+      case "route": {
+        if (subcommand !== "explain") {
+          throw new Error('route requires a subcommand: agentify route explain "<task>" [--kind <route>] [--profile <cost|balanced|performance>]');
+        }
+        const task = getPromptFromArgs(args, 2);
+        if (!task && !hasOwn(args, "kind")) {
+          throw new Error('route explain requires a task or --kind: agentify route explain "<task>"');
+        }
+        const result = await explainRoute(root, config, task, {
+          kind: hasOwn(args, "kind") ? args.kind : undefined,
+          profile: hasOwn(args, "profile") ? args.profile : undefined,
+          write: args.write === true,
+          diffRef: args.diff ? String(args.diff) : null,
+          model: hasOwn(args, "model") ? args.model : undefined,
+          provider: hasOwn(args, "provider") ? args.provider : undefined,
+          maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
+          maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
+          effort: hasOwn(args, "effort") ? args.effort : undefined,
+          timeoutSeconds: args.timeout ? Number(args.timeout) : undefined,
+        });
+        if (config.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          printRouteExplanation(result);
         }
         return;
       }
 
       case "delegate": {
-        const kind = subcommand;
+        let kind = subcommand;
         if (!kind) {
-          throw new Error('delegate requires a kind: agentify delegate <quick|implement|heavy|review|research> "task"');
+          throw new Error('delegate requires a kind: agentify delegate <auto|quick|implement|heavy|review|research> "task"');
         }
         const task = getPromptFromArgs(args, 2);
+        let intent = null;
+        if (kind === "auto") {
+          if (!task) {
+            throw new Error('delegate auto requires a task: agentify delegate auto "<task>"');
+          }
+          intent = classifyTaskIntent(task);
+          kind = intent.kind;
+        }
         const result = await runDelegate(root, config, kind, task, {
           diffRef: args.diff ? String(args.diff) : null,
           write: args.write === true,
@@ -417,14 +512,26 @@ export async function runCli(argv, _runtime = {}) {
           maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
           maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
           effort: hasOwn(args, "effort") ? args.effort : undefined,
+          profile: hasOwn(args, "profile") ? args.profile : undefined,
+          dryRun: args.dryRun === true,
         });
+        if (intent && result.dry_run) {
+          // Auto-routing classified the kind before runDelegate; surface the
+          // matched rule in the explanation (human and JSON alike).
+          result.intent = intent;
+        }
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
+        } else if (result.dry_run) {
+          printRouteExplanation(result);
         } else {
           if (result.status === "budget_blocked") {
             throw new Error(`delegate ${kind} was not started: ${result.error}`);
           }
-          log(dim(`delegated to ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? " (fallback)" : ""}`));
+          if (intent) {
+            log(dim(`auto-routed to "${kind}" (rule: ${intent.matched_rule}${intent.matched_text ? `, matched "${intent.matched_text}"` : ""})`));
+          }
+          log(dim(`delegated to ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? ` (fallback: ${result.fallback_reason})` : ""} · profile ${result.profile} (${result.profile_source})`));
           if (result.budget_warning) {
             log(dim(`budget warning: ${result.budget_warning}`));
           }
