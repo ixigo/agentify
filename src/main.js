@@ -33,6 +33,7 @@ import { buildRiskReport, renderRiskReport } from "./core/risk.js";
 import { buildTestSelection, renderTestSelection, runTestSelection } from "./core/test-select.js";
 import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
+import { defaultValueReportPath, buildValueReport, renderValueHtml, renderValueReport } from "./core/value-report.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
@@ -43,6 +44,7 @@ import { generateCompletionScript, printCompletionValues } from "./core/completi
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
 import { resolveAgentifyPaths } from "./core/project-store.js";
+import { writePrivateText } from "./core/fs.js";
 import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
 
 export { parseArgs };
@@ -606,6 +608,38 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(report, null, 2));
         } else {
           log(renderStatsReport(report));
+        }
+        return;
+      }
+
+      case "value": {
+        const days = args.days !== undefined ? Number(args.days) : undefined;
+        if (args.days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+          throw new Error("value --days requires a positive integer");
+        }
+        const requestedFormat = String(args.format || "text").toLowerCase();
+        const format = config.json && requestedFormat !== "html" ? "json" : requestedFormat;
+        if (!["text", "json", "html"].includes(format)) {
+          throw new Error('value --format must be one of: text, json, html');
+        }
+        const report = await buildValueReport(root, { days, config });
+        if (format === "html") {
+          if (args.output === true) {
+            throw new Error("value --output requires a file path");
+          }
+          const outputPath = args.output
+            ? path.resolve(root, String(args.output))
+            : defaultValueReportPath(root);
+          await writePrivateText(outputPath, renderValueHtml(report, { projectName: path.basename(root) }), { privateDir: false });
+          if (config.json) {
+            console.log(JSON.stringify({ command: "value", format, path: outputPath, report }, null, 2));
+          } else {
+            success(`Agentify value report written: ${path.relative(root, outputPath) || outputPath}`);
+          }
+        } else if (format === "json") {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          log(renderValueReport(report));
         }
         return;
       }

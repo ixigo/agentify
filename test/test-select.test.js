@@ -51,6 +51,7 @@ test("buildTestSelection picks only tests related to the changed files", async (
   const selection = await buildTestSelection(root, {
     changedFiles: [{ status: "M", path: "src/core.ts" }],
   });
+  assert.ok(selection.indexed_test_count >= selection.selected_tests.length);
 
   const selectedPaths = selection.selected_tests.map((item) => item.path);
   assert.ok(selectedPaths.includes("src/core.test.ts"), `expected core.test.ts in ${selectedPaths}`);
@@ -99,6 +100,13 @@ test("runTestSelection runs each group and reports pass/fail", async () => {
   assert.equal(outcome.passed, true);
   assert.equal(spawned.length, 1);
   assert.equal(spawned[0].command, "node");
+
+  const { readValueEvents } = await import("../src/core/value-telemetry.js");
+  const valueEvents = await readValueEvents(root);
+  const focusedRun = valueEvents.find((event) => event.type === "focused_test_run");
+  assert.ok(focusedRun, "expected focused_test_run value event");
+  assert.equal(focusedRun.selected_test_files, selection.selected_tests.length);
+  assert.equal(focusedRun.full_suite_files_avoided, selection.indexed_test_count - selection.selected_tests.length);
 
   function failingSpawn() {
     const child = new EventEmitter();

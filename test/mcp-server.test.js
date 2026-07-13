@@ -10,6 +10,8 @@ import { buildMcpTools, handleMcpMessage, runMcpServer } from "../src/core/mcp-s
 
 async function withContextFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mcp-"));
+  await fs.mkdir(path.join(root, "src/pay"), { recursive: true });
+  await fs.writeFile(path.join(root, "src/pay/retry.ts"), "export const retry = true;\n", "utf8");
   await addNote(root, "payment retries idempotency key lives in src/pay/retry.ts");
   await trackEvent(root, {
     session_id: "s1",

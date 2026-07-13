@@ -114,6 +114,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
 | `agentify models` | Model routing table + provider availability |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
+| `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, and focused tests |
 | `agentify eval init\|run\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading |
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
@@ -173,6 +174,18 @@ Defaults use version-independent Claude aliases and the Codex CLI's configured d
 Want a second vendor's eyes on every push? Enable the opt-in pre-push hook (`hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`): each `git push` triggers `agentify review --push` — an independent review of the outgoing commits by the other vendor's model. Advisory only; it never blocks the push.
 
 Every delegation is logged locally with duration, token usage, and cost (real numbers where the provider CLI reports them, ~4 chars/token estimates otherwise). `agentify stats` breaks it down by kind and model — so you can see what routing cheap work to cheap models is actually saving.
+
+## Make the invisible value visible
+
+Agentify's context and guardrails run quietly. Generate a local receipt that makes their observable impact shareable:
+
+```bash
+agentify value --days 7
+agentify value --days 7 --format json
+agentify value --days 7 --format html  # writes agentify-value-report.html
+```
+
+The HTML report is self-contained and shows decisions surfaced in later tasks, stale context rejected before injection, prior command failures intercepted before a repeat, estimated context tokens with their evidence sources, delegation cost and latency, focused test files selected instead of the indexed full suite, and deterministic eval cost per passing task. Claims remain deliberately bounded: provider costs are never guessed, token counts are marked as estimates, and a warning is not presented as proof that a command was abandoned.
 
 ## Paired evaluation: does Agentify actually help?
 

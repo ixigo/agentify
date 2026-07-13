@@ -5,6 +5,7 @@ import path from "node:path";
 import { ensureDir, exists, readText, relative } from "./fs.js";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
 import { redactSensitiveText } from "./redact.js";
+import { estimateContextTokens, recordValueEvent } from "./value-telemetry.js";
 
 const MAX_EVENT_LOG_BYTES = 512 * 1024;
 const COMPACTED_EVENT_LINES = 1000;
@@ -25,6 +26,7 @@ export function resolveContextPaths(root) {
     injectedPath: path.join(contextRoot, "injected.json"),
     summariesPath: path.join(contextRoot, "summaries.jsonl"),
     summaryUsagePath: path.join(contextRoot, "summary-usage.jsonl"),
+    valueEventsPath: path.join(contextRoot, "value-events.jsonl"),
   };
 }
 
@@ -60,7 +62,7 @@ export async function clearContext(root, options = {}) {
   if (options.archive !== false) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const targetDir = path.join(paths.archiveDir, stamp);
-    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath]]) {
+    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath], ["value-events.jsonl", paths.valueEventsPath]]) {
       if (await exists(sourcePath)) {
         await ensureDir(targetDir);
         await fs.rename(sourcePath, path.join(targetDir, label));
@@ -72,6 +74,7 @@ export async function clearContext(root, options = {}) {
     await fs.rm(paths.notesPath, { force: true });
     await fs.rm(paths.summariesPath, { force: true });
     await fs.rm(paths.summaryUsagePath, { force: true });
+    await fs.rm(paths.valueEventsPath, { force: true });
   }
   await fs.rm(paths.injectedPath, { force: true });
   return {
@@ -454,6 +457,46 @@ export function renderContextDigest(snapshot) {
   return lines.join("\n");
 }
 
+export async function recordContextDigestInjection(root, snapshot, digest, options = {}) {
+  if (!digest) {
+    return null;
+  }
+  const notes = snapshot.notes || [];
+  // Keep telemetry aligned with renderContextDigest's visible slice limits.
+  const renderedNotes = [
+    ...notes.filter((note) => note.type === "decision").slice(-5),
+    ...notes.filter((note) => note.type !== "decision"),
+  ];
+  const freshNotes = renderedNotes.filter((note) => !Array.isArray(note.stale_refs) || note.stale_refs.length === 0);
+  const staleNotes = renderedNotes.filter((note) => Array.isArray(note.stale_refs) && note.stale_refs.length > 0);
+  const decisions = freshNotes.filter((note) => note.type === "decision");
+  const summaries = (snapshot.sessionSummaries || []).slice(-3);
+  const hotFiles = snapshot.summary?.hotFiles || [];
+  const failures = snapshot.summary?.unresolvedFailures || [];
+  try {
+    return await recordValueEvent(root, {
+      type: "context_injection",
+      mode: "digest",
+      sid: shortSessionId(options.sessionId),
+      estimated_tokens: estimateContextTokens(digest),
+      injected_items: renderedNotes.length + summaries.length + hotFiles.length + failures.length,
+      decisions_reused: decisions.length,
+      stale_context_rejected: 0,
+      reasons: {
+        previous_decision: decisions.length,
+        previous_note: freshNotes.length - decisions.length,
+        session_summary: summaries.length,
+        hot_file: hotFiles.length,
+        previous_failure: failures.length,
+        stale_warning: staleNotes.length,
+      },
+    });
+  } catch {
+    // Context output must never depend on value telemetry.
+    return null;
+  }
+}
+
 export async function contextStatus(root) {
   const paths = resolveContextPaths(root);
   const snapshot = await loadContextSnapshot(root, { maxEvents: DEFAULT_DIGEST_EVENTS, maxNotes: 1000 });
@@ -759,15 +802,22 @@ export async function matchContext(root, prompt, options = {}) {
 
   const ledger = await readInjectionLedger(root);
   const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
-  const freshNotes = matches.notes.filter((item) => !seen.has(item.key));
+  // Stale notes remain visible in the manual full digest, but task-scoped
+  // injection rejects them so a missing file reference cannot steer new work.
+  const staleNotes = matches.notes.filter((item) => Array.isArray(item.note?.stale_refs) && item.note.stale_refs.length > 0);
+  const staleNoteKeys = new Set(staleNotes.map((item) => item.key));
+  const eligibleNotes = matches.notes.filter((item) => !staleNoteKeys.has(item.key));
+  const freshStaleNotes = staleNotes.filter((item) => !seen.has(item.key));
+  const freshNotes = eligibleNotes.filter((item) => !seen.has(item.key));
   const freshSummaries = (matches.summaries || []).filter((item) => !seen.has(item.key));
   const freshFiles = matches.files.filter((item) => !seen.has(item.key));
   const freshFailures = (matches.failures || []).filter((item) => !seen.has(item.key));
 
-  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0 || freshFailures.length > 0)) {
+  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0 || freshFailures.length > 0 || freshStaleNotes.length > 0)) {
     ledger[sid] = [
       ...seen,
       ...freshNotes.map((item) => item.key),
+      ...freshStaleNotes.map((item) => item.key),
       ...freshSummaries.map((item) => item.key),
       ...freshFiles.map((item) => item.key),
       ...freshFailures.map((item) => item.key),
@@ -787,6 +837,34 @@ export async function matchContext(root, prompt, options = {}) {
     } catch {
       // Best-effort: usage telemetry must never break injection.
     }
+
+    try {
+      const injectedMatches = {
+        notes: freshNotes,
+        summaries: freshSummaries,
+        files: freshFiles,
+        failures: freshFailures,
+      };
+      const decisionCount = freshNotes.filter((item) => item.note?.type === "decision").length;
+      const reasons = {
+        previous_decision: decisionCount,
+        previous_note: freshNotes.length - decisionCount,
+        session_summary: freshSummaries.length,
+        hot_file: freshFiles.length,
+        previous_failure: freshFailures.length,
+      };
+      await recordValueEvent(root, {
+        type: "context_injection",
+        sid,
+        estimated_tokens: estimateContextTokens(renderMatchDigest(injectedMatches)),
+        injected_items: freshNotes.length + freshSummaries.length + freshFiles.length + freshFailures.length,
+        decisions_reused: decisionCount,
+        stale_context_rejected: freshStaleNotes.length,
+        reasons,
+      });
+    } catch {
+      // Value telemetry must never break prompt injection.
+    }
   }
 
   return {
@@ -794,7 +872,8 @@ export async function matchContext(root, prompt, options = {}) {
     summaries: freshSummaries,
     files: freshFiles,
     failures: freshFailures,
-    suppressed_as_seen: (matches.notes.length - freshNotes.length)
+    stale_rejected: freshStaleNotes.length,
+    suppressed_as_seen: (eligibleNotes.length - freshNotes.length)
       + ((matches.summaries || []).length - freshSummaries.length)
       + (matches.files.length - freshFiles.length)
       + ((matches.failures || []).length - freshFailures.length),
@@ -838,6 +917,15 @@ export async function precheckCommand(root, payload, options = {}) {
     }
     ledger[sid] = [...seen, key];
     await writeInjectionLedger(root, ledger);
+    try {
+      await recordValueEvent(root, {
+        type: "failed_command_repeat_intercepted",
+        sid,
+        previous_failure_ts: last.ts || null,
+      });
+    } catch {
+      // Pre-run safety warnings must not depend on value telemetry.
+    }
   }
 
   return { command: normalized, event: last };
