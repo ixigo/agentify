@@ -37,6 +37,16 @@ import { defaultValueReportPath, buildValueReport, renderValueHtml, renderValueR
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
+import {
+  COMPARE_EXIT_ERROR,
+  EVAL_EXPORT_FORMATS,
+  buildEvalReport,
+  buildPromptfooExport,
+  compareEvalReports,
+  renderEvalReportHtml,
+  renderEvalReportMarkdown,
+} from "./core/eval-report.js";
+import fs from "node:fs/promises";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
 import { runClean } from "./core/cleanup.js";
@@ -545,6 +555,69 @@ export async function runCli(argv, _runtime = {}) {
           return;
         }
 
+        if (subcommand === "report") {
+          const format = String(args.format || "json").trim().toLowerCase();
+          if (!EVAL_EXPORT_FORMATS.includes(format)) {
+            throw new Error(`eval report --format must be one of ${EVAL_EXPORT_FORMATS.join(", ")}, got "${args.format}"`);
+          }
+          const report = await buildEvalReport(root, config, args._[2]);
+          const output = format === "md"
+            ? renderEvalReportMarkdown(report)
+            : format === "html"
+              ? renderEvalReportHtml(report)
+              : format === "promptfoo"
+                ? JSON.stringify(buildPromptfooExport(report), null, 2)
+                : JSON.stringify(report, null, 2);
+          if (args.out && args.out !== true) {
+            const outPath = path.resolve(root, String(args.out));
+            await fs.writeFile(outPath, output, "utf8");
+            log(`Report written to ${outPath}`);
+          } else {
+            console.log(output);
+          }
+          return;
+        }
+
+        if (subcommand === "compare") {
+          // Documented exit codes for CI: 0 gates passed, 1 gate violated,
+          // 2 invalid input — so a pipeline can distinguish "regression"
+          // from "misconfigured comparison".
+          let result;
+          try {
+            const [currentPath, baselinePath] = [args._[2], args._[3]];
+            if (!currentPath || !baselinePath) {
+              throw new Error("eval compare requires two JSON reports: agentify eval compare <current.json> <baseline.json> --fail-on '<gate>><threshold>'");
+            }
+            const readReport = async (file) => JSON.parse(await fs.readFile(path.resolve(root, String(file)), "utf8"));
+            result = compareEvalReports(await readReport(currentPath), await readReport(baselinePath), args.failOn, { force: args.force === true });
+          } catch (error) {
+            process.exitCode = COMPARE_EXIT_ERROR;
+            if (config.json) {
+              console.log(JSON.stringify({ command: "eval", action: "compare", error: String(error.message || error), exit_code: COMPARE_EXIT_ERROR }, null, 2));
+              return;
+            }
+            log(`eval compare failed: ${error.message}`);
+            return;
+          }
+          process.exitCode = result.exit_code;
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          if (result.forced) {
+            log(dim(`forced past comparability issues: ${result.comparability_issues.join("; ")} — deltas may not be like-for-like`));
+          }
+          for (const gate of result.gates) {
+            const detail = gate.status === "skipped"
+              ? gate.reason
+              : `baseline ${gate.baseline_value ?? "n/a"} -> current ${gate.current_value ?? "n/a"}${gate.delta !== undefined ? `, delta ${gate.delta}` : ""} (threshold ${gate.threshold})`;
+            log(`${gate.status === "violated" ? bold("VIOLATED") : gate.status.padEnd(8)} ${gate.gate} [${gate.arm}] ${dim(detail)}`);
+          }
+          log("");
+          log(result.passed ? green("All gates passed.") : `${result.violations.length} gate violation(s).`);
+          return;
+        }
+
         if (!subcommand || subcommand === "list") {
           const result = await listEvals(root, config);
           if (config.json) {
@@ -576,7 +649,7 @@ export async function runCli(argv, _runtime = {}) {
           return;
         }
 
-        throw new Error("eval requires a subcommand: init, run, or list");
+        throw new Error("eval requires a subcommand: init, run, report, compare, or list");
       }
 
       case "risk": {
