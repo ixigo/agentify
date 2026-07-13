@@ -28,8 +28,20 @@ const BOOLEAN_FLAGS = new Set([
   "keepWorkspaces",
 ]);
 
+// Flags that may appear multiple times; repeats accumulate into an array
+// instead of last-one-wins.
+const REPEATABLE_FLAGS = new Set(["failOn"]);
+
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+
+function assignFlag(args, key, value) {
+  if (REPEATABLE_FLAGS.has(key) && hasOwn(args, key)) {
+    args[key] = [].concat(args[key], value);
+    return;
+  }
+  args[key] = value;
 }
 
 export function hasOwn(obj, key) {
@@ -82,7 +94,7 @@ export function parseArgs(argv) {
     const [rawKey, inlineValue] = token.slice(2).split("=", 2);
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
-      args[key] = parseValue(inlineValue);
+      assignFlag(args, key, parseValue(inlineValue));
       continue;
     }
     if (BOOLEAN_FLAGS.has(key)) {
@@ -92,11 +104,13 @@ export function parseArgs(argv) {
 
     const next = argv[index + 1];
     if (!next || next.startsWith("--")) {
-      args[key] = true;
+      // Valueless occurrences of repeatable flags accumulate too, so a
+      // malformed repeat is visible downstream instead of silently replaced.
+      assignFlag(args, key, true);
       continue;
     }
 
-    args[key] = parseValue(next);
+    assignFlag(args, key, parseValue(next));
     index += 1;
   }
   return args;

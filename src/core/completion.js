@@ -89,6 +89,17 @@ const COMMANDS = [
         ],
       }),
       subcommand("list", "List eval tasks and past runs"),
+      subcommand("report", "Cost-performance report for a run", {
+        flags: [
+          flag("--format", { values: ["json", "md", "html"], description: "Report output format" }),
+          flag("--out", { valueKind: "path", description: "Write the report to a file" }),
+        ],
+      }),
+      subcommand("compare", "Regression gates between two JSON reports", {
+        flags: [
+          flag("--fail-on", { valueKind: "text", description: "Gate expression, e.g. pass_rate_drop>0.02 (repeatable)" }),
+        ],
+      }),
     ],
   }),
   command("workflow", "Prebuilt platform workflows", {
