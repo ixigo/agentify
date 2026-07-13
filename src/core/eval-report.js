@@ -20,6 +20,10 @@ import { redactSensitiveText } from "./redact.js";
 
 export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v1";
 export const EVAL_REPORT_FORMATS = ["json", "md", "html"];
+// "promptfoo" is an export adapter for teams using promptfoo's UI/assertion
+// ecosystem, not a report format: it carries per-attempt results, not the
+// normalized paired metrics.
+export const EVAL_EXPORT_FORMATS = [...EVAL_REPORT_FORMATS, "promptfoo"];
 
 // A paired comparison below this many attempts per arm cannot separate arms
 // with any confidence; the verdict stays "insufficient evidence".
@@ -503,10 +507,10 @@ export function renderEvalReportMarkdown(report) {
 
   if (report.paired.length > 0) {
     lines.push("", "## Paired deltas (agentify − baseline)", "");
-    lines.push("| baseline | pairs | Δ pass rate | discordant (agentify-only / baseline-only) | Δ cost/pass | Δ P95 |");
-    lines.push("| --- | --- | --- | --- | --- | --- |");
+    lines.push("| baseline | pairs | paired samples | Δ pass rate | discordant (agentify-only / baseline-only) | Δ cost/pass | Δ P95 |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- |");
     for (const pair of report.paired) {
-      lines.push(`| ${pair.baseline} | ${pair.pairs} | ${pair.pass_rate_delta ?? "n/a"} | ${pair.discordant.agentify_only_pass} / ${pair.discordant.baseline_only_pass} | ${pair.cost_per_pass_delta_usd ?? "n/a"} | ${pair.provider_p95_delta_ms ?? "n/a"} |`);
+      lines.push(`| ${pair.baseline} | ${pair.pairs} | ${pair.paired_sample_ids.join(", ") || "none"} | ${pair.pass_rate_delta ?? "n/a"} | ${pair.discordant.agentify_only_pass} / ${pair.discordant.baseline_only_pass} | ${pair.cost_per_pass_delta_usd ?? "n/a"} | ${pair.provider_p95_delta_ms ?? "n/a"} |`);
     }
   }
 
@@ -561,6 +565,7 @@ export function renderEvalReportHtml(report) {
     <tr>
       <td><code>${escapeHtml(pair.baseline)}</code></td>
       <td>${pair.pairs}</td>
+      <td>${escapeHtml(pair.paired_sample_ids.join(", ") || "none")}</td>
       <td>${pair.pass_rate_delta ?? "n/a"}</td>
       <td>${pair.discordant.agentify_only_pass} / ${pair.discordant.baseline_only_pass}</td>
       <td>${pair.cost_per_pass_delta_usd ?? "n/a"}</td>
@@ -623,7 +628,7 @@ export function renderEvalReportHtml(report) {
 </table>
 ${pairedRows ? `<h2>Paired deltas (agentify − baseline)</h2>
 <table>
-  <tr><th>baseline</th><th>pairs</th><th>Δ pass rate</th><th>discordant (agentify / baseline)</th><th>Δ cost/pass</th><th>Δ P95 (ms)</th></tr>
+  <tr><th>baseline</th><th>pairs</th><th>paired samples</th><th>Δ pass rate</th><th>discordant (agentify / baseline)</th><th>Δ cost/pass</th><th>Δ P95 (ms)</th></tr>
   ${pairedRows}
 </table>` : ""}
 ${frontierItems ? `<h2>Cost-quality frontier</h2><ul>${frontierItems}${marginalItems}</ul>` : ""}
@@ -632,6 +637,67 @@ ${attemptBlocks}
 </body>
 </html>
 `;
+}
+
+// Best-effort interchange with promptfoo's eval-results file so teams can
+// load Agentify runs into its UI/assertion ecosystem. Deliberately built as
+// plain JSON with zero promptfoo dependency, and under the same privacy
+// rules as the native report: no raw prompt (label carries the task id and
+// prompt hash), no provider argv, drill-down fields already redacted.
+export function buildPromptfooExport(report) {
+  const promptLabel = `${report.task.id} (prompt sha256:${String(report.task.prompt_sha256 || "").slice(0, 16)})`;
+  const results = report.attempts.map((attempt) => {
+    const usage = attempt.usage || {};
+    const prompt = (usage.fresh_input_tokens || 0) + (usage.cache_write_tokens || 0) + (usage.cache_read_tokens || 0);
+    return {
+      description: attempt.attempt_id,
+      vars: {
+        task: report.task.id,
+        arm: attempt.arm,
+        repeat_index: attempt.repeat_index,
+        model: report.task.model,
+        profile: report.task.profile,
+        base_sha: report.task.base_sha,
+      },
+      provider: { id: `claude:${report.task.model}`, label: attempt.arm },
+      prompt: { raw: "", label: promptLabel },
+      success: attempt.pass,
+      score: attempt.pass ? 1 : 0,
+      latencyMs: attempt.provider_duration_ms,
+      cost: attempt.cost_usd,
+      tokenUsage: { total: prompt + (usage.output_tokens || 0), prompt, completion: usage.output_tokens || 0, cached: usage.cache_read_tokens || 0 },
+      gradingResult: {
+        pass: attempt.pass,
+        score: attempt.pass ? 1 : 0,
+        reason: attempt.pass ? "all deterministic checks passed" : `failed: ${attempt.failure_kind}`,
+        componentResults: attempt.checks.map((check) => ({
+          pass: check.passed,
+          score: check.passed ? 1 : 0,
+          reason: check.passed ? "passed" : `exit ${check.exit_code}${check.timed_out ? " (timed out)" : ""}`,
+          assertion: { type: "python", value: check.command },
+        })),
+      },
+      ...(attempt.error ? { error: attempt.error } : {}),
+    };
+  });
+  return {
+    evalId: `agentify-eval-${report.run_id}`,
+    results: {
+      version: 2,
+      timestamp: report.run_ts,
+      results,
+      stats: {
+        successes: results.filter((result) => result.success).length,
+        failures: results.filter((result) => !result.success).length,
+        tokenUsage: results.reduce((totals, result) => ({
+          total: totals.total + result.tokenUsage.total,
+          prompt: totals.prompt + result.tokenUsage.prompt,
+          completion: totals.completion + result.tokenUsage.completion,
+          cached: totals.cached + result.tokenUsage.cached,
+        }), { total: 0, prompt: 0, completion: 0, cached: 0 }),
+      },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -39,8 +39,9 @@ import { describeModelRoutes, runDelegate } from "./core/models.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import {
   COMPARE_EXIT_ERROR,
-  EVAL_REPORT_FORMATS,
+  EVAL_EXPORT_FORMATS,
   buildEvalReport,
+  buildPromptfooExport,
   compareEvalReports,
   renderEvalReportHtml,
   renderEvalReportMarkdown,
@@ -556,15 +557,17 @@ export async function runCli(argv, _runtime = {}) {
 
         if (subcommand === "report") {
           const format = String(args.format || "json").trim().toLowerCase();
-          if (!EVAL_REPORT_FORMATS.includes(format)) {
-            throw new Error(`eval report --format must be one of ${EVAL_REPORT_FORMATS.join(", ")}, got "${args.format}"`);
+          if (!EVAL_EXPORT_FORMATS.includes(format)) {
+            throw new Error(`eval report --format must be one of ${EVAL_EXPORT_FORMATS.join(", ")}, got "${args.format}"`);
           }
           const report = await buildEvalReport(root, config, args._[2]);
           const output = format === "md"
             ? renderEvalReportMarkdown(report)
             : format === "html"
               ? renderEvalReportHtml(report)
-              : JSON.stringify(report, null, 2);
+              : format === "promptfoo"
+                ? JSON.stringify(buildPromptfooExport(report), null, 2)
+                : JSON.stringify(report, null, 2);
           if (args.out && args.out !== true) {
             const outPath = path.resolve(root, String(args.out));
             await fs.writeFile(outPath, output, "utf8");

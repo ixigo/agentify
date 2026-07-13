@@ -8,6 +8,7 @@ import {
   COMPARE_EXIT_PASS,
   COMPARE_EXIT_VIOLATION,
   buildEvalReport,
+  buildPromptfooExport,
   compareEvalReports,
   parseFailOnExpressions,
   renderEvalReportHtml,
@@ -318,9 +319,59 @@ test("markdown and html renderers carry the same headline metrics, redacted and 
     assert.ok(html.includes("&lt;script&gt;"));
     assert.ok(!html.includes(SECRET_PROMPT));
 
+    // Paired sample IDs appear in every format, not just JSON.
+    assert.deepEqual(report.paired[0].paired_sample_ids, ["repeat-1"]);
+    assert.match(md, /repeat-1/);
+    assert.match(html, /repeat-1/);
+
     // Grader output in the drill-down is redacted in every format.
     assert.ok(!JSON.stringify(report).includes("sk-abcdefghijklmnop123456"));
     assert.match(JSON.stringify(report), /\[REDACTED\]/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("promptfoo export maps attempts to results without leaking the raw prompt", async () => {
+  const root = await makeRoot();
+  try {
+    const attempts = [
+      makeAttempt("agentify", 1, { pass: true, cost: 0.01, providerMs: 4000 }),
+      makeAttempt("agentify", 2, { pass: false, cost: 0.02, providerMs: 5000, checkOutput: "API_KEY=sk-abcdefghijklmnop123456 leaked" }),
+      makeAttempt("plain-safe", 1, { pass: true, cost: 0.03, providerMs: 6000 }),
+      makeAttempt("plain-safe", 2, { pass: false, cost: null, usage: null }),
+    ];
+    const runId = await writeRunFixture(root, attempts, { task: fixtureTask({ repeat: 2 }) });
+    const exported = buildPromptfooExport(await buildEvalReport(root, {}, runId));
+
+    assert.equal(exported.evalId, `agentify-eval-${runId}`);
+    assert.equal(exported.results.results.length, 4);
+    assert.equal(exported.results.stats.successes, 2);
+    assert.equal(exported.results.stats.failures, 2);
+
+    const first = exported.results.results[0];
+    assert.equal(first.vars.arm, "agentify");
+    assert.equal(first.success, true);
+    assert.equal(first.score, 1);
+    assert.equal(first.latencyMs, 4000);
+    assert.equal(first.cost, 0.01);
+    // fresh 100 + cache write 20 + cache read 400 prompt-side, 50 completion.
+    assert.equal(first.tokenUsage.prompt, 520);
+    assert.equal(first.tokenUsage.completion, 50);
+    assert.equal(first.tokenUsage.cached, 400);
+    assert.equal(first.gradingResult.componentResults.length, 1);
+
+    // Attempts without provider usage export zero token usage, not NaN.
+    const uncosted = exported.results.results.find((result) => result.description === "plain-safe-2");
+    assert.deepEqual(uncosted.tokenUsage, { total: 0, prompt: 0, completion: 0, cached: 0 });
+    assert.equal(uncosted.cost, null);
+
+    // Same privacy rules as the native report: prompt identified by hash
+    // only, grader output redacted.
+    const serialized = JSON.stringify(exported);
+    assert.ok(!serialized.includes(SECRET_PROMPT));
+    assert.ok(!serialized.includes("sk-abcdefghijklmnop123456"));
+    assert.match(first.prompt.label, /sample \(prompt sha256:[0-9a-f]{16}\)/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
