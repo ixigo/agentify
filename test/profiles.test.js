@@ -226,6 +226,34 @@ test("balanced profile picks lowest measured cost per pass above the floor, defa
     }),
   });
   assert.equal(cheapButBad.selected.tier, "balanced");
+
+  // The default candidate competes under the same floor: a cheap default
+  // failing the floor loses to a qualifying (pricier) alternative.
+  const badDefault = selectTier({
+    ...base,
+    evidence: evidenceWith({
+      "claude/sonnet": stats({ attempts: 10, passes: 6, costPerPass: 0.1 }),
+      "claude/opus": stats({ attempts: 10, passes: 10, costPerPass: 0.2 }),
+    }),
+  });
+  assert.equal(badDefault.selected.tier, "frontier");
+  assert.equal(badDefault.selected.reason, "evidence_lower_cost_per_pass");
+});
+
+test("evidence recorded under full versioned model IDs matches alias routes", () => {
+  const routes = resolveModelRoutes({});
+  const definition = resolveProfileDefinitions({}).cost;
+  // Eval manifests pin full IDs; routes hold aliases. Family aggregation
+  // (claude/~haiku) must bridge the two or evidence-gated moves never fire.
+  const downgraded = selectTier({
+    kind: "implement",
+    route: routes.implement,
+    profileName: "cost",
+    definition,
+    evidence: evidenceWith({ "claude/~haiku": stats({ attempts: 10, passes: 10 }) }),
+  });
+  assert.equal(downgraded.selected.tier, "economy");
+  assert.equal(downgraded.selected.reason, "evidence_meets_quality_floor");
 });
 
 test("isAliasModel flags aliases and CLI defaults, not pinned IDs", () => {
@@ -241,28 +269,45 @@ test("loadRouteEvidence aggregates recorded eval attempts per model", async () =
   try {
     const runDir = path.join(dir, ".agentify", "evals", "runs", "20260101-000000-abcdef");
     const order = [];
-    for (let index = 0; index < 6; index += 1) {
-      const attemptId = `agentify-r${index}`;
+    const writeAttempt = async (attemptId, record) => {
       order.push({ attempt_id: attemptId });
       const attemptDir = path.join(runDir, "attempts", attemptId);
       await fs.mkdir(attemptDir, { recursive: true });
-      await fs.writeFile(path.join(attemptDir, "result.json"), JSON.stringify({
-        model: "sonnet",
+      await fs.writeFile(path.join(attemptDir, "result.json"), JSON.stringify(record));
+    };
+    for (let index = 0; index < 6; index += 1) {
+      await writeAttempt(`agentify-r${index}`, {
+        arm: "agentify",
+        model: "claude-sonnet-5-20260203",
         pass: index < 5,
         provider: { cost_usd: 0.2, duration_ms: 1000 + index },
-      }));
+      });
+    }
+    // Baseline arms must NOT pool into routing evidence: two underpowered
+    // arms are not one sufficient sample, and baseline behavior would blend
+    // harness effects into model competence.
+    for (let index = 0; index < 6; index += 1) {
+      await writeAttempt(`plain-r${index}`, {
+        arm: "plain-safe",
+        model: "claude-sonnet-5-20260203",
+        pass: false,
+        provider: { cost_usd: 0.2, duration_ms: 1000 },
+      });
     }
     await fs.mkdir(runDir, { recursive: true });
     await fs.writeFile(path.join(runDir, "run.json"), JSON.stringify({ schema: "eval-run-v1", plan: { order } }));
 
     const evidence = await loadRouteEvidence(dir);
     assert.equal(evidence.runs_scanned, 1);
-    const sonnet = evidence.models["claude/sonnet"];
+    const sonnet = evidence.models["claude/claude-sonnet-5-20260203"];
     assert.equal(sonnet.attempts, 6);
     assert.equal(sonnet.passes, 5);
     assert.equal(sonnet.sufficient, true);
     assert.equal(sonnet.cost_per_pass_usd, Number((1.2 / 5).toFixed(4)));
     assert.ok(sonnet.provider_p95_ms >= sonnet.provider_p50_ms);
+    // Full versioned IDs also aggregate under the alias family so alias
+    // routes can find them.
+    assert.deepEqual(evidence.models["claude/~sonnet"], sonnet);
 
     // A repo with no eval runs yields empty evidence, not an error.
     const empty = await loadRouteEvidence(path.join(dir, "nowhere"));
@@ -410,6 +455,16 @@ test("explainRoute classifies the task, reports limits, chain, and availability"
     assert.equal(explicit.policy.profile.name, "performance");
     assert.equal(explicit.policy.profile.source, "cli");
     assert.equal(explicit.resolves_to.fallback, false);
+
+    // A --timeout override shows up in the dry-run limits exactly as the
+    // real run would enforce it.
+    const timed = await explainRoute(dir, {}, "", {
+      kind: "quick",
+      timeoutMs: 5000,
+      env: {},
+      runtime: { commandExists: async () => true },
+    });
+    assert.equal(timed.limits.timeout_seconds, 5);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

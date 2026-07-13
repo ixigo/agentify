@@ -257,6 +257,9 @@ export async function explainRoute(root, config, task, options = {}) {
     maxBudgetUsd: options.maxBudgetUsd,
     maxTurns: options.maxTurns,
     effort: options.effort,
+    // A --timeout override must show up in the dry-run limits exactly as the
+    // real run would enforce it.
+    timeoutSeconds: options.timeoutMs != null ? options.timeoutMs / 1000 : options.timeoutSeconds,
   };
   const limits = resolveRouteLimits({ ...routes[kind], model: policy.selected.model, provider: policy.selected.provider }, cliOverrides);
   const availability = await detectDelegateProviders(options.runtime || {});

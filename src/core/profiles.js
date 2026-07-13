@@ -65,7 +65,11 @@ export const ROUTE_CAPABILITY_TIERS = {
 // Per-provider model for each capability tier. Claude Code accepts
 // version-independent aliases; Codex uses its CLI-configured default for
 // every tier (null) rather than Agentify hard-coding vendor model names.
-// Overridable per provider under `models.tiers` in .agentify.yaml.
+// Known limitation: with all Codex tiers on the CLI default, a Codex
+// fallback's tier label cannot be capability-verified and Codex evidence is
+// indistinguishable across tiers — provider capability adapters (#297) are
+// the fix; until then, pin per-tier Codex models under `models.tiers` in
+// .agentify.yaml to make the bound real.
 export const DEFAULT_TIER_MODELS = {
   claude: { economy: "haiku", balanced: "sonnet", frontier: "opus" },
   codex: { economy: null, balanced: null, frontier: null },
@@ -265,6 +269,25 @@ function evidenceKey(provider, model) {
   return `${provider}/${model === null || model === undefined || model === "" ? "(default)" : String(model).trim().toLowerCase()}`;
 }
 
+// Eval manifests pin full versioned model IDs (eval.js requires them) while
+// routes usually hold version-independent aliases. The family key bridges the
+// two: "claude-haiku-4-5-20251001" and "haiku" both map to "claude/~haiku",
+// so recorded evidence is findable from alias routes. Exact keys always win
+// over family aggregates on lookup.
+function familyKey(provider, model) {
+  if (provider !== "claude" || model === null || model === undefined) {
+    return null;
+  }
+  const match = String(model).toLowerCase().match(/(haiku|sonnet|opus)/);
+  return match ? `${provider}/~${match[1]}` : null;
+}
+
+// Only these eval arms feed routing evidence. Pooling treatment and baseline
+// arms would blend harness effects into model competence and let two
+// underpowered arms masquerade as one sufficient sample. Records without an
+// arm (non-eval evidence sources) are accepted.
+const EVIDENCE_ARMS = new Set(["agentify"]);
+
 function percentile(sorted, p) {
   if (sorted.length === 0) return null;
   const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
@@ -302,21 +325,31 @@ export async function loadRouteEvidence(root) {
       } catch {
         continue;
       }
+      if (record.arm !== undefined && !EVIDENCE_ARMS.has(record.arm)) {
+        continue;
+      }
       // Eval attempts run through the Claude harness today; the provider is
       // recorded per attempt if present, defaulting to claude.
-      const key = evidenceKey(record.provider_name || "claude", record.model);
-      const bucket = buckets.get(key) || { attempts: 0, passes: 0, cost_usd: 0, costed: 0, durations: [] };
-      bucket.attempts += 1;
-      if (record.pass) bucket.passes += 1;
-      const cost = record.provider?.cost_usd;
-      if (typeof cost === "number" && Number.isFinite(cost)) {
-        bucket.cost_usd += cost;
-        bucket.costed += 1;
+      const provider = record.provider_name || "claude";
+      const keys = [evidenceKey(provider, record.model)];
+      const family = familyKey(provider, record.model);
+      if (family && family !== keys[0]) {
+        keys.push(family);
       }
-      if (typeof record.provider?.duration_ms === "number") {
-        bucket.durations.push(record.provider.duration_ms);
+      for (const key of keys) {
+        const bucket = buckets.get(key) || { attempts: 0, passes: 0, cost_usd: 0, costed: 0, durations: [] };
+        bucket.attempts += 1;
+        if (record.pass) bucket.passes += 1;
+        const cost = record.provider?.cost_usd;
+        if (typeof cost === "number" && Number.isFinite(cost)) {
+          bucket.cost_usd += cost;
+          bucket.costed += 1;
+        }
+        if (typeof record.provider?.duration_ms === "number") {
+          bucket.durations.push(record.provider.duration_ms);
+        }
+        buckets.set(key, bucket);
       }
-      buckets.set(key, bucket);
     }
   }
   for (const [key, bucket] of buckets.entries()) {
@@ -353,7 +386,14 @@ export function selectTier({ kind, route, profileName, definition, evidence, con
   const maxIndex = Math.min(CAPABILITY_TIERS.length - 1, baseIndex + definition.maxTierRaise);
   const provider = route.provider;
 
-  const lookup = (candidate) => evidence?.models?.[evidenceKey(candidate.provider, candidate.model)] || null;
+  const lookup = (candidate) => {
+    const exact = evidence?.models?.[evidenceKey(candidate.provider, candidate.model)];
+    if (exact) {
+      return exact;
+    }
+    const family = familyKey(candidate.provider, candidate.model);
+    return (family && evidence?.models?.[family]) || null;
+  };
   const base = candidateFor(provider, baseTier, route, baseTier, tierModels);
   const baseEvidence = lookup(base);
 
@@ -391,7 +431,11 @@ export function selectTier({ kind, route, profileName, definition, evidence, con
     const candidates = [];
     if (baseIndex > 0) candidates.push(candidateFor(provider, CAPABILITY_TIERS[baseIndex - 1], route, baseTier, tierModels));
     if (maxIndex > baseIndex) candidates.push(candidateFor(provider, CAPABILITY_TIERS[baseIndex + 1], route, baseTier, tierModels));
+    // The default candidate competes under the same quality floor as the
+    // alternatives — a cheap default that fails the floor must not win on
+    // price alone.
     let best = baseEvidence?.sufficient && baseEvidence.cost_per_pass_usd !== null
+      && (definition.qualityFloor === null || baseEvidence.pass_rate >= definition.qualityFloor)
       ? { ...base, reason: "route_default", costPerPass: baseEvidence.cost_per_pass_usd }
       : null;
     for (const candidate of candidates) {

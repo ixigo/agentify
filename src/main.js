@@ -479,6 +479,7 @@ export async function runCli(argv, _runtime = {}) {
           maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
           maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
           effort: hasOwn(args, "effort") ? args.effort : undefined,
+          timeoutSeconds: args.timeout ? Number(args.timeout) : undefined,
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
