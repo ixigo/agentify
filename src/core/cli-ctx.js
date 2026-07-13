@@ -9,6 +9,7 @@ import {
   addNote,
   clearContext,
   contextStatus,
+  explainContext,
   isContextPaused,
   listDecisions,
   loadContextSnapshot,
@@ -31,13 +32,22 @@ import {
 import { getPromptFromArgs } from "./cli-args.js";
 import { bold, dim, log, success } from "./ui.js";
 
-async function resolveInjectionMode(root) {
+async function loadConfigSafe(root) {
   try {
-    const config = await loadConfig(root, {});
-    return normalizeInjectionMode(config.context?.injection);
+    return await loadConfig(root, {});
   } catch {
-    return "relevant";
+    return {};
   }
+}
+
+function resolveInjectionMode(config, env = process.env) {
+  // Env override first: eval context ablations flip the mode per attempt
+  // without touching the workspace's committed config.
+  const envMode = String(env.AGENTIFY_CTX_INJECTION || "").trim();
+  if (envMode) {
+    return normalizeInjectionMode(envMode);
+  }
+  return normalizeInjectionMode(config.context?.injection);
 }
 
 export async function runCtxHook(action, root) {
@@ -59,7 +69,8 @@ export async function runCtxHook(action, root) {
     if (await isContextPaused(root)) {
       return;
     }
-    const mode = await resolveInjectionMode(root);
+    const config = await loadConfigSafe(root);
+    const mode = resolveInjectionMode(config);
     if (mode === "off") {
       return;
     }
@@ -90,10 +101,9 @@ export async function runCtxHook(action, root) {
       if (!prompt.trim()) {
         return;
       }
-      const matches = await matchContext(root, prompt, { sessionId: payload?.session_id });
-      const digest = renderMatchDigest(matches);
-      if (digest) {
-        process.stdout.write(`${digest}\n`);
+      const matches = await matchContext(root, prompt, { sessionId: payload?.session_id, config });
+      if (matches.digest) {
+        process.stdout.write(`${matches.digest}\n`);
       }
       return;
     }
@@ -158,12 +168,49 @@ export async function runCtxCommand(root, config, args, subcommand) {
       if (!prompt) {
         throw new Error('ctx match requires a prompt: agentify ctx match "<task>"');
       }
-      const matches = await matchContext(root, prompt, { sessionId: args.session, recordInjection: false });
+      const matches = await matchContext(root, prompt, { sessionId: args.session, recordInjection: false, config });
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx match", ...matches }, null, 2));
       } else {
         log(renderMatchDigest(matches) || "No related context found.");
       }
+      return;
+    }
+
+    case "explain": {
+      const prompt = getPromptFromArgs(args, 2);
+      if (!prompt) {
+        throw new Error('ctx explain requires a task: agentify ctx explain "<task>"');
+      }
+      const result = await explainContext(root, config, prompt, { sessionId: args.session, profile: args.profile });
+      if (config.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const policy = result.policy;
+      log(`${bold("Context policy")} ${dim(`(${policy.policy_version})`)}`);
+      log(`Profile: ${bold(policy.resolved_profile)} ${dim(`(${policy.profile_source})`)}`);
+      log(`Budget:  ${bold(String(policy.max_injected_tokens))} tokens ${dim(`(${policy.budget_source}: ${policy.budget_reason})`)} — reserves: decisions ${policy.reserves.decisions}, failures ${policy.reserves.failures}`);
+      if (policy.min_score !== null) log(`Min score: ${policy.min_score}`);
+      if (policy.max_age_days !== null) log(`Max age: ${policy.max_age_days} day(s)`);
+      log(`Match:   ${result.candidates.length} candidate(s), ${result.selected_items} selected, ~${result.budget.rendered_tokens} rendered token(s), ${result.match_ms}ms`);
+      if (result.candidates.length === 0) {
+        log(dim("No related context found — nothing would be injected."));
+        return;
+      }
+      log("");
+      for (const candidate of result.candidates) {
+        const status = candidate.selected ? (candidate.truncated ? "TRUNC " : "inject") : "skip  ";
+        const detail = candidate.selected && !candidate.truncated ? "" : ` — ${candidate.reason}`;
+        log(`  [${status}] ${candidate.type.padEnd(8)} ${dim(`score ${candidate.score} · ~${candidate.tokens} tok${candidate.age_days !== null ? ` · ${candidate.age_days}d old` : ""}`)} ${candidate.key}${detail}`);
+      }
+      if (result.digest) {
+        log("");
+        log(dim("Would inject:"));
+        log(result.digest);
+      }
+      log("");
+      log(dim("Dry run: nothing was recorded as seen and no telemetry was written."));
       return;
     }
 
@@ -357,6 +404,6 @@ export async function runCtxCommand(root, config, args, subcommand) {
     }
 
     default:
-      throw new Error("ctx requires a subcommand: track, note, decision, decisions, load, match, precheck, status, summarize, share, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, decision, decisions, load, match, explain, precheck, status, summarize, share, handoff, pause, resume, or clear");
   }
 }

@@ -56,6 +56,7 @@ agentify ctx load                # see what the agent sees at session start
 agentify ctx note "gotcha: ..."  # leave a note for the agent's next session
 agentify ctx decision "chose X over Y because Z"   # record a durable decision
 agentify ctx handoff "task"      # write a handoff summary markdown
+agentify ctx explain "task"      # dry-run: what would be injected for this task, and why
 agentify test --run              # run only the tests your current change affects
 agentify stats                   # what the delegate traffic cost this month
 ```
@@ -70,6 +71,50 @@ Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/not
 ```
 
 The event log auto-compacts: past ~512 KB it is truncated to the most recent 1000 events. Command text is clipped to 200 characters and never includes command output. Hook-invoked commands (`--hook`) are designed to never fail and never block the agent.
+
+## Token-budgeted context injection
+
+Per-task context (`relevant` mode) is selected under an explicit token budget, not just item caps. The BM25 matcher proposes candidates; a deterministic selector then picks the highest value-per-token set that fits, so a long marginal note can never crowd out the task itself. Selection is explainable end to end:
+
+```bash
+agentify ctx explain "fix the payment gateway retries"   # dry run: policy, budget, every include/skip reason
+```
+
+`ctx explain` costs nothing (no provider call), never marks items as seen, and shows the governing profile, the effective budget with its source and reason, and each candidate's score, age, estimated tokens, and decision (`within_budget`, `truncated_to_fit`, `over_budget`, `stale_refs`, `seen_this_session`, `below_min_score`, `exceeds_max_age`).
+
+```yaml
+context:
+  injection: relevant       # relevant (default) | digest | off
+  maxInjectedTokens: 1200   # explicit pin; omit (null) to let the policy resolve it
+  minScore: null            # optional relevance gate on match candidates
+  maxAgeDays: null          # optional recency gate
+  reserve:
+    decisions: 250          # budget slices held for safety-critical classes so
+    failures: 250           # bulky low-value items cannot crowd them out
+```
+
+Rules the selector guarantees:
+
+- The **full rendered block** (headers and footer included) never exceeds the budget beyond the documented tokenizer tolerance (~4 chars/token estimate; a render backstop enforces the estimate exactly).
+- **Decisions and unresolved failures get reserved budget** but never bypass the hard total cap: an oversized decision/failure is truncated with provenance (`… [truncated from N chars]`); oversized items of other classes are skipped with a reason.
+- Selection and rendering are **deterministic** — same state, same byte-identical block. Claude prompt caching is prefix-sensitive, so the stable Agentify instructions stay in the cacheable prefix (managed CLAUDE.md/settings blocks) while this bounded, task-varying block arrives as a per-prompt suffix via the `UserPromptSubmit` hook.
+- **Zero matches emit nothing** — no context block, no ledger write, no telemetry event.
+- Items skipped for budget are **not** marked as seen; they stay eligible for the next prompt.
+
+With no explicit `maxInjectedTokens`, the documented default is **1200 tokens** — and the effective budget participates in the optimization profile (see `agentify models`): `cost` moves to the smallest evaluated budget that meets its quality floor, `balanced` to the best measured cost per pass, and `performance` to a larger budget only when ablation evidence shows a pass-rate gain. Evidence comes from local `agentify eval` runs with `context_ablations` (below); with insufficient evidence every profile keeps the default. `AGENTIFY_CTX_BUDGET` and `AGENTIFY_CTX_INJECTION` env vars override budget and mode per process (used by eval ablations).
+
+Every injection records telemetry (`context_injection` value events): candidates, selected/skipped reasons, scores, ages, chars/tokens, suppression-as-seen, match latency, profile, and budget — surfaced by `agentify value` and eval reports.
+
+### Measuring context ROI (eval ablations)
+
+Add `context_ablations` to an eval task manifest to turn context configurations into measurable arms:
+
+```yaml
+arms: [agentify, plain-safe]
+context_ablations: [relevant, digest, off, relevant@600]   # budget variants: relevant@<tokens>
+```
+
+The agentify arm expands into one arm per ablation (`agentify`, `agentify-ctx-digest`, `agentify-ctx-off`, `agentify-ctx-relevant-600`), each pinned via env overrides in that attempt only. Ablation arms pair against the default `agentify` arm in `agentify eval report`, which also aggregates per-arm context metrics (injections, items, tokens, truncations, over-budget skips, match latency) into `context_metrics`. Tune `maxInjectedTokens` defaults only from these results.
 
 ## Failure memory
 

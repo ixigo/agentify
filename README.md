@@ -105,6 +105,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
 | `agentify ctx note "<text>"` | Record a note for future sessions |
 | `agentify ctx decision "<text>"` | Record a durable technical decision; `agentify ctx decisions "<topic>"` answers "why did we choose X" later |
+| `agentify ctx explain "<task>"` | Dry-run of per-task injection: token budget, profile, and every include/skip/truncate reason — nothing recorded |
 | `agentify ctx precheck "<cmd>"` | Check whether a command failed in an earlier session (automatic via PreToolUse hook) |
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
 | `agentify ctx summarize` | ~3-line model-written session summary (automatic on session end) |

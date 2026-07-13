@@ -139,6 +139,7 @@ export function validateEvalTask(raw, source = "") {
   if (effortRaw !== null && !/^[a-z]+$/.test(effortRaw)) {
     fail(source, `effort must be a simple level name (e.g. low, medium, high), got "${raw.effort}"`);
   }
+  const contextAblations = normalizeContextAblations(raw.context_ablations, source);
 
   return {
     schema: EVAL_TASK_SCHEMA_VERSION,
@@ -162,7 +163,89 @@ export function validateEvalTask(raw, source = "") {
     // confound harness value with a stronger routing policy (#295).
     profile: String(raw.profile || "balanced").trim().toLowerCase(),
     seed_context: raw.seed_context !== false,
+    context_ablations: contextAblations,
   };
+}
+
+// Context ablation variants of the agentify arm (#296): same install, same
+// seeded context, but the injection mode/budget is overridden per attempt via
+// env so relevant/digest/off and budget levels become measurable arms.
+const CONTEXT_ABLATION_MODES = new Set(["relevant", "digest", "off"]);
+const CONTEXT_ABLATION_PATTERN = /^(relevant|digest|off)(?:@(\d+))?$/;
+
+function normalizeContextAblations(raw, source) {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    fail(source, "context_ablations must be a non-empty list");
+  }
+  const labels = new Set();
+  const ablations = raw.map((entry) => {
+    let ablation;
+    if (typeof entry === "string") {
+      const match = CONTEXT_ABLATION_PATTERN.exec(entry.trim().toLowerCase());
+      if (!match) {
+        fail(source, `context_ablations entry "${entry}" must be relevant, digest, off, or relevant@<tokens>`);
+      }
+      ablation = { mode: match[1], max_injected_tokens: match[2] === undefined ? null : Number(match[2]) };
+    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      // Normalized form, as written back to run.json and re-validated on resume.
+      const mode = String(entry.mode || "").trim().toLowerCase();
+      if (!CONTEXT_ABLATION_MODES.has(mode)) {
+        fail(source, `context_ablations entry has unknown mode "${entry.mode}"`);
+      }
+      const budget = entry.max_injected_tokens === null || entry.max_injected_tokens === undefined
+        ? null
+        : Number(entry.max_injected_tokens);
+      if (budget !== null && (!Number.isInteger(budget) || budget < 0)) {
+        fail(source, `context_ablations max_injected_tokens must be a non-negative integer, got "${entry.max_injected_tokens}"`);
+      }
+      ablation = { mode, max_injected_tokens: budget };
+    } else {
+      fail(source, "context_ablations entries must be strings or {mode, max_injected_tokens} mappings");
+    }
+    if (ablation.max_injected_tokens !== null && ablation.mode !== "relevant") {
+      fail(source, `context_ablations budget variants are only valid for relevant mode (got "${ablation.mode}@${ablation.max_injected_tokens}")`);
+    }
+    const label = contextAblationLabel(ablation);
+    if (labels.has(label)) {
+      fail(source, `context_ablations lists duplicate variant "${label}"`);
+    }
+    labels.add(label);
+    return ablation;
+  });
+  return ablations;
+}
+
+// The unmodified default (relevant mode, policy-resolved budget) keeps the
+// plain "agentify" arm label so it stays the pairing baseline; every other
+// variant gets a distinct arm label and therefore its own report bucket.
+export function contextAblationLabel(ablation) {
+  if (!ablation || (ablation.mode === "relevant" && ablation.max_injected_tokens === null)) {
+    return "agentify";
+  }
+  return `agentify-ctx-${ablation.mode}${ablation.max_injected_tokens === null ? "" : `-${ablation.max_injected_tokens}`}`;
+}
+
+export function isAgentifyArm(arm) {
+  return arm === "agentify" || String(arm || "").startsWith("agentify-ctx-");
+}
+
+// Expand base arms into concrete run variants. Only the agentify arm carries
+// context ablations; baseline arms run with Agentify context provably off.
+export function expandArmVariants(task, arms) {
+  const variants = [];
+  for (const arm of arms) {
+    if (arm === "agentify" && Array.isArray(task.context_ablations) && task.context_ablations.length > 0) {
+      for (const ablation of task.context_ablations) {
+        variants.push({ arm: contextAblationLabel(ablation), base_arm: "agentify", context_ablation: ablation });
+      }
+    } else {
+      variants.push({ arm, base_arm: arm, context_ablation: null });
+    }
+  }
+  return variants;
 }
 
 export async function loadEvalTask(root, ref, config = {}) {
@@ -305,13 +388,15 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
   const baseSha = await resolveCommit(root, task.base_ref);
 
   const attempts = [];
-  for (const arm of arms) {
+  for (const variant of expandArmVariants(task, arms)) {
     for (let index = 0; index < repeat; index += 1) {
       attempts.push({
-        attempt_id: `${arm}-${index + 1}`,
-        arm,
+        attempt_id: `${variant.arm}-${index + 1}`,
+        arm: variant.arm,
+        base_arm: variant.base_arm,
+        context_ablation: variant.context_ablation,
         repeat_index: index + 1,
-        argv: buildEvalArmCommand(arm, task),
+        argv: buildEvalArmCommand(variant.base_arm, task),
       });
     }
   }
@@ -320,7 +405,8 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
     task,
     task_path: path.relative(root, taskPath),
     base_sha: baseSha,
-    arms,
+    // Concrete arm labels for this run, context-ablation variants included.
+    arms: [...new Set(attempts.map((attempt) => attempt.arm))],
     repeat,
     attempts,
     // The hard ceiling for the whole run: every attempt is capped natively by
@@ -330,12 +416,22 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
   };
 }
 
-function childEnv(arm, extraEnv = {}) {
+function childEnv(arm, extraEnv = {}, contextAblation = null) {
   const env = { ...process.env, ...extraEnv };
-  if (arm === "agentify") {
+  // Never inherit a parent shell's ablation overrides: each attempt's context
+  // configuration must come from its own plan entry only.
+  delete env.AGENTIFY_CTX_INJECTION;
+  delete env.AGENTIFY_CTX_BUDGET;
+  if (isAgentifyArm(arm)) {
     // The whole point of this arm is live context hooks — make sure a parent
     // delegate/eval process cannot leak its recursion guard into it.
     delete env.AGENTIFY_CTX;
+    if (contextAblation) {
+      env.AGENTIFY_CTX_INJECTION = contextAblation.mode;
+      if (contextAblation.max_injected_tokens !== null) {
+        env.AGENTIFY_CTX_BUDGET = String(contextAblation.max_injected_tokens);
+      }
+    }
   } else {
     // Baseline arms must provably receive no Agentify context, including from
     // a global ~/.claude installation that project stripping cannot reach.
@@ -417,11 +513,18 @@ async function prepareWorkspace(root, workspace, baseSha) {
 }
 
 async function prepareArm(root, workspace, arm, task) {
-  if (arm === "agentify") {
+  if (isAgentifyArm(arm)) {
     await installIntegration(workspace, { provider: "claude" });
     const seedSource = path.join(root, ".agentify", "context");
     if (task.seed_context && await exists(seedSource)) {
       await fs.cp(seedSource, path.join(workspace, ".agentify", "context"), { recursive: true });
+      // Seeded notes/events/summaries are the arm's memory, but telemetry and
+      // the injection ledger must start empty: per-attempt context metrics
+      // have to describe this attempt only, and a seeded seen-ledger would
+      // suppress injections the attempt never received.
+      await fs.rm(path.join(workspace, ".agentify", "context", "value-events.jsonl"), { force: true });
+      await fs.rm(path.join(workspace, ".agentify", "context", "injected.json"), { force: true });
+      await fs.rm(path.join(workspace, ".agentify", "context", "summary-usage.jsonl"), { force: true });
     }
     return;
   }
@@ -547,11 +650,61 @@ async function probeClaudeVersion(env) {
   return result.code === 0 ? result.stdout.trim() : null;
 }
 
+// Per-attempt context telemetry, read from the workspace's value-events log
+// before the workspace is deleted. The agentify arm's own hooks wrote these
+// during the attempt; baseline arms have none by construction.
+async function collectContextMetrics(workspace) {
+  const eventsPath = path.join(workspace, ".agentify", "context", "value-events.jsonl");
+  if (!(await exists(eventsPath))) {
+    return null;
+  }
+  const metrics = {
+    injections: 0,
+    injected_items: 0,
+    estimated_tokens: 0,
+    decisions_reused: 0,
+    stale_context_rejected: 0,
+    truncated_items: 0,
+    over_budget_skips: 0,
+    max_match_ms: null,
+    budget_max_tokens: null,
+  };
+  for (const line of (await readText(eventsPath)).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!event || event.type !== "context_injection") continue;
+    const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+    metrics.injections += 1;
+    metrics.injected_items += finite(event.injected_items);
+    metrics.estimated_tokens += finite(event.estimated_tokens);
+    metrics.decisions_reused += finite(event.decisions_reused);
+    metrics.stale_context_rejected += finite(event.stale_context_rejected);
+    metrics.truncated_items += finite(event.budget?.truncated_items);
+    metrics.over_budget_skips += finite(event.budget?.skipped?.over_budget) + finite(event.budget?.skipped?.exceeds_total_budget);
+    if (Number.isFinite(Number(event.match_ms))) {
+      metrics.max_match_ms = Math.max(metrics.max_match_ms ?? 0, Number(event.match_ms));
+    }
+    if (Number.isFinite(Number(event.budget?.max_tokens))) {
+      metrics.budget_max_tokens = Number(event.budget.max_tokens);
+    }
+  }
+  // A present-but-empty log still returns zeros: "hooks ran, nothing was
+  // injected" is a real measurement, distinct from "no log" (null).
+  return metrics;
+}
+
 async function runAttempt(root, runDir, plan, attempt, options) {
   const attemptDir = path.join(runDir, "attempts", attempt.attempt_id);
   const workspace = path.join(attemptDir, "workspace");
   await ensureDir(attemptDir);
-  const env = childEnv(attempt.arm, options.env);
+  const baseArm = attempt.base_arm || attempt.arm;
+  const env = childEnv(baseArm, options.env, attempt.context_ablation ?? null);
   const task = { ...plan.task, base_sha: plan.base_sha };
   const startedAt = Date.now();
 
@@ -560,6 +713,8 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     run_id: plan.run_id,
     attempt_id: attempt.attempt_id,
     arm: attempt.arm,
+    base_arm: baseArm,
+    context_ablation: attempt.context_ablation ?? null,
     repeat_index: attempt.repeat_index,
     task_id: plan.task.id,
     base_sha: plan.base_sha,
@@ -581,7 +736,7 @@ async function runAttempt(root, runDir, plan, attempt, options) {
   try {
     await fs.rm(workspace, { recursive: true, force: true });
     await prepareWorkspace(root, workspace, plan.base_sha);
-    await prepareArm(root, workspace, attempt.arm, plan.task);
+    await prepareArm(root, workspace, baseArm, plan.task);
 
     for (const command of plan.task.setup) {
       const result = await runProcess(command, [], { cwd: workspace, env, timeoutMs: SETUP_TIMEOUT_MS, shell: true });
@@ -601,6 +756,11 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     const parsed = parseClaudeJsonOutput(providerResult.stdout);
 
     const grade = await gradeAttempt(workspace, task, env);
+    if (isAgentifyArm(baseArm)) {
+      // Read before the finally-block deletes the workspace; metrics failures
+      // must never fail a graded attempt.
+      record.context_metrics = await collectContextMetrics(workspace).catch(() => null);
+    }
     await writeText(path.join(attemptDir, "patch.diff"), redactSensitiveText(grade.patch));
     await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
     if (providerResult.stderr.trim()) {
@@ -754,16 +914,28 @@ export async function runEval(root, config, taskRef, options = {}) {
     if (!/^[0-9a-f]{40}$/.test(baseSha)) {
       throw new Error(`Stored eval run ${runId} has an invalid base_sha`);
     }
+    // Every acceptable arm label (base arms plus the task's own context
+    // ablation variants) is rebuilt from the validated task — a stored label
+    // outside this set is corrupt, and env/argv are always rederived.
+    const variantByArm = new Map(expandArmVariants(task, task.arms).map((variant) => [variant.arm, variant]));
     const seenAttemptIds = new Set();
     const order = (Array.isArray(stored.plan?.order) ? stored.plan.order : []).map((entry) => {
       const arm = String(entry?.arm || "");
+      const variant = variantByArm.get(arm);
       const repeatIndex = Number(entry?.repeat_index);
-      if (!task.arms.includes(arm) || !Number.isInteger(repeatIndex) || repeatIndex < 1
+      if (!variant || !Number.isInteger(repeatIndex) || repeatIndex < 1
         || entry?.attempt_id !== `${arm}-${repeatIndex}` || seenAttemptIds.has(entry.attempt_id)) {
         throw new Error(`Stored eval run ${runId} has a corrupt or duplicate attempt entry`);
       }
       seenAttemptIds.add(entry.attempt_id);
-      return { attempt_id: entry.attempt_id, arm, repeat_index: repeatIndex, argv: buildEvalArmCommand(arm, task) };
+      return {
+        attempt_id: entry.attempt_id,
+        arm,
+        base_arm: variant.base_arm,
+        context_ablation: variant.context_ablation,
+        repeat_index: repeatIndex,
+        argv: buildEvalArmCommand(variant.base_arm, task),
+      };
     });
     if (order.length === 0) {
       throw new Error(`Stored eval run ${runId} has no attempts to resume`);

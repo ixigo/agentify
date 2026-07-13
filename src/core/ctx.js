@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveContextPolicy, selectWithinBudget } from "./ctx-budget.js";
 import { ensureDir, exists, readText, relative } from "./fs.js";
 import { resolveLocalAgentifyPaths } from "./project-store.js";
 import { redactSensitiveText } from "./redact.js";
@@ -760,74 +761,225 @@ async function writeInjectionLedger(root, ledger) {
   await fs.writeFile(paths.injectedPath, `${JSON.stringify(ledger)}\n`, "utf8");
 }
 
+const MATCH_DIGEST_HEADER = "## Agentify context (relevant to this task)";
+const MATCH_DIGEST_FOOTER = "Full history: `agentify ctx load`.";
+const MATCH_SECTION_HEADERS = {
+  failures: "### Related commands that previously failed (avoid repeating as-is)",
+  summaries: "### Related past sessions",
+  notes: "### Related notes from earlier sessions",
+  files: "### Files previously worked on that look related",
+};
+
+// Scaffolding charged against the injection budget so the FULL rendered block
+// honors the cap, not just the item lines. Per-line newline separators round
+// away at ~4 chars/token; the render backstop in computeMatchSelection covers
+// any residual estimation drift.
+const MATCH_RENDER_OVERHEAD = {
+  base: estimateContextTokens(`${MATCH_DIGEST_HEADER}\n\n${MATCH_DIGEST_FOOTER}`),
+  sections: Object.fromEntries(Object.entries(MATCH_SECTION_HEADERS)
+    .map(([section, header]) => [section, estimateContextTokens(`\n${header}\n`)])),
+};
+
+function summaryLine(item) {
+  return `- [${String(item.ts || "").slice(0, 10)}] ${item.summary}`;
+}
+
+function fileLine(item) {
+  return `- ${item.file} (${item.edits} edit${item.edits === 1 ? "" : "s"})`;
+}
+
+function failureDigestLine(failure) {
+  return `- [${String(failure.ts || "").slice(0, 10)}] ${renderFailureLine(failure)}`;
+}
+
 export function renderMatchDigest(matches) {
   const summaries = matches.summaries || [];
   const failures = matches.failures || [];
   if (matches.notes.length === 0 && matches.files.length === 0 && summaries.length === 0 && failures.length === 0) {
     return "";
   }
-  const lines = ["## Agentify context (relevant to this task)"];
+  // Deterministic section order and per-item `line` reuse keep the rendered
+  // block byte-stable for a given selection — prompt caching is
+  // prefix-sensitive, so identical state must render identically.
+  const lines = [MATCH_DIGEST_HEADER];
   if (failures.length > 0) {
-    lines.push("", "### Related commands that previously failed (avoid repeating as-is)");
+    lines.push("", MATCH_SECTION_HEADERS.failures);
     for (const item of failures) {
-      lines.push(`- [${String(item.failure.ts || "").slice(0, 10)}] ${renderFailureLine(item.failure)}`);
+      lines.push(item.line || failureDigestLine(item.failure));
     }
   }
   if (summaries.length > 0) {
-    lines.push("", "### Related past sessions");
+    lines.push("", MATCH_SECTION_HEADERS.summaries);
     for (const item of summaries) {
-      lines.push(`- [${String(item.item.ts || "").slice(0, 10)}] ${item.item.summary}`);
+      lines.push(item.line || summaryLine(item.item));
     }
   }
   if (matches.notes.length > 0) {
-    lines.push("", "### Related notes from earlier sessions");
+    lines.push("", MATCH_SECTION_HEADERS.notes);
     for (const item of matches.notes) {
-      lines.push(noteLine(item.note));
+      lines.push(item.line || noteLine(item.note));
     }
   }
   if (matches.files.length > 0) {
-    lines.push("", "### Files previously worked on that look related");
+    lines.push("", MATCH_SECTION_HEADERS.files);
     for (const item of matches.files) {
-      lines.push(`- ${item.file} (${item.edits} edit${item.edits === 1 ? "" : "s"})`);
+      lines.push(item.line || fileLine(item));
     }
   }
-  lines.push("", "Full history: `agentify ctx load`.");
+  lines.push("", MATCH_DIGEST_FOOTER);
   return lines.join("\n");
 }
 
-export async function matchContext(root, prompt, options = {}) {
+// Shared match → candidates → budgeted selection → rendered digest pipeline
+// behind both matchContext (records) and explainContext (never records).
+async function computeMatchSelection(root, prompt, options = {}) {
+  const startedAt = Date.now();
   const sid = String(options.sessionId || "unknown").slice(0, 8);
   const snapshot = await loadContextSnapshot(root, { maxNotes: options.maxNotes || 100 });
   const matches = matchSnapshotToPrompt(snapshot, prompt);
-
   const ledger = await readInjectionLedger(root);
   const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
-  // Stale notes remain visible in the manual full digest, but task-scoped
-  // injection rejects them so a missing file reference cannot steer new work.
-  const staleNotes = matches.notes.filter((item) => Array.isArray(item.note?.stale_refs) && item.note.stale_refs.length > 0);
-  const staleNoteKeys = new Set(staleNotes.map((item) => item.key));
-  const eligibleNotes = matches.notes.filter((item) => !staleNoteKeys.has(item.key));
-  const freshStaleNotes = staleNotes.filter((item) => !seen.has(item.key));
-  const freshNotes = eligibleNotes.filter((item) => !seen.has(item.key));
-  const freshSummaries = (matches.summaries || []).filter((item) => !seen.has(item.key));
-  const freshFiles = matches.files.filter((item) => !seen.has(item.key));
-  const freshFailures = (matches.failures || []).filter((item) => !seen.has(item.key));
 
-  if (options.recordInjection !== false && (freshNotes.length > 0 || freshSummaries.length > 0 || freshFiles.length > 0 || freshFailures.length > 0 || freshStaleNotes.length > 0)) {
+  // Candidate order here is the render order (sections, score-ranked within
+  // each): the selector preserves it for the selected set.
+  const candidates = [];
+  for (const item of matches.failures || []) {
+    candidates.push({ key: item.key, type: "failure", score: item.score, ts: item.failure.ts, stale: false, seen: seen.has(item.key), line: failureDigestLine(item.failure), item });
+  }
+  for (const item of matches.summaries || []) {
+    candidates.push({ key: item.key, type: "summary", score: item.score, ts: item.item?.ts, stale: false, seen: seen.has(item.key), line: summaryLine(item.item), item });
+  }
+  for (const item of matches.notes) {
+    // Stale notes remain visible in the manual full digest, but task-scoped
+    // injection rejects them so a missing file reference cannot steer new work.
+    const stale = Array.isArray(item.note?.stale_refs) && item.note.stale_refs.length > 0;
+    candidates.push({ key: item.key, type: item.note?.type === "decision" ? "decision" : "note", score: item.score, ts: item.note?.ts, stale, seen: seen.has(item.key), line: noteLine(item.note), item });
+  }
+  for (const item of matches.files) {
+    candidates.push({ key: item.key, type: "file", score: item.score, ts: null, stale: false, seen: seen.has(item.key), line: fileLine(item), item });
+  }
+
+  // Zero-match fast path: no candidates means no dynamic context block, no
+  // ledger write, no telemetry — and no policy/evidence lookup either.
+  if (candidates.length === 0 && options.explain !== true) {
+    return {
+      sid,
+      policy: null,
+      selection: { selected: [], candidates: [], used_tokens: 0, max_tokens: null },
+      injected: { notes: [], summaries: [], files: [], failures: [] },
+      digest: "",
+      rendered_tokens: 0,
+      match_ms: Date.now() - startedAt,
+    };
+  }
+
+  const policy = options.policy || await resolveContextPolicy(root, options.config || {}, { env: options.env, profile: options.profile });
+  const selection = selectWithinBudget({
+    candidates,
+    maxTokens: policy.max_injected_tokens,
+    minScore: policy.min_score,
+    maxAgeDays: policy.max_age_days,
+    reserves: policy.reserves,
+    overhead: MATCH_RENDER_OVERHEAD,
+  });
+
+  const toInjected = () => {
+    const injected = { notes: [], summaries: [], files: [], failures: [] };
+    for (const candidate of selection.selected) {
+      if (candidate.type === "failure") {
+        injected.failures.push({ key: candidate.key, failure: candidate.item.failure, score: candidate.score, line: candidate.line });
+      } else if (candidate.type === "summary") {
+        injected.summaries.push({ key: candidate.key, item: candidate.item.item, score: candidate.score, line: candidate.line });
+      } else if (candidate.type === "file") {
+        injected.files.push({ key: candidate.key, file: candidate.item.file, edits: candidate.item.edits, score: candidate.score, line: candidate.line });
+      } else {
+        injected.notes.push({ key: candidate.key, note: candidate.item.note, score: candidate.score, line: candidate.line });
+      }
+    }
+    return injected;
+  };
+
+  let injected = toInjected();
+  let digest = renderMatchDigest(injected);
+  // Render backstop: the selector charges scaffolding overhead, but the token
+  // estimate is chars-based, so enforce the cap on the actual rendered block.
+  // Drops the lowest value-per-token item first, deterministically.
+  const density = (candidate) => (candidate.tokens > 0 ? candidate.score / candidate.tokens : candidate.score);
+  while (policy.max_injected_tokens > 0 && selection.selected.length > 0 && estimateContextTokens(digest) > policy.max_injected_tokens) {
+    const drop = [...selection.selected].sort((left, right) => density(left) - density(right)
+      || String(right.key).localeCompare(String(left.key)))[0];
+    drop.selected = false;
+    drop.truncated = false;
+    drop.reason = "over_budget";
+    selection.selected = selection.selected.filter((candidate) => candidate !== drop);
+    injected = toInjected();
+    digest = renderMatchDigest(injected);
+  }
+
+  return {
+    sid,
+    policy,
+    selection,
+    injected,
+    digest,
+    rendered_tokens: estimateContextTokens(digest),
+    match_ms: Date.now() - startedAt,
+  };
+}
+
+function skipReasonCounts(candidates) {
+  const reasons = {};
+  for (const candidate of candidates) {
+    if (!candidate.selected && candidate.reason) {
+      reasons[candidate.reason] = (reasons[candidate.reason] || 0) + 1;
+    }
+  }
+  return reasons;
+}
+
+// Public candidate view: everything ctx explain / telemetry needs to justify
+// each include/skip, nothing else (no raw item payloads).
+function describeCandidate(candidate) {
+  return {
+    key: candidate.key,
+    type: candidate.type,
+    score: Number(candidate.score?.toFixed?.(4) ?? candidate.score),
+    age_days: candidate.age_days,
+    stale: candidate.stale === true,
+    chars: candidate.chars,
+    tokens: candidate.tokens,
+    selected: candidate.selected === true,
+    truncated: candidate.truncated === true,
+    reason: candidate.reason,
+  };
+}
+
+export async function matchContext(root, prompt, options = {}) {
+  const computed = await computeMatchSelection(root, prompt, options);
+  const { sid, policy, selection, injected, digest } = computed;
+  const candidates = selection.candidates;
+
+  const freshStale = candidates.filter((candidate) => candidate.reason === "stale_refs" && !candidate.seen);
+  const suppressedAsSeen = candidates.filter((candidate) => candidate.reason === "seen_this_session").length;
+  const selected = selection.selected;
+
+  if (options.recordInjection !== false && (selected.length > 0 || freshStale.length > 0)) {
+    const ledger = await readInjectionLedger(root);
+    const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
+    // Only what was actually injected (plus stale rejections, so each is
+    // counted once) becomes "seen": an item skipped for budget today must
+    // stay eligible for the next prompt.
     ledger[sid] = [
       ...seen,
-      ...freshNotes.map((item) => item.key),
-      ...freshStaleNotes.map((item) => item.key),
-      ...freshSummaries.map((item) => item.key),
-      ...freshFiles.map((item) => item.key),
-      ...freshFailures.map((item) => item.key),
+      ...selected.map((candidate) => candidate.key),
+      ...freshStale.map((candidate) => candidate.key),
     ];
     await writeInjectionLedger(root, ledger);
     // Usage telemetry: lets `agentify stats` show whether generated session
     // summaries are ever actually injected, and how old they were at use.
     try {
       const paths = resolveContextPaths(root);
-      for (const item of freshSummaries) {
+      for (const item of injected.summaries) {
         await appendJsonLine(paths.summaryUsagePath, {
           ts: new Date().toISOString(),
           key: item.key,
@@ -839,28 +991,35 @@ export async function matchContext(root, prompt, options = {}) {
     }
 
     try {
-      const injectedMatches = {
-        notes: freshNotes,
-        summaries: freshSummaries,
-        files: freshFiles,
-        failures: freshFailures,
-      };
-      const decisionCount = freshNotes.filter((item) => item.note?.type === "decision").length;
-      const reasons = {
-        previous_decision: decisionCount,
-        previous_note: freshNotes.length - decisionCount,
-        session_summary: freshSummaries.length,
-        hot_file: freshFiles.length,
-        previous_failure: freshFailures.length,
-      };
+      const decisionCount = injected.notes.filter((item) => item.note?.type === "decision").length;
       await recordValueEvent(root, {
         type: "context_injection",
+        mode: "relevant",
         sid,
-        estimated_tokens: estimateContextTokens(renderMatchDigest(injectedMatches)),
-        injected_items: freshNotes.length + freshSummaries.length + freshFiles.length + freshFailures.length,
+        estimated_tokens: computed.rendered_tokens,
+        injected_items: selected.length,
         decisions_reused: decisionCount,
-        stale_context_rejected: freshStaleNotes.length,
-        reasons,
+        stale_context_rejected: freshStale.length,
+        reasons: {
+          previous_decision: decisionCount,
+          previous_note: injected.notes.length - decisionCount,
+          session_summary: injected.summaries.length,
+          hot_file: injected.files.length,
+          previous_failure: injected.failures.length,
+        },
+        match_ms: computed.match_ms,
+        policy_version: policy?.policy_version ?? null,
+        requested_profile: policy?.requested_profile ?? null,
+        resolved_profile: policy?.resolved_profile ?? null,
+        profile_source: policy?.profile_source ?? null,
+        budget: policy ? {
+          max_tokens: policy.max_injected_tokens,
+          source: policy.budget_source,
+          reason: policy.budget_reason,
+          rendered_tokens: computed.rendered_tokens,
+          truncated_items: selected.filter((candidate) => candidate.truncated).length,
+          skipped: skipReasonCounts(candidates),
+        } : null,
       });
     } catch {
       // Value telemetry must never break prompt injection.
@@ -868,15 +1027,45 @@ export async function matchContext(root, prompt, options = {}) {
   }
 
   return {
-    notes: freshNotes,
-    summaries: freshSummaries,
-    files: freshFiles,
-    failures: freshFailures,
-    stale_rejected: freshStaleNotes.length,
-    suppressed_as_seen: (eligibleNotes.length - freshNotes.length)
-      + ((matches.summaries || []).length - freshSummaries.length)
-      + (matches.files.length - freshFiles.length)
-      + ((matches.failures || []).length - freshFailures.length),
+    ...injected,
+    digest,
+    stale_rejected: freshStale.length,
+    suppressed_as_seen: suppressedAsSeen,
+    match_ms: computed.match_ms,
+    policy,
+    budget: policy ? {
+      max_tokens: policy.max_injected_tokens,
+      rendered_tokens: computed.rendered_tokens,
+      source: policy.budget_source,
+    } : null,
+    candidates: candidates.map(describeCandidate),
+  };
+}
+
+// Dry-run view of exactly what matchContext would inject for a prompt and
+// why: pure local computation (no provider call) that never touches the
+// injection ledger, the summary-usage log, or value telemetry.
+export async function explainContext(root, config, prompt, options = {}) {
+  const computed = await computeMatchSelection(root, prompt, { ...options, config, explain: true });
+  const { policy, selection } = computed;
+  return {
+    command: "ctx explain",
+    prompt: clip(prompt, 200),
+    policy,
+    budget: {
+      max_tokens: policy?.max_injected_tokens ?? null,
+      source: policy?.budget_source ?? null,
+      reason: policy?.budget_reason ?? null,
+      reserves: policy?.reserves ?? null,
+      used_tokens: selection.used_tokens,
+      rendered_tokens: computed.rendered_tokens,
+    },
+    candidates: selection.candidates.map(describeCandidate),
+    selected_items: selection.selected.length,
+    skipped: skipReasonCounts(selection.candidates),
+    suppressed_as_seen: selection.candidates.filter((candidate) => candidate.reason === "seen_this_session").length,
+    match_ms: computed.match_ms,
+    digest: computed.digest,
   };
 }
 

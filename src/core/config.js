@@ -45,6 +45,20 @@ const DEFAULT_CONFIG = {
   },
   context: {
     injection: "relevant",
+    // Hard token budget for per-prompt injected context. Deliberately null
+    // here (like models.profile): an explicit value pins the budget, while
+    // null lets the context policy resolve it (documented default 1200,
+    // adjustable only on eval ablation evidence under the active profile).
+    maxInjectedTokens: null,
+    // Optional relevance/recency gates on match candidates; null disables.
+    minScore: null,
+    maxAgeDays: null,
+    // Token slices of the budget held for safety-critical classes so bulky
+    // low-value items cannot crowd out decisions and unresolved failures.
+    reserve: {
+      decisions: 250,
+      failures: 250,
+    },
     // extractive (default, zero model cost) | llm (budgeted opt-in) | off.
     // Legacy boolean values are still accepted: true → extractive, false → off.
     sessionSummaries: "extractive",

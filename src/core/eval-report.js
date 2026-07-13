@@ -333,10 +333,44 @@ function buildVerdict(arms, completeness, recordsByArm) {
   return { winner: null, eligible: true, reason: "no winner declared: pass-rate confidence intervals overlap" };
 }
 
+// Per-arm context injection metrics (#296), aggregated from the attempt
+// telemetry the agentify arm's own hooks recorded. Null when no attempt
+// carried metrics (older runs, baseline-only reports).
+function contextMetricsByArm(byArm, attempts) {
+  const ablationByArm = new Map(attempts.map((record) => [record.arm, record.context_ablation ?? null]));
+  const result = {};
+  let any = false;
+  for (const [arm, records] of [...byArm.entries()].sort()) {
+    const withMetrics = records.filter((record) => record.context_metrics && typeof record.context_metrics === "object");
+    if (withMetrics.length === 0) {
+      continue;
+    }
+    any = true;
+    const sum = (pick) => withMetrics.reduce((total, record) => total + (Number(pick(record.context_metrics)) || 0), 0);
+    const matchLatencies = withMetrics.map((record) => record.context_metrics.max_match_ms).filter((value) => Number.isFinite(value));
+    result[arm] = {
+      context_ablation: ablationByArm.get(arm) ?? null,
+      attempts_with_metrics: withMetrics.length,
+      injections: sum((metrics) => metrics.injections),
+      injected_items: sum((metrics) => metrics.injected_items),
+      estimated_tokens: sum((metrics) => metrics.estimated_tokens),
+      decisions_reused: sum((metrics) => metrics.decisions_reused),
+      stale_context_rejected: sum((metrics) => metrics.stale_context_rejected),
+      truncated_items: sum((metrics) => metrics.truncated_items),
+      over_budget_skips: sum((metrics) => metrics.over_budget_skips),
+      max_match_ms: matchLatencies.length > 0 ? Math.max(...matchLatencies) : null,
+      budget_max_tokens: withMetrics.map((record) => record.context_metrics.budget_max_tokens).find((value) => Number.isFinite(value)) ?? null,
+    };
+  }
+  return any ? result : null;
+}
+
 function attemptDrilldown(record) {
   return {
     attempt_id: record.attempt_id,
     arm: record.arm,
+    context_ablation: record.context_ablation ?? null,
+    context_metrics: record.context_metrics ?? null,
     repeat_index: record.repeat_index,
     status: record.status,
     pass: record.pass === true,
@@ -453,8 +487,7 @@ export async function buildEvalReport(root, config, runIdInput) {
     paired,
     frontier: costQualityFrontier(arms),
     verdict: buildVerdict(arms, completeness, byArm),
-    // Context selection metrics arrive with token-budgeted injection (#296).
-    context_metrics: null,
+    context_metrics: contextMetricsByArm(byArm, attempts),
     attempts: attempts.map(attemptDrilldown),
   };
 }
@@ -511,6 +544,18 @@ export function renderEvalReportMarkdown(report) {
     lines.push("| --- | --- | --- | --- | --- | --- | --- |");
     for (const pair of report.paired) {
       lines.push(`| ${pair.baseline} | ${pair.pairs} | ${pair.paired_sample_ids.join(", ") || "none"} | ${pair.pass_rate_delta ?? "n/a"} | ${pair.discordant.agentify_only_pass} / ${pair.discordant.baseline_only_pass} | ${pair.cost_per_pass_delta_usd ?? "n/a"} | ${pair.provider_p95_delta_ms ?? "n/a"} |`);
+    }
+  }
+
+  if (report.context_metrics) {
+    lines.push("", "## Context injection (agentify arms)", "");
+    lines.push("| arm | ablation | budget | injections | items | ~tokens | decisions | stale rejected | truncated | over-budget skips | max match |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    for (const [arm, metrics] of Object.entries(report.context_metrics)) {
+      const ablation = metrics.context_ablation
+        ? `${metrics.context_ablation.mode}${metrics.context_ablation.max_injected_tokens !== null ? `@${metrics.context_ablation.max_injected_tokens}` : ""}`
+        : "default";
+      lines.push(`| ${arm} | ${ablation} | ${metrics.budget_max_tokens ?? "n/a"} | ${metrics.injections} | ${metrics.injected_items} | ${metrics.estimated_tokens} | ${metrics.decisions_reused} | ${metrics.stale_context_rejected} | ${metrics.truncated_items} | ${metrics.over_budget_skips} | ${metrics.max_match_ms !== null ? `${metrics.max_match_ms}ms` : "n/a"} |`);
     }
   }
 
