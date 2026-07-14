@@ -749,3 +749,129 @@ test("decision notes: typed storage, digest section, and queryable list", async 
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("matchContext enforces the configured token budget on the rendered digest", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const { estimateContextTokens } = await import("../src/core/value-telemetry.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-budget-e2e-"));
+  try {
+    // Written directly with distinct timestamps: match keys are `note:<ts>`,
+    // and a same-millisecond loop through addNote would collide them.
+    const lines = [];
+    for (let i = 0; i < 8; i += 1) {
+      lines.push(JSON.stringify({
+        ts: `2026-07-10T00:00:0${i}.000Z`,
+        sid: "seed",
+        note: `payment gateway retries detail ${i}: ${"idempotency keys and backoff windows matter here. ".repeat(6)}`,
+      }));
+    }
+    const notesPath = resolveContextPaths(dir).notesPath;
+    await fs.mkdir(path.dirname(notesPath), { recursive: true });
+    await fs.writeFile(notesPath, `${lines.join("\n")}\n`);
+    const config = { context: { maxInjectedTokens: 150 } };
+    const result = await matchContext(dir, "fix the payment gateway retries", { sessionId: "budget-a", config });
+    assert.ok(result.digest, "some context must be injected");
+    assert.ok(estimateContextTokens(result.digest) <= 150, `rendered ${estimateContextTokens(result.digest)} tokens > 150`);
+    assert.equal(result.budget.max_tokens, 150);
+    assert.equal(result.policy.budget_source, "config");
+    const overBudget = result.candidates.filter((item) => !item.selected && /over_budget|exceeds_total_budget/.test(item.reason));
+    assert.ok(overBudget.length >= 1, "budget must have skipped at least one candidate");
+
+    // Items skipped for budget were NOT recorded as seen: a follow-up prompt
+    // with a bigger budget can still inject them.
+    const wider = await matchContext(dir, "fix the payment gateway retries", { sessionId: "budget-a", config: { context: { maxInjectedTokens: 4000 } } });
+    assert.ok(wider.notes.length >= overBudget.length, "budget-skipped notes must stay eligible");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("matchContext truncates an oversized decision with provenance instead of dropping it", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-truncate-"));
+  try {
+    await addNote(dir, `chose sharded checkout queues over a single worker because ${"throughput measurements showed saturation. ".repeat(30)}`, { type: "decision" });
+    const result = await matchContext(dir, "scale the checkout queues worker throughput", {
+      sessionId: "trunc-a",
+      config: { context: { maxInjectedTokens: 120 } },
+    });
+    assert.equal(result.notes.length, 1);
+    assert.match(result.digest, /\[truncated from \d+ chars\]/);
+    const decision = result.candidates.find((item) => item.type === "decision");
+    assert.equal(decision.truncated, true);
+    assert.equal(decision.reason, "truncated_to_fit");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("zero-match prompts emit no dynamic context block and record nothing", async () => {
+  const { matchContext, resolveContextPaths: paths } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-zero-"));
+  try {
+    await addNote(dir, "payment gateway retries live in retry.ts");
+    const result = await matchContext(dir, "write a completely unrelated haiku", { sessionId: "zero-a" });
+    assert.equal(result.digest, "");
+    assert.equal(result.notes.length, 0);
+    assert.equal(result.candidates.length, 0);
+    assert.ok(typeof result.match_ms === "number");
+    // No ledger, no telemetry: nothing was injected.
+    await assert.rejects(() => fs.access(paths(dir).injectedPath));
+    await assert.rejects(() => fs.access(paths(dir).valueEventsPath));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ctx explain shows the budget decision without mutating the ledger or telemetry", async () => {
+  const { explainContext, matchContext, resolveContextPaths: paths } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-explain-"));
+  try {
+    await addNote(dir, "payment gateway retries use idempotency keys");
+    await addNote(dir, "chose stripe over adyen because of test tooling", { type: "decision" });
+
+    const explained = await explainContext(dir, {}, "improve the payment gateway retries");
+    assert.equal(explained.command, "ctx explain");
+    assert.equal(explained.policy.policy_version, "context-policy-v1");
+    assert.equal(explained.policy.max_injected_tokens, 1200);
+    assert.equal(explained.budget.source, "default");
+    assert.ok(explained.candidates.length >= 1);
+    for (const item of explained.candidates) {
+      assert.ok(item.reason, "explain must justify every candidate");
+      assert.ok(typeof item.tokens === "number");
+    }
+    assert.ok(explained.digest.includes("payment gateway retries"));
+
+    // Nothing was recorded: no seen-ledger, no value telemetry...
+    await assert.rejects(() => fs.access(paths(dir).injectedPath));
+    await assert.rejects(() => fs.access(paths(dir).valueEventsPath));
+    // ...and a real injection afterwards still sees everything as fresh.
+    const real = await matchContext(dir, "improve the payment gateway retries", { sessionId: "exp-a" });
+    assert.ok(real.notes.length >= 1);
+    assert.equal(real.suppressed_as_seen, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("matchContext telemetry carries budget, profile, and match latency fields", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const { readValueEvents } = await import("../src/core/value-telemetry.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-telemetry-"));
+  try {
+    await addNote(dir, "payment gateway retries use idempotency keys");
+    await matchContext(dir, "harden the payment gateway retries", { sessionId: "tel-a", config: {}, env: { AGENTIFY_PROFILE: "cost" }, profile: undefined });
+    const events = (await readValueEvents(dir)).filter((event) => event.type === "context_injection");
+    assert.equal(events.length, 1);
+    const event = events[0];
+    assert.equal(event.mode, "relevant");
+    assert.equal(event.policy_version, "context-policy-v1");
+    assert.equal(event.resolved_profile, "cost");
+    assert.equal(event.profile_source, "env");
+    assert.equal(event.budget.max_tokens, 1200);
+    assert.ok(typeof event.match_ms === "number");
+    assert.ok(event.budget.rendered_tokens <= event.budget.max_tokens);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

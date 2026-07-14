@@ -534,3 +534,76 @@ test("compare refuses incomparable reports unless forced", async () => {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("context metrics aggregate per arm and render in the markdown report", async () => {
+  const root = await makeRoot();
+  try {
+    const withMetrics = (attempt, metrics, ablation = null) => ({
+      ...attempt,
+      context_ablation: ablation,
+      context_metrics: metrics,
+    });
+    const metrics = (tokens, items) => ({
+      injections: 1,
+      injected_items: items,
+      estimated_tokens: tokens,
+      decisions_reused: 1,
+      stale_context_rejected: 0,
+      truncated_items: 1,
+      over_budget_skips: 2,
+      max_match_ms: 12,
+      budget_max_tokens: 400,
+    });
+    const runId = await writeRunFixture(root, [
+      withMetrics(makeAttempt("agentify", 1), metrics(300, 3)),
+      withMetrics(makeAttempt("agentify", 2), metrics(200, 2)),
+      withMetrics(makeAttempt("agentify-ctx-relevant-400", 1), metrics(150, 1), { mode: "relevant", max_injected_tokens: 400 }),
+      withMetrics(makeAttempt("agentify-ctx-relevant-400", 2), metrics(160, 1), { mode: "relevant", max_injected_tokens: 400 }),
+      makeAttempt("plain-safe", 1),
+      makeAttempt("plain-safe", 2),
+    ]);
+    const report = await buildEvalReport(root, {}, runId);
+    assert.ok(report.context_metrics, "context metrics must aggregate when attempts carry them");
+    assert.equal(report.context_metrics["plain-safe"], undefined, "baseline arms carry no context metrics");
+    const agentify = report.context_metrics.agentify;
+    assert.equal(agentify.attempts_with_metrics, 2);
+    assert.equal(agentify.injected_items, 5);
+    assert.equal(agentify.estimated_tokens, 500);
+    assert.equal(agentify.truncated_items, 2);
+    assert.equal(agentify.over_budget_skips, 4);
+    assert.equal(agentify.max_match_ms, 12);
+    const ablated = report.context_metrics["agentify-ctx-relevant-400"];
+    assert.deepEqual(ablated.context_ablation, { mode: "relevant", max_injected_tokens: 400 });
+    assert.equal(ablated.budget_max_tokens, 400);
+
+    // Ablation arms pair against the default agentify arm — the ablation IS
+    // the measured comparison.
+    assert.ok(report.paired.some((pair) => pair.baseline === "agentify-ctx-relevant-400"));
+
+    const markdown = renderEvalReportMarkdown(report);
+    assert.match(markdown, /## Context injection \(agentify arms\)/);
+    assert.match(markdown, /relevant@400/);
+
+    // Attempt drilldowns expose the ablation and metrics for export adapters.
+    const drill = report.attempts.find((attempt) => attempt.arm === "agentify-ctx-relevant-400");
+    assert.deepEqual(drill.context_ablation, { mode: "relevant", max_injected_tokens: 400 });
+    assert.equal(drill.context_metrics.estimated_tokens, 150);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runs without context metrics keep context_metrics null", async () => {
+  const root = await makeRoot();
+  try {
+    const runId = await writeRunFixture(root, [
+      makeAttempt("agentify", 1),
+      makeAttempt("plain-safe", 1),
+    ]);
+    const report = await buildEvalReport(root, {}, runId);
+    assert.equal(report.context_metrics, null);
+    assert.ok(!renderEvalReportMarkdown(report).includes("## Context injection"));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

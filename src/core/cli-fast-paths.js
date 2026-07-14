@@ -39,7 +39,7 @@ export async function printHelp() {
     `    ${c("install")}         ${d("Install Agentify into this repo: agent guidance + hooks (alias: init)")}`,
     `    ${c("uninstall")}       ${d("Remove the Agentify agent integration")}`,
     `    ${c("status")}          ${d("Show integration and context-tracking status")}`,
-    `    ${c("ctx")}             ${d("Context tracking: load, match, precheck, note, decision(s), summarize, share, track, status, handoff, pause, resume, clear")}`,
+    `    ${c("ctx")}             ${d("Context tracking: load, match, explain, precheck, note, decision(s), summarize, share, track, status, handoff, pause, resume, clear")}`,
     `    ${c("delegate")}        ${d("Shell a task out to the right model: auto, quick, implement, heavy, review, research")}`,
     `    ${c("route")}           ${d("Explain the routing decision for a task without running it: explain")}`,
     `    ${c("models")}          ${d("Show the model routing table, active profile, and provider availability")}`,

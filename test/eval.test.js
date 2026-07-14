@@ -452,3 +452,101 @@ test("planEvalRun honors CLI arm and repeat overrides", async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("context_ablations validate, normalize, and round-trip through re-validation", async () => {
+  const { contextAblationLabel, expandArmVariants, isAgentifyArm } = await import("../src/core/eval.js");
+  const task = validateEvalTask(baseTask({ context_ablations: ["relevant", "digest", "off", "relevant@400"] }), "t");
+  assert.deepEqual(task.context_ablations, [
+    { mode: "relevant", max_injected_tokens: null },
+    { mode: "digest", max_injected_tokens: null },
+    { mode: "off", max_injected_tokens: null },
+    { mode: "relevant", max_injected_tokens: 400 },
+  ]);
+  // The normalized form (as stored in run.json) re-validates identically.
+  assert.deepEqual(validateEvalTask(task, "run.json").context_ablations, task.context_ablations);
+
+  assert.equal(validateEvalTask(baseTask(), "t").context_ablations, null);
+  // The profile is pinned into attempt envs, so unknown names must fail here.
+  assert.throws(() => validateEvalTask(baseTask({ profile: "fastest" }), "t"), /profile must be one of/);
+  assert.throws(() => validateEvalTask(baseTask({ context_ablations: [] }), "t"), /non-empty/);
+  assert.throws(() => validateEvalTask(baseTask({ context_ablations: ["bogus"] }), "t"), /must be relevant, digest, off/);
+  assert.throws(() => validateEvalTask(baseTask({ context_ablations: ["digest@300"] }), "t"), /only valid for relevant/);
+  assert.throws(() => validateEvalTask(baseTask({ context_ablations: [{ mode: "off", max_injected_tokens: 300 }] }), "t"), /only valid for relevant/);
+  assert.throws(() => validateEvalTask(baseTask({ context_ablations: ["relevant", "relevant"] }), "t"), /duplicate/);
+
+  // Labels: the unmodified default keeps the pairing-baseline name.
+  assert.equal(contextAblationLabel({ mode: "relevant", max_injected_tokens: null }), "agentify");
+  assert.equal(contextAblationLabel({ mode: "digest", max_injected_tokens: null }), "agentify-ctx-digest");
+  assert.equal(contextAblationLabel({ mode: "relevant", max_injected_tokens: 400 }), "agentify-ctx-relevant-400");
+  assert.ok(isAgentifyArm("agentify") && isAgentifyArm("agentify-ctx-off") && !isAgentifyArm("plain-safe"));
+
+  // Only the agentify arm expands; baselines stay single variants.
+  const variants = expandArmVariants(task, ["agentify", "plain-safe"]);
+  assert.deepEqual(variants.map((variant) => variant.arm), ["agentify", "agentify-ctx-digest", "agentify-ctx-off", "agentify-ctx-relevant-400", "plain-safe"]);
+  assert.ok(variants.every((variant) => variant.base_arm === (variant.arm === "plain-safe" ? "plain-safe" : "agentify")));
+});
+
+test("context ablation attempts carry env overrides, arm labels, and clean seeded telemetry", async () => {
+  const { dir } = await makeRepo();
+  // The fake provider records the ablation env exactly as its hooks would see it.
+  const fake = await makeFakeClaude([
+    'printf "%s|%s|%s" "${AGENTIFY_CTX_INJECTION:-unset}" "${AGENTIFY_CTX_BUDGET:-unset}" "${AGENTIFY_PROFILE:-unset}" > ctx-ablation.txt',
+    "echo done > solution.txt",
+  ].join("\n"));
+  try {
+    // Seeded context including telemetry/ledger files that must NOT leak into
+    // per-attempt metrics.
+    await fs.mkdir(path.join(dir, ".agentify", "context"), { recursive: true });
+    await fs.writeFile(path.join(dir, ".agentify", "context", "notes.jsonl"), `${JSON.stringify({ ts: "2026-01-01", note: "seed note" })}\n`);
+    await fs.writeFile(path.join(dir, ".agentify", "context", "value-events.jsonl"), `${JSON.stringify({ type: "context_injection", estimated_tokens: 999, injected_items: 9 })}\n`);
+    await fs.writeFile(path.join(dir, ".agentify", "context", "injected.json"), JSON.stringify({ stale: ["note:x"] }));
+
+    await writeTask(dir, baseTask({
+      arms: ["agentify", "plain-safe"],
+      profile: "cost",
+      context_ablations: ["relevant", "digest", "relevant@400"],
+    }));
+    // A parent-shell profile/ablation must never leak into attempts.
+    const result = await runEval(dir, {}, "sample", {
+      env: { ...fake.env, AGENTIFY_PROFILE: "performance", AGENTIFY_CTX_BUDGET: "9999" },
+      runtime,
+      keepWorkspaces: true,
+    });
+
+    assert.deepEqual([...result.arms].sort(), ["agentify", "agentify-ctx-digest", "agentify-ctx-relevant-400", "plain-safe"]);
+    assert.equal(result.attempts.length, 4);
+
+    const runDir = path.join(dir, result.artifacts_root);
+    const expectations = {
+      // Even the default variant pins its mode explicitly: an ablation arm's
+      // behavior must come from the plan, never from workspace config drift
+      // or the parent shell. The task profile is pinned the same way.
+      "agentify": { env: "relevant|unset|cost", ablation: { mode: "relevant", max_injected_tokens: null } },
+      "agentify-ctx-digest": { env: "digest|unset|cost", ablation: { mode: "digest", max_injected_tokens: null } },
+      "agentify-ctx-relevant-400": { env: "relevant|400|cost", ablation: { mode: "relevant", max_injected_tokens: 400 } },
+    };
+    for (const attempt of result.attempts) {
+      const record = JSON.parse(await fs.readFile(path.join(runDir, "attempts", attempt.attempt_id, "result.json"), "utf8"));
+      const workspace = path.join(runDir, "attempts", attempt.attempt_id, "workspace");
+      const expected = expectations[attempt.arm];
+      if (!expected) {
+        assert.equal(record.context_ablation, null);
+        continue;
+      }
+      assert.deepEqual(record.context_ablation, expected.ablation, attempt.arm);
+      assert.equal(record.base_arm, "agentify");
+      assert.equal(await fs.readFile(path.join(workspace, "ctx-ablation.txt"), "utf8"), expected.env, attempt.arm);
+      // Seeded notes arrive; seeded telemetry and the seen-ledger never do.
+      assert.match(await fs.readFile(path.join(workspace, ".agentify", "context", "notes.jsonl"), "utf8"), /seed note/);
+      await assert.rejects(() => fs.access(path.join(workspace, ".agentify", "context", "injected.json")));
+      // The fake provider runs no hooks, so metrics report zero injections —
+      // never null (an off/zero-match control arm is still a measurement) and
+      // never the seeded 999-token event, which must be stripped at arm prep.
+      assert.equal(record.context_metrics.injections, 0);
+      assert.equal(record.context_metrics.estimated_tokens, 0);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(fake.binDir, { recursive: true, force: true });
+  }
+});

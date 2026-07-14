@@ -127,3 +127,29 @@ test("writeDefaultConfig honors dry-run by not writing a file", async () => {
 
   await assert.rejects(() => fs.access(path.join(root, ".agentify.yaml")));
 });
+
+test("context budget defaults: explicit budget unset, gates null, reserves pinned", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-config-ctx-"));
+  try {
+    const config = await loadConfig(dir, {});
+    // Deliberately null so the context policy can distinguish an explicit
+    // repo pin from its own documented default (1200).
+    assert.equal(config.context.maxInjectedTokens, null);
+    assert.equal(config.context.minScore, null);
+    assert.equal(config.context.maxAgeDays, null);
+    assert.deepEqual(config.context.reserve, { decisions: 250, failures: 250 });
+
+    await fs.writeFile(path.join(dir, ".agentify.yaml"), [
+      "context:",
+      "  maxInjectedTokens: 800",
+      "  reserve:",
+      "    decisions: 100",
+    ].join("\n"));
+    const pinned = await loadConfig(dir, {});
+    assert.equal(pinned.context.maxInjectedTokens, 800);
+    assert.deepEqual(pinned.context.reserve, { decisions: 100, failures: 250 });
+    assert.equal(pinned.context.injection, "relevant");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

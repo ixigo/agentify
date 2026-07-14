@@ -59,7 +59,7 @@ export function buildMcpTools(root, config = {}) {
         additionalProperties: false,
       },
       async handler(args) {
-        const matches = await matchContext(root, args.task, { recordInjection: false });
+        const matches = await matchContext(root, args.task, { recordInjection: false, config });
         return renderMatchDigest(matches) || "No related context found.";
       },
     },
