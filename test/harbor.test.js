@@ -309,6 +309,43 @@ test("imported runs cannot be resumed and cross-harness compare needs --force", 
   assert.equal(forced.forced, true);
 });
 
+test("external jobs never inherit the local dataset's provenance", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+  // A Terminal-Bench-style job: task ids the local manifest does not declare.
+  const jobDir = await writeJob(root, "2026-07-13-external", [
+    trialResult({ task: "tbench-hello-world", agent: "agentify-claude", reward: 1 }),
+    trialResult({ task: "tbench-hello-world", agent: "claude-code", reward: 0 }),
+  ]);
+  const result = await importHarborJob(root, {}, jobDir);
+  assert.equal(result.dataset, null);
+  const report = await buildEvalReport(root, {}, result.runs[0].run_id);
+  assert.equal(report.harbor.dataset, null);
+  // harbor_version comes from the job's own config, never the local pin.
+  assert.equal(report.versions.harbor, "0.2.1");
+});
+
+test("harbor fingerprints distinguish datasets and tasks; native fingerprints are unchanged", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+  const jobDir = await writeJob(root, "2026-07-13-two-tasks", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1 }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 1 }),
+    trialResult({ task: "task-b", agent: "agentify-claude", reward: 1 }),
+    trialResult({ task: "task-b", agent: "claude-code", reward: 1 }),
+  ]);
+  const { runs } = await importHarborJob(root, {}, jobDir);
+  const reports = await Promise.all(runs.map((run) => buildEvalReport(root, {}, run.run_id)));
+  // Same dataset, different tasks -> different fingerprints, so eval compare
+  // cannot silently gate one harbor task against another (or against a
+  // different dataset version) without --force.
+  assert.notEqual(reports[0].task.fingerprint_sha256, reports[1].task.fingerprint_sha256);
+  assert.throws(
+    () => compareEvalReports(reports[0], reports[1], "pass_rate_drop>0.05"),
+    /task fingerprint/,
+  );
+});
+
 test("import rejects empty or missing job directories", async () => {
   const root = await makeRoot();
   await assert.rejects(importHarborJob(root, {}, "does-not-exist"), /job directory/);

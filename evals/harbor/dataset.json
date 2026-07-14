@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "model": "anthropic/claude-haiku-4-5-20251001",
   "pins": {
-    "harbor": "0.2.1",
-    "claude_code": "2.0.21",
+    "harbor": "0.18.0",
+    "claude_code": "2.1.208",
     "agentify": "0.4.0"
   },
   "agents": [
@@ -23,55 +23,81 @@
     {
       "id": "recall-error-envelope",
       "category": "decision-recall",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["order_not_found", "getOrder", "orders/"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "order_not_found",
+        "getOrder",
+        "orders/"
+      ]
     },
     {
       "id": "avoid-cache-regression",
       "category": "prior-failure-avoidance",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["maxEntries", "evictOldest", "cache.clear()"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
     },
     {
       "id": "reject-stale-config-path",
       "category": "stale-context-rejection",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["retry_limit: 5", "retryLimit: 5"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "retry_limit: 5",
+        "retryLimit: 5"
+      ]
     },
     {
       "id": "rename-shipping-rate-refs",
       "category": "repo-intelligence",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["quoteShippingRate"]
+      "answer_leak_patterns": [
+        "quoteShippingRate"
+      ]
     },
     {
       "id": "select-affected-tests",
       "category": "affected-test-selection",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["Math.round((subtotal", "roundHalfUp"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "Math.round((subtotal",
+        "roundHalfUp"
+      ]
     },
     {
       "id": "mechanical-header-bump",
       "category": "mechanical-control",
-      "max_cost_usd": 0.25,
-      "answer_leak_patterns": ["Copyright 2026"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "Copyright 2026"
+      ]
     },
     {
       "id": "misleading-note-paginate",
       "category": "misleading-context",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["(page - 1) * pageSize", "pageIndex - 1"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "(page - 1) * pageSize",
+        "pageIndex - 1"
+      ]
     },
     {
       "id": "timezone-flake-gotcha",
       "category": "prior-failure-avoidance",
-      "max_cost_usd": 0.3,
-      "answer_leak_patterns": ["getUTCFullYear", "toISOString().slice(0, 10)"]
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "getUTCFullYear",
+        "toISOString().slice(0, 10)"
+      ]
     }
   ],
   "suites": {
     "smoke": {
-      "tasks": ["recall-error-envelope"],
+      "tasks": [
+        "recall-error-envelope"
+      ],
       "attempts": 1
     },
     "nightly": {

@@ -802,6 +802,7 @@ export async function runCli(argv, _runtime = {}) {
             log(`Harbor suite ${bold(result.suite)} — dataset ${result.dataset.name}@${result.dataset.version}, model ${result.model}.`);
             log(`Agents: ${result.agents.join(", ")}${result.agents_per_task > result.agents.length ? ` (${result.agents_per_task} agent variants per task)` : ""} · ${result.tasks.length} task(s) × ${result.agents_per_task} agent(s) × ${result.attempts_per_agent} attempt(s) = ${result.trials} trial(s).`);
             log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)} (every trial capped by its task's max_cost_usd).`);
+            log(dim(`Enforcement: ${result.enforcement}`));
             log("");
             log(`Launch with: ${dim(result.harbor_command)}`);
             log(`Then import: ${dim(result.import_command)}`);

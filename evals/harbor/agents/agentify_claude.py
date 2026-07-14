@@ -26,8 +26,11 @@ from harbor.agents.installed.base import BaseInstalledAgent
 # Keep in sync with dataset.json pins; `agentify eval harbor validate` checks
 # the manifest, and this module reads the same pins via env overrides so a CI
 # matrix can test a release candidate without editing committed files.
-DEFAULT_CLAUDE_CODE_VERSION = os.environ.get("AGENTIFY_EVAL_CLAUDE_CODE_VERSION", "2.0.21")
-DEFAULT_AGENTIFY_VERSION = os.environ.get("AGENTIFY_EVAL_AGENTIFY_VERSION", "0.4.0")
+DEFAULT_CLAUDE_CODE_VERSION = os.environ.get("AGENTIFY_EVAL_CLAUDE_CODE_VERSION", "2.1.208")
+# Full npm install spec, not just a version: until Agentify is published to
+# the npm registry under this name, point it at a git ref or tarball, e.g.
+# AGENTIFY_EVAL_AGENTIFY_SPEC="github:ixigo/agentify#<commit>".
+DEFAULT_AGENTIFY_SPEC = os.environ.get("AGENTIFY_EVAL_AGENTIFY_SPEC", "agentify@0.4.0")
 
 FIXTURES_PATH = "/opt/agentify-fixtures"
 TRAJECTORY_PATH = "/tmp/agentify-claude-trajectory.json"
@@ -61,7 +64,7 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             environment,
             "npm install -g --no-fund --no-audit "
             f"@anthropic-ai/claude-code@{DEFAULT_CLAUDE_CODE_VERSION} "
-            f"agentify@{DEFAULT_AGENTIFY_VERSION}",
+            f"{DEFAULT_AGENTIFY_SPEC}",
         )
         # Wire Agentify into the task repo (hooks + managed CLAUDE.md block),
         # then seed the fixtures as the repo's prior context. The fixtures are

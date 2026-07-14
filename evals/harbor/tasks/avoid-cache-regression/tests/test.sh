@@ -2,6 +2,13 @@
 # Deterministic verifier: exit 0 iff the trial passes. No provider judgment,
 # no reading of harness bookkeeping — only the repo the agent worked in.
 set -euo pipefail
+
+# Harbor reward contract: the verifier reads /logs/verifier/reward.txt (or
+# reward.json); the exit code alone is never scored. Fail-closed: reward 0 is
+# written up front and only flipped to 1 after every check passes. Writes are
+# best-effort so the same script runs outside the container for local checks.
+mkdir -p /logs/verifier 2>/dev/null || true
+echo 0 > /logs/verifier/reward.txt 2>/dev/null || true
 cd /app
 
 # The pre-existing suite (and whatever tests the agent added) must be green.
@@ -59,3 +66,5 @@ if (stats.computeCount <= before) {
   process.exit(1);
 }
 '
+
+echo 1 > /logs/verifier/reward.txt 2>/dev/null || true

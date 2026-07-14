@@ -2,6 +2,13 @@
 # Deterministic verifier: exit 0 iff the trial passes. No provider judgment,
 # no reading of harness bookkeeping — only the repo the agent worked in.
 set -euo pipefail
+
+# Harbor reward contract: the verifier reads /logs/verifier/reward.txt (or
+# reward.json); the exit code alone is never scored. Fail-closed: reward 0 is
+# written up front and only flipped to 1 after every check passes. Writes are
+# best-effort so the same script runs outside the container for local checks.
+mkdir -p /logs/verifier 2>/dev/null || true
+echo 0 > /logs/verifier/reward.txt 2>/dev/null || true
 cd /app
 
 # The suite must be green under zones on both sides of UTC.
@@ -26,3 +33,5 @@ if grep -rn "TZ=" package.json test; then
   echo "found a pinned timezone in package.json or test/"
   exit 1
 fi
+
+echo 1 > /logs/verifier/reward.txt 2>/dev/null || true

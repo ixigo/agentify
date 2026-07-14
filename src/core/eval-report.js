@@ -459,8 +459,16 @@ export async function buildEvalReport(root, config, runIdInput) {
       prompt_sha256: task.prompt ? createHash("sha256").update(String(task.prompt)).digest("hex") : null,
       // Fingerprint covers everything that defines task identity for a fair
       // comparison — a changed grader or setup is a different task even with
-      // the same prompt.
+      // the same prompt. Imported harbor runs have null prompt/grader, so
+      // their identity comes from the harness block: dataset name@version,
+      // harbor version, and task id. Native fingerprints are unchanged.
       fingerprint_sha256: createHash("sha256").update(JSON.stringify({
+        ...(meta.harness && meta.harness !== "native" ? {
+          harness: meta.harness,
+          harbor_dataset: meta.harbor?.dataset ?? null,
+          harbor_version: meta.harbor?.harbor_version ?? null,
+          harbor_task: task.id ?? null,
+        } : {}),
         prompt: task.prompt ?? null,
         model: task.model ?? null,
         effort: task.effort ?? null,

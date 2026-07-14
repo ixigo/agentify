@@ -33,7 +33,7 @@ evals/harbor/
       Dockerfile        # immutable pinned base image, deterministic git baseline
       repo/             # the mini-repo the agent works in
       fixtures/agentify-context/   # seeded notes/events (agentify arm only)
-    tests/test.sh       # deterministic verifier (exit 0 = pass)
+    tests/test.sh       # deterministic verifier; writes /logs/verifier/reward.txt (fail-closed)
     solution/solve.sh   # oracle solution for token-free smokes
   suites/
     smoke.yaml          # 1 task × 2 agents × 1 attempt
@@ -80,11 +80,14 @@ that keep us honest:
 ## Prerequisites for running trials
 
 - Docker running locally (or another Harbor-supported runtime).
-- Python 3.11+ with Harbor at the pinned version:
+- Python 3.12+ (Harbor's own floor) with Harbor at the pinned version:
   `pip install harbor==<pins.harbor from dataset.json>`.
   If that exact version is unavailable in your index, check
   `pip index versions harbor`, update `dataset.json` deliberately, and re-run
   the smoke suite before trusting results.
+- Agentify installable at the pinned spec. Until Agentify is published on npm
+  under this name, point the agent at a git ref:
+  `export AGENTIFY_EVAL_AGENTIFY_SPEC="github:ixigo/agentify#<commit>"`.
 - `ANTHROPIC_API_KEY` exported. Harbor passes provider credentials into trial
   containers; treat every container as untrusted with that key and prefer a
   scoped, rate-limited key for benchmarks.
@@ -97,10 +100,16 @@ via `--max-budget-usd`). The suite ceiling is always
 `tasks × agents × attempts × cap`:
 
 ```
-agentify eval harbor plan --suite smoke     # ~$0.60 ceiling (1×2×1)
-agentify eval harbor plan --suite nightly   # 8 tasks × 2 × 3 × cap
-agentify eval harbor plan --suite profiles  # 8 tasks × 4 × 3 × cap
+agentify eval harbor plan --suite smoke     # $0.70 ceiling (1×2×1×$0.35)
+agentify eval harbor plan --suite nightly   # 8 tasks × 2 × 3 × cap = $16.80
+agentify eval harbor plan --suite profiles  # 8 tasks × 4 × 3 × cap = $33.60
 ```
+
+The agentify agent enforces the cap in-flight (`--max-budget-usd` per trial).
+Whether Harbor's built-in `claude-code` agent exposes an equivalent budget
+kwarg depends on the pinned Harbor version — check `harbor run --help`; when
+it doesn't, that arm is bounded by the task/agent timeouts and the printed
+ceiling is an assumption for it, not a hard guarantee.
 
 `run-smoke.sh` prints the plan and requires interactive confirmation before
 any provider call; `CI=true` skips the prompt so scheduled runs stay

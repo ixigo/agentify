@@ -338,6 +338,12 @@ export async function planHarborRun(root, config = {}, options = {}) {
     attempts_per_agent: suite.attempts,
     trials: tasks.length * trialsPerTask,
     max_spend_usd: Number(maxSpend.toFixed(6)),
+    // The agentify agent enforces the cap in-flight via --max-budget-usd.
+    // Harbor's built-in claude-code agent may or may not expose an equivalent
+    // budget kwarg depending on the pinned version — when it doesn't, that
+    // arm is bounded only by the task/agent timeouts and the ceiling is an
+    // assumption for it, not a guarantee.
+    enforcement: "agentify agent: --max-budget-usd per trial; baseline: verify your harbor version's claude-code agent supports a budget kwarg, else bounded by timeouts only",
     harbor_command: `harbor run -c ${path.relative(root, suitePath)}`,
     import_command: "agentify eval harbor import <jobs/job-dir>",
     confirmation_required: process.env.CI !== "true",
@@ -508,7 +514,11 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
   }
 
   const importedAt = new Date().toISOString();
-  const harborVersion = firstString(jobConfig?.harbor_version, jobResult?.harbor_version, manifest?.pins?.harbor);
+  // Provenance comes from the job's own artifacts; the local manifest is
+  // never a fallback for the harbor version, and its dataset identity is
+  // only stamped onto tasks it actually declares — an external job (e.g. a
+  // Terminal-Bench subset) must not be labeled as the local dataset.
+  const harborVersion = firstString(jobConfig?.harbor_version, jobResult?.harbor_version);
   const runs = [];
   for (const [taskId, taskTrials] of [...byTask.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const runId = importRunId(options.now ? new Date(options.now) : new Date());
@@ -517,6 +527,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
 
     const model = firstString(...taskTrials.map((trial) => trial.model), manifest?.model) ?? "unknown";
     const datasetTask = manifest?.tasks?.find((task) => task.id === taskId) ?? null;
+    const datasetInfo = datasetTask && manifest ? { name: manifest.name, version: manifest.version } : null;
     const repeatCounters = new Map();
     const order = [];
     const records = [];
@@ -551,7 +562,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
           agent_version: trial.agentVersion,
           reward: trial.reward,
           harbor_version: harborVersion ?? null,
-          dataset: manifest ? { name: manifest.name, version: manifest.version } : null,
+          dataset: datasetInfo,
         },
         agentify_version: VERSION,
         claude_version: null,
@@ -611,7 +622,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
         job: path.basename(jobDir),
         imported_at: importedAt,
         harbor_version: harborVersion ?? null,
-        dataset: manifest ? { name: manifest.name, version: manifest.version } : null,
+        dataset: datasetInfo,
         agents: [...new Set(taskTrials.map((trial) => trial.agent))],
       },
       agentify_version: VERSION,
@@ -646,7 +657,12 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
     action: "harbor-import",
     job: path.relative(root, jobDir),
     harbor_version: harborVersion ?? null,
-    dataset: manifest ? { name: manifest.name, version: manifest.version } : null,
+    // Summary-level dataset identity only when every imported task belongs to
+    // the local manifest; a mixed or external job stays unlabeled here (the
+    // per-run provenance already carries per-task truth).
+    dataset: manifest && [...byTask.keys()].every((id) => manifest.tasks.some((task) => task.id === id))
+      ? { name: manifest.name, version: manifest.version }
+      : null,
     trials_imported: trials.length - skipped.filter((entry) => entry.reason.includes("arm label")).length,
     trials_skipped: skipped,
     runs,
