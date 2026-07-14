@@ -14,7 +14,7 @@ agents:
     kwargs:
       profile: balanced
       max_budget_usd: 0.35
-      max_turns: 12
+      max_turns: 16
   - name: claude-code
     model_name: anthropic/claude-haiku-4-5-20251001
     kwargs:
