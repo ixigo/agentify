@@ -248,13 +248,19 @@ export function classifyTaskIntent(task) {
 // its own ordered `fallbacks` list, which is validated against unknown
 // providers, loops (repeated provider/model), and cost-tier escalation
 // beyond the governing profile's bound.
-export function buildFallbackChain({ kind, route, tier, profileName, config = {} }) {
+export function buildFallbackChain({ kind, route, tier, profileName, config = {}, allowDisabledPrimary = false }) {
   const definitions = resolveProfileDefinitions(config);
   const definition = definitions[profileName] || definitions.balanced;
   const tierModels = resolveTierModels(config);
   const providerPolicy = resolveDelegateProviderPolicy(config);
   if (!getDelegateAdapter(route.provider)) {
     throw new Error(`Route "${kind ?? "(custom)"}" references unknown delegate provider "${route.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+  }
+  // Config-declared routes cannot smuggle a disabled opt-in provider into
+  // production routing; only an explicit per-run --provider override
+  // (allowDisabledPrimary) may reach one without the config gate.
+  if (!allowDisabledPrimary && !providerPolicy[route.provider].enabled) {
+    throw new Error(`Route "${kind ?? "(custom)"}" uses opt-in provider "${route.provider}" which is not enabled for routing. Set models.providers.${route.provider}.enabled: true after evaluating it, or pass --provider ${route.provider} explicitly for a one-off run.`);
   }
   const routeTier = resolveRouteTier(kind, route);
   const selectedTier = tier || routeTier;
@@ -276,6 +282,14 @@ export function buildFallbackChain({ kind, route, tier, profileName, config = {}
       const provider = String(entry.provider).trim().toLowerCase();
       if (!getDelegateAdapter(provider)) {
         throw new Error(`Route "${kind}" fallback references unknown delegate provider "${entry.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+      }
+      if (!providerPolicy[provider].enabled) {
+        throw new Error(`Route "${kind}" fallback uses opt-in provider "${provider}" which is not enabled for routing. Set models.providers.${provider}.enabled: true after evaluating it.`);
+      }
+      if (provider === route.provider) {
+        // Selection is per-provider availability: a same-provider fallback
+        // can never be reached (the primary always wins or both are missing).
+        throw new Error(`Route "${kind}" fallback ${provider}${entry.model ? `/${entry.model}` : ""} is unreachable: fallbacks must name a different provider than the route's own "${route.provider}"`);
       }
       const entryTier = entry.tier ? String(entry.tier).trim().toLowerCase() : clampTier(Math.min(tierIndex(selectedTier), tierIndex(maxTier)));
       if (tierIndex(entryTier) > tierIndex(maxTier)) {
@@ -439,7 +453,14 @@ export async function loadRouteEvidence(root) {
 }
 
 function candidateFor(provider, tier, route, baseTier, tierModels) {
-  const model = tier === baseTier ? route.model ?? tierModels[provider]?.[tier] ?? null : tierModels[provider]?.[tier] ?? null;
+  // At the route's own tier an explicit route model wins — including an
+  // explicit null (the provider CLI's configured default). Tier models only
+  // fill in when the route says nothing, or for tier moves and fallbacks;
+  // otherwise pinning per-tier models would silently change what a default
+  // route actually runs.
+  const model = tier === baseTier && route.model !== undefined
+    ? route.model ?? null
+    : tierModels[provider]?.[tier] ?? null;
   return { provider, model, tier };
 }
 

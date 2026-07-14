@@ -221,6 +221,9 @@ export async function resolveRoutePolicy(root, config, kindInput, options = {}) 
     tier: selected.tier,
     profileName: profileSelection.name,
     config,
+    // An explicit --provider is a deliberate one-off: it may reach an
+    // installed opt-in provider without the models.providers config gate.
+    allowDisabledPrimary: explicitOverride,
   });
 
   return {

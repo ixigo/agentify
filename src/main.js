@@ -88,6 +88,9 @@ function printRouteExplanation(result) {
     ...(limits.effort ? [`effort ${limits.effort}`] : []),
   ].filter(Boolean).join(" · ");
   log(`Limits: ${limitParts} ${dim(`(source: ${result.budget_source})`)}`);
+  if (Array.isArray(result.unsupported_controls) && result.unsupported_controls.length > 0) {
+    log(dim(`Not enforced in-flight by this provider: ${result.unsupported_controls.join(", ")} — covered by the pre-run rolling budget check and the wall-clock timeout.`));
+  }
   if (result.signals.remaining_budget_usd !== null && result.signals.remaining_budget_usd !== undefined) {
     log(`Remaining rolling budget: $${result.signals.remaining_budget_usd.toFixed(4)}`);
   }
@@ -451,9 +454,9 @@ export async function runCli(argv, _runtime = {}) {
               limits.timeout_seconds !== null ? `${limits.timeout_seconds}s timeout` : null,
               ...(limits.effort ? [`effort ${limits.effort}`] : []),
             ].filter(Boolean).join(" · ");
-            const enforcement = route.enforcement.budget_usd === "native"
+            const enforcement = route.unsupported_controls.length === 0
               ? "enforced natively"
-              : "$ cap pre-run only (provider has no in-flight dollar stop)";
+              : `${route.unsupported_controls.join(" + ")} pre-run/timeout only (no in-flight stop on ${route.resolves_to.split("/")[0].replace(" (fallback)", "")})`;
             log(`           ${dim(`limits: ${limitParts} — ${enforcement}`)}`);
           }
           if (result.alias_drift_warning) {
@@ -537,6 +540,9 @@ export async function runCli(argv, _runtime = {}) {
             log(dim(`auto-routed to "${kind}" (rule: ${intent.matched_rule}${intent.matched_text ? `, matched "${intent.matched_text}"` : ""})`));
           }
           log(dim(`delegated to ${result.provider}${result.model ? `/${result.model}` : ""}${result.used_fallback ? ` (fallback: ${result.fallback_reason})` : ""} · profile ${result.profile} (${result.profile_source})`));
+          if (Array.isArray(result.unsupported_controls) && result.unsupported_controls.length > 0) {
+            log(dim(`limits not enforced in-flight by ${result.provider}: ${result.unsupported_controls.join(", ")} (pre-run budget check + timeout still apply)`));
+          }
           if (result.budget_warning) {
             log(dim(`budget warning: ${result.budget_warning}`));
           }

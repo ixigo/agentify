@@ -444,14 +444,15 @@ function buildCodexDelegateCommand(target, prompt, { write = false, limits = {},
 }
 
 // Headless JSON envelope with response + stats. Gemini CLI has no native
-// dollar/turn cap; write mode auto-approves edit tools only, read-only keeps
-// the default approval mode where headless tool approvals are denied.
+// dollar/turn cap; write mode auto-approves edit tools only. Read-only must
+// use plan mode — the default approval mode can still approve edits through
+// policy config, which would break the no-write contract.
 function buildGeminiDelegateCommand(target, prompt, { write = false } = {}) {
   const argv = ["gemini", "--output-format", "json"];
   if (target.model) {
     argv.push("--model", target.model);
   }
-  argv.push("--approval-mode", write ? "auto_edit" : "default");
+  argv.push("--approval-mode", write ? "auto_edit" : "plan");
   argv.push("-p", prompt);
   return argv;
 }

@@ -128,6 +128,9 @@ test("write mode differs from read-only mode for every adapter", () => {
   assert.ok(buildDelegateCommand({ provider: "codex", model: null }, "t", { write: true }).includes("--full-auto"));
   assert.ok(buildDelegateCommand({ provider: "codex", model: null }, "t", { write: false }).includes("read-only"));
   assert.ok(buildDelegateCommand({ provider: "gemini", model: null }, "t", { write: true }).includes("auto_edit"));
+  // Gemini's default approval mode can still approve edits through policy
+  // config — read-only must be strict plan mode.
+  assert.ok(buildDelegateCommand({ provider: "gemini", model: null }, "t", { write: false }).includes("plan"));
   const openCodeReadOnly = buildDelegateCommand({ provider: "opencode", model: null }, "t", { write: false });
   assert.ok(openCodeReadOnly.includes("plan"), "opencode read-only pins the plan agent");
 });
@@ -332,6 +335,72 @@ test("opt-in providers stay out of fallback chains until enabled in config", () 
   assert.throws(() => resolveDelegateProviderPolicy({ models: { providers: { gemini: { enabled: "yes" } } } }), /must be true or false/);
 });
 
+test("config routes and pinned fallbacks cannot bypass the opt-in gate", async () => {
+  // A config route whose primary is a disabled opt-in provider fails loudly
+  // instead of quietly joining production routing.
+  assert.throws(
+    () => buildFallbackChain({ kind: "implement", route: { provider: "gemini", model: null }, profileName: "balanced" }),
+    /not enabled for routing/,
+  );
+  // Same for pinned fallbacks: enabling is the config gate, not adapter presence.
+  assert.throws(
+    () => buildFallbackChain({
+      kind: "implement",
+      route: { provider: "claude", model: "sonnet", fallbacks: [{ provider: "gemini" }] },
+      profileName: "balanced",
+    }),
+    /not enabled for routing/,
+  );
+  // Once enabled, both work.
+  const config = { models: { providers: { gemini: { enabled: true } } } };
+  const chain = buildFallbackChain({
+    kind: "implement",
+    route: { provider: "claude", model: "sonnet", fallbacks: [{ provider: "gemini" }] },
+    profileName: "balanced",
+    config,
+  });
+  assert.equal(chain.entries[1].provider, "gemini");
+  // An explicit per-run --provider override still reaches an installed
+  // opt-in provider without editing config.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-optin-override-"));
+  try {
+    const result = await runDelegate(dir, {}, "quick", "answer", {
+      provider: "gemini",
+      env: {},
+      runtime: {
+        commandExists: async (command) => command === "gemini",
+        exec: async () => ({ code: 0, stdout: FIXTURES.gemini.good, stderr: "" }),
+      },
+    });
+    assert.equal(result.provider, "gemini");
+    assert.equal(result.status, "ok");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an explicit null route model means the provider CLI default, even with pinned tier models", async () => {
+  // The default review route declares codex with model: null. Pinned Codex
+  // tier models must not silently replace the CLI default the route asked
+  // for — what `agentify models` displays is what the run executes.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cli-default-"));
+  try {
+    const calls = [];
+    const result = await runDelegate(dir, {}, "review", "check it", {
+      env: {},
+      runtime: {
+        commandExists: async (command) => command === "codex",
+        exec: async (command, args) => { calls.push([command, ...args]); return { code: 0, stdout: FIXTURES.codex.good, stderr: "" }; },
+      },
+    });
+    assert.equal(result.provider, "codex");
+    assert.equal(result.model, null);
+    assert.ok(!calls[0].includes("--model"), "review runs on the Codex CLI default, not a substituted tier model");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("fallback chains reject unknown providers, loops, and tier escalation beyond policy", () => {
   assert.throws(
     () => buildFallbackChain({ kind: "quick", route: { provider: "mystery", model: null }, profileName: "balanced" }),
@@ -347,7 +416,15 @@ test("fallback chains reject unknown providers, loops, and tier escalation beyon
   const loop = { provider: "claude", model: "sonnet", fallbacks: [{ provider: "codex", model: "gpt-5.6-terra" }, { provider: "codex", model: "gpt-5.6-terra" }] };
   assert.throws(
     () => buildFallbackChain({ kind: "implement", route: loop, profileName: "balanced" }),
-    /loops/,
+    /unreachable|loops/,
+  );
+
+  // Same-provider fallbacks can never be selected (availability is
+  // per-provider): rejected as unreachable rather than accepted as decoys.
+  const sameProvider = { provider: "claude", model: "haiku", fallbacks: [{ provider: "claude", model: "sonnet" }] };
+  assert.throws(
+    () => buildFallbackChain({ kind: "quick", route: sameProvider, profileName: "balanced" }),
+    /unreachable/,
   );
 
   // cost profile allows no tier raise: a frontier fallback on a balanced
