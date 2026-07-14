@@ -121,8 +121,18 @@ export async function loadContextEvidence(root) {
       }
       const ablation = record.context_ablation && typeof record.context_ablation === "object" ? record.context_ablation : { mode: "relevant", max_injected_tokens: null };
       const mode = String(ablation.mode || "relevant");
-      const key = variantKey(mode, nullableNumber(ablation.max_injected_tokens));
-      const bucket = buckets.get(key) || { mode, max_injected_tokens: mode === "relevant" ? nullableNumber(ablation.max_injected_tokens) ?? DEFAULT_MAX_INJECTED_TOKENS : null, attempts: 0, passes: 0, cost_usd: 0, costed: 0 };
+      // A null ablation budget means "whatever the policy resolved at run
+      // time" — which the attempt's own telemetry recorded. Bucketing by the
+      // actual budget keeps a config-pinned 600-token run out of the
+      // default-1200 evidence; the documented default is only assumed when
+      // no measurement exists.
+      const effectiveBudget = mode === "relevant"
+        ? nullableNumber(ablation.max_injected_tokens)
+          ?? nullableNumber(record.context_metrics?.budget_max_tokens)
+          ?? DEFAULT_MAX_INJECTED_TOKENS
+        : null;
+      const key = variantKey(mode, effectiveBudget);
+      const bucket = buckets.get(key) || { mode, max_injected_tokens: effectiveBudget, attempts: 0, passes: 0, cost_usd: 0, costed: 0 };
       bucket.attempts += 1;
       if (record.pass) bucket.passes += 1;
       const cost = record.provider?.cost_usd;

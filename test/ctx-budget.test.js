@@ -294,13 +294,22 @@ test("loadContextEvidence buckets agentify-arm attempts by context ablation vari
     };
     const order = [];
     for (let i = 1; i <= 5; i += 1) {
-      order.push({ attempt_id: `agentify-${i}` }, { attempt_id: `agentify-ctx-relevant-400-${i}` }, { attempt_id: `plain-safe-${i}` });
+      order.push({ attempt_id: `agentify-${i}` }, { attempt_id: `agentify-ctx-relevant-400-${i}` }, { attempt_id: `agentify-pinned-${i}` }, { attempt_id: `plain-safe-${i}` });
       await write(`agentify-${i}`, { arm: "agentify", pass: true, provider: { cost_usd: 0.02 } });
       await write(`agentify-ctx-relevant-400-${i}`, {
         arm: "agentify-ctx-relevant-400",
         context_ablation: { mode: "relevant", max_injected_tokens: 400 },
         pass: i <= 4,
         provider: { cost_usd: 0.01 },
+      });
+      // A null ablation budget with recorded telemetry buckets by the budget
+      // the attempt actually ran under, not the documented default.
+      await write(`agentify-pinned-${i}`, {
+        arm: "agentify",
+        context_ablation: { mode: "relevant", max_injected_tokens: null },
+        context_metrics: { budget_max_tokens: 600 },
+        pass: true,
+        provider: { cost_usd: 0.015 },
       });
       // Baseline arms never count as context evidence.
       await write(`plain-safe-${i}`, { arm: "plain-safe", pass: true, provider: { cost_usd: 0.02 } });
@@ -318,6 +327,9 @@ test("loadContextEvidence buckets agentify-arm attempts by context ablation vari
     assert.equal(small.attempts, 5);
     assert.equal(small.pass_rate, 0.8);
     assert.equal(small.cost_per_pass_usd, Number((0.05 / 4).toFixed(4)));
+    const pinned = evidence.variants["relevant@600"];
+    assert.equal(pinned.attempts, 5);
+    assert.equal(pinned.max_injected_tokens, 600);
     assert.equal(Object.keys(evidence.variants).some((key) => key.includes("plain")), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

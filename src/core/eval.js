@@ -26,6 +26,7 @@ import { promisify } from "node:util";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { checkRollingBudget, resolveBudgetPolicy } from "./budget.js";
+import { PROFILE_NAMES } from "./profiles.js";
 import { ensureDir, exists, readJson, readText, writeJson, writeText } from "./fs.js";
 import { installIntegration, removeManagedBlock, stripManagedHooks } from "./integrations.js";
 import { detectDelegateProviders, parseClaudeJsonOutput } from "./models.js";
@@ -140,6 +141,12 @@ export function validateEvalTask(raw, source = "") {
     fail(source, `effort must be a simple level name (e.g. low, medium, high), got "${raw.effort}"`);
   }
   const contextAblations = normalizeContextAblations(raw.context_ablations, source);
+  // The profile is pinned into every attempt's environment, so an unknown
+  // name must fail at validation, not silently govern nothing.
+  const profile = String(raw.profile || "balanced").trim().toLowerCase();
+  if (!PROFILE_NAMES.includes(profile)) {
+    fail(source, `profile must be one of ${PROFILE_NAMES.join(", ")}, got "${raw.profile}"`);
+  }
 
   return {
     schema: EVAL_TASK_SCHEMA_VERSION,
@@ -161,7 +168,7 @@ export function validateEvalTask(raw, source = "") {
     arms: [...new Set(arms)],
     // The profile is fixed and identical across arms so the report can never
     // confound harness value with a stronger routing policy (#295).
-    profile: String(raw.profile || "balanced").trim().toLowerCase(),
+    profile,
     seed_context: raw.seed_context !== false,
     context_ablations: contextAblations,
   };
@@ -416,16 +423,22 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
   };
 }
 
-function childEnv(arm, extraEnv = {}, contextAblation = null) {
+function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null) {
   const env = { ...process.env, ...extraEnv };
-  // Never inherit a parent shell's ablation overrides: each attempt's context
-  // configuration must come from its own plan entry only.
+  // Never inherit a parent shell's ablation or profile overrides: each
+  // attempt's context configuration must come from its own plan entry only.
   delete env.AGENTIFY_CTX_INJECTION;
   delete env.AGENTIFY_CTX_BUDGET;
+  delete env.AGENTIFY_PROFILE;
   if (isAgentifyArm(arm)) {
     // The whole point of this arm is live context hooks — make sure a parent
     // delegate/eval process cannot leak its recursion guard into it.
     delete env.AGENTIFY_CTX;
+    if (profile) {
+      // Recorded requested/resolved profile must be the one that actually
+      // governed context budgeting inside the attempt.
+      env.AGENTIFY_PROFILE = profile;
+    }
     if (contextAblation) {
       env.AGENTIFY_CTX_INJECTION = contextAblation.mode;
       if (contextAblation.max_injected_tokens !== null) {
@@ -655,9 +668,6 @@ async function probeClaudeVersion(env) {
 // during the attempt; baseline arms have none by construction.
 async function collectContextMetrics(workspace) {
   const eventsPath = path.join(workspace, ".agentify", "context", "value-events.jsonl");
-  if (!(await exists(eventsPath))) {
-    return null;
-  }
   const metrics = {
     injections: 0,
     injected_items: 0,
@@ -669,6 +679,13 @@ async function collectContextMetrics(workspace) {
     max_match_ms: null,
     budget_max_tokens: null,
   };
+  // No value-events file is still a measurement for an agentify arm: hooks
+  // were installed, and zero injections happened (off mode, zero budget, or
+  // zero matches). The control arms of an ablation must not vanish from the
+  // report just because they injected nothing.
+  if (!(await exists(eventsPath))) {
+    return metrics;
+  }
   for (const line of (await readText(eventsPath)).split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -704,7 +721,7 @@ async function runAttempt(root, runDir, plan, attempt, options) {
   const workspace = path.join(attemptDir, "workspace");
   await ensureDir(attemptDir);
   const baseArm = attempt.base_arm || attempt.arm;
-  const env = childEnv(baseArm, options.env, attempt.context_ablation ?? null);
+  const env = childEnv(baseArm, options.env, attempt.context_ablation ?? null, plan.task.profile);
   const task = { ...plan.task, base_sha: plan.base_sha };
   const startedAt = Date.now();
 
