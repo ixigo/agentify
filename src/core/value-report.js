@@ -231,11 +231,18 @@ export function renderValueReport(report) {
 }
 
 function metricCard(label, value, note, tone = "neutral") {
-  return `<article class="metric metric--${tone}">
+  return `<article class="card metric metric--${tone}">
     <p class="metric-label">${escapeHtml(label)}</p>
     <p class="metric-value">${escapeHtml(value)}</p>
     <p class="metric-note">${escapeHtml(note)}</p>
   </article>`;
+}
+
+function formatTokens(value) {
+  const count = finite(value);
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return formatNumber(count);
 }
 
 function reasonRows(reasons) {
@@ -284,7 +291,7 @@ function dailyChart(daily, reportWindowDays) {
     </div>`;
   }).join("");
   const rows = daily.map((item) => `<tr><th scope="row">${escapeHtml(item.date)}</th><td class="number">${item.assists}</td><td class="number">${item.delegations}</td></tr>`).join("");
-  return `<section class="signal" aria-labelledby="signal-title">
+  return `<section class="signal card" aria-labelledby="signal-title">
     <div class="section-heading">
       <div><p class="eyebrow">Signal over time · ${escapeHtml(coverageLabel)}</p><h2 id="signal-title">Visible proof, day by day</h2></div>
       <div class="legend" aria-hidden="true"><span><i class="key key--assist"></i> assists</span><span><i class="key key--delegate"></i> delegations</span></div>
@@ -305,12 +312,18 @@ export function renderValueHtml(report, options = {}) {
     : "No context or focused-test value events have been recorded yet.";
   const economics = report.cost_per_passing_task;
   const costPerPass = economics.cost_per_passing_task_usd === null ? "—" : formatCost(economics.cost_per_passing_task_usd);
+  const delegations = report.delegations;
+  const tests = report.tests;
+  const costCoverage = delegations.runs > 0 ? `${delegations.costed_runs}/${delegations.runs} run(s) reported cost` : "no runs in window";
+  const evalCoverage = economics.attempts > 0
+    ? `${economics.costed_attempts}/${economics.attempts} attempt(s) reported cost`
+    : "no eval runs in window";
   const cards = [
     metricCard("decisions reused", formatNumber(report.context.decisions_reused), "Surfaced in a later task", "good"),
     metricCard("stale context rejected", formatNumber(report.context.stale_context_rejected), "Missing file references kept out", "guard"),
     metricCard("failed repeats intercepted", formatNumber(report.context.failed_command_repeats_intercepted), "Prior failure warning shown", "guard"),
-    metricCard("context injected", `~${formatNumber(report.context.estimated_tokens)}`, "Estimated tokens, with reasons", "signal"),
-    metricCard("test files avoided", formatNumber(report.tests.full_suite_files_avoided), `${report.tests.runs} focused run(s)`, "good"),
+    metricCard("context injected", `~${formatTokens(report.context.estimated_tokens)}`, "Estimated tokens, with reasons below", "signal"),
+    metricCard("test files avoided", formatNumber(tests.full_suite_files_avoided), `${tests.runs} focused run(s)`, "good"),
     metricCard("cost per passing task", costPerPass, "Deterministic Agentify evals only", "signal"),
   ].join("");
 
@@ -323,171 +336,194 @@ export function renderValueHtml(report, options = {}) {
   <title>Agentify value · ${escapeHtml(project)}</title>
   <style>
     :root {
-      color-scheme: light dark;
-      --ink: #18201d;
-      --muted: #5f6c66;
-      --paper: #f4f1e8;
-      --surface: rgba(255, 255, 255, 0.72);
-      --surface-solid: #fcfaf4;
-      --line: rgba(24, 32, 29, 0.14);
-      --green: #087a55;
-      --green-soft: #d9efe5;
-      --amber: #a45516;
-      --amber-soft: #f6e4c9;
-      --blue: #315fba;
-      --blue-soft: #dfe8fa;
-      --shadow: 0 24px 70px rgba(29, 39, 34, 0.10);
-      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      color-scheme: dark light;
+      --bg: #0d1117;
+      --bg-soft: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-dim: #8b949e;
+      --accent: #58a6ff;
+      --accent-2: #7ee787;
+      --amber: #d29922;
+      --code-bg: #161b22;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     }
-    @media (prefers-color-scheme: dark) {
+    @media (prefers-color-scheme: light) {
       :root {
-        --ink: #eef3f0;
-        --muted: #a6b2ac;
-        --paper: #101512;
-        --surface: rgba(27, 35, 31, 0.80);
-        --surface-solid: #1b231f;
-        --line: rgba(238, 243, 240, 0.14);
-        --green: #66d3aa;
-        --green-soft: #153c2e;
-        --amber: #f1b36f;
-        --amber-soft: #432d19;
-        --blue: #9cbaff;
-        --blue-soft: #202f50;
-        --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+        --bg: #ffffff;
+        --bg-soft: #f6f8fa;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --text-dim: #59636e;
+        --accent: #0969da;
+        --accent-2: #1a7f37;
+        --amber: #9a6700;
+        --code-bg: #f6f8fa;
       }
     }
-    * { box-sizing: border-box; }
-    html { font-family: var(--sans); background: var(--paper); color: var(--ink); }
-    body { margin: 0; min-width: 20rem; line-height: 1.55; }
-    body::before {
-      content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-      background: radial-gradient(circle at 85% 0%, rgba(8, 122, 85, 0.14), transparent 34rem), radial-gradient(circle at 10% 55%, rgba(49, 95, 186, 0.10), transparent 30rem);
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.6;
     }
-    .shell { width: min(74rem, calc(100% - 2rem)); margin: 0 auto; }
-    .skip-link { position: fixed; top: 0.75rem; left: 0.75rem; z-index: 10; padding: 0.55rem 0.8rem; border-radius: 0.45rem; background: var(--surface-solid); color: var(--ink); transform: translateY(-180%); }
+    main { max-width: 880px; margin: 0 auto; padding: 0 24px 64px; }
+    .skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 8px 12px; border-radius: 8px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text); transform: translateY(-300%); }
     .skip-link:focus { transform: translateY(0); }
-    header { padding: 4.5rem 0 2.5rem; }
-    .mast { display: flex; justify-content: space-between; gap: 1rem; align-items: center; margin-bottom: 4.5rem; font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
-    .brand { display: inline-flex; align-items: center; gap: 0.65rem; color: var(--ink); font-weight: 700; letter-spacing: -0.02em; }
-    .brand-mark { width: 0.72rem; height: 0.72rem; border-radius: 0.18rem; background: var(--green); transform: rotate(45deg); box-shadow: 0 0 0 0.28rem var(--green-soft); }
-    .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3rem; align-items: end; }
-    .eyebrow { margin: 0 0 0.65rem; color: var(--green); font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1, h2 { margin: 0; text-wrap: balance; letter-spacing: -0.045em; }
-    h1 { max-width: 16ch; font-size: clamp(2.75rem, 8vw, 6.5rem); line-height: 0.96; font-weight: 750; }
-    h2 { font-size: clamp(1.65rem, 4vw, 2.65rem); line-height: 1.05; }
-    .lede { max-width: 62ch; margin: 1.5rem 0 0; color: var(--muted); font-size: 1.08rem; }
-    .score { width: 10rem; aspect-ratio: 1; display: grid; place-content: center; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); text-align: center; }
-    .score strong { display: block; font-family: var(--mono); font-size: 3rem; line-height: 1; color: var(--green); }
-    .score span { display: block; margin-top: 0.55rem; color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; }
-    main { padding-bottom: 5rem; }
-    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; }
-    .metric { min-height: 12.5rem; display: flex; flex-direction: column; justify-content: space-between; padding: 1.35rem; border: 1px solid var(--line); border-radius: 1.15rem; background: var(--surface); box-shadow: 0 10px 30px rgba(29, 39, 34, 0.05); }
-    .metric--good { border-top: 0.22rem solid var(--green); }
-    .metric--guard { border-top: 0.22rem solid var(--amber); }
-    .metric--signal { border-top: 0.22rem solid var(--blue); }
-    .metric-label, .metric-note { margin: 0; }
-    .metric-label { color: var(--muted); font-size: 0.78rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; }
-    .metric-value { margin: 1.1rem 0; font-family: var(--mono); font-size: clamp(2rem, 5vw, 3.35rem); font-weight: 700; line-height: 1; letter-spacing: -0.07em; }
-    .metric-note { color: var(--muted); font-size: 0.85rem; }
-    section, figure { margin: 4.5rem 0 0; }
-    .section-heading { display: flex; justify-content: space-between; gap: 1.5rem; align-items: end; margin-bottom: 1.4rem; }
-    .legend { display: flex; gap: 1rem; color: var(--muted); font-family: var(--mono); font-size: 0.72rem; }
-    .key { display: inline-block; width: 0.6rem; height: 0.6rem; margin-right: 0.35rem; border-radius: 0.15rem; }
-    .key--assist, .bar--assist { background: var(--green); }
-    .key--delegate, .bar--delegate { background: var(--blue); }
-    .signal { padding: 1.5rem; border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); }
-    .chart { height: 15rem; display: grid; grid-template-columns: repeat(${Math.max(1, report.daily.length)}, minmax(1.35rem, 1fr)); gap: 0.65rem; align-items: end; padding-top: 1rem; border-bottom: 1px solid var(--line); }
-    .day { height: 100%; min-width: 0; display: grid; grid-template-rows: 1fr auto; gap: 0.55rem; align-items: end; }
-    .bar-pair { height: 100%; display: flex; align-items: end; justify-content: center; gap: 0.2rem; }
-    .bar { width: min(0.78rem, 40%); height: max(0.18rem, var(--bar-height)); border-radius: 0.35rem 0.35rem 0 0; opacity: 0.9; }
-    .day-label { overflow: hidden; color: var(--muted); font-family: var(--mono); font-size: 0.65rem; text-align: center; white-space: nowrap; }
-    details { margin-top: 1rem; }
-    summary { width: fit-content; cursor: pointer; color: var(--muted); font-family: var(--mono); font-size: 0.76rem; }
-    summary:hover { color: var(--ink); }
-    .split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 1rem; }
-    .panel { padding: 1.5rem; border: 1px solid var(--line); border-radius: 1.25rem; background: var(--surface); overflow: hidden; }
-    .panel h2 { margin-bottom: 0.35rem; }
-    .panel-copy { margin: 0 0 1.4rem; color: var(--muted); }
+    header.hero { text-align: center; padding: 56px 24px 8px; }
+    .hero pre.logo {
+      font-family: var(--mono); font-size: 11px; line-height: 1.25;
+      color: var(--accent); display: inline-block; text-align: left; margin-bottom: 20px;
+    }
+    .hero h1 { font-size: 1.9rem; letter-spacing: -0.02em; margin-bottom: 10px; text-wrap: balance; }
+    .hero p.tagline { font-size: 1.05rem; color: var(--text-dim); max-width: 620px; margin: 0 auto 20px; }
+    .hero .tagline strong { color: var(--text); }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .meta {
+      font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim);
+      background: var(--bg-soft); border: 1px solid var(--border);
+      border-radius: 999px; padding: 3px 12px; white-space: nowrap;
+    }
+    section { margin-top: 56px; }
+    h2 { font-size: 1.35rem; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .eyebrow {
+      color: var(--accent-2); font-family: var(--mono); font-size: 0.72rem;
+      font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px;
+    }
+    p.lede { color: var(--text-dim); margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; }
+    .card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .metric-label { color: var(--text-dim); font-size: 0.75rem; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
+    .metric-value { font-family: var(--mono); font-size: 2rem; font-weight: 700; line-height: 1.15; margin: 8px 0 4px; letter-spacing: -0.03em; }
+    .metric--good .metric-value { color: var(--accent-2); }
+    .metric--guard .metric-value { color: var(--amber); }
+    .metric--signal .metric-value { color: var(--accent); }
+    .metric-note { color: var(--text-dim); font-size: 0.85rem; }
+    .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 14px; }
+    .legend { display: flex; gap: 14px; color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; }
+    .key { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 3px; }
+    .key--assist, .bar--assist { background: var(--accent-2); }
+    .key--delegate, .bar--delegate { background: var(--accent); }
+    .signal { margin-top: 20px; }
+    .chart { height: 200px; display: grid; grid-template-columns: repeat(${Math.max(1, report.daily.length)}, minmax(18px, 1fr)); gap: 8px; align-items: end; padding-top: 12px; border-bottom: 1px solid var(--border); }
+    .day { height: 100%; min-width: 0; display: grid; grid-template-rows: 1fr auto; gap: 6px; align-items: end; }
+    .bar-pair { height: 100%; display: flex; align-items: end; justify-content: center; gap: 3px; }
+    .bar { width: min(10px, 40%); height: max(3px, var(--bar-height)); border-radius: 3px 3px 0 0; }
+    .day-label { overflow: hidden; color: var(--text-dim); font-family: var(--mono); font-size: 0.62rem; text-align: center; white-space: nowrap; }
+    details { margin-top: 12px; }
+    summary { width: fit-content; cursor: pointer; color: var(--text-dim); font-family: var(--mono); font-size: 0.76rem; }
+    summary:hover { color: var(--text); }
+    .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 20px; }
+    .panel h2 { margin-bottom: 4px; }
+    .panel-copy { margin: 0 0 12px; color: var(--text-dim); font-size: 0.92rem; }
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    caption { padding: 0 0 0.8rem; color: var(--muted); text-align: left; font-size: 0.78rem; }
-    th, td { padding: 0.8rem 0.7rem; border-bottom: 1px solid var(--line); text-align: left; }
-    thead th { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.07em; text-transform: uppercase; }
+    caption { padding: 0 0 8px; color: var(--text-dim); text-align: left; font-size: 0.78rem; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    thead th { color: var(--text-dim); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    tbody tr:last-child th, tbody tr:last-child td { border-bottom: none; }
     tbody th { font-weight: 550; }
     .number { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
-    .empty { color: var(--muted); text-align: center; }
-    code { font-family: var(--mono); font-size: 0.86em; }
-    .evidence { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: start; padding: 1.5rem; border-left: 0.25rem solid var(--amber); background: var(--amber-soft); border-radius: 0 1rem 1rem 0; }
-    .evidence strong { font-family: var(--mono); font-size: 2rem; color: var(--amber); }
-    .evidence p { margin: 0 0 0.5rem; }
-    .evidence ul { margin: 0.8rem 0 0; padding-left: 1.2rem; color: var(--muted); }
-    .evidence li + li { margin-top: 0.45rem; }
-    footer { padding: 1.5rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-family: var(--mono); font-size: 0.72rem; }
-    :focus-visible { outline: 0.18rem solid var(--blue); outline-offset: 0.2rem; }
-    @media (max-width: 52rem) {
-      header { padding-top: 2rem; }
-      .mast { margin-bottom: 3rem; }
-      .hero { grid-template-columns: 1fr; }
-      .score { width: 8rem; }
-      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .split { grid-template-columns: 1fr; }
+    .empty { color: var(--text-dim); text-align: center; }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+    .evidence {
+      display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start;
+      padding: 18px 20px; border: 1px solid var(--border); border-left: 4px solid var(--amber);
+      background: var(--bg-soft); border-radius: 0 10px 10px 0; margin-top: 16px;
     }
-    @media (max-width: 35rem) {
-      .shell { width: min(100% - 1.1rem, 74rem); }
-      .mast { align-items: flex-start; flex-direction: column; }
-      .metrics { grid-template-columns: 1fr; }
-      .metric { min-height: 10rem; }
+    .evidence > strong { font-family: var(--mono); font-size: 1.8rem; color: var(--amber); }
+    .evidence p { margin: 0 0 6px; }
+    .evidence ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 0.9rem; }
+    .evidence li + li { margin-top: 6px; }
+    footer {
+      border-top: 1px solid var(--border); margin-top: 72px; padding: 24px;
+      text-align: center; color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem;
+    }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    @media (max-width: 560px) {
+      header.hero { padding-top: 32px; }
       .section-heading { align-items: flex-start; flex-direction: column; }
-      .legend { flex-wrap: wrap; }
-      .chart { gap: 0.25rem; }
+      .chart { gap: 3px; }
       .evidence { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
     @media print {
-      :root { color-scheme: light; --paper: #fff; --surface: #fff; --ink: #111; --muted: #555; --line: #ccc; }
-      body::before { display: none; }
-      .shell { width: 100%; }
-      header { padding-top: 1rem; }
-      .metric, .panel, .signal { break-inside: avoid; box-shadow: none; }
+      :root { color-scheme: light; --bg: #fff; --bg-soft: #fff; --text: #111; --text-dim: #555; --border: #ccc; }
+      .card, .signal { break-inside: avoid; }
       details { display: none; }
     }
   </style>
 </head>
 <body>
   <a class="skip-link" href="#content">Skip to value report</a>
-  <header class="shell">
-    <div class="mast"><span class="brand"><i class="brand-mark" aria-hidden="true"></i>agentify / value</span><span>${escapeHtml(project)} · ${escapeHtml(report.window_days)} day window</span></div>
-    <div class="hero">
-      <div>
-        <p class="eyebrow">Evidence-backed impact</p>
-        <h1>Quiet work, made visible.</h1>
-        <p class="lede">Agentify recorded <strong>${formatNumber(report.headline.observable_assists)} observable assist(s)</strong> while keeping its claims tied to durable local evidence. This report shows what was surfaced, guarded, routed, and selectively tested.</p>
-      </div>
-      <div class="score"><strong>${formatNumber(report.headline.observable_assists)}</strong><span>observable<br>assists</span></div>
+  <header class="hero">
+    <pre class="logo">    _                    _   _  __
+   / \\   __ _  ___ _ __ | |_(_)/ _|_   _
+  / _ \\ / _\` |/ _ \\ '_ \\| __| | |_| | | |
+ / ___ \\ (_| |  __/ | | | |_| |  _| |_| |
+/_/   \\_\\__, |\\___|_| |_|\\__|_|_|  \\__, |
+        |___/                      |___/</pre>
+    <h1>Quiet work, made visible.</h1>
+    <p class="tagline">Agentify recorded <strong>${formatNumber(report.headline.observable_assists)} observable assist(s)</strong> in ${escapeHtml(project)}, with every claim tied to durable local evidence — what was surfaced, guarded, routed, and selectively tested.</p>
+    <div class="meta-row">
+      <span class="meta">last ${escapeHtml(report.window_days)} day(s)</span>
+      <span class="meta">${formatNumber(report.evidence.value_events)} value event(s)</span>
+      <span class="meta">generated ${escapeHtml(generated)} UTC</span>
     </div>
   </header>
-  <main class="shell" id="content" data-testid="agentify-value-report">
-    <section aria-label="Value summary" class="metrics">${cards}</section>
+  <main id="content" data-testid="agentify-value-report">
+    <section aria-label="Value summary">
+      <p class="eyebrow">Headline</p>
+      <h2>What Agentify did for this repo</h2>
+      <div class="grid">${cards}</div>
+    </section>
     ${dailyChart(report.daily, report.window_days)}
-    <section class="split" aria-label="Value details">
-      <article class="panel">
-        <p class="eyebrow">Context receipts</p><h2>Why context appeared</h2>
-        <p class="panel-copy">${formatNumber(report.context.injected_items)} item(s) across ${formatNumber(report.context.injection_events)} task injection(s).</p>
-        <div class="table-wrap"><table><caption>Injected context by evidence source</caption><tbody>${reasonRows(report.context.reasons)}</tbody></table></div>
-      </article>
-      <article class="panel">
-        <p class="eyebrow">Routing economics</p><h2>Delegation cost and latency</h2>
-        <p class="panel-copy">${formatNumber(report.delegations.runs)} run(s), ${formatCost(report.delegations.cost_usd)}, P50 ${formatDuration(report.delegations.latency_p50_ms)}.</p>
-        <div class="table-wrap"><table><caption>Delegations by task kind</caption><thead><tr><th scope="col">Kind</th><th scope="col">Runs</th><th scope="col">Success</th><th scope="col">Cost</th><th scope="col">Avg latency</th></tr></thead><tbody>${delegationRows(report.delegations.by_kind)}</tbody></table></div>
-      </article>
+    <section aria-label="Value details">
+      <p class="eyebrow">Receipts</p>
+      <h2>Where the numbers come from</h2>
+      <div class="split">
+        <article class="card panel">
+          <h2>Why context appeared</h2>
+          <p class="panel-copy">${formatNumber(report.context.injected_items)} item(s) across ${formatNumber(report.context.injection_events)} task injection(s), ~${formatTokens(report.context.estimated_tokens)} estimated token(s).</p>
+          <div class="table-wrap"><table><caption>Injected context by evidence source</caption><tbody>${reasonRows(report.context.reasons)}</tbody></table></div>
+        </article>
+        <article class="card panel">
+          <h2>Delegation cost and latency</h2>
+          <p class="panel-copy">${formatNumber(delegations.runs)} run(s) · ${formatCost(delegations.cost_usd)} · ${formatTokens(delegations.input_tokens)} in / ${formatTokens(delegations.output_tokens)} out · P50 ${formatDuration(delegations.latency_p50_ms)} · P95 ${formatDuration(delegations.latency_p95_ms)} · ${escapeHtml(costCoverage)}.</p>
+          <div class="table-wrap"><table><caption>Delegations by task kind — cheap work routed to cheap models</caption><thead><tr><th scope="col">Kind</th><th scope="col">Runs</th><th scope="col">Success</th><th scope="col">Cost</th><th scope="col">Avg latency</th></tr></thead><tbody>${delegationRows(delegations.by_kind)}</tbody></table></div>
+        </article>
+        <article class="card panel">
+          <h2>Focused tests, not full suites</h2>
+          <p class="panel-copy">Impact-aware selection runs only the tests your change touches.</p>
+          <div class="table-wrap"><table><caption>Focused test runs in this window</caption><tbody>
+            <tr><th scope="row">Focused runs</th><td class="number">${formatNumber(tests.runs)}</td></tr>
+            <tr><th scope="row">Passing runs</th><td class="number">${formatNumber(tests.passing_runs)}</td></tr>
+            <tr><th scope="row">Test files selected</th><td class="number">${formatNumber(tests.selected_test_files)}</td></tr>
+            <tr><th scope="row">Full-suite files avoided</th><td class="number">${formatNumber(tests.full_suite_files_avoided)}</td></tr>
+            <tr><th scope="row">Time in focused runs</th><td class="number">${escapeHtml(formatDuration(tests.duration_ms))}</td></tr>
+          </tbody></table></div>
+        </article>
+        <article class="card panel">
+          <h2>Cost per passing task</h2>
+          <p class="panel-copy">From deterministic paired evals — cost only means something next to task success, and it is only claimed when every attempt reported cost.</p>
+          <div class="table-wrap"><table><caption>Agentify eval arm, this window</caption><tbody>
+            <tr><th scope="row">Eval runs</th><td class="number">${formatNumber(economics.runs)}</td></tr>
+            <tr><th scope="row">Attempts</th><td class="number">${formatNumber(economics.attempts)}</td></tr>
+            <tr><th scope="row">Deterministic passes</th><td class="number">${formatNumber(economics.passes)}</td></tr>
+            <tr><th scope="row">Cost coverage</th><td class="number">${escapeHtml(evalCoverage)}</td></tr>
+            <tr><th scope="row">Cost per passing task</th><td class="number">${escapeHtml(costPerPass)}</td></tr>
+          </tbody></table></div>
+        </article>
+      </div>
     </section>
     <section>
-      <div class="section-heading"><div><p class="eyebrow">Honest accounting</p><h2>What the numbers mean</h2></div></div>
+      <p class="eyebrow">Honest accounting</p>
+      <h2>What the numbers mean — and what they don't</h2>
       <div class="evidence"><strong>${formatNumber(report.evidence.value_events)}</strong><div><p><strong>value events in this window</strong></p><p>${escapeHtml(trackingNote)} Generated ${escapeHtml(generated)} UTC.</p><ul>${report.evidence.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div></div>
     </section>
   </main>
-  <footer><div class="shell">Generated locally by Agentify · no external assets · provider costs are reported, never guessed</div></footer>
+  <footer>Generated locally by Agentify · no external assets · provider costs are reported, never guessed</footer>
 </body>
 </html>\n`;
 }
