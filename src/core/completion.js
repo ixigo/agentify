@@ -1,5 +1,6 @@
 import { listBuiltinSkills } from "./skills.js";
 import { SUPPORTED_PROVIDERS } from "./provider-command.js";
+import { DELEGATE_PROVIDER_NAMES } from "./provider-registry.js";
 
 const LANGUAGE_VALUES = ["auto", "ts", "python", "go", "rust", "dotnet", "java", "kotlin", "swift"];
 const SCOPE_VALUES = ["project", "user"];
@@ -73,7 +74,7 @@ const COMMANDS = [
     flags: [
       flag("--write", { description: "Allow the delegated model to apply edits" }),
       flag("--model", { valueKind: "text", description: "Override the route model" }),
-      flag("--provider", { values: ["claude", "codex"], description: "Override the route provider" }),
+      flag("--provider", { values: DELEGATE_PROVIDER_NAMES, description: "Override the route provider" }),
       flag("--timeout", { valueKind: "number", description: "Timeout in seconds" }),
       flag("--profile", { values: ["cost", "balanced", "performance"], description: "Optimization profile for this run" }),
       flag("--dry-run", { description: "Explain the routing decision without running" }),

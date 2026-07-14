@@ -19,6 +19,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { DELEGATE_PROVIDER_NAMES, getDelegateAdapter } from "./provider-registry.js";
+
 export const ROUTE_POLICY_VERSION = "route-policy-v1";
 export const PROFILE_NAMES = ["cost", "balanced", "performance"];
 export const CAPABILITY_TIERS = ["economy", "balanced", "frontier"];
@@ -62,32 +64,52 @@ export const ROUTE_CAPABILITY_TIERS = {
   research: "economy",
 };
 
-// Per-provider model for each capability tier. Claude Code accepts
-// version-independent aliases; Codex uses its CLI-configured default for
-// every tier (null) rather than Agentify hard-coding vendor model names.
-// Known limitation: with all Codex tiers on the CLI default, a Codex
-// fallback's tier label cannot be capability-verified and Codex evidence is
-// indistinguishable across tiers — provider capability adapters (#297) are
-// the fix; until then, pin per-tier Codex models under `models.tiers` in
-// .agentify.yaml to make the bound real.
-export const DEFAULT_TIER_MODELS = {
-  claude: { economy: "haiku", balanced: "sonnet", frontier: "opus" },
-  codex: { economy: null, balanced: null, frontier: null },
-};
+// Per-provider model for each capability tier, declared by each provider's
+// delegate adapter in the registry (#297): the registry is the single source
+// for what a provider supports, so profiles cannot disagree with
+// doctor/models/delegate about tier models. Overridable under `models.tiers`.
+export const DEFAULT_TIER_MODELS = Object.fromEntries(
+  DELEGATE_PROVIDER_NAMES.map((provider) => [provider, { ...getDelegateAdapter(provider).tierModels }]),
+);
 
-// Claude version-independent aliases. Aliases (and a null "CLI default"
-// model) can silently change behavior across releases, so governed profiles
-// get a drift warning unless full model IDs are pinned.
-const CLAUDE_ALIASES = new Set(["haiku", "sonnet", "opus"]);
-
+// Aliases (and a null "CLI default" model) can silently change behavior
+// across releases, so governed profiles get a drift warning unless full
+// model IDs are pinned. Which names are aliases is adapter-declared.
 export function isAliasModel(provider, model) {
   if (model === null || model === undefined || model === "") {
     return true; // CLI default: resolution is outside Agentify's control.
   }
-  if (provider === "claude") {
-    return CLAUDE_ALIASES.has(String(model).trim().toLowerCase());
+  const aliases = getDelegateAdapter(provider)?.aliasModels || [];
+  return aliases.includes(String(model).trim().toLowerCase());
+}
+
+// Which providers may participate in routing (fallback chains and tier
+// selection). Claude and Codex are on by default; opt-in providers
+// (adapter.optIn) stay out until the repo enables them explicitly under
+// models.providers.<name>.enabled — installing a cheap CLI must never change
+// a production profile by itself (#297).
+export function resolveDelegateProviderPolicy(config = {}) {
+  const configured = config.models?.providers && typeof config.models.providers === "object" && !Array.isArray(config.models.providers)
+    ? config.models.providers
+    : {};
+  for (const name of Object.keys(configured)) {
+    if (!DELEGATE_PROVIDER_NAMES.includes(name)) {
+      throw new Error(`models.providers.${name} does not reference a registered delegate provider. Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+    }
   }
-  return false;
+  const policy = {};
+  for (const name of DELEGATE_PROVIDER_NAMES) {
+    const adapter = getDelegateAdapter(name);
+    const override = configured[name] && typeof configured[name] === "object" ? configured[name] : {};
+    if (override.enabled !== undefined && typeof override.enabled !== "boolean") {
+      throw new Error(`models.providers.${name}.enabled must be true or false, got "${override.enabled}"`);
+    }
+    policy[name] = {
+      optIn: adapter.optIn === true,
+      enabled: override.enabled ?? adapter.optIn !== true,
+    };
+  }
+  return policy;
 }
 
 export function tierIndex(tier) {
@@ -115,6 +137,11 @@ export function resolveTierModels(config = {}) {
   const configured = config.models?.tiers && typeof config.models.tiers === "object" && !Array.isArray(config.models.tiers)
     ? config.models.tiers
     : {};
+  for (const provider of Object.keys(configured)) {
+    if (!DEFAULT_TIER_MODELS[provider]) {
+      throw new Error(`models.tiers.${provider} does not reference a registered delegate provider. Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+    }
+  }
   const merged = {};
   for (const [provider, tiers] of Object.entries(DEFAULT_TIER_MODELS)) {
     const override = configured[provider] && typeof configured[provider] === "object" ? configured[provider] : {};
@@ -216,10 +243,25 @@ export function classifyTaskIntent(task) {
 // Cross-vendor fallback stays at the SAME capability tier (clamped by the
 // profile's bounded escalation) — a missing Codex no longer silently becomes
 // Claude opus regardless of what the route asked for.
-export function buildFallbackChain({ kind, route, tier, profileName, config = {} }) {
+//
+// Every entry must reference a registered delegate adapter; a route may pin
+// its own ordered `fallbacks` list, which is validated against unknown
+// providers, loops (repeated provider/model), and cost-tier escalation
+// beyond the governing profile's bound.
+export function buildFallbackChain({ kind, route, tier, profileName, config = {}, allowDisabledPrimary = false }) {
   const definitions = resolveProfileDefinitions(config);
   const definition = definitions[profileName] || definitions.balanced;
   const tierModels = resolveTierModels(config);
+  const providerPolicy = resolveDelegateProviderPolicy(config);
+  if (!getDelegateAdapter(route.provider)) {
+    throw new Error(`Route "${kind ?? "(custom)"}" references unknown delegate provider "${route.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+  }
+  // Config-declared routes cannot smuggle a disabled opt-in provider into
+  // production routing; only an explicit per-run --provider override
+  // (allowDisabledPrimary) may reach one without the config gate.
+  if (!allowDisabledPrimary && !providerPolicy[route.provider].enabled) {
+    throw new Error(`Route "${kind ?? "(custom)"}" uses opt-in provider "${route.provider}" which is not enabled for routing. Set models.providers.${route.provider}.enabled: true after evaluating it, or pass --provider ${route.provider} explicitly for a one-off run.`);
+  }
   const routeTier = resolveRouteTier(kind, route);
   const selectedTier = tier || routeTier;
   const maxTier = clampTier(tierIndex(routeTier) + definition.maxTierRaise);
@@ -230,15 +272,52 @@ export function buildFallbackChain({ kind, route, tier, profileName, config = {}
     tier: selectedTier,
     reason: "primary",
   }];
-  const alternates = Object.keys(tierModels).filter((provider) => provider !== route.provider);
-  for (const provider of alternates) {
-    const fallbackTier = clampTier(Math.min(tierIndex(selectedTier), tierIndex(maxTier)));
-    chain.push({
-      provider,
-      model: tierModels[provider]?.[fallbackTier] ?? null,
-      tier: fallbackTier,
-      reason: "provider_unavailable",
-    });
+  const seen = new Set([`${route.provider}/${route.model ?? ""}`]);
+
+  if (Array.isArray(route.fallbacks)) {
+    for (const entry of route.fallbacks) {
+      if (!entry || typeof entry !== "object" || !entry.provider) {
+        throw new Error(`Route "${kind}" has an invalid fallbacks entry: each entry needs a provider`);
+      }
+      const provider = String(entry.provider).trim().toLowerCase();
+      if (!getDelegateAdapter(provider)) {
+        throw new Error(`Route "${kind}" fallback references unknown delegate provider "${entry.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+      }
+      if (!providerPolicy[provider].enabled) {
+        throw new Error(`Route "${kind}" fallback uses opt-in provider "${provider}" which is not enabled for routing. Set models.providers.${provider}.enabled: true after evaluating it.`);
+      }
+      if (provider === route.provider) {
+        // Selection is per-provider availability: a same-provider fallback
+        // can never be reached (the primary always wins or both are missing).
+        throw new Error(`Route "${kind}" fallback ${provider}${entry.model ? `/${entry.model}` : ""} is unreachable: fallbacks must name a different provider than the route's own "${route.provider}"`);
+      }
+      const entryTier = entry.tier ? String(entry.tier).trim().toLowerCase() : clampTier(Math.min(tierIndex(selectedTier), tierIndex(maxTier)));
+      if (tierIndex(entryTier) > tierIndex(maxTier)) {
+        throw new Error(`Route "${kind}" fallback ${provider}/${entry.model ?? "(tier default)"} escalates to tier "${entryTier}" beyond the ${profileName ?? "balanced"} profile's bound of "${maxTier}"`);
+      }
+      const model = entry.model !== undefined ? (entry.model === null ? null : String(entry.model)) : tierModels[provider]?.[entryTier] ?? null;
+      const key = `${provider}/${model ?? ""}`;
+      if (seen.has(key)) {
+        throw new Error(`Route "${kind}" fallback chain loops: ${provider}${model ? `/${model}` : ""} appears more than once`);
+      }
+      seen.add(key);
+      chain.push({ provider, model, tier: entryTier, reason: "provider_unavailable" });
+    }
+  } else {
+    // Auto chain: the other routing-enabled providers at the same (bounded)
+    // tier. Opt-in providers never appear here unless explicitly enabled.
+    const alternates = DELEGATE_PROVIDER_NAMES.filter(
+      (provider) => provider !== route.provider && providerPolicy[provider].enabled,
+    );
+    for (const provider of alternates) {
+      const fallbackTier = clampTier(Math.min(tierIndex(selectedTier), tierIndex(maxTier)));
+      chain.push({
+        provider,
+        model: tierModels[provider]?.[fallbackTier] ?? null,
+        tier: fallbackTier,
+        reason: "provider_unavailable",
+      });
+    }
   }
   return {
     entries: chain,
@@ -275,11 +354,13 @@ function evidenceKey(provider, model) {
 // so recorded evidence is findable from alias routes. Exact keys always win
 // over family aggregates on lookup.
 function familyKey(provider, model) {
-  if (provider !== "claude" || model === null || model === undefined) {
+  const aliases = getDelegateAdapter(provider)?.aliasModels || [];
+  if (aliases.length === 0 || model === null || model === undefined) {
     return null;
   }
-  const match = String(model).toLowerCase().match(/(haiku|sonnet|opus)/);
-  return match ? `${provider}/~${match[1]}` : null;
+  const lower = String(model).toLowerCase();
+  const match = aliases.find((alias) => lower.includes(alias));
+  return match ? `${provider}/~${match}` : null;
 }
 
 // Only these eval arms feed routing evidence. Pooling treatment and baseline
@@ -372,7 +453,14 @@ export async function loadRouteEvidence(root) {
 }
 
 function candidateFor(provider, tier, route, baseTier, tierModels) {
-  const model = tier === baseTier ? route.model ?? tierModels[provider]?.[tier] ?? null : tierModels[provider]?.[tier] ?? null;
+  // At the route's own tier an explicit route model wins — including an
+  // explicit null (the provider CLI's configured default). Tier models only
+  // fill in when the route says nothing, or for tier moves and fallbacks;
+  // otherwise pinning per-tier models would silently change what a default
+  // route actually runs.
+  const model = tier === baseTier && route.model !== undefined
+    ? route.model ?? null
+    : tierModels[provider]?.[tier] ?? null;
   return { provider, model, tier };
 }
 

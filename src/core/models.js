@@ -13,12 +13,28 @@ import {
   classifyTaskIntent,
   isAliasModel,
   loadRouteEvidence,
+  resolveDelegateProviderPolicy,
   resolveProfileDefinitions,
   resolveProfileSelection,
   resolveRouteTier,
+  resolveTierModels,
   selectFromChain,
   selectTier,
 } from "./profiles.js";
+import {
+  DELEGATE_PROVIDER_NAMES,
+  getDelegateAdapter,
+  getProviderBootstrap,
+} from "./provider-registry.js";
+
+// Normalized output parsers live with their adapters in the provider
+// registry; re-exported here for existing consumers (eval.js, tests).
+export {
+  parseClaudeJsonOutput,
+  parseCodexJsonOutput,
+  parseGeminiJsonOutput,
+  parseOpenCodeJsonOutput,
+} from "./provider-registry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,6 +126,14 @@ export function resolveModelRoutes(config = {}) {
       };
     }
   }
+  // Config validation derives from the registry (#297): a route naming a
+  // provider without a delegate adapter fails loudly here, before any
+  // routing decision can silently never resolve.
+  for (const [kind, route] of Object.entries(routes)) {
+    if (!getDelegateAdapter(route.provider)) {
+      throw new Error(`models.routes.${kind}.provider "${route.provider}" is not a registered delegate provider. Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+    }
+  }
   return routes;
 }
 
@@ -132,11 +156,10 @@ async function defaultCommandExists(command) {
 
 export async function detectDelegateProviders(runtime = {}) {
   const commandExists = runtime.commandExists || defaultCommandExists;
-  const [claude, codex] = await Promise.all([
-    commandExists("claude"),
-    commandExists("codex"),
-  ]);
-  return { claude, codex };
+  const results = await Promise.all(
+    DELEGATE_PROVIDER_NAMES.map((provider) => commandExists(getProviderBootstrap(provider)?.bin || provider)),
+  );
+  return Object.fromEntries(DELEGATE_PROVIDER_NAMES.map((provider, index) => [provider, results[index]]));
 }
 
 export function pickRouteTarget(route, availability, { kind, profileName = "balanced", config = {} } = {}) {
@@ -165,7 +188,11 @@ export async function resolveRoutePolicy(root, config, kindInput, options = {}) 
   const explicitOverride = options.provider !== undefined
     || (options.model !== undefined && options.model !== null);
   if (options.provider) {
-    route.provider = String(options.provider);
+    const provider = String(options.provider).trim().toLowerCase();
+    if (!getDelegateAdapter(provider)) {
+      throw new Error(`Unknown delegate provider "${options.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+    }
+    route.provider = provider;
     route.model = options.model ?? null;
   }
   if (options.model !== undefined && options.model !== null) {
@@ -194,6 +221,9 @@ export async function resolveRoutePolicy(root, config, kindInput, options = {}) 
     tier: selected.tier,
     profileName: profileSelection.name,
     config,
+    // An explicit --provider is a deliberate one-off: it may reach an
+    // installed opt-in provider without the models.providers config gate.
+    allowDisabledPrimary: explicitOverride,
   });
 
   return {
@@ -264,6 +294,10 @@ export async function explainRoute(root, config, task, options = {}) {
   const limits = resolveRouteLimits({ ...routes[kind], model: policy.selected.model, provider: policy.selected.provider }, cliOverrides);
   const availability = await detectDelegateProviders(options.runtime || {});
   const target = selectFromChain(policy.fallback_chain, availability);
+  if (target) {
+    // A dry run must fail exactly where the real run would.
+    assertEffortSupported(target.provider, limits);
+  }
   return {
     command: "route",
     task: task || null,
@@ -288,172 +322,64 @@ export async function explainRoute(root, config, task, options = {}) {
     resolves_to: target
       ? { provider: target.provider, model: target.model, tier: target.tier, fallback: target.fallback, fallback_reason: target.fallback_reason }
       : null,
+    unsupported_controls: target ? listUnsupportedControls(target.provider, limits) : [],
+    enforcement: describeLimitEnforcement(target ? target.provider : policy.selected.provider),
   };
 }
 
 // Which of the configured ceilings the selected provider CLI can enforce
-// natively, in-flight. Anything else is covered by Agentify's pre-run rolling
-// budget check and the wall-clock timeout — an in-flight hard dollar stop is
-// unavailable for those providers.
+// natively, in-flight — declared by the provider's delegate adapter.
+// Anything else is covered by Agentify's pre-run rolling budget check and
+// the wall-clock timeout.
 export function describeLimitEnforcement(provider) {
-  if (provider === "claude") {
-    return { budget_usd: "native", turns: "native", timeout: "agentify" };
+  const adapter = getDelegateAdapter(provider);
+  if (adapter) {
+    return { ...adapter.enforcement };
   }
   return { budget_usd: "pre-run-only", turns: "unavailable", timeout: "agentify" };
 }
 
+function requireDelegateAdapter(provider) {
+  const adapter = getDelegateAdapter(provider);
+  if (!adapter) {
+    throw new Error(`No delegate adapter registered for provider "${provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
+  }
+  return adapter;
+}
+
+// Ceilings the selected adapter cannot enforce natively in-flight. These are
+// surfaced per run and in `agentify models` — a configured control is never
+// silently ignored (#297). Dollar/turn ceilings without native enforcement
+// still have the pre-run rolling check + wall-clock timeout envelope.
+export function listUnsupportedControls(provider, limits = {}) {
+  const adapter = getDelegateAdapter(provider);
+  if (!adapter) {
+    return [];
+  }
+  const unsupported = [];
+  if (limits.maxBudgetUsd != null && !adapter.controls.maxBudgetUsd) unsupported.push("max_budget_usd");
+  if (limits.maxTurns != null && !adapter.controls.maxTurns) unsupported.push("max_turns");
+  if (limits.effort && !adapter.controls.effort) unsupported.push("effort");
+  return unsupported;
+}
+
+// Effort has no fallback enforcement path (unlike dollars/turns, which keep
+// the pre-run + timeout envelope), so sending it to an adapter without an
+// effort control would silently weaken the policy — reject instead.
+function assertEffortSupported(provider, limits) {
+  if (limits.effort && !requireDelegateAdapter(provider).controls.effort) {
+    throw new Error(`provider "${provider}" has no effort control; unsupported controls are rejected rather than silently ignored. Remove --effort or the route's effort setting.`);
+  }
+}
+
 export function buildDelegateCommand(target, prompt, options = {}) {
-  const write = options.write === true;
-  const limits = options.limits || {};
-
-  if (target.provider === "codex") {
-    // --json emits the JSONL event stream (token usage); the final answer is
-    // still captured via --output-last-message. Codex has no native dollar or
-    // turn cap — those are enforced by Agentify's pre-run check and timeout.
-    const argv = ["codex", "exec", "--skip-git-repo-check", "--json"];
-    if (target.model) {
-      argv.push("--model", target.model);
-    }
-    argv.push(write ? "--full-auto" : "--sandbox", ...(write ? [] : ["read-only"]));
-    if (options.lastMessagePath) {
-      argv.push("--output-last-message", options.lastMessagePath);
-    }
-    argv.push(prompt);
-    return argv;
-  }
-
-  // JSON output carries real token usage and cost alongside the result text.
-  const argv = ["claude", "-p", prompt, "--output-format", "json"];
-  if (target.model) {
-    argv.push("--model", target.model);
-  }
-  if (limits.maxBudgetUsd != null) {
-    argv.push("--max-budget-usd", String(limits.maxBudgetUsd));
-  }
-  if (limits.maxTurns != null) {
-    argv.push("--max-turns", String(limits.maxTurns));
-  }
-  if (limits.effort) {
-    argv.push("--effort", String(limits.effort));
-  }
-  if (options.persistSession !== true) {
-    // Delegated runs are one-shot; keeping session state would only add cost.
-    argv.push("--no-session-persistence");
-  }
-  if (write) {
-    argv.push("--permission-mode", "acceptEdits");
-  }
-  return argv;
-}
-
-function numberOrNull(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-// Parse `claude -p --output-format json` stdout. Returns null when the output
-// is not the expected envelope (older CLI, plain-text fallback). Budget/turn
-// stops arrive as a result envelope with an error subtype and possibly no
-// result text, so those are accepted too.
-export function parseClaudeJsonOutput(stdout) {
-  let parsed;
-  try {
-    parsed = JSON.parse(String(stdout || "").trim());
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") {
-    return null;
-  }
-  const isEnvelope = typeof parsed.result === "string"
-    || (parsed.type === "result" && typeof parsed.subtype === "string");
-  if (!isEnvelope) {
-    return null;
-  }
-  const usage = parsed.usage && typeof parsed.usage === "object" ? parsed.usage : {};
-  const fresh = numberOrNull(usage.input_tokens);
-  const cacheWrite = numberOrNull(usage.cache_creation_input_tokens);
-  const cacheRead = numberOrNull(usage.cache_read_input_tokens);
-  const outputTokens = numberOrNull(usage.output_tokens);
-  const aggregateInput = (fresh || 0) + (cacheWrite || 0) + (cacheRead || 0);
-
-  // `modelUsage` keys are the resolved model IDs behind the requested alias.
-  // A single key is an unambiguous resolution; anything else stays null
-  // rather than guessed.
-  const modelUsage = parsed.modelUsage && typeof parsed.modelUsage === "object" && !Array.isArray(parsed.modelUsage)
-    ? parsed.modelUsage
-    : null;
-  const resolvedModels = modelUsage ? Object.keys(modelUsage) : [];
-
-  return {
-    output: typeof parsed.result === "string" ? parsed.result.trim() : "",
-    input_tokens: aggregateInput > 0 ? aggregateInput : null,
-    output_tokens: outputTokens,
-    cost_usd: numberOrNull(parsed.total_cost_usd),
-    usage: {
-      fresh_input_tokens: fresh,
-      cache_write_tokens: cacheWrite,
-      cache_read_tokens: cacheRead,
-      output_tokens: outputTokens,
-    },
-    resolved_model: resolvedModels.length === 1 ? resolvedModels[0] : null,
-    resolved_models: resolvedModels,
-    subtype: typeof parsed.subtype === "string" ? parsed.subtype : null,
-    num_turns: numberOrNull(parsed.num_turns),
-  };
-}
-
-// Parse `codex exec --json` JSONL stdout. Usage events may appear as a plain
-// `usage` object or nested token-count info; the last one seen wins (streams
-// report cumulative totals). Codex reports no dollar cost — cost stays null
-// rather than invented.
-export function parseCodexJsonOutput(stdout) {
-  let usage = null;
-  let model = null;
-  for (const line of String(stdout || "").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || !trimmed.startsWith("{")) continue;
-    let event;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    if (!event || typeof event !== "object") continue;
-    const candidate = [
-      event.msg?.info?.total_token_usage,
-      event.info?.total_token_usage,
-      event.usage,
-      event.msg?.usage,
-    ].find((value) => value && typeof value === "object"
-      && (typeof value.input_tokens === "number" || typeof value.output_tokens === "number"));
-    if (candidate) {
-      usage = candidate;
-    }
-    const modelCandidate = [event.model, event.msg?.model].find((value) => typeof value === "string" && value.trim());
-    if (modelCandidate) {
-      model = modelCandidate.trim();
-    }
-  }
-  if (!usage) {
-    return null;
-  }
-  const inputTokens = numberOrNull(usage.input_tokens);
-  const cachedTokens = numberOrNull(usage.cached_input_tokens);
-  const outputTokens = numberOrNull(usage.output_tokens);
-  const fresh = inputTokens !== null && cachedTokens !== null ? Math.max(0, inputTokens - cachedTokens) : inputTokens;
-  return {
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    cost_usd: null,
-    usage: {
-      fresh_input_tokens: fresh,
-      cache_write_tokens: null,
-      cache_read_tokens: cachedTokens,
-      output_tokens: outputTokens,
-    },
-    resolved_model: model,
-    resolved_models: model ? [model] : [],
-  };
+  const adapter = requireDelegateAdapter(target.provider);
+  return adapter.buildCommand(target, prompt, {
+    write: options.write === true,
+    limits: options.limits || {},
+    lastMessagePath: options.lastMessagePath || null,
+    persistSession: options.persistSession === true,
+  });
 }
 
 async function buildDiffSection(root, diffRef) {
@@ -558,9 +484,12 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   const target = selectFromChain(routePolicy.fallback_chain, availability);
   if (!target) {
     throw new Error(
-      `No available CLI for delegate kind "${kind}" (wanted ${route.provider}${route.model ? `/${route.model}` : ""}). Install the claude or codex CLI, or override the route in .agentify.yaml under models.routes.`,
+      `No available CLI for delegate kind "${kind}" (wanted ${route.provider}${route.model ? `/${route.model}` : ""}). Install one of the registered provider CLIs (${DELEGATE_PROVIDER_NAMES.join(", ")}), or override the route in .agentify.yaml under models.routes.`,
     );
   }
+  const adapter = requireDelegateAdapter(target.provider);
+  assertEffortSupported(target.provider, limits);
+  const unsupportedControls = listUnsupportedControls(target.provider, limits);
 
   if (!task && kind !== "review") {
     throw new Error(`delegate ${kind} requires a task: agentify delegate ${kind} "<task>"`);
@@ -582,6 +511,9 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     budget_limit: limits.maxBudgetUsd,
     max_turns: limits.maxTurns,
     budget_source: budgetSource,
+    // Ceilings the selected adapter cannot enforce natively in-flight (#297);
+    // they remain covered by the pre-run rolling check and the timeout.
+    unsupported_controls: unsupportedControls,
     // Profile contract (#295): requested is what the user explicitly asked
     // for this run (CLI/env), resolved is the profile that actually governed
     // routing after full precedence.
@@ -634,7 +566,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   const prompt = buildDelegatePrompt(kind, task, { diffSection });
   const promptMs = Date.now() - promptStart;
 
-  const lastMessagePath = target.provider === "codex"
+  const lastMessagePath = adapter.usesLastMessageFile
     ? path.join(os.tmpdir(), `agentify-delegate-${process.pid}-${Math.random().toString(36).slice(2)}.md`)
     : null;
   const argv = buildDelegateCommand(target, prompt, {
@@ -658,20 +590,13 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   const parseStart = Date.now();
   let output = String(result.stdout || "").trim();
   let usage = null;
-  if (target.provider === "claude") {
-    const parsed = parseClaudeJsonOutput(result.stdout);
-    if (parsed) {
-      output = parsed.output;
-      usage = parsed;
-    }
-  } else if (target.provider === "codex") {
-    const parsed = parseCodexJsonOutput(result.stdout);
-    if (parsed) {
-      usage = parsed;
-      // JSONL event stream is not the answer; without the last-message file
-      // there is no human-readable output.
-      output = "";
-    }
+  const parsed = adapter.parseOutput ? adapter.parseOutput(result.stdout) : null;
+  if (parsed) {
+    usage = parsed;
+    // Structured streams are not the answer text; adapters expose whatever
+    // human-readable output the envelope carried (possibly none — codex
+    // delivers it via the last-message file below).
+    output = typeof parsed.output === "string" ? parsed.output.trim() : "";
   }
   if (lastMessagePath) {
     try {
@@ -750,6 +675,8 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     budget_limit: limits.maxBudgetUsd,
     max_turns: limits.maxTurns,
     budget_source: budgetSource,
+    unsupported_controls: unsupportedControls,
+    enforcement: describeLimitEnforcement(target.provider),
     budget_stop_reason: budgetStopReason,
     budget_remaining: budgetRemaining,
     ...(budgetWarning ? { budget_warning: budgetWarning } : {}),
@@ -805,6 +732,8 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const definitions = resolveProfileDefinitions(config);
   const definition = definitions[profileSelection.name];
   const availability = await detectDelegateProviders(runtime);
+  const providerPolicy = resolveDelegateProviderPolicy(config);
+  const tierModels = resolveTierModels(config);
   const entries = Object.entries(routes).map(([kind, route]) => {
     const chain = buildFallbackChain({ kind, route, profileName: profileSelection.name, config });
     const target = selectFromChain(chain, availability);
@@ -833,11 +762,28 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
         effort: limits.effort,
       },
       enforcement: describeLimitEnforcement(target ? target.provider : route.provider),
+      unsupported_controls: listUnsupportedControls(target ? target.provider : route.provider, limits),
+    };
+  });
+  // One registry drives doctor/install/models/delegate alike (#297): what a
+  // provider supports here is exactly what the delegate adapter declares.
+  const providerDetails = DELEGATE_PROVIDER_NAMES.map((name) => {
+    const adapter = getDelegateAdapter(name);
+    return {
+      name,
+      installed: Boolean(availability[name]),
+      opt_in: providerPolicy[name].optIn,
+      enabled_for_routing: providerPolicy[name].enabled,
+      tier_models: tierModels[name],
+      controls: { ...adapter.controls },
+      enforcement: { ...adapter.enforcement },
+      reports_cost_usd: adapter.reportsCostUsd === true,
     };
   });
   return {
     command: "models",
     providers: availability,
+    provider_details: providerDetails,
     budget: policy,
     profile: {
       name: profileSelection.name,
