@@ -165,6 +165,42 @@ the same schema. Mapping:
   `eval compare` refuses to gate a native run against a Harbor run without
   `--force`.
 
+## Results so far
+
+First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
+× 3 attempts, `claude-haiku-4-5`, `max_turns` 16, $2.10 spent of the $16.80
+ceiling, 48/48 trials, zero flakes):
+
+| arm | passes | pooled Wilson 95% CI | cost/attempt |
+| --- | --- | --- | --- |
+| agentify | 24/24 (100%) | 86.2–100% | $0.055 |
+| claude-code | 21/24 (87.5%) | 69.0–95.7% | $0.033 |
+
+- All three baseline failures were on `avoid-cache-regression`
+  (prior-failure-avoidance): the recorded incident note is the only difference
+  between the arms, and it separated 3/3 from 0/3 — reproducing the
+  1-attempt result from the same day's first paired run.
+- Both controls held: `mechanical-header-bump` and `misleading-note-paginate`
+  tied 3/3 per arm — context neither inflates unrelated tasks nor causes
+  damage when a seeded note is wrong.
+- **No winner is declared.** 3 discordant pairs, all favoring agentify, give
+  an exact two-sided sign-test p = 0.25 with overlapping CIs; the fail-closed
+  winner rule needs CI separation and p < 0.05 (≥5 discordant pairs).
+  Accumulate nightly runs, or raise attempts on discordant tasks.
+- `eval compare --fail-on "pass_rate_drop>0.02"` against the same-day
+  1-attempt baseline passed all 8 task gates (exit 0).
+- The turns bump from 12 to 16 worked: one cap-hit in 48 trials (verifier
+  still passed it), down from four in 16 trials at cap 12.
+
+Scope caveat when quoting these numbers: the suite measures the **context
+layer only** (hooks, seeded notes, repo intelligence). Delegation and
+cross-vendor review are out of scope by construction — `agentify delegate`
+launches children with `AGENTIFY_CTX=off`, and trial containers carry a
+single vendor's credentials — so the +66% per-attempt cost above is the price
+of context alone, not a statement about whole-workflow economics (that is
+what `agentify stats` / `agentify value` and the native eval profiles
+measure).
+
 ## External benchmarks (optional validity check)
 
 Because `agentify-claude` is a standard installed agent, it runs on any

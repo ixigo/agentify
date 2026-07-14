@@ -208,6 +208,21 @@ CLI reported no usage.</code></pre>
     <p>Everything above is also exposed as an MCP server — Cursor, Zed, Windsurf, Claude Desktop, Gemini CLI, anything MCP-capable:</p>
     <pre class="code"><code><span class="green">$ agentify serve</span>   <span class="comment"># stdio MCP server, zero extra dependencies</span>
 tools: ctx_load, ctx_note, ctx_match, query, risk, test_select</code></pre>
+
+    <h3>8 · It's benchmarked against plain Claude Code — and reported honestly</h3>
+    <p>An 8-task paired benchmark runs in <a href="https://www.harborframework.com">Harbor</a> (Terminal-Bench 2.0) containers: same image, same pinned model, same budget, same deterministic verifier — the only difference between the arms is <code>agentify install</code> plus context recorded in earlier sessions. First full nightly suite, 2026-07-14, three attempts per arm:</p>
+    <pre class="code"><code>agentify      24/24 passed   $0.055/attempt   Wilson 95% CI  86.2–100%
+claude-code   21/24 passed   $0.033/attempt   Wilson 95% CI  69.0–95.7%
+
+All 3 baseline failures: avoid-cache-regression — the task where a recorded
+production incident is the only difference between the arms (0/3 vs 3/3).
+Controls held: the mechanical task and the misleading-note task tied 3/3.
+Flakes: 0 in 48 trials. Total spend: $2.10 against a $16.80 hard ceiling.
+
+Verdict: <span class="accent">no winner declared</span> — 3 discordant pairs give sign-test p = 0.25;
+the fail-closed rule requires CI separation AND p &lt; 0.05. That bar is the
+point: the report never manufactures a confident winner from thin data.</code></pre>
+    <p style="color: var(--text-dim);">About that cost gap: persistent context is paid for in tokens, so the context arm runs ~66% more per attempt — and on the only task with signal, that ~$0.03 premium was the difference between failing and passing. This suite isolates the context layer only. In real workflows the model routing in #6 is designed to win the premium back — quick and mechanical work goes to economy models, reviews to the other vendor — but that's an economics claim this container benchmark deliberately does not measure; <code>agentify stats</code> and <code>agentify value</code> report what routing actually saves from your own logged runs, and the optimization-profile suite exists to test it.</p>
   </section>
 
   <section id="how">
