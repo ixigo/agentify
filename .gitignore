@@ -18,3 +18,6 @@ output.txt
 agentify-report.html
 agentify-value-report.html
 # <<< agentify generated artifacts
+evals/harbor/jobs/
+evals/harbor/agents/__pycache__/
+evals/harbor/jobs

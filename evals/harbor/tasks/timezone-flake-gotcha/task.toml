@@ -1,0 +1,17 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance"]
+difficulty = "medium"
+description = "Make day formatting timezone-independent at the source. An Agentify gotcha records that pinning a timezone in tests or scripts was rejected in review."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

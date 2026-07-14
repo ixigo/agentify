@@ -38,6 +38,7 @@ import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
+import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
 import {
   COMPARE_EXIT_ERROR,
   EVAL_EXPORT_FORMATS,
@@ -767,7 +768,68 @@ export async function runCli(argv, _runtime = {}) {
           return;
         }
 
-        throw new Error("eval requires a subcommand: init, run, report, compare, or list");
+        if (subcommand === "harbor") {
+          // Harbor never becomes a runtime dependency: validate and plan are
+          // token-free checks over the committed dataset, and import only
+          // reads artifacts a harbor CLI run already produced (#298).
+          const harborAction = args._[2];
+          if (harborAction === "validate") {
+            const result = await validateHarborDataset(root, config);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+            } else {
+              log(`Harbor dataset ${bold(`${result.dataset.name}@${result.dataset.version}`)} — model ${result.dataset.model}, ${result.tasks.length} task(s).`);
+              for (const task of result.tasks) {
+                log(`${task.ok ? "ok      " : bold("invalid ")} ${task.id} ${dim(task.category)}${task.problems.length > 0 ? ` — ${task.problems.join("; ")}` : ""}`);
+              }
+              for (const problem of result.problems.filter((entry) => !result.tasks.some((task) => entry.startsWith(`${task.id}:`)))) {
+                log(bold(`problem: ${problem}`));
+              }
+              log("");
+              log(result.ok ? green("Dataset is valid.") : `${result.problems.length} problem(s) found.`);
+            }
+            if (!result.ok) {
+              process.exitCode = 1;
+            }
+            return;
+          }
+          if (harborAction === "plan") {
+            const result = await planHarborRun(root, config, { suite: hasOwn(args, "suite") ? String(args.suite) : undefined });
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`Harbor suite ${bold(result.suite)} — dataset ${result.dataset.name}@${result.dataset.version}, model ${result.model}.`);
+            log(`Agents: ${result.agents.join(", ")}${result.agents_per_task > result.agents.length ? ` (${result.agents_per_task} agent variants per task)` : ""} · ${result.tasks.length} task(s) × ${result.agents_per_task} agent(s) × ${result.attempts_per_agent} attempt(s) = ${result.trials} trial(s).`);
+            log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)} (every trial capped by its task's max_cost_usd).`);
+            log(dim(`Enforcement: ${result.enforcement}`));
+            log("");
+            log(`Launch with: ${dim(result.harbor_command)}`);
+            log(`Then import: ${dim(result.import_command)}`);
+            if (result.confirmation_required) {
+              log(dim("Paid run: confirm the maximum spend above before launching (CI=true skips this reminder)."));
+            }
+            return;
+          }
+          if (harborAction === "import") {
+            const result = await importHarborJob(root, config, args._[3]);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`Imported ${bold(String(result.runs.length))} run(s) from Harbor job ${result.job}${result.dataset ? ` (dataset ${result.dataset.name}@${result.dataset.version})` : ""}.`);
+            for (const run of result.runs) {
+              log(`- ${bold(run.run_id)} ${run.task_id} — ${run.attempts} attempt(s), arms ${run.arms.join(" vs ")} ${dim(`(${run.report_command})`)}`);
+            }
+            for (const entry of result.trials_skipped) {
+              log(dim(`skipped ${entry.trial}: ${entry.reason}`));
+            }
+            return;
+          }
+          throw new Error("eval harbor requires a subcommand: validate, plan, or import (see docs/harbor.md)");
+        }
+
+        throw new Error("eval requires a subcommand: init, run, report, compare, list, or harbor");
       }
 
       case "risk": {

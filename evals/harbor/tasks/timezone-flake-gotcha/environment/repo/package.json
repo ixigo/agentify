@@ -1,0 +1,8 @@
+{
+  "name": "schedcore",
+  "version": "0.9.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

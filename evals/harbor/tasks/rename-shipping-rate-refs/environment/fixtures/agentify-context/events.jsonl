@@ -1,0 +1,3 @@
+{"ts":"2026-03-15T10:04:58.000Z","sid":"c3d4e5f6","type":"cmd","cmd":"agentify query refs calcShipRate","desc":"Locate every shipping-rate call site before a rename","exit":0}
+{"ts":"2026-03-15T10:07:22.140Z","sid":"c3d4e5f6","type":"edit","file":"src/admin/report.js","desc":"Fix the nested admin call site missed by the earlier rename"}
+{"ts":"2026-03-15T10:11:03.556Z","sid":"c3d4e5f6","type":"cmd","cmd":"node --test","desc":"Re-run suite after fixing the admin import","exit":0}

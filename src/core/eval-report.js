@@ -446,6 +446,11 @@ export async function buildEvalReport(root, config, runIdInput) {
     action: "report",
     run_id: runId,
     run_ts: meta.ts ?? null,
+    // Which harness produced the attempts: "native" for the local paired
+    // runner, "harbor" for imported container runs (#298). Provenance rides
+    // along so cross-harness comparisons are always labeled.
+    harness: meta.harness ?? "native",
+    ...(meta.harbor ? { harbor: meta.harbor } : {}),
     artifacts_root: path.relative(root, runDir),
     task: {
       id: task.id ?? null,
@@ -454,8 +459,16 @@ export async function buildEvalReport(root, config, runIdInput) {
       prompt_sha256: task.prompt ? createHash("sha256").update(String(task.prompt)).digest("hex") : null,
       // Fingerprint covers everything that defines task identity for a fair
       // comparison — a changed grader or setup is a different task even with
-      // the same prompt.
+      // the same prompt. Imported harbor runs have null prompt/grader, so
+      // their identity comes from the harness block: dataset name@version,
+      // harbor version, and task id. Native fingerprints are unchanged.
       fingerprint_sha256: createHash("sha256").update(JSON.stringify({
+        ...(meta.harness && meta.harness !== "native" ? {
+          harness: meta.harness,
+          harbor_dataset: meta.harbor?.dataset ?? null,
+          harbor_version: meta.harbor?.harbor_version ?? null,
+          harbor_task: task.id ?? null,
+        } : {}),
         prompt: task.prompt ?? null,
         model: task.model ?? null,
         effort: task.effort ?? null,
@@ -481,6 +494,7 @@ export async function buildEvalReport(root, config, runIdInput) {
     versions: {
       agentify: meta.agentify_version ?? null,
       claude: meta.claude_version ?? null,
+      ...(meta.harbor?.harbor_version ? { harbor: meta.harbor.harbor_version } : {}),
     },
     completeness,
     arms,
@@ -517,7 +531,8 @@ export function renderEvalReportMarkdown(report) {
     `# Eval report — ${report.task.id} (${report.run_id})`,
     "",
     `- Model: \`${report.task.model}\` · profile \`${report.task.profile}\` · base \`${String(report.task.base_sha || "").slice(0, 12)}\``,
-    `- Versions: agentify ${report.versions.agentify ?? "n/a"}, claude ${report.versions.claude ?? "n/a"}`,
+    `- Harness: ${report.harness ?? "native"}${report.harbor ? ` (job \`${report.harbor.job}\`, dataset ${report.harbor.dataset ? `${report.harbor.dataset.name}@${report.harbor.dataset.version}` : "n/a"})` : ""}`,
+    `- Versions: agentify ${report.versions.agentify ?? "n/a"}, claude ${report.versions.claude ?? "n/a"}${report.versions.harbor ? `, harbor ${report.versions.harbor}` : ""}`,
     `- Attempts: ${report.completeness.completed_attempts}/${report.completeness.planned_attempts}${report.completeness.labels.length > 0 ? ` — **${report.completeness.labels.join(", ").toUpperCase()}**` : ""}`,
     `- Verdict: ${report.verdict.winner ? `**${report.verdict.winner}** — ${report.verdict.reason}` : report.verdict.reason}`,
     "",
@@ -661,7 +676,8 @@ export function renderEvalReportHtml(report) {
 <h1>Eval report — ${escapeHtml(report.task.id)}</h1>
 <p>
   Run <code>${escapeHtml(report.run_id)}</code> · model <code>${escapeHtml(report.task.model)}</code> · profile <code>${escapeHtml(report.task.profile)}</code> · base <code>${escapeHtml(String(report.task.base_sha || "").slice(0, 12))}</code><br>
-  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code><br>
+  Harness: <code>${escapeHtml(report.harness ?? "native")}</code>${report.harbor ? ` · job <code>${escapeHtml(report.harbor.job)}</code>${report.harbor.dataset ? ` · dataset <code>${escapeHtml(`${report.harbor.dataset.name}@${report.harbor.dataset.version}`)}</code>` : ""}` : ""}<br>
+  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")}${report.versions.harbor ? `, harbor ${escapeHtml(report.versions.harbor)}` : ""} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code><br>
   Attempts ${report.completeness.completed_attempts}/${report.completeness.planned_attempts}
   ${report.completeness.labels.length > 0 ? `<span class="labels">— ${escapeHtml(report.completeness.labels.join(", ").toUpperCase())}</span>` : ""}
 </p>
@@ -837,6 +853,9 @@ function assertComparable(currentReport, baselineReport, force) {
   if (fingerprint(current) !== fingerprint(baseline)) mismatches.push("task fingerprint (prompt/grader/setup/limits)");
   if (current.model !== baseline.model) mismatches.push("model");
   if (current.base_sha !== baseline.base_sha) mismatches.push("base commit");
+  // A native run and an imported Harbor run measure different environments;
+  // gating one against the other needs an explicit --force.
+  if ((currentReport.harness ?? "native") !== (baselineReport.harness ?? "native")) mismatches.push("harness");
   for (const [label, report] of [["current", currentReport], ["baseline", baselineReport]]) {
     // Canonical completeness fields, not the derived labels — a report with
     // stale or stripped labels must not slip through.

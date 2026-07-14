@@ -3,7 +3,9 @@ import globals from "globals";
 
 export default [
   {
-    ignores: [".*/", "node_modules/", "skills/", "docs/", "pages/", "path/"],
+    // evals/ holds benchmark task payloads (mini-repos graded in containers),
+    // not host-repo source.
+    ignores: [".*/", "node_modules/", "skills/", "docs/", "pages/", "path/", "evals/"],
   },
   js.configs.recommended,
   {

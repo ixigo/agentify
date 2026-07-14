@@ -116,6 +116,19 @@ context_ablations: [relevant, digest, off, relevant@600]   # budget variants: re
 
 The agentify arm expands into one arm per ablation (`agentify`, `agentify-ctx-digest`, `agentify-ctx-off`, `agentify-ctx-relevant-600`), each pinned via env overrides in that attempt only. Ablation arms pair against the default `agentify` arm in `agentify eval report`, which also aggregates per-arm context metrics (injections, items, tokens, truncations, over-budget skips, match latency) into `context_metrics`. Tune `maxInjectedTokens` defaults only from these results.
 
+### Second harness: Harbor container benchmarks
+
+A portable 8-task dataset under `evals/harbor/` runs the same paired question through [Harbor](https://www.harborframework.com) (Terminal-Bench 2.0) with container isolation and Harbor's plain `claude-code` agent as the baseline — catching anything that only looks like a win inside Agentify's own runner. Harbor stays out of the npm runtime:
+
+```bash
+agentify eval harbor validate            # schema + fixture answer-leak checks (CI, token-free)
+agentify eval harbor plan --suite smoke  # hard spend ceiling + launch/import commands
+evals/harbor/run-smoke.sh                # plan → confirm → harbor run → import, one command
+agentify eval harbor import evals/harbor/jobs/<job>   # trials become native runs
+```
+
+Imported runs are labeled `harness: harbor` in `eval report` (with dataset/Harbor/job provenance), cannot be resumed, and refuse `eval compare` against native runs without `--force`. Full prerequisites, cost math, the profile-matrix suite, and cleanup live in `docs/harbor.md`.
+
 ## Failure memory
 
 **Why:** agents rediscover the same dead ends. A command that failed three sessions ago gets retried verbatim, fails the same way, and burns the same tokens.

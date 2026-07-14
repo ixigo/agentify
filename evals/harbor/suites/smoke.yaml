@@ -1,0 +1,30 @@
+# Harbor job config: paired smoke — one task, both agents, one attempt each.
+# Launch from evals/harbor/ with:  harbor run -c suites/smoke.yaml
+# Maximum spend and the import command:  agentify eval harbor plan --suite smoke
+#
+# Field names follow harbor's JobConfig (pin: dataset.json pins.harbor).
+# Auth: ANTHROPIC_API_KEY, or subscription OAuth via CLAUDE_FORCE_OAUTH=1 +
+# CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`).
+jobs_dir: jobs
+
+n_attempts: 1
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-error-envelope
+
+agents:
+  # Arm 1: Agentify installed + context fixtures seeded (custom agent).
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 12
+  # Arm 2: Harbor's built-in plain Claude Code baseline — same model, same
+  # image, same verifier, same in-flight budget cap, no Agentify.
+  - name: claude-code
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35

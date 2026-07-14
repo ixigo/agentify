@@ -1,0 +1,4 @@
+{"ts":"2026-01-15T09:42:11.000Z","sid":"d2e3f4a5","type":"edit","file":"src/levels.js","desc":"Switch levels to numeric values with gaps"}
+{"ts":"2026-01-15T09:50:03.220Z","sid":"d2e3f4a5","type":"cmd","cmd":"node --test","desc":"Run logger tests","exit":0}
+{"ts":"2026-02-03T13:11:02.400Z","sid":"e6a7b8c9","type":"cmd","cmd":"node --test","desc":"Verify suite green before cutting the monthly tag","exit":0}
+{"ts":"2026-02-03T13:14:19.870Z","sid":"e6a7b8c9","type":"edit","file":"src/index.js","desc":"Re-export formatLine from the package entrypoint"}
