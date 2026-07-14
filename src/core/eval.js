@@ -926,6 +926,11 @@ export async function runEval(root, config, taskRef, options = {}) {
     if (stored?.schema !== EVAL_RUN_SCHEMA_VERSION || stored?.run_id !== runId) {
       throw new Error(`Stored eval run ${runId} has unrecognized metadata (schema/run_id mismatch)`);
     }
+    if (stored.harness && stored.harness !== "native") {
+      // Imported runs (e.g. Harbor, #298) are read-only records of trials
+      // that happened in another harness; there is nothing local to re-run.
+      throw new Error(`Eval run ${runId} was imported from the ${stored.harness} harness and cannot be resumed. Re-run it in ${stored.harness} and import the new job.`);
+    }
     const task = validateEvalTask(stored.plan?.task, "run.json");
     const baseSha = String(stored.plan?.base_sha || "");
     if (!/^[0-9a-f]{40}$/.test(baseSha)) {

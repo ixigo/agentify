@@ -1,0 +1,4 @@
+{"ts":"2026-05-04T09:12:44.100Z","sid":"h1a2b3c4","type":"decision","note":"chose a single JSON error envelope {error: {code, message}} built by respondError() in src/errors.js over per-handler ad-hoc error objects because incident INC-114 was caused by three handlers shipping three different error shapes; every new handler must go through respondError/respondOk, never hand-rolled response literals"}
+{"ts":"2026-05-04T10:03:12.551Z","sid":"h1a2b3c4","note":"error codes are lowercase snake_case nouns scoped to the resource (user_not_found), matched by the mobile client's switch — renaming one is a breaking API change"}
+{"ts":"2026-05-11T14:22:03.902Z","sid":"c9d8e7f6","note":"store.js maps are fixtures for local dev; production swaps them for the pg repository behind the same Map-like get() interface, so handlers must only use get()"}
+{"ts":"2026-05-18T08:41:59.377Z","sid":"c9d8e7f6","note":"CI runs node --test on node 20; avoid node:test APIs added after 20.x"}

@@ -1,0 +1,4 @@
+{"ts":"2026-02-09T11:04:18.220Z","sid":"a4f19c2e","type":"decision","note":"test/quarantine/** is excluded from CI pending vendor incident INC-330; those tests fail by design and must never be fixed, deleted, or made green. CI runs the unit scope only: node --test test/unit"}
+{"ts":"2026-02-09T11:07:52.611Z","sid":"a4f19c2e","note":"running a bare node --test at the repo root drags in test/quarantine and goes red on purpose; scope any run you do to test/unit like CI does, or you will chase a failure that is expected"}
+{"ts":"2026-02-17T15:33:41.900Z","sid":"b7c0d1e2","note":"money invariant: totals are dollars-and-cents strings and must round half-up at the cent boundary; cart math stays in integer cents and only the final total() ever formats to a string"}
+{"ts":"2026-03-02T08:19:05.140Z","sid":"b7c0d1e2","note":"CI runs node --test on node 20; avoid node:test APIs added after 20.x"}

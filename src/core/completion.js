@@ -114,6 +114,11 @@ const COMMANDS = [
           flag("--fail-on", { valueKind: "text", description: "Gate expression, e.g. pass_rate_drop>0.02 (repeatable)" }),
         ],
       }),
+      subcommand("harbor", "Harbor container-benchmark adapter (validate, plan, import)", {
+        flags: [
+          flag("--suite", { valueKind: "text", description: "Suite for harbor plan (smoke, nightly)" }),
+        ],
+      }),
     ],
   }),
   command("workflow", "Prebuilt platform workflows", {

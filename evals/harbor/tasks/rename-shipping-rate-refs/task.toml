@@ -1,0 +1,17 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "repo-intelligence"
+tags = ["agentify", "context", "repo-intelligence"]
+difficulty = "easy"
+description = "Rename a function across every call site including a nested admin module; Agentify history flags the nested site that shallow renames keep missing."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

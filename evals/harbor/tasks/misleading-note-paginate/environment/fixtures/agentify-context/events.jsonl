@@ -1,0 +1,4 @@
+{"ts":"2026-01-22T16:03:10.000Z","sid":"f1a2b3c4","type":"cmd","cmd":"node --test","desc":"Run suite while investigating a feed complaint","exit":0}
+{"ts":"2026-01-22T16:04:41.310Z","sid":"f1a2b3c4","type":"edit","file":"src/cursor.js","desc":"Add offset regex guard while poking at the suspected drift"}
+{"ts":"2026-02-11T10:17:02.400Z","sid":"a9b8c7d6","type":"cmd","cmd":"node --test","desc":"Verify cursor roundtrip suite green","exit":0}
+{"ts":"2026-03-05T09:01:33.870Z","sid":"a9b8c7d6","type":"cmd","cmd":"node --test","desc":"Confirm suite green on node 20","exit":0}

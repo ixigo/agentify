@@ -1,0 +1,4 @@
+{"ts":"2026-01-22T16:05:33.410Z","sid":"f1a2b3c4","note":"old session, unverified: pagination drift likely comes from cursor.js offset math — the base64 token boundaries looked suspicious while poking at a feed complaint. never confirmed, ran out of time"}
+{"ts":"2026-02-11T10:18:47.220Z","sid":"a9b8c7d6","note":"cursor tokens are opaque to clients; mobile and web both store the raw token and pass it back untouched, so any change to encode/decode format is a breaking change and needs a migration window"}
+{"ts":"2026-02-11T10:24:12.905Z","sid":"a9b8c7d6","note":"default feed pageSize is 10; the API rejects pageSize above 100 upstream, so paginate() can assume a sane pageSize"}
+{"ts":"2026-03-05T09:02:55.140Z","sid":"a9b8c7d6","note":"CI runs node --test on node 20; keep the module dependency-free"}

@@ -1,0 +1,4 @@
+{"ts":"2026-01-15T09:44:02.180Z","sid":"d2e3f4a5","type":"decision","note":"chose numeric level values (debug 10 < info 20 < warn 30 < error 40) over string comparison so filtering is a single >= check; level names stay lowercase and the numeric gaps leave room to slot a trace level below debug later"}
+{"ts":"2026-01-15T09:51:37.640Z","sid":"d2e3f4a5","note":"formatLine keeps message and level as reserved keys; caller fields are spread last but should avoid those two names to stay unambiguous for log parsers"}
+{"ts":"2026-02-03T13:12:20.905Z","sid":"e6a7b8c9","note":"release cadence is monthly; tags are cut from main on the first business day and the changelog is generated from commit prefixes"}
+{"ts":"2026-02-03T13:15:48.117Z","sid":"e6a7b8c9","note":"CI runs node --test on node 20; keep the library dependency-free so the package installs with no build step"}

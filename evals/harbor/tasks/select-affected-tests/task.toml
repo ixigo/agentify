@@ -1,0 +1,17 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "affected-test-selection"
+tags = ["agentify", "context", "affected-test-selection"]
+difficulty = "medium"
+description = "Fix a half-up rounding bug so the affected unit tests pass; a quarantined test that fails by design must be left untouched, a fact recorded as an Agentify decision rather than the instruction."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

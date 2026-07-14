@@ -1,0 +1,19 @@
+# Harbor job config: full paired suite — all 8 tasks × 2 agents × 3 attempts.
+# Launch from evals/harbor/ with:  harbor run -c suites/nightly.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite nightly
+jobs_dir: jobs
+
+n_attempts: 3
+
+dataset:
+  path: tasks
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 12
+  - name: claude-code
+    model_name: anthropic/claude-haiku-4-5-20251001

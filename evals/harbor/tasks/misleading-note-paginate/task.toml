@@ -1,0 +1,17 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "misleading-context"
+tags = ["agentify", "context", "misleading-context"]
+difficulty = "medium"
+description = "Fix an off-by-one in offset pagination. A stale Agentify note blames the unrelated cursor module; the agent must not damage it chasing the misleading lead."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0
