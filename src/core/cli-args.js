@@ -26,6 +26,7 @@ const BOOLEAN_FLAGS = new Set([
   "write",
   "off",
   "keepWorkspaces",
+  "yes",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

@@ -34,6 +34,13 @@ import { buildTestSelection, renderTestSelection, runTestSelection } from "./cor
 import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
 import { defaultValueReportPath, buildValueReport, renderValueHtml, renderValueReport } from "./core/value-report.js";
+import {
+  buildAnalysisManifest,
+  buildSessionAnalysis,
+  defaultAnalysisReportPath,
+  resolveAnalyzeProviders,
+} from "./core/session-analysis/index.js";
+import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent } from "./core/profiles.js";
@@ -893,6 +900,93 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(report, null, 2));
         } else {
           log(renderValueReport(report));
+        }
+        return;
+      }
+
+      case "analyze": {
+        const days = args.days !== undefined ? Number(args.days) : undefined;
+        if (args.days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+          throw new Error("analyze --days requires a positive integer");
+        }
+        const scope = String(args.scope || "current-repo").toLowerCase();
+        if (!["current-repo", "global"].includes(scope)) {
+          throw new Error('analyze --scope must be one of: current-repo, global');
+        }
+        const requestedFormat = String(args.format || "text").toLowerCase();
+        const format = config.json && requestedFormat !== "html" ? "json" : requestedFormat;
+        if (!["text", "json", "html"].includes(format)) {
+          throw new Error('analyze --format must be one of: text, json, html');
+        }
+        const analyzeOptions = {
+          days,
+          scope,
+          providers: resolveAnalyzeProviders(args.provider),
+          claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
+          codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
+        };
+
+        // --dry-run discloses roots, file counts, and bytes without parsing
+        // any record bodies, so it never needs consent.
+        if (config.dryRun) {
+          const manifest = await buildAnalysisManifest(root, analyzeOptions);
+          if (config.json) {
+            console.log(JSON.stringify(manifest, null, 2));
+          } else {
+            log(`Agentify analyze dry-run — scope ${bold(manifest.scope)}, last ${manifest.window_days} day(s).`);
+            for (const source of manifest.sources) {
+              log(`${bold(source.provider.padEnd(7))} ${dim(source.root)} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`);
+            }
+            log(dim(manifest.note));
+          }
+          return;
+        }
+
+        if (args.yes !== true) {
+          const manifest = await buildAnalysisManifest(root, analyzeOptions);
+          const disclosure = [
+            "Agentify will read local session history to extract usage and tool metadata.",
+            ...manifest.sources.map((source) => `  ${source.provider}: ${source.root} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`),
+            `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
+          ];
+          if (!process.stdin.isTTY || !process.stderr.isTTY) {
+            throw new Error(`analyze needs explicit consent in non-interactive mode. ${disclosure.join(" ")} Re-run with --yes to consent, or --dry-run to preview.`);
+          }
+          for (const line of disclosure) {
+            process.stderr.write(`${line}\n`);
+          }
+          const readlinePromises = await import("node:readline/promises");
+          const prompt = readlinePromises.createInterface({ input: process.stdin, output: process.stderr });
+          let answer;
+          try {
+            answer = await prompt.question("Continue? [y/N] ");
+          } finally {
+            prompt.close();
+          }
+          if (!/^y(es)?$/i.test(answer.trim())) {
+            log("analyze cancelled — nothing was read beyond file names and sizes.");
+            return;
+          }
+        }
+
+        const report = await buildSessionAnalysis(root, analyzeOptions);
+        if (format === "html") {
+          if (args.output === true) {
+            throw new Error("analyze --output requires a file path");
+          }
+          const outputPath = args.output
+            ? path.resolve(root, String(args.output))
+            : defaultAnalysisReportPath(root);
+          await writePrivateText(outputPath, renderAnalysisHtml(report, { projectName: path.basename(root) }), { privateDir: false });
+          if (config.json) {
+            console.log(JSON.stringify({ command: "analyze", format, path: outputPath, report }, null, 2));
+          } else {
+            success(`Agentify session analysis written: ${path.relative(root, outputPath) || outputPath}`);
+          }
+        } else if (format === "json") {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          log(renderAnalysisText(report));
         }
         return;
       }
