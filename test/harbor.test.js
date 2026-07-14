@@ -200,8 +200,10 @@ function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cach
     started_at: "2026-07-10T01:00:00.000Z",
     finished_at: "2026-07-10T01:04:00.000Z",
     agent_execution: { started_at: "2026-07-10T01:01:00.000Z", finished_at: "2026-07-10T01:03:30.000Z" },
-    verifier_result: { reward },
-    agent_result: { cost, token_usage: { n_input_tokens: inputTokens, n_cache_read_tokens: cacheRead, n_output_tokens: outputTokens } },
+    // The nested rewards mapping and n_cache_tokens spelling match real
+    // harbor 0.18.0 artifacts (verified against an actual oracle job).
+    verifier_result: { rewards: { reward } },
+    agent_result: { cost_usd: cost, n_input_tokens: inputTokens, n_cache_tokens: cacheRead, n_output_tokens: outputTokens },
     ...(exception ? { exception_info: { message: exception } } : {}),
   };
 }

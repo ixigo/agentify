@@ -398,7 +398,9 @@ async function readTrial(trialDir) {
     ? await readJson(path.join(trialDir, "config.json")).catch(() => null)
     : null;
 
-  let reward = firstFinite(result?.verifier_result?.reward, result?.reward, result?.verifier?.reward);
+  // harbor 0.18.x nests rewards as verifier_result.rewards.reward; older
+  // layouts used verifier_result.reward or a top-level reward.
+  let reward = firstFinite(result?.verifier_result?.rewards?.reward, result?.verifier_result?.reward, result?.reward, result?.verifier?.reward);
   if (reward === null) {
     const rewardPath = path.join(trialDir, "verifier", "reward.txt");
     if (await exists(rewardPath)) {
@@ -410,7 +412,7 @@ async function readTrial(trialDir) {
   const usageSource = agentResult?.token_usage ?? result?.token_usage ?? agentResult;
   const inputTokens = firstFinite(usageSource?.n_input_tokens, usageSource?.input_tokens, usageSource?.prompt_tokens);
   const outputTokens = firstFinite(usageSource?.n_output_tokens, usageSource?.output_tokens, usageSource?.completion_tokens);
-  const cacheReadTokens = firstFinite(usageSource?.n_cache_read_tokens, usageSource?.cache_read_tokens, usageSource?.cached_tokens);
+  const cacheReadTokens = firstFinite(usageSource?.n_cache_tokens, usageSource?.n_cache_read_tokens, usageSource?.cache_read_tokens, usageSource?.cached_tokens);
 
   const exception = result?.exception_info ?? result?.exception ?? null;
   return {
@@ -424,7 +426,7 @@ async function readTrial(trialDir) {
     agent: firstString(
       result?.agent_name, result?.agent_info?.name, trialConfig?.agent?.name, trialConfig?.agent_name,
     ),
-    model: firstString(result?.agent_info?.model_name, trialConfig?.agent?.model_name, trialConfig?.model_name),
+    model: firstString(result?.agent_info?.model_name, result?.agent_info?.model_info?.name, trialConfig?.agent?.model_name, trialConfig?.model_name),
     agentVersion: firstString(result?.agent_info?.version, trialConfig?.agent?.version),
     profile: firstString(
       trialConfig?.agent?.kwargs?.profile,
@@ -518,7 +520,11 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
   // never a fallback for the harbor version, and its dataset identity is
   // only stamped onto tasks it actually declares — an external job (e.g. a
   // Terminal-Bench subset) must not be labeled as the local dataset.
-  const harborVersion = firstString(jobConfig?.harbor_version, jobResult?.harbor_version);
+  // harbor 0.18.x records its version in the job's lock.json.
+  const jobLock = (await exists(path.join(jobDir, "lock.json")))
+    ? await readJson(path.join(jobDir, "lock.json")).catch(() => null)
+    : null;
+  const harborVersion = firstString(jobConfig?.harbor_version, jobResult?.harbor_version, jobLock?.harbor?.version);
   const runs = [];
   for (const [taskId, taskTrials] of [...byTask.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const runId = importRunId(options.now ? new Date(options.now) : new Date());
