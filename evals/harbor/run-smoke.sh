@@ -21,7 +21,18 @@ if [ "${CI:-}" != "true" ]; then
   esac
 fi
 
-harbor run -c "suites/$SUITE.yaml"
+# PYTHONPATH: harbor resolves the custom agent import path
+# (agents.agentify_claude:AgentifyClaudeAgent) via Python imports, and the
+# installed CLI does not add the working directory to sys.path. pipx installs
+# harbor with a `python -E` shebang that IGNORES PYTHONPATH, so invoke the
+# CLI app through the interpreter from harbor's own shebang instead.
+HARBOR_BIN="$(command -v harbor)"
+HARBOR_PY="$(head -1 "$HARBOR_BIN" | sed 's/^#!//; s/ -E$//')"
+if [ -x "$HARBOR_PY" ]; then
+  PYTHONPATH="$PWD" "$HARBOR_PY" -c 'from harbor.cli.main import app; app()' run -c "suites/$SUITE.yaml"
+else
+  PYTHONPATH="$PWD" harbor run -c "suites/$SUITE.yaml"
+fi
 
 # Import the newest job produced by this run into .agentify/evals/runs.
 job_dir=$(ls -td jobs/*/ 2>/dev/null | head -1)

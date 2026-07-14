@@ -1,0 +1,24 @@
+# Harbor job config: one paired pass over the full dataset — all 8 tasks ×
+# 2 agents × 1 attempt. The cheap "did the signal survive a real model"
+# sweep between the smoke suite and the 3-attempt nightly suite.
+# Launch from evals/harbor/ with:  harbor run -c suites/paired-once.yaml
+jobs_dir: jobs
+
+n_attempts: 1
+# Two concurrent trials: gentle on subscription rate limits.
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 12
+  - name: claude-code
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35

@@ -127,7 +127,12 @@ or manually:
 
 ```
 cd evals/harbor
-harbor run -c suites/smoke.yaml
+PYTHONPATH="$PWD" harbor run -c suites/smoke.yaml   # PYTHONPATH resolves the custom agent import
+# pipx caveat: pipx's harbor shebang is `python -E`, which ignores PYTHONPATH.
+# run-smoke.sh handles this automatically; manually, invoke the CLI through
+# harbor's own interpreter:
+#   PYTHONPATH="$PWD" ~/.local/pipx/venvs/harbor/bin/python \
+#     -c 'from harbor.cli.main import app; app()' run -c suites/smoke.yaml
 cd ../..
 agentify eval harbor import evals/harbor/jobs/<job-dir>
 agentify eval report <run-id> --format html --out report.html

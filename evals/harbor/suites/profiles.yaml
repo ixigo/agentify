@@ -1,7 +1,7 @@
 # Harbor job config: bounded optimization-profile matrix (#298) — the same
 # tasks and plain-claude baseline, plus one agentify agent per routing profile
-# (cost, balanced, performance). Identical image, model, verifier, and
-# repetitions per arm; the import maps each profile to its own arm label
+# (cost, balanced, performance). Identical image, model, verifier, budget cap,
+# and repetitions per arm; the import maps each profile to its own arm label
 # (agentify-cost, agentify, agentify-performance) so `agentify eval report`
 # shows the cross-profile pass-rate / cost-per-pass / latency frontier.
 # Launch from evals/harbor/ with:  harbor run -c suites/profiles.yaml
@@ -9,8 +9,8 @@ jobs_dir: jobs
 
 n_attempts: 3
 
-dataset:
-  path: tasks
+datasets:
+  - path: tasks
 
 agents:
   - import_path: agents.agentify_claude:AgentifyClaudeAgent
@@ -33,3 +33,5 @@ agents:
       max_turns: 12
   - name: claude-code
     model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35

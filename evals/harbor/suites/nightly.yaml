@@ -5,8 +5,8 @@ jobs_dir: jobs
 
 n_attempts: 3
 
-dataset:
-  path: tasks
+datasets:
+  - path: tasks
 
 agents:
   - import_path: agents.agentify_claude:AgentifyClaudeAgent
@@ -17,3 +17,5 @@ agents:
       max_turns: 12
   - name: claude-code
     model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35
