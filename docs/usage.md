@@ -300,6 +300,43 @@ Run:
 
 **When to use:** the guidance block teaches the agent to run `agentify test --since <ref> --run` before finishing a change instead of the full suite. Requires `agentify scan` (the index).
 
+## Local provider-history analysis: agentify analyze
+
+**Why:** `agentify stats` and `agentify value` report telemetry Agentify owns. Claude Code and Codex also keep local JSONL session histories with model, token/cache, tool, timestamp, and limited file-access metadata. `agentify analyze` reads those provider stores locally and reports what can be established without turning transcript content into telemetry.
+
+**Safe preview and default scan:**
+
+```bash
+agentify analyze --dry-run
+agentify analyze --provider all --scope current-repo --days 30 --yes
+agentify analyze --provider codex --days 7 --format json --yes
+agentify analyze --provider claude --format html --output agentify-session-analysis.html --yes
+```
+
+`--dry-run` resolves the selected roots and reports file/byte counts without parsing record bodies or writing an HTML output file. On a first interactive scan, Agentify prints the resolved scope and asks for confirmation; on a first non-interactive scan, `--yes` is required. Progress is written only to stderr, so JSON stdout remains valid. Use `--no-progress` to disable it and `--no-cache` to bypass the private incremental cache. Cache signatures include the current primary/linked-worktree set, and cache-only repeats report that no record bodies were read in that run.
+
+For the default `current-repo` scope, Agentify first reads a bounded CWD fragment and fully parses only files attributed to the repository's primary or linked worktrees; unrelated project records never enter the parser. The default `--content metadata-only` mode does not classify prompt/response bodies. `--content local-extractive` is a separate opt-in that applies deterministic in-memory task classification to matching sessions and persists only the resulting category/confidence. Individual JSONL records above 4 MiB are counted as oversized and discarded before `JSON.parse`. Neither mode starts a model. Global history and configuration are also independent permissions:
+
+```bash
+agentify analyze --scope global --yes
+agentify analyze --scope global --include-config --yes
+agentify analyze --scope global --show-project-names --yes
+agentify analyze --scope global --show-paths --yes
+```
+
+Global output pseudonymizes projects by default. The configuration audit reads only global `CLAUDE.md`/`AGENTS.md`, known non-secret settings key shapes, and integration manifest counts. Auth files, tokens, databases/WAL files, caches, backups, shell snapshots, arbitrary memories, instruction text, setting values, and integration contents never enter the report.
+
+Each deterministic recommendation includes observed counters, the specific alternative and command, measured-versus-expected provenance, confidence, a safe verification, and a caveat. Rules without enough evidence are shown in the suppression receipt instead of becoming generic tips. RTK measurements come from `rtk gain --format json`; Agentify query/test advice also requires the relevant local capability or fresh index.
+
+Optional CLI-assisted insights receive only the bounded normalized packet displayed by `--insights-dry-run`:
+
+```bash
+agentify analyze --scope global --insights cli --insights-provider claude --max-insights-budget-usd 1 --yes
+agentify analyze --scope global --insights cli --insights-provider both --insights-dry-run --yes
+```
+
+Claude runs with safe mode, no tools, no setting sources, strict empty MCP config, schema-constrained JSON, `--no-session-persistence`, and the native USD ceiling. Generated actions are shown only when their evidence IDs name deterministic rule hits and their command matches the read-only Agentify/RTK/rg allowlist. Insight usage/cost is recorded separately in the privacy receipt. Codex execution fails closed unless the detected CLI can guarantee both external isolation/tool denial and an enforceable combined spend ceiling; selecting `both` fails before either provider starts when that contract is unavailable.
+
 ## Delegation usage: agentify stats
 
 **Why:** model routing only pays off if you can see it working. Stats make the delegate traffic — and what it costs — visible.

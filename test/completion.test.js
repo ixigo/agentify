@@ -46,6 +46,7 @@ test("generateCompletionScript prints zsh, bash, and fish scripts from one metad
   assert.match(zsh, /compadd -- .*'install'/);
   assert.match(zsh, /compadd -- .*'skill'/);
   assert.match(zsh, /compadd -- .*'value'/);
+  assert.match(zsh, /compadd -- .*'analyze'/);
 
   assert.match(bash, /complete -F _agentify_completion agentify/);
   assert.match(bash, /agentify completion values "\$1" --root "\$PWD"/);
@@ -53,11 +54,13 @@ test("generateCompletionScript prints zsh, bash, and fish scripts from one metad
   assert.match(bash, /'install'/);
   assert.match(bash, /'skill'/);
   assert.match(bash, /'value'/);
+  assert.match(bash, /'analyze'/);
 
   assert.match(fish, /function __agentify_complete_providers/);
   assert.match(fish, /agentify completion values skills --root \(pwd\)/);
   assert.match(fish, /complete -c agentify .* -a 'install'/);
   assert.match(fish, /complete -c agentify .* -a 'value'/);
+  assert.match(fish, /complete -c agentify .* -a 'analyze'/);
   assert.match(fish, /__fish_seen_subcommand_from skill skills; and not __fish_seen_subcommand_from list install/);
   assert.match(fish, /complete -c agentify -l 'root' -r/);
 });

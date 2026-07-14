@@ -26,11 +26,19 @@ const BOOLEAN_FLAGS = new Set([
   "write",
   "off",
   "keepWorkspaces",
+  "yes",
+  "noCache",
+  "noProgress",
+  "includeConfig",
+  "showProjectNames",
+  "showPaths",
+  "insightsDryRun",
+  "keepInsightsPacket",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array
 // instead of last-one-wins.
-const REPEATABLE_FLAGS = new Set(["failOn"]);
+const REPEATABLE_FLAGS = new Set(["failOn", "sourceRoot"]);
 
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());

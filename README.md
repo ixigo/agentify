@@ -116,6 +116,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify models` | Model routing table + provider availability |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
 | `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, and focused tests |
+| `agentify analyze [--provider claude\|codex\|all] [--scope current-repo\|global]` | Privacy-first analysis of local Claude/Codex usage with evidence-backed tool and Agentify recommendations |
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor (Terminal-Bench 2.0) adapter: token-free dataset validation, spend ceilings, and importing container-run results into the native report (`docs/harbor.md`) |
 | `agentify scan` | Build the SQLite structural index |
@@ -202,6 +203,24 @@ agentify value --days 7 --format html  # writes agentify-value-report.html
 ```
 
 The HTML report is self-contained and shows decisions surfaced in later tasks, stale context rejected before injection, prior command failures intercepted before a repeat, estimated context tokens with their evidence sources, delegation cost and latency, focused test files selected instead of the indexed full suite, and deterministic eval cost per passing task. Claims remain deliberately bounded: provider costs are never guessed, token counts are marked as estimates, and a warning is not presented as proof that a command was abandoned.
+
+## Analyze existing Claude Code and Codex usage
+
+`agentify value` measures Agentify-owned telemetry. `agentify analyze` complements it by streaming the local histories already written by Claude Code and Codex, normalizing their different token/tool schemas, and turning observed workflow patterns into recommendations with evidence, confidence, a concrete command, a verification step, and a caveat.
+
+```bash
+agentify analyze --dry-run                                      # files/bytes only; reads no JSONL record bodies
+agentify analyze --provider all --days 30 --yes                 # current repo, metadata-only, zero AI spend
+agentify analyze --scope global --include-config --yes          # separate global/config opt-ins
+agentify analyze --scope global --format html --yes             # writes agentify-session-analysis.html
+agentify analyze --scope global --insights cli --insights-provider both --insights-dry-run --yes
+```
+
+The default is deliberately narrow: current-repository history, metadata-only classification, deterministic rules, no upload, and no provider process. Candidate history files receive only a bounded CWD probe; Agentify fully parses records only when that CWD belongs to the current repository or one of its linked worktrees. A first non-interactive scan requires `--yes`; global history, configuration auditing, local prompt classification, project/path display, and CLI-assisted insights each require their own explicit flag. Global reports use `Project 1`, `Project 2`, and so on unless `--show-project-names` or `--show-paths` is selected.
+
+The incremental cache contains only versioned normalized facts and hashes, is written with mode `0600`, and never stores prompts, responses, thinking, command bodies, patches, raw tool payloads, or raw session paths. Its scope signature includes the repository's current primary/linked-worktree set, so adding or removing a worktree invalidates cached attribution; a cache-only repeat truthfully reports that no JSONL record bodies were read in that run. JSONL records larger than 4 MiB are counted and skipped before parsing so one provider record cannot break the streaming memory bound. Missing token dimensions stay `null`; reported and estimated cost are never merged. Claude insight mode is tool-free, safe-mode, non-persistent, schema-constrained, and protected by `--max-insights-budget-usd`. Generated commands must also match a read-only allowlist before they can appear. Codex insight execution currently fails closed because its CLI cannot enforce both a total USD cap and a tool-free run; `--insights-dry-run` still shows the exact shared packet and provider plans without starting either CLI.
+
+The self-contained Agentify-themed HTML keeps the first view to four metrics and at most three recommendations, then collapses session, provider, file-attribution, rule-suppression, cache/schema, and privacy receipts behind semantic details. Filtering and sorting happen offline inside the report; no local value is sent anywhere. `--dry-run --format html` reports the intended path but does not create it.
 
 ## Paired evaluation: does Agentify actually help?
 

@@ -17,6 +17,7 @@ docs/modules/
 output.txt
 agentify-report.html
 agentify-value-report.html
+agentify-session-analysis.html
 # <<< agentify generated artifacts
 evals/harbor/jobs/
 evals/harbor/agents/__pycache__/

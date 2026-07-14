@@ -34,6 +34,9 @@ import { buildTestSelection, renderTestSelection, runTestSelection } from "./cor
 import { runMcpServer } from "./core/mcp-server.js";
 import { buildStatsReport, renderStatsReport } from "./core/stats.js";
 import { defaultValueReportPath, buildValueReport, renderValueHtml, renderValueReport } from "./core/value-report.js";
+import { analyzeSessionHistory } from "./core/session-analysis/index.js";
+import { collectToolInventory } from "./core/session-analysis/inventory.js";
+import { defaultAnalysisReportPath, renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent } from "./core/profiles.js";
@@ -893,6 +896,130 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(report, null, 2));
         } else {
           log(renderValueReport(report));
+        }
+        return;
+      }
+
+      case "analyze": {
+        const days = args.days !== undefined ? Number(args.days) : undefined;
+        if (args.days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+          throw new Error("analyze --days requires a positive integer");
+        }
+        const requestedFormat = String(args.insightsDryRun ? "json" : (args.format || "text")).toLowerCase();
+        const format = config.json && requestedFormat !== "html" ? "json" : requestedFormat;
+        if (!["text", "json", "html"].includes(format)) {
+          throw new Error("analyze --format must be one of: text, json, html");
+        }
+        if (args.output === true) {
+          throw new Error("analyze --output requires a file path");
+        }
+
+        const progressEnabled = args.noProgress !== true && !config._suppressProgress && process.stderr.isTTY;
+        let progressActive = false;
+        const onProgress = progressEnabled
+          ? (progress) => {
+              progressActive = true;
+              process.stderr.write(`\rAnalyzing ${progress.provider}: ${progress.files} file(s), ${progress.sessions} session(s), ${progress.bytes} bytes`);
+            }
+          : undefined;
+        const confirm = async (disclosure) => {
+          if (typeof _runtime.confirm === "function") return _runtime.confirm(disclosure);
+          if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
+          const { createInterface } = await import("node:readline/promises");
+          log("Agentify will read local Claude/Codex JSONL session history to extract usage and tool metadata.");
+          log(`Scope: ${disclosure.scope} · providers: ${disclosure.providers.join(", ")} · ${disclosure.files} file(s) · ${disclosure.bytes} bytes`);
+          log(disclosure.scope === "current-repo"
+            ? "Candidate files receive a bounded CWD probe; full JSONL records are parsed only for this repository's worktrees. Prompt/response bodies are not retained or uploaded in metadata-only mode."
+            : "JSONL records will be read across the opted-in global scope. Prompt/response bodies are not retained or uploaded in metadata-only mode.");
+          const readline = createInterface({ input: process.stdin, output: process.stderr });
+          try {
+            return /^y(?:es)?$/i.test((await readline.question("Continue? [y/N] ")).trim());
+          } finally {
+            readline.close();
+          }
+        };
+        const confirmInsights = async (disclosure) => {
+          if (typeof _runtime.confirmInsights === "function") return _runtime.confirmInsights(disclosure);
+          if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
+          const { createInterface } = await import("node:readline/promises");
+          log("Agentify is ready to send one sanitized normalized evidence packet to a provider CLI.");
+          log(`Providers: ${disclosure.providers.join(", ")} · model: ${disclosure.model} · ${disclosure.packet_bytes} bytes (~${disclosure.packet_estimated_tokens} tokens) · maximum $${disclosure.max_budget_usd}`);
+          log(`Packet hash: ${disclosure.packet_hash}. No raw transcripts, commands, patches, instructions, file content, or absolute paths are included.`);
+          const readline = createInterface({ input: process.stdin, output: process.stderr });
+          try {
+            return /^y(?:es)?$/i.test((await readline.question("Send this packet? [y/N] ")).trim());
+          } finally {
+            readline.close();
+          }
+        };
+
+        const toolInventory = _runtime.toolInventory || (args.dryRun === true
+          ? {}
+          : await collectToolInventory(root, { artifactPaths: config._agentifyPaths }));
+        let report;
+        try {
+          report = await analyzeSessionHistory(root, {
+            provider: args.provider,
+            scope: args.scope,
+            days,
+            contentMode: args.content,
+            sourceRoots: args.sourceRoot,
+            noCache: args.noCache === true,
+            noProgress: args.noProgress === true,
+            dryRun: args.dryRun === true,
+            yes: args.yes === true,
+            includeConfig: args.includeConfig === true,
+            showProjectNames: args.showProjectNames === true,
+            showPaths: args.showPaths === true,
+            insights: args.insights,
+            insightsProvider: args.insightsProvider,
+            insightsModel: args.insightsModel,
+            insightsDryRun: args.insightsDryRun === true,
+            maxInsightsBudgetUsd: args.maxInsightsBudgetUsd,
+            insightsTimeout: args.insightsTimeout,
+            keepInsightsPacket: args.keepInsightsPacket === true,
+            artifactPaths: config._agentifyPaths,
+            homeDir: _runtime.homeDir,
+            toolInventory,
+            confirm,
+            confirmInsights,
+            onProgress,
+            signal: _runtime.signal,
+            runClaude: _runtime.runClaude,
+          });
+        } finally {
+          if (progressActive) process.stderr.write("\n");
+        }
+
+        if (format === "html") {
+          const outputPath = args.output
+            ? path.resolve(root, String(args.output))
+            : defaultAnalysisReportPath(root);
+          const relativeOutputPath = path.relative(root, outputPath).split(path.sep).join("/") || path.basename(outputPath);
+          if (args.dryRun === true) {
+            if (config.json) {
+              console.log(JSON.stringify({ command: "analyze", format, path: null, would_write_path: relativeOutputPath, report }, null, 2));
+            } else {
+              log(renderAnalysisText(report));
+              log(`Dry run: would write ${relativeOutputPath}; no report file was created.`);
+            }
+          } else {
+            await writePrivateText(outputPath, renderAnalysisHtml(report), { privateDir: false });
+          }
+          if (args.dryRun !== true && config.json) {
+            console.log(JSON.stringify({
+              command: "analyze",
+              format,
+              path: relativeOutputPath,
+              report,
+            }, null, 2));
+          } else if (args.dryRun !== true) {
+            success(`Agentify session analysis written: ${relativeOutputPath}`);
+          }
+        } else if (format === "json") {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          log(renderAnalysisText(report));
         }
         return;
       }
