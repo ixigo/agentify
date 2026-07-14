@@ -174,6 +174,10 @@ agentify route explain "design the migration" --profile performance   # dry-run 
 
 Defaults use version-independent Claude aliases and the Codex CLI's configured default model, so they don't rot as models are released. If a route's CLI isn't installed, Agentify falls back to the other vendor automatically **at the same capability tier** (economy/balanced/frontier) — a missing Codex never silently upgrades a review to a frontier-priced model. Override any route in `.agentify.yaml` under `models.routes`. Delegations run non-interactively (`claude -p` / `codex exec`), read-only by default — pass `--write` to allow edits.
 
+Delegate execution goes through **provider adapters** in one registry: each provider declares how its headless command is built, how its structured output parses into normalized usage/cost, which ceilings it can enforce natively (anything else is covered by the pre-run rolling budget check and the wall-clock timeout, and surfaced per run as `unsupported_controls` — never silently ignored), and its per-tier models. Current tier models: Claude `haiku`/`sonnet`/`opus` aliases; Codex `gpt-5.6-luna`/`gpt-5.6-terra`/`gpt-5.6-sol`; override under `models.tiers`.
+
+**Gemini CLI and OpenCode are opt-in delegate providers**: when installed they show up in `agentify models` and work with an explicit `--provider gemini|opencode`, but they never join default routes or fallback chains until the repo enables them (`models.providers.gemini.enabled: true`) — price alone is not evidence of coding quality; run the eval suite (`agentify eval`) against them first. Per-route fallback chains can be pinned with `models.routes.<kind>.fallbacks` and are validated against unknown providers, loops, and cost-tier escalation beyond the active profile's bound.
+
 **Routing profiles** choose how to route inside the hard budget ceilings (never widening them). Set `models.profile` in `.agentify.yaml`, `AGENTIFY_PROFILE`, or `--profile` per run — explicit `--provider`/`--model` always wins:
 
 - `cost` — cheapest evaluated route meeting a quality floor; never downgrades without sufficient eval evidence.

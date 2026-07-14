@@ -426,7 +426,12 @@ export async function runCli(argv, _runtime = {}) {
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          log(`Provider CLIs: claude ${result.providers.claude ? green("available") : dim("missing")}, codex ${result.providers.codex ? green("available") : dim("missing")}`);
+          const providerBits = result.provider_details.map((detail) => {
+            const state = detail.installed ? green("available") : dim("missing");
+            const optIn = detail.opt_in ? dim(detail.enabled_for_routing ? " (opt-in: enabled)" : " (opt-in)") : "";
+            return `${detail.name} ${state}${optIn}`;
+          });
+          log(`Provider CLIs: ${providerBits.join(", ")}`);
           log(`Profile: ${bold(result.profile.name)} (${result.profile.source}) — ${result.profile.objective} ${dim(`· ${result.profile.policy_version}`)}`);
           if (result.budget.dailyUsd !== null || result.budget.monthlyUsd !== null) {
             const caps = [
@@ -456,7 +461,7 @@ export async function runCli(argv, _runtime = {}) {
             log(dim(`Alias drift: ${result.alias_drift_warning}`));
           }
           log("");
-          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget; profile under models.profile."));
+          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget; profile under models.profile. Opt-in providers (gemini, opencode) join routing only via models.providers.<name>.enabled: true after the eval suite clears them."));
         }
         return;
       }

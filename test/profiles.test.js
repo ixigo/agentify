@@ -110,9 +110,10 @@ test("fallback chains are tier-equivalent and bounded per profile", () => {
   assert.equal(perfChain.max_tier_raise, 1);
   assert.deepEqual(perfChain.entries[1], { provider: "claude", model: "sonnet", tier: "balanced", reason: "provider_unavailable" });
 
-  // heavy is frontier tier in its own right — the fallback keeps it.
+  // heavy is frontier tier in its own right — the fallback keeps it, on the
+  // adapter-pinned frontier Codex model (#297).
   const heavyChain = buildFallbackChain({ kind: "heavy", route: { provider: "claude", model: "opus" }, profileName: "cost" });
-  assert.deepEqual(heavyChain.entries[1], { provider: "codex", model: null, tier: "frontier", reason: "provider_unavailable" });
+  assert.deepEqual(heavyChain.entries[1], { provider: "codex", model: "gpt-5.6-sol", tier: "frontier", reason: "provider_unavailable" });
 
   const target = selectFromChain(costChain, { claude: true, codex: false });
   assert.equal(target.fallback, true);

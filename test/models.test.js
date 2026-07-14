@@ -74,9 +74,12 @@ test("pickRouteTarget uses the route provider and falls back tier-equivalently",
   assert.equal(pickRouteTarget(route, { claude: false, codex: false }), null);
 
   const claudeRoute = { provider: "claude", model: "haiku" };
+  // Codex tier models are pinned by its delegate adapter (#297), so a
+  // tier-equivalent fallback lands on the economy Codex model, not on
+  // whatever the CLI default happens to be.
   assert.deepEqual(
     pickRouteTarget(claudeRoute, { claude: false, codex: true }, { kind: "quick" }),
-    { provider: "codex", model: null, fallback: true }
+    { provider: "codex", model: "gpt-5.6-luna", fallback: true }
   );
 });
 
