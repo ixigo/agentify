@@ -10,7 +10,10 @@ cd "$(dirname "$0")"
 
 SUITE="${1:-smoke}"
 
-agentify eval harbor plan --suite "$SUITE"
+# plan/import resolve the dataset relative to the repo root, not this directory
+REPO_ROOT="$(cd ../.. && pwd)"
+
+agentify eval harbor plan --suite "$SUITE" --root "$REPO_ROOT"
 
 if [ "${CI:-}" != "true" ]; then
   printf 'Launch this paid run? [y/N] '
