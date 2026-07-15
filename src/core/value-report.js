@@ -336,51 +336,40 @@ export function renderValueHtml(report, options = {}) {
   <title>Agentify value · ${escapeHtml(project)}</title>
   <style>
     :root {
-      color-scheme: dark;
-      /* Modernist palette — dark theme (source of truth) */
-      --color-bg: #1a1817;
-      --color-surface: #242120;
-      --color-text: #f4f2f0;
-      --color-accent: #f5591f;
-      --color-accent-2: #ff7a4d;
-      --color-divider: color-mix(in srgb, #f4f2f0 20%, transparent);
-      --color-neutral-100:#2a2724; --color-neutral-200:#322e2b; --color-neutral-300:#413c39;
-      --color-neutral-400:#5a5551; --color-neutral-500:#837e7a; --color-neutral-600:#a8a29d;
-      --color-neutral-700:#c9c3be; --color-neutral-800:#e4dfdb; --color-neutral-900:#f4f2f0;
-      --color-accent-100:#fff1ec; --color-accent-200:#ffdecf; --color-accent-300:#ffc0a6;
-      --color-accent-400:#ff9c74; --color-accent-500:#fb6e42; --color-accent-600:#c63d0f;
-      --color-accent-700:#ff8a5a; --color-accent-800:#7a260b; --color-accent-900:#4d1e0e;
-      --term-bg:#100f0e;
-      --radius:0px;
-      --shadow-sm: 0 1px 2px color-mix(in srgb,#2d2b2b 14%,transparent);
-      --shadow-md: 0 3px 10px color-mix(in srgb,#2d2b2b 16%,transparent);
-      --shadow-lg: 0 12px 32px color-mix(in srgb,#2d2b2b 22%,transparent);
-      --font-heading: "Archivo", system-ui, sans-serif;
-      --font-body: "Archivo", system-ui, sans-serif;
-      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      /* Legacy aliases mapped onto the Modernist palette */
-      --bg: var(--color-bg);
-      --bg-soft: var(--color-surface);
-      --border: var(--color-divider);
-      --text: var(--color-text);
-      --text-dim: var(--color-neutral-600);
-      --accent: var(--color-accent);
-      --accent-2: var(--color-accent-700);
-      --amber: var(--color-accent-600);
-      --code-bg: var(--color-surface);
+      color-scheme: dark light;
+      --bg: #0d1117;
+      --bg-soft: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-dim: #8b949e;
+      --accent: #58a6ff;
+      --accent-2: #7ee787;
+      --amber: #d29922;
+      --code-bg: #161b22;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --bg-soft: #f6f8fa;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --text-dim: #59636e;
+        --accent: #0969da;
+        --accent-2: #1a7f37;
+        --amber: #9a6700;
+        --code-bg: #f6f8fa;
+      }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: var(--font-body);
-      font-size: 15px;
-      line-height: 1.55;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.6;
     }
-    h1, h2 { font-family: var(--font-heading); font-weight: 800; line-height: 1.12; letter-spacing: -0.015em; }
-    ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
     main { max-width: 880px; margin: 0 auto; padding: 0 24px 64px; }
-    .skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 8px 12px; border-radius: 0; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text); transform: translateY(-300%); }
+    .skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 8px 12px; border-radius: 8px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text); transform: translateY(-300%); }
     .skip-link:focus { transform: translateY(0); }
     header.hero { text-align: center; padding: 56px 24px 8px; }
     .hero pre.logo {
@@ -394,7 +383,7 @@ export function renderValueHtml(report, options = {}) {
     .meta {
       font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim);
       background: var(--bg-soft); border: 1px solid var(--border);
-      border-radius: 0; padding: 3px 12px; white-space: nowrap;
+      border-radius: 999px; padding: 3px 12px; white-space: nowrap;
     }
     section { margin-top: 56px; }
     h2 { font-size: 1.35rem; margin-bottom: 6px; letter-spacing: -0.01em; }
@@ -404,7 +393,7 @@ export function renderValueHtml(report, options = {}) {
     }
     p.lede { color: var(--text-dim); margin-bottom: 16px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; }
-    .card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 0; padding: 18px 20px; }
+    .card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
     .metric-label { color: var(--text-dim); font-size: 0.75rem; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
     .metric-value { font-family: var(--mono); font-size: 2rem; font-weight: 700; line-height: 1.15; margin: 8px 0 4px; letter-spacing: -0.03em; }
     .metric--good .metric-value { color: var(--accent-2); }
@@ -413,14 +402,14 @@ export function renderValueHtml(report, options = {}) {
     .metric-note { color: var(--text-dim); font-size: 0.85rem; }
     .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 14px; }
     .legend { display: flex; gap: 14px; color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; }
-    .key { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 0; }
+    .key { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 3px; }
     .key--assist, .bar--assist { background: var(--accent-2); }
     .key--delegate, .bar--delegate { background: var(--accent); }
     .signal { margin-top: 20px; }
-    .chart { height: 200px; display: grid; grid-template-columns: repeat(${Math.max(1, report.daily.length)}, minmax(18px, 1fr)); gap: 8px; align-items: end; padding-top: 12px; border-bottom: 2px solid var(--color-divider); }
+    .chart { height: 200px; display: grid; grid-template-columns: repeat(${Math.max(1, report.daily.length)}, minmax(18px, 1fr)); gap: 8px; align-items: end; padding-top: 12px; border-bottom: 1px solid var(--border); }
     .day { height: 100%; min-width: 0; display: grid; grid-template-rows: 1fr auto; gap: 6px; align-items: end; }
     .bar-pair { height: 100%; display: flex; align-items: end; justify-content: center; gap: 3px; }
-    .bar { width: min(10px, 40%); height: max(3px, var(--bar-height)); border-radius: 0; }
+    .bar { width: min(10px, 40%); height: max(3px, var(--bar-height)); border-radius: 3px 3px 0 0; }
     .day-label { overflow: hidden; color: var(--text-dim); font-family: var(--mono); font-size: 0.62rem; text-align: center; white-space: nowrap; }
     details { margin-top: 12px; }
     summary { width: fit-content; cursor: pointer; color: var(--text-dim); font-family: var(--mono); font-size: 0.76rem; }
@@ -432,27 +421,26 @@ export function renderValueHtml(report, options = {}) {
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     caption { padding: 0 0 8px; color: var(--text-dim); text-align: left; font-size: 0.78rem; }
     th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
-    thead th { color: var(--color-neutral-700); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 2px solid var(--color-divider); }
-    tbody tr:hover td, tbody tr:hover th { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+    thead th { color: var(--text-dim); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
     tbody tr:last-child th, tbody tr:last-child td { border-bottom: none; }
     tbody th { font-weight: 550; }
     .number { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
     .empty { color: var(--text-dim); text-align: center; }
-    code { font-family: var(--mono); font-size: 0.85em; background: var(--color-surface); padding: 1px 6px; }
+    code { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
     .evidence {
       display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start;
       padding: 18px 20px; border: 1px solid var(--border); border-left: 4px solid var(--amber);
-      background: var(--bg-soft); border-radius: 0; margin-top: 16px;
+      background: var(--bg-soft); border-radius: 0 10px 10px 0; margin-top: 16px;
     }
     .evidence > strong { font-family: var(--mono); font-size: 1.8rem; color: var(--amber); }
     .evidence p { margin: 0 0 6px; }
     .evidence ul { margin: 10px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 0.9rem; }
     .evidence li + li { margin-top: 6px; }
     footer {
-      border-top: 2px solid var(--color-divider); margin-top: 72px; padding: 24px;
+      border-top: 1px solid var(--border); margin-top: 72px; padding: 24px;
       text-align: center; color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem;
     }
-    :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     @media (max-width: 560px) {
       header.hero { padding-top: 32px; }
       .section-heading { align-items: flex-start; flex-direction: column; }
@@ -461,7 +449,7 @@ export function renderValueHtml(report, options = {}) {
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
     @media print {
-      :root { color-scheme: light; --bg: #fff; --bg-soft: #fff; --text: #201e1d; --text-dim: #605d5d; --border: #bab6b6; }
+      :root { color-scheme: light; --bg: #fff; --bg-soft: #fff; --text: #111; --text-dim: #555; --border: #ccc; }
       .card, .signal { break-inside: avoid; }
       details { display: none; }
     }

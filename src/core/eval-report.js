@@ -666,16 +666,16 @@ export function renderEvalReportHtml(report) {
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
   :root {
     color-scheme: dark;
-    --color-bg: #1a1817;
-    --color-surface: #242120;
-    --color-text: #f4f2f0;
-    --color-accent: #f5591f;
-    --color-accent-2: #ff7a4d;
-    --color-divider: color-mix(in srgb, #f4f2f0 20%, transparent);
-    --color-neutral-600: #a8a29d;
-    --color-neutral-700: #c9c3be;
-    --color-accent-700: #ff8a5a;
-    --term-bg: #100f0e;
+    --color-bg: #0d1117;
+    --color-surface: #161b22;
+    --color-text: #e6edf3;
+    --color-accent: #58a6ff;
+    --color-accent-2: #7ee787;
+    --color-divider: #30363d;
+    --color-neutral-600: #8b949e;
+    --color-neutral-700: #b1bac4;
+    --color-accent-700: #7ee787;
+    --term-bg: #010409;
     --font-heading: "Archivo", system-ui, sans-serif;
     --font-body: "Archivo", system-ui, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

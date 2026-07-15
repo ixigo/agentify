@@ -4,22 +4,23 @@
 :root {
   color-scheme: dark;
 
-  /* Modernist design tokens — dark theme (ixigo orange on warm near-black) */
-  --color-bg: #1a1817;
-  --color-surface: #242120;
-  --color-text: #f4f2f0;
-  --color-accent: #f5591f;         /* ixigo orange */
-  --color-accent-2: #ff7a4d;
-  --color-divider: color-mix(in srgb, #f4f2f0 20%, transparent);
-  /* neutrals ascend to light: text steps (600–800) read on dark, fill steps (100–300) are dark */
-  --color-neutral-100:#2a2724; --color-neutral-200:#322e2b; --color-neutral-300:#413c39;
-  --color-neutral-400:#5a5551; --color-neutral-500:#837e7a; --color-neutral-600:#a8a29d;
-  --color-neutral-700:#c9c3be; --color-neutral-800:#e4dfdb; --color-neutral-900:#f4f2f0;
-  /* accent ramp — ixigo orange; 700 lightened for text on dark (ramp non-monotonic by design) */
-  --color-accent-100:#fff1ec; --color-accent-200:#ffdecf; --color-accent-300:#ffc0a6;
-  --color-accent-400:#ff9c74; --color-accent-500:#fb6e42; --color-accent-600:#c63d0f;
-  --color-accent-700:#ff8a5a; --color-accent-800:#7a260b; --color-accent-900:#4d1e0e;
-  --term-bg:#100f0e;
+  /* GitHub-dark theme — blue primary, green secondary, amber warn (from 8322e8b) */
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-text: #e6edf3;
+  --color-accent: #58a6ff;         /* blue primary */
+  --color-accent-2: #7ee787;       /* green secondary */
+  --color-warn: #d29922;           /* amber */
+  --color-divider: #30363d;
+  /* neutrals = GitHub grays ascending to light: text steps (600–900) light, fill steps (100–300) dark */
+  --color-neutral-100:#161b22; --color-neutral-200:#21262d; --color-neutral-300:#30363d;
+  --color-neutral-400:#484f58; --color-neutral-500:#6e7681; --color-neutral-600:#8b949e;
+  --color-neutral-700:#b1bac4; --color-neutral-800:#c9d1d9; --color-neutral-900:#e6edf3;
+  /* accent ramp — blue ascending; 700 is GREEN so kicker/label/tag text reads green (matches report) */
+  --color-accent-100:#0b1f3a; --color-accent-200:#0d2d5e; --color-accent-300:#10418a;
+  --color-accent-400:#1f6feb; --color-accent-500:#58a6ff; --color-accent-600:#79c0ff;
+  --color-accent-700:#7ee787; --color-accent-800:#a5d6ff; --color-accent-900:#cae8ff;
+  --term-bg:#010409;
   --radius:0px;
   --shadow-sm: 0 1px 2px color-mix(in srgb,#2d2b2b 14%,transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb,#2d2b2b 16%,transparent);
@@ -44,7 +45,7 @@
   --hl: var(--color-surface);
   --code-bg: var(--term-bg);
   --code-ink: #f3f2f2;
-  --warn: var(--color-accent-700);
+  --warn: var(--color-warn);
   --sans: var(--font-body);
   --max: 1080px;
 }
@@ -302,15 +303,15 @@ pre {
   max-width: 100%;
   overflow-x: auto;
   background: var(--term-bg);
-  color: #f3f2f2;
+  color: #e6edf3;
   border: 2px solid var(--color-text);
   border-radius: 0;
   font: 500 12px/1.7 var(--mono);
 }
 
-pre .c { color: #8b8888; }
-pre .a { color: #ff7a4d; }
-pre .w { color: #ffc0a6; }
+pre .c { color: #8b949e; }
+pre .a { color: #7ee787; }
+pre .w { color: #79c0ff; }
 
 .query-page pre {
   white-space: pre-wrap;
@@ -932,7 +933,7 @@ footer a:hover { color: var(--color-accent); }
   padding: 5px 9px;
 }
 .term-copy:hover { color: #f3f2f2; border-color: rgba(243, 242, 242, 0.5); }
-.term-copy.is-copied { color: #ff7a4d; }
+.term-copy.is-copied { color: #7ee787; }
 .term-frame {
   border: 2px solid var(--color-text);
   background: var(--term-bg);
