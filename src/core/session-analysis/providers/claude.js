@@ -45,6 +45,37 @@ export async function discoverClaudeSessions({ claudeRoot, cutoffMs }) {
       continue;
     }
     for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Subagent transcripts live at <project>/<session-id>/subagents/
+        // agent-*.jsonl; the directory name is the parent session's id.
+        const subagentsPath = path.join(projectPath, entry.name, "subagents");
+        let subEntries = [];
+        try {
+          subEntries = await fs.readdir(subagentsPath, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const subEntry of subEntries) {
+          if (!subEntry.isFile() || !subEntry.name.endsWith(".jsonl")) continue;
+          const filePath = path.join(subagentsPath, subEntry.name);
+          let stat;
+          try {
+            stat = await fs.stat(filePath);
+          } catch {
+            continue;
+          }
+          if (Number.isFinite(cutoffMs) && stat.mtimeMs < cutoffMs) continue;
+          files.push({
+            provider: "claude",
+            path: filePath,
+            project_dir: dir.name,
+            subagent_parent_stem: entry.name,
+            size: stat.size,
+            mtime_ms: stat.mtimeMs,
+          });
+        }
+        continue;
+      }
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       const filePath = path.join(projectPath, entry.name);
       let stat;
@@ -207,11 +238,19 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   outcome.finish(session, { writes: session.file_access.filter((entry) => entry.operation === "write").length });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
-  // A file that is predominantly sidechain records is a subagent
-  // transcript: it belongs UNDER a primary session (linked by the
-  // provider session id), and counting it as its own session would
-  // double count the parent's work.
-  session.is_sidechain_transcript = recordCount > 0 && session.sidechain_events >= Math.ceil(recordCount / 2);
+  // A subagent transcript belongs UNDER a primary session: either its
+  // path says so (<session-id>/subagents/agent-*.jsonl, where the
+  // directory names the parent) or its records are predominantly
+  // sidechain events. Counting it as its own session would misattribute
+  // the parent's work.
+  session.file_stem = path.basename(file.path, ".jsonl");
+  if (file.subagent_parent_stem) {
+    session.is_sidechain_transcript = true;
+    session.sidechain_parent_stem = file.subagent_parent_stem;
+  } else {
+    session.is_sidechain_transcript = recordCount > 0 && session.sidechain_events >= Math.ceil(recordCount / 2);
+    session.sidechain_parent_stem = session.is_sidechain_transcript ? (session.provider_session_id || null) : null;
+  }
   return session;
 }
 

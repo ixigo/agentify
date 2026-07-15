@@ -5,7 +5,7 @@ import path from "node:path";
 export const SESSION_ANALYSIS_SCHEMA_VERSION = "session-analysis-v1";
 export const RECOMMENDATION_SCHEMA_VERSION = "recommendation-v1";
 export const USAGE_SCORECARD_SCHEMA_VERSION = "usage-scorecard-v1";
-export const ANALYSIS_PARSER_VERSION = "analyze-parser-v7";
+export const ANALYSIS_PARSER_VERSION = "analyze-parser-v8";
 
 // null means "the provider never reported this dimension"; zero means an
 // observed zero. Adding a value to null promotes it to a number.

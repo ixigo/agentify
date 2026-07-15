@@ -540,22 +540,35 @@ test("sidechain transcripts are linked to parents and excluded from totals", asy
   const primary = [
     JSON.stringify({ type: "assistant", timestamp: minutesAgo(30), requestId: "req_p", cwd: repoRoot, sessionId: "sess-parent", message: { id: "m1", model: "claude-fable-5", usage: USAGE, content: [] } }),
   ];
-  await fs.writeFile(path.join(projectDir, "primary.jsonl"), `${primary.join("\n")}\n`);
-  // A subagent transcript: every record is sidechain, same provider session id.
+  await fs.writeFile(path.join(projectDir, "sess-parent.jsonl"), `${primary.join("\n")}\n`);
+  // Real layout: <project>/<session-id>/subagents/agent-*.jsonl with its
+  // own disjoint request ids.
+  const subagentsDir = path.join(projectDir, "sess-parent", "subagents");
+  await fs.mkdir(subagentsDir, { recursive: true });
   const sidechain = [
-    JSON.stringify({ type: "assistant", timestamp: minutesAgo(29), requestId: "req_s1", cwd: repoRoot, sessionId: "sess-parent", isSidechain: true, message: { id: "m2", model: "claude-fable-5", usage: USAGE, content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: path.join(repoRoot, "a.js") } }] } }),
-    JSON.stringify({ type: "user", timestamp: minutesAgo(28), cwd: repoRoot, sessionId: "sess-parent", isSidechain: true, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", is_error: false, content: "x" }] } }),
+    JSON.stringify({ type: "assistant", timestamp: minutesAgo(29), requestId: "req_s1", cwd: repoRoot, sessionId: "sess-child", isSidechain: true, message: { id: "m2", model: "claude-fable-5", usage: USAGE, content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: path.join(repoRoot, "a.js") } }] } }),
+    JSON.stringify({ type: "user", timestamp: minutesAgo(28), cwd: repoRoot, sessionId: "sess-child", isSidechain: true, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", is_error: false, content: "x" }] } }),
   ];
-  await fs.writeFile(path.join(projectDir, "sidechain.jsonl"), `${sidechain.join("\n")}\n`);
+  await fs.writeFile(path.join(subagentsDir, "agent-abc.jsonl"), `${sidechain.join("\n")}\n`);
+  // An orphan transcript whose parent session file does not exist.
+  const orphanDir = path.join(projectDir, "sess-gone", "subagents");
+  await fs.mkdir(orphanDir, { recursive: true });
+  await fs.writeFile(path.join(orphanDir, "agent-orphan.jsonl"), `${JSON.stringify({ type: "assistant", timestamp: minutesAgo(20), requestId: "req_o", cwd: repoRoot, sessionId: "sess-orphan", isSidechain: true, message: { id: "m3", model: "claude-fable-5", usage: USAGE, content: [] } })}\n`);
 
   const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot: path.join(repoRoot, "none"), days: 30 });
-  assert.equal(report.totals.sessions, 1, "the transcript must not count as a session");
-  assert.equal(report.totals.usage.output_tokens, 150, "transcript usage must not be summed into totals");
-  assert.equal(report.sidechains.transcripts.length, 1);
-  const transcript = report.sidechains.transcripts[0];
-  assert.equal(transcript.parent_session_id, report.sessions[0].session_id, "transcript links to its parent by provider session id");
+  // Parent + orphan (kept so nothing is dropped); the linked transcript
+  // merged into the parent instead of counting as a session.
+  assert.equal(report.totals.sessions, 2);
+  assert.equal(report.totals.usage.output_tokens, 450, "child usage merges into totals exactly once");
+  const parentRow = report.sessions.find((row) => row.tool_calls === 1);
+  assert.ok(parentRow, "parent absorbed the child's tool call");
+  assert.equal(report.sidechains.transcripts.length, 2);
+  const linked = report.sidechains.transcripts.find((entry) => entry.merged_into_parent);
+  assert.equal(linked.parent_session_id, parentRow.session_id);
+  const orphan = report.sidechains.transcripts.find((entry) => !entry.merged_into_parent);
+  assert.equal(orphan.parent_session_id, null);
   const claudeSource = report.sources.find((source) => source.provider === "claude");
-  assert.equal(claudeSource.files_sidechain, 1);
+  assert.equal(claudeSource.files_sidechain, 2);
 });
 
 test("global display opt-ins swap labels only and are badged", async () => {

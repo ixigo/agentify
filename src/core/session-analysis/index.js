@@ -309,6 +309,50 @@ export async function buildSessionAnalysis(root, options = {}) {
     sources.map((source) => source.root),
   );
 
+  // Subagent transcripts carry REAL, separate API usage and tool calls
+  // (their requests are disjoint from the parent's), so their counters
+  // merge into the parent session rather than being dropped or double
+  // counted as extra sessions. A transcript whose parent is not in this
+  // window/scope is kept as its own session so nothing goes missing.
+  const parentLookup = new Map();
+  for (const session of sessions) {
+    if (session.provider_session_id) parentLookup.set(session.provider_session_id, session);
+    if (session.file_stem) parentLookup.set(session.file_stem, session);
+  }
+  const sidechains = [];
+  for (const transcript of sidechainTranscripts) {
+    const parent = transcript.sidechain_parent_stem ? parentLookup.get(transcript.sidechain_parent_stem) : null;
+    sidechains.push({
+      session_id: transcript.session_id,
+      parent_session_id: parent ? parent.session_id : null,
+      merged_into_parent: Boolean(parent),
+      tool_calls: transcript.tools.calls,
+      output_tokens: transcript.usage.output_tokens,
+    });
+    if (!parent) {
+      sessions.push(transcript);
+      continue;
+    }
+    mergeUsage(parent.usage, transcript.usage);
+    parent.tools.calls += transcript.tools.calls;
+    for (const [name, count] of Object.entries(transcript.tools.by_name)) {
+      parent.tools.by_name[name] = (parent.tools.by_name[name] || 0) + count;
+    }
+    parent.failed_tool_calls += transcript.failed_tool_calls;
+    for (const key of Object.keys(parent.shell_patterns)) {
+      parent.shell_patterns[key] += transcript.shell_patterns[key] || 0;
+    }
+    for (const access of transcript.file_access) {
+      const existing = parent.file_access.find((entry) => entry.path === access.path && entry.operation === access.operation);
+      if (existing) existing.events += access.events;
+      else parent.file_access.push({ ...access });
+    }
+    parent.sidechain_events += transcript.coverage.lines;
+    for (const [fingerprint, count] of Object.entries(transcript.failed_command_fingerprints)) {
+      parent.failed_command_fingerprints[fingerprint] = (parent.failed_command_fingerprints[fingerprint] || 0) + count;
+    }
+  }
+
   // Global scope pseudonymizes projects by first-seen order; the mapping
   // never leaves this function, so real paths stay out of the report.
   // --show-project-names / --show-paths are explicit display-only opt-ins
@@ -461,20 +505,6 @@ export async function buildSessionAnalysis(root, options = {}) {
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, 20);
 
-  // Sidechain transcripts attach to their primary session by provider
-  // session id where one matches; either way they are listed, not summed.
-  const primaryByProviderId = new Map(
-    sessions.filter((session) => session.provider_session_id).map((session) => [session.provider_session_id, session.session_id]),
-  );
-  const sidechains = sidechainTranscripts.map((transcript) => ({
-    session_id: transcript.session_id,
-    parent_session_id: transcript.provider_session_id
-      ? primaryByProviderId.get(transcript.provider_session_id) || null
-      : null,
-    tool_calls: transcript.tools.calls,
-    output_tokens: transcript.usage.output_tokens,
-  }));
-
   const sourceList = [...sourceStats.values()];
   return {
     schema_version: SESSION_ANALYSIS_SCHEMA_VERSION,
@@ -491,7 +521,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     sessions: sessionRows,
     sidechains: {
       transcripts: sidechains,
-      note: "Subagent transcripts are listed here and excluded from session totals so parent work is never double counted.",
+      note: "Subagent transcripts carry real, separate usage: their counters are merged into the parent session (never counted as extra sessions); a transcript with no in-window parent is kept as its own session so nothing is dropped.",
     },
     display: {
       project_names_shown: resolved.scope === "global" && resolved.showProjectNames,
