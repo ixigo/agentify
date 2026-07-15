@@ -335,6 +335,62 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
 });
 
+test("local-extractive mode classifies prompts in memory and persists no text", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-content-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  const cacheRoot = path.join(repoRoot, "cache", "session-analysis");
+  await writeClaudeFixtures(claudeRoot, repoRoot);
+  await writeCodexFixtures(codexRoot, repoRoot);
+  // A session whose tool mix is inconclusive (bash-only) but whose prompt
+  // is clearly debugging work.
+  const projectDir = path.join(claudeRoot, "-fixture-project");
+  const debugLines = [
+    claudeUser({ ts: minutesAgo(40), cwd: repoRoot, content: [{ type: "text", text: "fix the failing test, the error is a regression in the parser bug" }] }),
+    claudeAssistant({
+      ts: minutesAgo(39), requestId: "req_dbg", usage: USAGE, cwd: repoRoot,
+      content: [{ type: "tool_use", id: "t_dbg", name: "Bash", input: { command: "echo hi" } }],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "debug.jsonl"), `${debugLines.join("\n")}\n`);
+
+  // Metadata-only: the session stays mixed and no hint exists.
+  const metadataReport = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, cacheRoot, days: 30 });
+  const metadataRow = metadataReport.sessions.find((row) => row.tool_calls === 1 && row.provider === "claude");
+  assert.equal(metadataRow.work_type, "mixed");
+  assert.equal(metadataRow.work_type_source, "metadata");
+  assert.equal(metadataReport.privacy.content_mode, "metadata-only");
+
+  // Local-extractive: the prompt breaks the tie, provenance is recorded.
+  const contentReport = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, cacheRoot, days: 30, contentMode: "local-extractive" });
+  const contentRow = contentReport.sessions.find((row) => row.tool_calls === 1 && row.provider === "claude");
+  assert.equal(contentRow.work_type, "debugging");
+  assert.equal(contentRow.work_type_source, "content-hint");
+  assert.equal(contentReport.privacy.content_mode, "local-extractive");
+  assert.equal(contentReport.privacy.transcript_bodies_analyzed, true);
+  assert.equal(contentReport.privacy.content_persisted, false);
+
+  // Mode switch was a cache miss (entries are mode-scoped), not a reuse.
+  assert.equal(contentReport.coverage.cache.hits, 0);
+
+  // No prompt text in any output or cache file, in either mode.
+  for (const output of [JSON.stringify(contentReport), renderAnalysisHtml(contentReport, { projectName: "fixture" }), renderAnalysisText(contentReport)]) {
+    assert.ok(!output.includes("failing test"), "prompt text leaked from local-extractive mode");
+    assert.ok(!output.includes("SUPER SECRET"), "prompt text leaked");
+  }
+  for (const name of await fs.readdir(cacheRoot)) {
+    const raw = await fs.readFile(path.join(cacheRoot, name), "utf8");
+    assert.ok(!raw.includes("failing test"), "prompt text persisted to cache");
+    assert.ok(!raw.includes("SUPER SECRET"), "prompt text persisted to cache");
+  }
+
+  // Invalid mode is rejected.
+  await assert.rejects(
+    () => buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, contentMode: "remote" }),
+    /--content must be one of/,
+  );
+});
+
 test("cost estimates use exact model + effective date and never claim billed spend", async () => {
   const { estimateSessionCost, buildCostSummary, priceEntryFor } = await import("../src/core/session-analysis/pricing.js");
   const usage = { fresh_input_tokens: 1_000_000, cache_read_tokens: 2_000_000, cache_write_tokens: 100_000, output_tokens: 500_000, reasoning_output_tokens: null };

@@ -8,6 +8,7 @@ import {
   createSessionSkeleton,
   createTimeTracker,
 } from "../normalize.js";
+import { codexPromptText, createContentClassifier } from "../content-classify.js";
 
 export function defaultCodexRoot() {
   return path.join(os.homedir(), ".codex", "sessions");
@@ -47,17 +48,23 @@ export async function discoverCodexSessions({ codexRoot, cutoffMs }) {
   return { root: sourceRoot, files, missing: !found };
 }
 
-export async function parseCodexSession(file, _context = {}) {
+export async function parseCodexSession(file, { contentMode = "metadata-only" } = {}) {
   const session = createSessionSkeleton("codex", file.path);
   const time = createTimeTracker();
   const models = new Set();
   let lastTokenUsage = null;
   let turnContexts = 0;
   let userMessages = 0;
+  const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
     const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
     time.observe(record.timestamp || payload.timestamp);
+    if (classifier) {
+      // Prompt text is inspected here, in memory, and goes no further.
+      const promptText = codexPromptText(record, payload);
+      if (promptText !== null) classifier.observe(promptText);
+    }
 
     if (record.type === "session_meta" || payload.type === "session_meta") {
       if (payload.cwd && !session.cwd) session.cwd = String(payload.cwd);
@@ -131,6 +138,10 @@ export async function parseCodexSession(file, _context = {}) {
   // carry user_message events, so the larger observed count wins.
   session.turns.user = Math.max(turnContexts, userMessages);
   session.turns.assistant_requests = session.coverage.usage_records;
+  if (classifier) {
+    const { category_hint, hint_confidence, prompts_seen } = classifier.result();
+    session.task = { content_mode: "local-extractive", category_hint, hint_confidence, prompts_seen };
+  }
   session.project_key = session.cwd ? `codex:${session.cwd}` : `codex:${file.path}`;
   time.finish(session);
   session.coverage.lines = lines;

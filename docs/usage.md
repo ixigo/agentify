@@ -352,7 +352,10 @@ agentify analyze --scope global --yes       # across projects, names pseudonymiz
 agentify analyze --provider codex --json    # full auditable schema
 agentify analyze --no-cache                 # re-parse everything, skip the cache
 agentify analyze --source-root codex=./fixtures/codex --yes   # custom store; repeatable per provider
+agentify analyze --content local-extractive --yes             # opt-in: classify prompt text in memory
 ```
+
+`--content local-extractive` is an explicit opt-in that sharpens work-type classification: prompt text is matched against deterministic keyword rules **in memory during the streaming parse** — only rule-match counts and a category label survive; the text itself is never persisted, cached, rendered, or uploaded, and no model is started. The consent disclosure names the mode, sessions classified this way carry `work_type_source: "content-hint"`, and the privacy receipt records that transcript bodies were analyzed in memory. Default remains `metadata-only`.
 
 Repeated scans are incremental: normalized session metadata (never transcript or command content) is cached privately (mode 0600) under the Agentify store, keyed by file size, mtime, and parser version, so unchanged session files are not re-parsed. Cache hits and misses are reported under `coverage.cache` in JSON output; `--no-cache` re-parses everything. In a TTY, a single self-overwriting progress line on stderr shows per-provider files/bytes/sessions during the scan (JSON stdout stays valid); with `--no-progress` or a non-TTY stderr nothing is emitted at all.
 

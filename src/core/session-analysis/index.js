@@ -39,6 +39,14 @@ export function resolveAnalyzeProviders(raw) {
 // provider (--source-root entries plus --claude-root/--codex-root) are
 // scanned as a union; the provider default is used only when no explicit
 // root was given for it.
+export const ANALYZE_CONTENT_MODES = ["metadata-only", "local-extractive"];
+
+export function resolveContentMode(raw) {
+  const value = String(raw || "metadata-only").trim().toLowerCase();
+  if (ANALYZE_CONTENT_MODES.includes(value)) return value;
+  throw new Error(`analyze --content must be one of: ${ANALYZE_CONTENT_MODES.join(", ")} (got "${raw}")`);
+}
+
 export function parseSourceRoots(raw, { root }) {
   const entries = raw === undefined ? [] : [].concat(raw);
   const roots = { claude: [], codex: [] };
@@ -78,6 +86,7 @@ function resolveOptions(root, options) {
     codexRoots: providerRoots(options.codexRoots, options.codexRoot),
     cacheRoot: options.cacheRoot || null,
     cache: options.cache !== false,
+    contentMode: resolveContentMode(options.contentMode),
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
@@ -187,7 +196,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       sessions: stats.sessions,
     });
     const processFile = async (file) => {
-      let session = await cache.get(file, root);
+      let session = await cache.get(file, root, resolved.contentMode);
       if (session) {
         // Coverage must stay auditable: a warm entry means the JSONL bytes
         // were NOT re-read this run, so it counts separately from parses.
@@ -195,13 +204,13 @@ export async function buildSessionAnalysis(root, options = {}) {
       } else {
         try {
           session = source.provider === "claude"
-            ? await parseClaudeSession(file, { root })
-            : await parseCodexSession(file, { root });
+            ? await parseClaudeSession(file, { root, contentMode: resolved.contentMode })
+            : await parseCodexSession(file, { root, contentMode: resolved.contentMode });
         } catch {
           stats.files_out_of_scope += 1;
           return;
         }
-        await cache.put(file, root, session);
+        await cache.put(file, root, session, resolved.contentMode);
         stats.files_parsed += 1;
         stats.bytes_parsed += file.size || 0;
       }
@@ -320,7 +329,14 @@ export async function buildSessionAnalysis(root, options = {}) {
     if (shape.researchHeavy) patterns.research_heavy_sessions += 1;
     if (shape.mechanical) patterns.mechanical_candidate_sessions += 1;
 
-    const workType = classifyWorkType(session);
+    // Metadata rules first; the opt-in content hint only breaks a "mixed"
+    // tie and its provenance is recorded, never silently blended.
+    let workType = classifyWorkType(session);
+    let workTypeSource = "metadata";
+    if (workType === "mixed" && session.task?.category_hint) {
+      workType = session.task.category_hint;
+      workTypeSource = "content-hint";
+    }
     const fit = fitVerdict(workType, session.models);
     const { score, components } = scoreSession(session, workType, fit);
     scoredSessions.push({ work_type: workType, fit, score, components });
@@ -342,6 +358,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       branch: resolved.scope === "current-repo" ? session.branch : null,
       user_turns: session.turns?.user ?? null,
       work_type: workType,
+      work_type_source: workTypeSource,
       fit,
       score,
       cost_estimate_usd: costEstimates[sessionIndex].estimated_usd,
@@ -411,14 +428,16 @@ export async function buildSessionAnalysis(root, options = {}) {
       })),
     },
     privacy: {
-      content_mode: "metadata-only",
+      content_mode: resolved.contentMode,
       roots_read: sourceList.map((entry) => entry.root),
-      transcript_bodies_analyzed: false,
+      transcript_bodies_analyzed: resolved.contentMode === "local-extractive",
       content_persisted: false,
       network_calls: 0,
       ai_spend_usd: 0,
       notes: [
-        "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
+        resolved.contentMode === "local-extractive"
+          ? "Prompt text was classified in memory by deterministic keyword rules (opt-in local-extractive mode); only rule-match counts and a category label were kept. Prompt text was never persisted, cached, rendered, or uploaded, and no model was started."
+          : "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
         "Shell commands were classified in memory into pattern counts; only counts and irreversible fingerprints appear in output.",
         resolved.cache && resolved.cacheRoot
           ? `Normalized session metadata (workspace path, branch, models, counters — never transcript, prompt, or command content) is cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; entries are swept when their source file disappears, and --no-cache disables the cache.`

@@ -40,6 +40,7 @@ import {
   defaultAnalysisReportPath,
   parseSourceRoots,
   resolveAnalyzeProviders,
+  resolveContentMode,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
@@ -921,9 +922,11 @@ export async function runCli(argv, _runtime = {}) {
           throw new Error('analyze --format must be one of: text, json, html');
         }
         const sourceRoots = parseSourceRoots(args.sourceRoot, { root });
+        const contentMode = resolveContentMode(args.content);
         const analyzeOptions = {
           days,
           scope,
+          contentMode,
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
@@ -961,7 +964,9 @@ export async function runCli(argv, _runtime = {}) {
           const disclosure = [
             "Agentify will read local session history to extract usage and tool metadata.",
             ...manifest.sources.map((source) => `  ${source.provider}: ${source.root} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`),
-            `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
+            contentMode === "local-extractive"
+              ? `Scope: ${manifest.scope}. Content mode: local-extractive — prompt text WILL be classified in memory by deterministic keyword rules; only match counts and a category label are kept, the text itself is never stored, cached, or uploaded. Nothing leaves this machine and no model is started.`
+              : `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
           ];
           if (!process.stdin.isTTY || !process.stderr.isTTY) {
             throw new Error(`analyze needs explicit consent in non-interactive mode. ${disclosure.join(" ")} Re-run with --yes to consent, or --dry-run to preview.`);

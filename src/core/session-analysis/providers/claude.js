@@ -11,6 +11,7 @@ import {
   normalizeFilePath,
   recordFileAccess,
 } from "../normalize.js";
+import { claudePromptText, createContentClassifier } from "../content-classify.js";
 
 export function defaultClaudeRoot() {
   return path.join(os.homedir(), ".claude", "projects");
@@ -71,7 +72,7 @@ function toolInputPath(input) {
   return input?.file_path || input?.notebook_path || input?.path || null;
 }
 
-export async function parseClaudeSession(file, { root }) {
+export async function parseClaudeSession(file, { root, contentMode = "metadata-only" }) {
   const session = createSessionSkeleton("claude", file.path);
   session.project_key = `claude:${file.project_dir}`;
   const time = createTimeTracker();
@@ -79,8 +80,14 @@ export async function parseClaudeSession(file, { root }) {
   const models = new Set();
   const fileAccessSeen = new Map();
   const shellCallsById = new Map();
+  const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
+    if (classifier) {
+      // Prompt text is inspected here, in memory, and goes no further.
+      const promptText = claudePromptText(record);
+      if (promptText !== null) classifier.observe(promptText);
+    }
     if (record.timestamp) time.observe(record.timestamp);
     if (record.cwd && !session.cwd) session.cwd = String(record.cwd);
     if (record.gitBranch && !session.branch) session.branch = String(record.gitBranch);
@@ -179,6 +186,10 @@ export async function parseClaudeSession(file, { root }) {
   }
   session.models = [...models].sort();
   session.turns.assistant_requests = usageByRequest.size;
+  if (classifier) {
+    const { category_hint, hint_confidence, prompts_seen } = classifier.result();
+    session.task = { content_mode: "local-extractive", category_hint, hint_confidence, prompts_seen };
+  }
   time.finish(session);
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;

@@ -44,7 +44,7 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
   return {
     stats: () => ({ ...stats }),
 
-    async get(file, root) {
+    async get(file, root, contentMode = "metadata-only") {
       if (!active) return null;
       let entry;
       try {
@@ -57,6 +57,9 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
         && entry.parser_version === ANALYSIS_PARSER_VERSION
         && entry.provider === file.provider
         && entry.root === root
+        // Sessions parsed under a different content mode carry different
+        // task hints, so they never serve each other.
+        && (entry.content_mode || "metadata-only") === contentMode
         && entry.size === (file.size || 0)
         && entry.mtime_ms === file.mtime_ms
         && isUsableSession(entry.session);
@@ -69,7 +72,7 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
       return entry.session;
     },
 
-    async put(file, root, session) {
+    async put(file, root, session, contentMode = "metadata-only") {
       if (!active) return;
       try {
         if (!dirReady) {
@@ -80,6 +83,7 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
           parser_version: ANALYSIS_PARSER_VERSION,
           provider: file.provider,
           root,
+          content_mode: contentMode,
           source_path: path.resolve(file.path),
           size: file.size || 0,
           mtime_ms: file.mtime_ms,
