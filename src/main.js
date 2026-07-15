@@ -999,8 +999,9 @@ export async function runCli(argv, _runtime = {}) {
           }
         }
 
-        // Read-only capability probes (tool versions, rtk gain summary,
-        // index freshness) so recommendations only point at what exists.
+        // Capability probes (tool versions, rtk gain summary, index
+        // freshness) so recommendations only point at what exists. Version/
+        // summary queries only — nothing from history is ever executed.
         analyzeOptions.toolInventory = await detectToolInventory({ root, artifactPaths: config._agentifyPaths });
         let report;
         try {

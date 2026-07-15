@@ -486,6 +486,14 @@ test("tool inventory probes read-only and gates recommendations on availability"
   assert.match(rtkTip.caveat, /No savings are claimed/);
   assert.ok(!withoutRtk.opportunities.find((item) => item.id === "broad-text-search").suggestion.command.includes("brew install"));
 
+  // A binary answering --version but failing `rtk gain` is NOT treated as
+  // a working install: the tip still fires, with the name-collision caveat.
+  const brokenRtk = { ...inventory, tools: { ...inventory.tools, rtk: { available: true, version: "1.0.0", gain: { parse_coverage: "unavailable" } } } };
+  const withBrokenRtk = buildOpportunities(patterns, { windowDays: 30, inventory: brokenRtk });
+  const brokenTip = withBrokenRtk.opportunities.find((item) => item.id === "rtk-token-compression");
+  assert.match(brokenTip.caveat, /unrelated tool or an incomplete install/);
+  assert.match(brokenTip.suggestion.command, /rtk-ai\/rtk/);
+
   // Library calls without probes remain pure and say so.
   const pure = buildOpportunities(patterns, { windowDays: 30 });
   assert.match(pure.suppressed.find((rule) => rule.id === "rtk-token-compression").reason, /inventory unavailable/);

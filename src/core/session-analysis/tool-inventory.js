@@ -54,10 +54,14 @@ async function readRtkGain(exec) {
 }
 
 export async function detectToolInventory({ root, artifactPaths = null, exec = execFileAsync } = {}) {
+  // Results are assembled in declared PROBES order so identical tool
+  // state always yields identical JSON/HTML, regardless of which probe
+  // finishes first.
+  const results = await Promise.all(PROBES.map((probe) => probeVersion(probe.name, probe.args, exec)));
   const tools = {};
-  await Promise.all(PROBES.map(async (probe) => {
-    tools[probe.name] = await probeVersion(probe.name, probe.args, exec);
-  }));
+  PROBES.forEach((probe, index) => {
+    tools[probe.name] = results[index];
+  });
 
   if (tools.rtk.available) {
     tools.rtk.gain = await readRtkGain(exec);
@@ -77,6 +81,6 @@ export async function detectToolInventory({ root, artifactPaths = null, exec = e
     schema: TOOL_INVENTORY_SCHEMA_VERSION,
     tools,
     agentify_index: index,
-    note: "Read-only capability probes (version/summary queries only). Nothing was installed, mutated, or executed from session history.",
+    note: "Capability probes are version/summary queries only. Nothing is installed and nothing recovered from session history is executed; a probed tool may touch its own local state (e.g. `rtk gain` can initialize rtk's stats database on first use).",
   };
 }

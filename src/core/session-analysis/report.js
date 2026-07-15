@@ -438,7 +438,7 @@ ${scorecardSection}
         </article>
         ${report.tool_inventory ? `<article class="card" data-testid="analyze-tool-inventory">
           <h3>Installed tooling</h3>
-          <div class="table-wrap"><table><caption>Read-only probes — nothing installed or executed from history</caption><tbody>
+          <div class="table-wrap"><table><caption>Version/summary probes — nothing installed, nothing from history executed</caption><tbody>
             ${Object.entries(report.tool_inventory.tools).map(([name, tool]) => `<tr><th scope="row"><code>${escapeHtml(name)}</code></th><td>${tool.available ? `v${escapeHtml(tool.version || "?")}` : "not detected"}${name === "rtk" && tool.gain?.parse_coverage === "json" ? ` · ${escapeHtml(formatTokens(tool.gain.total_saved_tokens))} tokens saved (measured)` : ""}</td></tr>`).join("")}
             <tr><th scope="row"><code>agentify index</code></th><td>${escapeHtml(report.tool_inventory.agentify_index.status)}</td></tr>
           </tbody></table></div>

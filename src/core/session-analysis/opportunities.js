@@ -85,9 +85,13 @@ const RULES = [
         return { suppressed: "tool inventory unavailable (library call without CLI probes)" };
       }
       const rtk = inventory.tools?.rtk;
-      if (rtk?.available) {
-        const saved = rtk.gain?.total_saved_tokens;
-        return { suppressed: `rtk is already installed${Number.isFinite(saved) && saved > 0 ? ` and has measured ${saved.toLocaleString("en-US")} tokens saved (rtk gain)` : ""}` };
+      // "Installed" means VERIFIED working: a binary answering --version is
+      // not enough (an unrelated tool also ships as `rtk`, and a present
+      // binary with an uninitialized hook saves nothing).
+      const gainWorks = rtk?.available && rtk.gain?.parse_coverage === "json";
+      if (gainWorks) {
+        const saved = rtk.gain.total_saved_tokens;
+        return { suppressed: `rtk is already installed${Number.isFinite(saved) && saved > 0 ? ` and has measured ${saved.toLocaleString("en-US")} tokens saved (rtk gain)` : " and responding to rtk gain"}` };
       }
       if (patterns.opaque_shell_calls < 100) {
         return { suppressed: `only ${patterns.opaque_shell_calls} shell call(s) observed in ${windowDays} day(s); threshold for suggesting rtk is 100` };
@@ -98,12 +102,14 @@ const RULES = [
         observed: { shell_calls: patterns.opaque_shell_calls },
         suggestion: {
           capability: "command-output token compression",
-          command: "install rtk (github.com/rtk-rs) and let its hook wrap high-volume commands",
+          command: "install RTK Token Killer (github.com/rtk-ai/rtk) and let its hook wrap high-volume commands",
         },
         rationale: "A large share of agent context is command output. RTK compresses supported command output before the model reads it and measures the savings per command (`rtk gain`).",
         confidence: "low",
         verification: "After installing, run `rtk gain` for a week and compare total_saved against zero.",
-        caveat: "No savings are claimed in advance: whether your specific commands are RTK-supported is only measurable after installation.",
+        caveat: rtk?.available
+          ? "A binary named rtk was detected but `rtk gain` did not respond as expected — it may be an unrelated tool or an incomplete install; verify against the RTK install guide. No savings are claimed in advance."
+          : "No savings are claimed in advance: whether your specific commands are RTK-supported is only measurable after installation.",
       });
     },
   },
