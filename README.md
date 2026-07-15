@@ -116,6 +116,7 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify models` | Model routing table + provider availability |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
 | `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, and focused tests |
+| `agentify analyze [--days N] [--scope current-repo\|global] [--format text\|json\|html]` | Privacy-first analysis of your local Claude Code/Codex session history: usage, tool patterns, evidence-backed Agentify opportunities, and exactly one roast. Metadata only, consent-gated (`--yes`), zero AI spend; `--dry-run` previews what would be read |
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor (Terminal-Bench 2.0) adapter: token-free dataset validation, spend ceilings, and importing container-run results into the native report (`docs/harbor.md`) |
 | `agentify scan` | Build the SQLite structural index |

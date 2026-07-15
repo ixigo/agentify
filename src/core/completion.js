@@ -190,6 +190,17 @@ const COMMANDS = [
       flag("--output", { valueKind: "path", description: "HTML output path" }),
     ],
   }),
+  command("analyze", "Privacy-first analysis of local Claude/Codex session history", {
+    flags: [
+      flag("--provider", { values: ["claude", "codex", "all"], description: "Session history provider" }),
+      flag("--scope", { values: ["current-repo", "global"], description: "Analysis scope (default current-repo)" }),
+      flag("--days", { valueKind: "number", description: "Window in days (default 30)" }),
+      flag("--format", { values: ["text", "json", "html"], description: "Report format" }),
+      flag("--output", { valueKind: "path", description: "HTML output path" }),
+      flag("--yes", { description: "Consent to reading local session history (required non-interactively)" }),
+      flag("--dry-run", { description: "Preview roots, file counts, and bytes without parsing" }),
+    ],
+  }),
   command("test", "Select and run tests affected by a change", {
     flags: [
       flag("--since", { valueKind: "text", description: "Commit or ref" }),

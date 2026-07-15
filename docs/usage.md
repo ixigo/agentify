@@ -338,6 +338,22 @@ CLI reported no usage.
 
 Failures and cross-vendor fallbacks are counted per bucket, so a route whose CLI keeps falling back stands out.
 
+## Session history analysis: agentify analyze
+
+**Why:** `stats` and `value` report Agentify-owned telemetry. `analyze` looks at the other side — the local Claude Code and Codex session history you already have — and shows usage, tool patterns, and concrete, evidence-backed places where Agentify capabilities would have helped. Plus exactly one roast, because the data earned it.
+
+**How:** `agentify analyze` streams the JSONL session stores (`~/.claude/projects`, `~/.codex/sessions`) in metadata-only mode. It is consent-gated: the first thing it does is disclose the resolved roots, file counts, and bytes, and ask before scanning (pass `--yes` non-interactively, or `--dry-run` to preview without parsing any record bodies). Transcript bodies are never analyzed, retained, or uploaded; shell commands are classified in memory into pattern counts (grep storms, full-suite test runs, repeated failures matched by irreversible fingerprint) and the command text never appears in any output. No model is started and AI spend is $0.
+
+```bash
+agentify analyze --dry-run                  # what would be read, nothing parsed
+agentify analyze                            # current repo, last 30 days, text brief
+agentify analyze --days 7 --format html     # writes agentify-session-analysis.html
+agentify analyze --scope global --yes       # across projects, names pseudonymized
+agentify analyze --provider codex --json    # full auditable schema
+```
+
+The report contains headline totals (sessions, active time, token dimensions with cache split, tool calls), models observed, per-session rows, structured file activity (observed reads only — opaque shell calls are counted, never mined for paths), and recommendation cards. Every recommendation states what was observed, why the alternative is better for that pattern, the exact command to run, its confidence, a verification step, and a caveat; rules that did not fire are listed with the reason. Cost is labeled `unavailable` because local stores carry no billed cost — token-derived guesses are deliberately not presented as spend. The HTML output is self-contained, Agentify-themed, and ends with a privacy receipt of exactly what was read.
+
 ## Model routing
 
 Install writes a `models.routes` table into `.agentify.yaml` mapping kinds of work to models. The agent (or you) can shell tasks out:
