@@ -53,7 +53,10 @@ async function instructionFileFacts(filePath) {
   };
 }
 
-async function listNames(dirPath, { extensions = null } = {}) {
+// kind: "dirs" lists installed component directories (skills), "files"
+// lists manifests with the given extension (agents/commands). Symlinked
+// installations are resolved via stat so they are inventoried too.
+async function listNames(dirPath, { kind, extension = ".md" }) {
   let entries;
   try {
     entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -63,15 +66,34 @@ async function listNames(dirPath, { extensions = null } = {}) {
   const names = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
-    if (entry.isDirectory()) {
+    let isDir = entry.isDirectory();
+    let isFile = entry.isFile();
+    if (entry.isSymbolicLink()) {
+      try {
+        const stat = await fs.stat(path.join(dirPath, entry.name));
+        isDir = stat.isDirectory();
+        isFile = stat.isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (kind === "dirs" && isDir) {
       names.push(entry.name);
-    } else if (entry.isFile()) {
-      const ext = path.extname(entry.name);
-      if (extensions && !extensions.includes(ext)) continue;
-      names.push(path.basename(entry.name, ext));
+    } else if (kind === "files" && isFile && path.extname(entry.name) === extension) {
+      names.push(path.basename(entry.name, extension));
     }
   }
   return names.sort();
+}
+
+// Allowlisted values pass only when they look like a plain identifier;
+// anything else (custom strings, URLs, paths, whatever a user typed) is
+// withheld. slice() is not redaction — this gate is.
+const SAFE_VALUE_PATTERN = /^[A-Za-z0-9 ._/-]{1,64}$/;
+
+function gateValue(value) {
+  const text = String(value);
+  return SAFE_VALUE_PATTERN.test(text) ? text : "(value withheld)";
 }
 
 // Claude settings: structural counts plus a few allowlisted scalars.
@@ -93,7 +115,7 @@ async function auditClaudeSettings(settingsPath) {
     allowlisted: Object.fromEntries(
       CLAUDE_SETTINGS_SCALAR_ALLOWLIST
         .filter((key) => typeof settings[key] === "string" || typeof settings[key] === "boolean")
-        .map((key) => [key, settings[key]]),
+        .map((key) => [key, typeof settings[key] === "boolean" ? settings[key] : gateValue(settings[key])]),
     ),
     permission_allow_rules: Array.isArray(permissions.allow) ? permissions.allow.length : 0,
     permission_deny_rules: Array.isArray(permissions.deny) ? permissions.deny.length : 0,
@@ -125,7 +147,8 @@ async function auditCodexConfig(configPath) {
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    if (/^\[.+\]$/.test(line)) {
+    // A table header may carry a trailing comment: [profiles.fast] # note
+    if (/^\[[^\]]+\]/.test(line)) {
       tables += 1;
       inTable = true;
       continue;
@@ -135,7 +158,11 @@ async function auditCodexConfig(configPath) {
     keys += 1;
     if (SECRET_KEY_PATTERN.test(match[1])) secretLikeKeys += 1;
     if (!inTable && CODEX_CONFIG_SCALAR_ALLOWLIST.includes(match[1])) {
-      allowlisted[match[1]] = match[2].replaceAll('"', "").trim().slice(0, 64);
+      // Quoted value first; otherwise strip a trailing comment. The result
+      // still passes the safe-value gate before it is emitted.
+      const quoted = match[2].match(/^"([^"]*)"/);
+      const value = quoted ? quoted[1] : match[2].split("#")[0].trim();
+      allowlisted[match[1]] = gateValue(value);
     }
   }
   return { present: true, allowlisted, tables, keys, secret_like_keys_counted_not_read: secretLikeKeys };
@@ -188,23 +215,22 @@ export async function buildConfigAudit({ claudeHome, codexHome } = {}) {
 
   const claudeAudit = {
     global_instructions: claudeInstructions,
+    always_loaded_token_estimate: claudeInstructions.always_loaded_token_estimate || 0,
     settings: await auditClaudeSettings(path.join(claude, "settings.json")),
-    skills: await listNames(path.join(claude, "skills")),
-    agents: await listNames(path.join(claude, "agents"), { extensions: [".md"] }),
-    commands: await listNames(path.join(claude, "commands"), { extensions: [".md"] }),
+    skills: await listNames(path.join(claude, "skills"), { kind: "dirs" }),
+    agents: await listNames(path.join(claude, "agents"), { kind: "files" }),
+    commands: await listNames(path.join(claude, "commands"), { kind: "files" }),
   };
   const codexAudit = {
     global_instructions: codexInstructions,
+    always_loaded_token_estimate: codexInstructions.always_loaded_token_estimate || 0,
     config: await auditCodexConfig(path.join(codex, "config.toml")),
-    skills: await listNames(path.join(codex, "skills")),
+    skills: await listNames(path.join(codex, "skills"), { kind: "dirs" }),
   };
-
-  const alwaysLoaded = (claudeInstructions.always_loaded_token_estimate || 0)
-    + (codexInstructions.always_loaded_token_estimate || 0);
 
   const findings = [];
   if (claudeInstructions.oversized || codexInstructions.oversized) {
-    findings.push("A global instruction file exceeds ~2k tokens; every session pays that context cost before work starts.");
+    findings.push("A global instruction file exceeds ~2k tokens; every session of that provider pays the context cost before work starts.");
   }
   if (duplicated >= 3) {
     findings.push(`${duplicated} guidance line(s) are duplicated between global CLAUDE.md and AGENTS.md; consolidating avoids double maintenance and drift.`);
@@ -216,10 +242,11 @@ export async function buildConfigAudit({ claudeHome, codexHome } = {}) {
     claude: claudeAudit,
     codex: codexAudit,
     cross_provider: {
-      always_loaded_token_estimate: alwaysLoaded,
+      // Per-provider on purpose: a Claude session loads CLAUDE.md and a
+      // Codex session loads AGENTS.md — no session pays the sum.
       duplicated_instruction_lines: duplicated,
     },
     findings,
-    note: "Structural audit of allowlisted files only. Instruction text, settings values, and env values are never reproduced; auth/credential/cache/backup/database files are never opened. Token figures are ~4-chars-per-token estimates.",
+    note: "Structural audit of allowlisted files only. Instruction text and env values are never reproduced; a handful of allowlisted identifier-like values (model, approval policy) pass a safe-value gate and everything else is withheld. Auth/credential/cache/backup/database files are never opened. Token figures are ~4-chars-per-token estimates.",
   };
 }

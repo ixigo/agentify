@@ -482,6 +482,9 @@ export async function buildSessionAnalysis(root, options = {}) {
     privacy: {
       content_mode: resolved.contentMode,
       roots_read: sourceList.map((entry) => entry.root),
+      config_sources_read: resolved.includeConfig
+        ? configAuditSources({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome }).map(homeRelative)
+        : [],
       transcript_bodies_analyzed: resolved.contentMode === "local-extractive",
       content_persisted: false,
       network_calls: 0,

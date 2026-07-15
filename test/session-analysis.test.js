@@ -460,6 +460,8 @@ test("--include-config audits allowlisted sources structurally and leaks no valu
     'model = "gpt-5.2-codex"',
     'approval_policy = "on-request"',
     'api_key = "supersecret-toml-value"',
+    "[profiles.fast] # inline comment on a table header",
+    'model = "supersecret-nested-model"',
     "[mcp_servers.foo]",
     'url = "https://example.com"',
   ].join("\n"));
@@ -478,12 +480,20 @@ test("--include-config audits allowlisted sources structurally and leaks no valu
   assert.equal(audit.codex.config.secret_like_keys_counted_not_read, 1);
   assert.equal(audit.cross_provider.duplicated_instruction_lines, 1);
   assert.equal(audit.codex.global_instructions.oversized, true);
+  assert.equal(audit.claude.always_loaded_token_estimate > 0, true);
   assert.ok(audit.findings.some((finding) => /oversized|2k tokens/.test(finding)));
 
   const serialized = JSON.stringify(audit);
-  for (const secret of ["supersecret-env-value", "supersecret-toml-value", "supersecret-auth-token", "SHOULD NOT LEAK", "MY_API_KEY", sharedLine, "Use pnpm not npm"]) {
+  for (const secret of ["supersecret-env-value", "supersecret-toml-value", "supersecret-auth-token", "supersecret-nested-model", "SHOULD NOT LEAK", "MY_API_KEY", sharedLine, "Use pnpm not npm"]) {
     assert.ok(!serialized.includes(secret), `config audit leaked: ${secret}`);
   }
+
+  // Non-identifier values under allowlisted keys are withheld, not echoed.
+  const gatedHome = path.join(home, "gated-claude");
+  await fs.mkdir(gatedHome, { recursive: true });
+  await fs.writeFile(path.join(gatedHome, "settings.json"), JSON.stringify({ model: "custom: `curl https://evil.example`" }));
+  const gated = await buildConfigAudit({ claudeHome: gatedHome, codexHome: path.join(home, "missing") });
+  assert.equal(gated.claude.settings.allowlisted.model, "(value withheld)");
 
   // Wired through the full report + html when includeConfig is set.
   const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
@@ -492,6 +502,8 @@ test("--include-config audits allowlisted sources structurally and leaks no valu
   const html = renderAnalysisHtml(report, { projectName: "fixture" });
   assert.ok(html.includes('data-testid="analyze-config-audit"'));
   assert.ok(!html.includes("supersecret"), "secret leaked into html");
+  assert.ok(html.includes("Config sources read"), "privacy receipt must list config sources");
+  assert.equal(report.privacy.config_sources_read.length > 0, true);
   const withoutFlag = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30 });
   assert.equal(withoutFlag.config_audit, null);
 

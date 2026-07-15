@@ -58,7 +58,7 @@ export function renderAnalysisText(report) {
     const audit = report.config_audit;
     lines.push(
       "",
-      `Config audit: ~${formatNumber(audit.cross_provider.always_loaded_token_estimate)} always-loaded instruction token(s) · ${formatNumber(audit.cross_provider.duplicated_instruction_lines)} line(s) duplicated across CLAUDE.md/AGENTS.md`,
+      `Config audit: always-loaded instructions ~${formatNumber(audit.claude.always_loaded_token_estimate)} token(s)/claude session, ~${formatNumber(audit.codex.always_loaded_token_estimate)} token(s)/codex session · ${formatNumber(audit.cross_provider.duplicated_instruction_lines)} line(s) duplicated across CLAUDE.md/AGENTS.md`,
       ...audit.findings.map((finding) => `  - ${finding}`),
     );
   }
@@ -81,7 +81,7 @@ export function renderAnalysisText(report) {
     `  (basis: ${report.roast.basis} — for entertainment; the numbers above are the real story)`,
     "",
     `Coverage: ${report.coverage.sessions_analyzed} session(s) analyzed, ${report.coverage.sessions_with_usage} with usage data, ${report.coverage.malformed_lines} malformed line(s) skipped.`,
-    `Privacy: ${report.privacy.content_mode}; roots read: ${report.privacy.roots_read.join(", ")}; network calls: ${report.privacy.network_calls}; AI spend: $${report.privacy.ai_spend_usd}.`,
+    `Privacy: ${report.privacy.content_mode}; roots read: ${report.privacy.roots_read.join(", ")}${report.privacy.config_sources_read?.length > 0 ? `; config sources read (structural): ${report.privacy.config_sources_read.length}` : ""}; network calls: ${report.privacy.network_calls}; AI spend: $${report.privacy.ai_spend_usd}.`,
   );
   return lines.join("\n");
 }
@@ -181,7 +181,7 @@ function configAuditSection(audit) {
             <tr><th scope="row"><code>${escapeHtml(audit.homes.codex)}/AGENTS.md</code></th>${instructionCells(audit.codex.global_instructions)}</tr>
           </tbody>
         </table></div>
-        <p class="score-mix"><strong>Always loaded:</strong> ~${escapeHtml(formatNumber(audit.cross_provider.always_loaded_token_estimate))} token(s) · <strong>duplicated lines across providers:</strong> ${escapeHtml(formatNumber(audit.cross_provider.duplicated_instruction_lines))}</p>
+        <p class="score-mix"><strong>Always loaded per session:</strong> claude ~${escapeHtml(formatNumber(audit.claude.always_loaded_token_estimate))} · codex ~${escapeHtml(formatNumber(audit.codex.always_loaded_token_estimate))} token(s) · <strong>duplicated lines across providers:</strong> ${escapeHtml(formatNumber(audit.cross_provider.duplicated_instruction_lines))}</p>
         <p class="score-mix"><strong>Claude skills:</strong> ${nameList(audit.claude.skills)}</p>
         <p class="score-mix"><strong>Claude agents:</strong> ${nameList(audit.claude.agents)} · <strong>commands:</strong> ${nameList(audit.claude.commands)}</p>
         <p class="score-mix"><strong>Codex skills:</strong> ${nameList(audit.codex.skills)}</p>
@@ -453,6 +453,7 @@ ${report.config_audit ? configAuditSection(report.config_audit) : ""}
       <article class="card receipt">
         <p><strong>Mode:</strong> ${escapeHtml(report.privacy.content_mode)} · <strong>network calls:</strong> ${escapeHtml(report.privacy.network_calls)} · <strong>AI spend:</strong> $${escapeHtml(report.privacy.ai_spend_usd)}</p>
         <p><strong>Roots read:</strong> ${report.privacy.roots_read.map((entry) => `<code>${escapeHtml(entry)}</code>`).join(" ")}</p>
+        ${report.privacy.config_sources_read?.length > 0 ? `<p><strong>Config sources read (structural, allowlisted):</strong> ${report.privacy.config_sources_read.map((entry) => `<code>${escapeHtml(entry)}</code>`).join(" ")}</p>` : ""}
         <ul>${report.privacy.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
         <ul>
           <li>Coverage: ${escapeHtml(formatNumber(report.coverage.sessions_analyzed))} session(s) analyzed, ${escapeHtml(formatNumber(report.coverage.sessions_with_usage))} with usage metadata, ${escapeHtml(formatNumber(report.coverage.malformed_lines))} malformed line(s) skipped.</li>

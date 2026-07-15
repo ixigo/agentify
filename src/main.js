@@ -955,6 +955,12 @@ export async function runCli(argv, _runtime = {}) {
             for (const source of manifest.sources) {
               log(`${bold(source.provider.padEnd(7))} ${dim(source.root)} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`);
             }
+            if (Array.isArray(manifest.config_sources)) {
+              log("Config audit (--include-config) would read only these allowlisted sources, structurally:");
+              for (const source of manifest.config_sources) {
+                log(`  ${dim(source)}`);
+              }
+            }
             log(dim(manifest.note));
           }
           return;
