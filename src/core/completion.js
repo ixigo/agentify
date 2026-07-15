@@ -201,6 +201,7 @@ const COMMANDS = [
       flag("--dry-run", { description: "Preview roots, file counts, and bytes without parsing" }),
       flag("--no-cache", { description: "Re-parse every file instead of using the private incremental cache" }),
       flag("--no-progress", { description: "Suppress the stderr progress line (progress is TTY-only anyway)" }),
+      flag("--source-root", { valueKind: "text", description: "History root override as claude=<path> or codex=<path>; repeatable, replaces that provider's default" }),
     ],
   }),
   command("test", "Select and run tests affected by a change", {

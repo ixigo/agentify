@@ -351,6 +351,7 @@ agentify analyze --days 7 --format html     # writes agentify-session-analysis.h
 agentify analyze --scope global --yes       # across projects, names pseudonymized
 agentify analyze --provider codex --json    # full auditable schema
 agentify analyze --no-cache                 # re-parse everything, skip the cache
+agentify analyze --source-root codex=./fixtures/codex --yes   # custom store; repeatable per provider
 ```
 
 Repeated scans are incremental: normalized session metadata (never transcript or command content) is cached privately (mode 0600) under the Agentify store, keyed by file size, mtime, and parser version, so unchanged session files are not re-parsed. Cache hits and misses are reported under `coverage.cache` in JSON output; `--no-cache` re-parses everything. In a TTY, a single self-overwriting progress line on stderr shows per-provider files/bytes/sessions during the scan (JSON stdout stays valid); with `--no-progress` or a non-TTY stderr nothing is emitted at all.

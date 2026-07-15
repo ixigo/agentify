@@ -38,6 +38,7 @@ import {
   buildAnalysisManifest,
   buildSessionAnalysis,
   defaultAnalysisReportPath,
+  parseSourceRoots,
   resolveAnalyzeProviders,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
@@ -919,12 +920,15 @@ export async function runCli(argv, _runtime = {}) {
         if (!["text", "json", "html"].includes(format)) {
           throw new Error('analyze --format must be one of: text, json, html');
         }
+        const sourceRoots = parseSourceRoots(args.sourceRoot, { root });
         const analyzeOptions = {
           days,
           scope,
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
+          claudeRoots: sourceRoots.claude,
+          codexRoots: sourceRoots.codex,
           cache: args.noCache !== true,
           cacheRoot: config._agentifyPaths?.cacheRoot
             ? path.join(config._agentifyPaths.cacheRoot, "session-analysis")

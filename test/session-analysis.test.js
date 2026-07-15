@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { buildAnalysisManifest, buildSessionAnalysis, resolveAnalyzeProviders } from "../src/core/session-analysis/index.js";
+import { buildAnalysisManifest, buildSessionAnalysis, parseSourceRoots, resolveAnalyzeProviders } from "../src/core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "../src/core/session-analysis/report.js";
 import { classifyShellCommand, normalizeFilePath } from "../src/core/session-analysis/normalize.js";
 import {
@@ -333,6 +333,43 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(html.includes('name="f-fit"'), "matchup filter chips missing");
   assert.ok(html.includes("main:has(#f-provider-claude:checked)"), "CSS-only filter rules missing");
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
+});
+
+test("parseSourceRoots validates provider=path entries and resolves paths", () => {
+  const roots = parseSourceRoots(["claude=fixtures/a", "claude=/abs/b", "codex=fixtures/c"], { root: "/repo" });
+  assert.deepEqual(roots.claude, ["/repo/fixtures/a", "/abs/b"]);
+  assert.deepEqual(roots.codex, ["/repo/fixtures/c"]);
+  assert.deepEqual(parseSourceRoots(undefined, { root: "/repo" }), { claude: [], codex: [] });
+  assert.deepEqual(parseSourceRoots("codex=x", { root: "/repo" }).codex, ["/repo/x"]);
+  assert.throws(() => parseSourceRoots(["gemini=x"], { root: "/repo" }), /claude=<path> or codex=<path>/);
+  assert.throws(() => parseSourceRoots(["claude="], { root: "/repo" }), /claude=<path> or codex=<path>/);
+  assert.throws(() => parseSourceRoots([true], { root: "/repo" }), /claude=<path> or codex=<path>/);
+});
+
+test("multiple source roots per provider are scanned, deduplicated, and reported separately", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-multiroot-");
+  const claudeRootA = path.join(repoRoot, "history", "claude-a");
+  const claudeRootB = path.join(repoRoot, "history", "claude-b");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  await writeClaudeFixtures(claudeRootA, repoRoot);
+  await writeCodexFixtures(codexRoot, repoRoot);
+  // Second claude root holds one extra in-repo session.
+  const extraDir = path.join(claudeRootB, "-fixture-project");
+  await fs.mkdir(extraDir, { recursive: true });
+  await fs.writeFile(path.join(extraDir, "extra.jsonl"), `${claudeAssistant({ ts: minutesAgo(50), requestId: "req_extra", usage: USAGE, cwd: repoRoot })}\n`);
+
+  const report = await buildSessionAnalysis(repoRoot, {
+    claudeRoots: [claudeRootA, claudeRootB, claudeRootA], // duplicate collapses
+    codexRoot,
+    days: 30,
+  });
+  assert.equal(report.totals.sessions, 5, "3 from root A + 1 from root B + 1 codex");
+  const claudeSources = report.sources.filter((source) => source.provider === "claude");
+  assert.equal(claudeSources.length, 2, "each claude root reports its own coverage");
+  assert.equal(claudeSources.find((source) => source.root.endsWith("claude-b")).sessions, 1);
+
+  const manifest = await buildAnalysisManifest(repoRoot, { claudeRoots: [claudeRootA, claudeRootB], codexRoot, days: 30 });
+  assert.equal(manifest.sources.filter((source) => source.provider === "claude").length, 2);
 });
 
 test("progress renders throttled TTY lines to stderr and clears on finish", () => {

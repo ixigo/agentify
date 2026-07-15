@@ -33,6 +33,36 @@ export function resolveAnalyzeProviders(raw) {
   throw new Error(`analyze --provider must be one of: claude, codex, all (got "${raw}")`);
 }
 
+// --source-root claude=<path> / codex=<path>, repeatable. Explicit roots
+// for fixtures and custom installations. All explicit roots for a
+// provider (--source-root entries plus --claude-root/--codex-root) are
+// scanned as a union; the provider default is used only when no explicit
+// root was given for it.
+export function parseSourceRoots(raw, { root }) {
+  const entries = raw === undefined ? [] : [].concat(raw);
+  const roots = { claude: [], codex: [] };
+  for (const entry of entries) {
+    const text = String(entry === true ? "" : entry).trim();
+    const [provider, ...rest] = text.split("=");
+    const target = rest.join("=").trim();
+    if (!ANALYZE_PROVIDERS.includes(provider) || !target) {
+      throw new Error(`analyze --source-root requires claude=<path> or codex=<path> (got "${text}")`);
+    }
+    roots[provider].push(path.resolve(root, target));
+  }
+  return roots;
+}
+
+// A provider's roots are the explicit --source-root entries plus the
+// single-root override (or the provider default when neither is given),
+// deduplicated so the same store is never scanned twice.
+function providerRoots(explicitRoots, singleRoot) {
+  const roots = [...(explicitRoots || [])];
+  if (singleRoot) roots.push(singleRoot);
+  if (roots.length === 0) roots.push(null); // provider default
+  return [...new Set(roots.map((entry) => (entry === null ? null : path.resolve(entry))))];
+}
+
 function resolveOptions(root, options) {
   const days = Number.isFinite(options.days) && options.days > 0 ? Math.floor(options.days) : DEFAULT_WINDOW_DAYS;
   const now = options.now instanceof Date ? options.now : new Date();
@@ -43,8 +73,8 @@ function resolveOptions(root, options) {
     scope,
     cutoffMs: now.getTime() - days * DAY_MS,
     providers: options.providers || [...ANALYZE_PROVIDERS],
-    claudeRoot: options.claudeRoot || null,
-    codexRoot: options.codexRoot || null,
+    claudeRoots: providerRoots(options.claudeRoots, options.claudeRoot),
+    codexRoots: providerRoots(options.codexRoots, options.codexRoot),
     cacheRoot: options.cacheRoot || null,
     cache: options.cache !== false,
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
@@ -54,12 +84,16 @@ function resolveOptions(root, options) {
 async function discover(resolved) {
   const sources = [];
   if (resolved.providers.includes("claude")) {
-    const discovered = await discoverClaudeSessions({ claudeRoot: resolved.claudeRoot, cutoffMs: resolved.cutoffMs });
-    sources.push({ provider: "claude", ...discovered });
+    for (const claudeRoot of resolved.claudeRoots) {
+      const discovered = await discoverClaudeSessions({ claudeRoot, cutoffMs: resolved.cutoffMs });
+      sources.push({ provider: "claude", ...discovered });
+    }
   }
   if (resolved.providers.includes("codex")) {
-    const discovered = await discoverCodexSessions({ codexRoot: resolved.codexRoot, cutoffMs: resolved.cutoffMs });
-    sources.push({ provider: "codex", ...discovered });
+    for (const codexRoot of resolved.codexRoots) {
+      const discovered = await discoverCodexSessions({ codexRoot, cutoffMs: resolved.cutoffMs });
+      sources.push({ provider: "codex", ...discovered });
+    }
   }
   return sources;
 }
@@ -128,7 +162,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       malformed_lines: 0,
       sessions: 0,
     };
-    sourceStats.set(source.provider, stats);
+    sourceStats.set(`${source.provider}:${source.root}`, stats);
     let filesDone = 0;
     let bytesDone = 0;
     const report = () => resolved.onProgress?.({
