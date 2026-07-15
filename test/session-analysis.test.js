@@ -1168,6 +1168,84 @@ test("cli: analyze --format html writes a self-contained themed report", async (
   assert.ok(!html.includes("supersecret123"));
 });
 
+test("insights packet is sanitized, invocations carry only safety flags, output is strictly validated", async () => {
+  const {
+    buildInsightsPacket, packetPreview, validateInsightsOutput, buildInsightInvocation,
+    runCliInsights, resolveInsightsMode, resolveInsightsProviders,
+  } = await import("../src/core/session-analysis/insights.js");
+  const { report } = await fixtureReport();
+
+  // Packet: only normalized facts; fixture secrets/prompts cannot appear.
+  const packet = buildInsightsPacket(report);
+  const serialized = JSON.stringify(packet);
+  for (const secret of ["supersecret123", "SUPER SECRET", "internal.example.com", "needle0"]) {
+    assert.ok(!serialized.includes(secret), `packet leaked: ${secret}`);
+  }
+  assert.ok(!serialized.includes("session_id"), "packet must not carry per-session ids");
+  assert.equal(packet.schema, "insights-packet-v1");
+  assert.ok(packetPreview(packet).bytes > 0);
+
+  // Invocations: exactly the safety flags, never a bypass flag.
+  const claude = buildInsightInvocation("claude", { model: null, budgetUsd: 0.25, timeoutSec: 60, schemaPath: "/tmp/s.json" });
+  assert.ok(claude.args.includes("--no-session-persistence"));
+  assert.ok(claude.args.includes("--max-budget-usd"));
+  assert.deepEqual(claude.args[claude.args.indexOf("--allowed-tools") + 1], "");
+  assert.equal(claude.args[claude.args.indexOf("--model") + 1], "haiku", "insights default to the light tier");
+  assert.match(claude.args[claude.args.indexOf("--json-schema") + 1], /^\{/, "schema is passed inline, not as a path");
+  const codex = buildInsightInvocation("codex", { model: null, budgetUsd: 0.25, timeoutSec: 60, schemaPath: "/tmp/s.json" });
+  assert.ok(codex.args.includes("--ephemeral"));
+  assert.ok(codex.args.includes("--ignore-user-config"));
+  assert.deepEqual(codex.args[codex.args.indexOf("--sandbox") + 1], "read-only");
+  for (const invocation of [claude, codex]) {
+    assert.ok(!invocation.args.some((arg) => /dangerously|bypass/.test(arg)), "bypass flag in insight invocation");
+  }
+
+  // Validation: ungrounded or unknown output is rejected, not repaired.
+  const good = { summary: "ok", insights: [{ title: "t", explanation: "e", category: "search", grounded_in: ["patterns.grep_like"], confidence: "medium" }] };
+  assert.equal(validateInsightsOutput(good, packet).valid, true);
+  assert.equal(validateInsightsOutput({ ...good, extra: 1 }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], grounded_in: ["made.up.field"] }] }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], category: "hacking" }] }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], suggested_command: "rm -rf /" }] }, packet).valid, false);
+
+  // Fake-exec end-to-end: claude envelope parsed, cost recorded separately.
+  const fakeExec = async (command, args) => {
+    assert.equal(command, "claude");
+    assert.ok(args.join(" ").includes("PACKET START"), "prompt must delimit the packet as data");
+    return { stdout: JSON.stringify({ result: JSON.stringify(good), total_cost_usd: 0.03 }) };
+  };
+  const outcome = await runCliInsights({ providers: ["claude"], packet, exec: fakeExec });
+  assert.equal(outcome.results[0].ok, true);
+  assert.equal(outcome.total_cost_usd, 0.03);
+  assert.match(outcome.note, /agreement, not proof/);
+
+  // A provider whose output fails validation fails closed.
+  const badExec = async () => ({ stdout: JSON.stringify({ result: JSON.stringify({ summary: "x", insights: [{ title: "t", explanation: "e", category: "search", grounded_in: ["nope"], confidence: "low" }] }) }) });
+  const rejected = await runCliInsights({ providers: ["claude"], packet, exec: badExec });
+  assert.equal(rejected.results[0].ok, false);
+  assert.match(rejected.results[0].error, /unknown packet field/);
+
+  assert.equal(resolveInsightsMode(undefined), "deterministic");
+  assert.deepEqual(resolveInsightsProviders("both"), ["claude", "codex"]);
+  assert.throws(() => resolveInsightsMode("remote"), /--insights must be one of/);
+});
+
+test("cli: analyze --insights cli --insights-dry-run prints the packet and invokes nothing", async () => {
+  const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
+  const out = await captureStdout(() => runCli([
+    "analyze", "--root", repoRoot, "--yes", "--json",
+    "--claude-root", claudeRoot, "--codex-root", codexRoot,
+    "--insights", "cli", "--insights-provider", "both", "--insights-dry-run",
+  ]));
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.insights_dry_run, true);
+  assert.equal(parsed.packet.schema, "insights-packet-v1");
+  assert.equal(parsed.plan.length, 2);
+  assert.ok(parsed.plan.every((entry) => entry.args.includes("<packet prompt>")), "prompt is a placeholder in the plan");
+  assert.ok(parsed.plan.find((entry) => entry.provider === "codex").enforcement.includes("no native USD cap"));
+  assert.ok(!out.includes("supersecret123"));
+});
+
 test("cli: analyze --dry-run needs no consent", async () => {
   const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
   const out = await captureStdout(() => runCli([

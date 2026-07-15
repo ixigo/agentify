@@ -206,6 +206,13 @@ const COMMANDS = [
       flag("--include-config", { description: "Audit allowlisted global config (instruction sizes, skill/agent names; only identifier-like allowlisted values pass, all else withheld)" }),
       flag("--show-project-names", { description: "Global scope display opt-in: real project names instead of pseudonyms (badged in the report)" }),
       flag("--show-paths", { description: "Global scope display opt-in: real project paths instead of pseudonyms (badged in the report)" }),
+      flag("--insights", { values: ["deterministic", "cli"], description: "cli asks the local Claude/Codex CLI to interpret the sanitized packet (paid opt-in)" }),
+      flag("--insights-provider", { values: ["claude", "codex", "both"], description: "Which CLI interprets the packet (default claude)" }),
+      flag("--insights-model", { valueKind: "text", description: "Model override for the insight run" }),
+      flag("--max-insights-budget-usd", { valueKind: "number", description: "Spend ceiling for CLI-assisted insights (default 0.25; native cap on claude)" }),
+      flag("--insights-timeout", { valueKind: "number", description: "Per-provider wall-clock timeout in seconds (default 120)" }),
+      flag("--insights-dry-run", { description: "Print the exact sanitized packet and provider plan without invoking anything" }),
+      flag("--keep-insights-packet", { description: "Keep the sanitized packet as a private artifact under .agentify/" }),
     ],
   }),
   command("test", "Select and run tests affected by a change", {

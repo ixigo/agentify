@@ -32,6 +32,8 @@ const BOOLEAN_FLAGS = new Set([
   "includeConfig",
   "showProjectNames",
   "showPaths",
+  "insightsDryRun",
+  "keepInsightsPacket",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

@@ -45,6 +45,16 @@ import {
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
+import {
+  DEFAULT_INSIGHTS_BUDGET_USD,
+  DEFAULT_INSIGHTS_TIMEOUT_S,
+  buildInsightInvocation,
+  buildInsightsPacket,
+  packetPreview,
+  resolveInsightsMode,
+  resolveInsightsProviders,
+  runCliInsights,
+} from "./core/session-analysis/insights.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
@@ -1013,6 +1023,63 @@ export async function runCli(argv, _runtime = {}) {
           report = await buildSessionAnalysis(root, analyzeOptions);
         } finally {
           progress.finish();
+        }
+
+        // CLI-assisted insights: a separate, explicit paid opt-in on top
+        // of the deterministic analysis. The exact sanitized packet and
+        // provider plan are shown (and are the entire output under
+        // --insights-dry-run) before anything is invoked.
+        const insightsMode = resolveInsightsMode(args.insights);
+        if (insightsMode === "cli") {
+          const insightProviders = resolveInsightsProviders(args.insightsProvider);
+          const packet = buildInsightsPacket(report);
+          const preview = packetPreview(packet);
+          const budgetUsd = Number.isFinite(Number(args.maxInsightsBudgetUsd)) ? Number(args.maxInsightsBudgetUsd) : DEFAULT_INSIGHTS_BUDGET_USD;
+          const timeoutSec = Number.isFinite(Number(args.insightsTimeout)) && Number(args.insightsTimeout) > 0 ? Number(args.insightsTimeout) : DEFAULT_INSIGHTS_TIMEOUT_S;
+          const model = args.insightsModel ? String(args.insightsModel) : null;
+          const plan = insightProviders.map((provider) => {
+            const invocation = buildInsightInvocation(provider, { model, budgetUsd, timeoutSec, schemaPath: "<workspace>/schema.json" });
+            return { provider, command: invocation.command, args: invocation.args.map((arg) => (arg === "__PROMPT__" ? "<packet prompt>" : arg === "__OUT__" ? "<workspace>/last-message.json" : arg)), enforcement: invocation.enforcement };
+          });
+          if (args.insightsDryRun === true) {
+            console.log(JSON.stringify({ command: "analyze", insights_dry_run: true, packet, packet_preview: preview, budget_usd: budgetUsd, timeout_s: timeoutSec, plan }, null, 2));
+            return;
+          }
+          const disclosureLines = [
+            `Insights: sending the sanitized packet (${preview.bytes} bytes, ~${preview.token_estimate} tokens; fields: ${preview.fields.join(", ")}) to ${insightProviders.join(" and ")} via the local CLI.`,
+            ...plan.map((entry) => `  ${entry.provider}: ${entry.command} — enforcement: ${entry.enforcement}`),
+            `Budget: $${budgetUsd} total · timeout ${timeoutSec}s per provider. This is report-generation spend, recorded separately.`,
+          ];
+          for (const line of disclosureLines) {
+            process.stderr.write(`${line}\n`);
+          }
+          if (process.stdin.isTTY && process.stderr.isTTY) {
+            const readlinePromises = await import("node:readline/promises");
+            const prompt = readlinePromises.createInterface({ input: process.stdin, output: process.stderr });
+            let answer;
+            try {
+              answer = await prompt.question("Send packet and spend up to the budget? [y/N] ");
+            } finally {
+              prompt.close();
+            }
+            if (!/^y(es)?$/i.test(answer.trim())) {
+              log("insights cancelled — the deterministic report continues without them.");
+              report.insights = null;
+            } else {
+              report.insights = await runCliInsights({ providers: insightProviders, packet, model, budgetUsd, timeoutSec });
+            }
+          } else {
+            report.insights = await runCliInsights({ providers: insightProviders, packet, model, budgetUsd, timeoutSec });
+          }
+          if (report.insights) {
+            report.privacy.ai_spend_usd = Number((report.insights.total_cost_usd || 0).toFixed(4));
+            report.privacy.notes.push(`CLI-assisted insights were generated from the sanitized packet (${preview.bytes} bytes) via ${insightProviders.join(" and ")}; the packet contains normalized counts and identifiers only, and the run was tool-less, persistence-free, and config-isolated.`);
+          }
+          if (args.keepInsightsPacket === true) {
+            const packetPath = path.join(root, ".agentify", `insights-packet-${Date.now()}.json`);
+            await writePrivateText(packetPath, JSON.stringify(packet, null, 2), { privateDir: false });
+            process.stderr.write(`Packet kept at ${packetPath} (private artifact, --keep-insights-packet)\n`);
+          }
         }
         if (format === "html") {
           if (args.output === true) {

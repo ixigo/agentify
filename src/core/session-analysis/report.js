@@ -74,6 +74,22 @@ export function renderAnalysisText(report) {
   if (remaining > 0) {
     lines.push(`  (+${remaining} more in --format json or html)`);
   }
+  if (report.insights?.results) {
+    lines.push("", `CLI-assisted insights (spend $${report.insights.total_cost_usd ?? 0}, packet ${report.insights.packet_preview.bytes} bytes):`);
+    for (const result of report.insights.results) {
+      if (!result.ok) {
+        lines.push(`- [${result.provider}] failed closed: ${result.error}`);
+        continue;
+      }
+      lines.push(`- [${result.provider}] ${result.summary}`);
+      for (const insight of result.insights) {
+        lines.push(`    · [${insight.confidence}] ${insight.title} (grounded in ${insight.grounded_in.join(", ")})`);
+      }
+    }
+    if (report.insights.agreement) {
+      lines.push(`  Agreement: ${report.insights.agreement.agreed_categories.join(", ") || "none"} · consensus is agreement, not proof`);
+    }
+  }
   lines.push(
     "",
     "The roast:",
@@ -477,6 +493,18 @@ ${scorecardSection}
         <div class="table-wrap"><table><caption>Suppressed recommendations</caption><thead><tr><th scope="col">Rule</th><th scope="col">Category</th><th scope="col">Reason</th></tr></thead><tbody>${suppressedRows || '<tr><td colspan="3" class="empty">Every rule fired.</td></tr>'}</tbody></table></div>
       </details>
     </section>
+${report.insights?.results ? `
+    <section aria-label="CLI-assisted insights">
+      <p class="eyebrow">CLI-assisted insights</p>
+      <h2>What another model saw in the numbers</h2>
+      <p class="lede"><span class="meta meta--warn">⚠ CLI-assisted — cost $${escapeHtml(String(report.insights.total_cost_usd ?? 0))}</span> Generated from the sanitized packet (${escapeHtml(formatNumber(report.insights.packet_preview.bytes))} bytes of counts and identifiers), tool-less and persistence-free. Deterministic sections above are unaffected.</p>
+      ${report.insights.results.map((result) => result.ok ? `<article class="card" data-testid="analyze-insights-${escapeHtml(result.provider)}">
+        <h3>${escapeHtml(result.provider)}</h3>
+        <p>${escapeHtml(result.summary)}</p>
+        <ul>${result.insights.map((insight) => `<li><strong>${escapeHtml(insight.title)}</strong> [${escapeHtml(insight.confidence)}] — ${escapeHtml(insight.explanation)}${insight.suggested_command ? ` <code>${escapeHtml(insight.suggested_command)}</code>` : ""}<br><span class="roast-basis">grounded in: ${insight.grounded_in.map((ref) => `<code>${escapeHtml(ref)}</code>`).join(" ")}</span></li>`).join("")}</ul>
+      </article>` : `<article class="card"><h3>${escapeHtml(result.provider)}</h3><p class="empty">Failed closed: ${escapeHtml(result.error)}</p></article>`).join("")}
+      ${report.insights.agreement ? `<p class="roast-basis">agreement between providers: ${escapeHtml(report.insights.agreement.agreed_categories.join(", ") || "none")} — consensus is agreement, not proof</p>` : ""}
+    </section>` : ""}
     <section aria-label="The roast">
       <p class="eyebrow">The roast</p>
       <h2>One observation, served warm</h2>
