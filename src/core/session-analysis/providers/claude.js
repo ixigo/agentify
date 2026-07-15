@@ -145,6 +145,14 @@ export async function parseClaudeSession(file, { root }) {
     }
 
     if (record.type === "user" && message && typeof message === "object") {
+      // A user turn is a message the human typed: string content, or an
+      // array with a text item. Pure tool_result records are protocol
+      // plumbing, not turns.
+      const isTurn = (typeof message.content === "string" && message.content.trim())
+        || (Array.isArray(message.content) && message.content.some((item) => item?.type === "text"));
+      if (isTurn && record.isSidechain !== true) {
+        session.turns.user += 1;
+      }
       const content = Array.isArray(message.content) ? message.content : [];
       for (const item of content) {
         if (item?.type !== "tool_result" || item.is_error !== true) continue;
@@ -164,6 +172,7 @@ export async function parseClaudeSession(file, { root }) {
     session.usage.output_tokens = add(session.usage.output_tokens, usage.output_tokens);
   }
   session.models = [...models].sort();
+  session.turns.assistant_requests = usageByRequest.size;
   time.finish(session);
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;

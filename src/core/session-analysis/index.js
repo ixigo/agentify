@@ -18,6 +18,7 @@ import {
   parseCodexSession,
 } from "./providers/codex.js";
 import { buildOpportunities, buildRoast } from "./opportunities.js";
+import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./scorecard.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -197,6 +198,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     sidechain_events: 0,
   };
   const sessionRows = [];
+  const scoredSessions = [];
   let malformedTotal = 0;
   let usageSessions = 0;
 
@@ -241,6 +243,11 @@ export async function buildSessionAnalysis(root, options = {}) {
     if (shape.researchHeavy) patterns.research_heavy_sessions += 1;
     if (shape.mechanical) patterns.mechanical_candidate_sessions += 1;
 
+    const workType = classifyWorkType(session);
+    const fit = fitVerdict(workType, session.models);
+    const { score, components } = scoreSession(session, workType, fit);
+    scoredSessions.push({ work_type: workType, fit, score, components });
+
     sessionRows.push({
       session_id: session.session_id,
       provider: session.provider,
@@ -256,8 +263,13 @@ export async function buildSessionAnalysis(root, options = {}) {
       files_touched: session.file_access.filter((entry) => entry.in_repo).length,
       sidechain_events: session.sidechain_events,
       branch: resolved.scope === "current-repo" ? session.branch : null,
+      user_turns: session.turns?.user ?? null,
+      work_type: workType,
+      fit,
+      score,
     });
   }
+  const scorecard = buildScorecard(sessions, scoredSessions);
   sessionRows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 
   const rereadEntries = [...fileSessions.entries()]
@@ -302,6 +314,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       opaque_shell_calls: patterns.opaque_shell_calls,
     },
     patterns,
+    scorecard,
     opportunities,
     suppressed_rules: suppressed,
     roast,

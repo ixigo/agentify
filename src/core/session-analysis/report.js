@@ -34,9 +34,22 @@ export function renderAnalysisText(report) {
     `Agentify analyze — ${report.scope}, last ${report.window_days} day(s), providers: ${report.providers.join(", ")}`,
     `${totals.sessions} session(s) · active ${formatDuration(totals.active_ms)} · ${formatNumber(totals.tool_calls)} tool call(s) · cost ${totals.cost.basis}`,
     `Tokens: ${formatTokens(totals.usage.fresh_input_tokens)} fresh in · ${formatTokens(totals.usage.cache_read_tokens)} cache read · ${formatTokens(totals.usage.output_tokens)} out`,
-    "",
-    "Where Agentify helps:",
   ];
+  const scorecard = report.scorecard;
+  if (scorecard && scorecard.overall_score !== null) {
+    const workMix = Object.entries(scorecard.work_types)
+      .filter(([, count]) => count > 0)
+      .map(([type, count]) => `${type} ${count}`)
+      .join(" · ");
+    lines.push(
+      "",
+      `Scorecard: ${scorecard.overall_score}/100 (${scorecard.grade}) — ${scorecard.grade_quip}`,
+      `Matchup: ${scorecard.matchup.text}`,
+      `  (${scorecard.matchup.basis})`,
+      `Work mix: ${workMix || "nothing classified"}`,
+    );
+  }
+  lines.push("", "Where Agentify helps:");
   if (report.opportunities.length === 0) {
     lines.push("- No evidence-backed opportunities fired in this window.");
   }
@@ -90,18 +103,48 @@ function opportunityCard(item, index) {
 
 function sessionRowsHtml(rows) {
   if (rows.length === 0) {
-    return '<tr><td colspan="8" class="empty">No sessions in this window.</td></tr>';
+    return '<tr><td colspan="12" class="empty">No sessions in this window.</td></tr>';
   }
-  return rows.map((row) => `<tr>
+  return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}">
     <th scope="row"><code>${escapeHtml(row.session_id)}</code></th>
     <td>${escapeHtml(row.provider)}</td>
     <td>${escapeHtml(row.project)}</td>
     <td>${escapeHtml(row.date || "—")}</td>
+    <td>${escapeHtml(row.work_type)}</td>
+    <td><span class="fit fit--${escapeHtml(row.fit)}">${escapeHtml(row.fit)}</span></td>
+    <td class="number">${escapeHtml(row.score === null || row.score === undefined ? "—" : String(row.score))}</td>
     <td class="number">${escapeHtml(formatDuration(row.active_ms))}</td>
     <td>${escapeHtml(row.models.join(", ") || "—")}</td>
+    <td class="number">${escapeHtml(formatNumber(row.user_turns))}</td>
     <td class="number">${escapeHtml(formatNumber(row.tool_calls))}</td>
     <td class="number">${escapeHtml(formatNumber(row.files_touched))}</td>
   </tr>`).join("");
+}
+
+// CSS-only filtering: the radio chips below pair with `main:has()` rules in
+// the stylesheet, so the report keeps its strict no-<script> guarantee.
+function filterGroup(name, legend, values) {
+  const options = [{ id: `${name}-all`, value: null, label: "all" }]
+    .concat(values.map((value) => ({ id: `${name}-${value.replace(/[^a-z-]/gi, "")}`, value, label: value })));
+  const inputs = options.map((option, index) => `<input type="radio" class="filter-input" name="${escapeHtml(name)}" id="${escapeHtml(option.id)}"${index === 0 ? " checked" : ""}><label class="chip chip--filter" for="${escapeHtml(option.id)}">${escapeHtml(option.label)}</label>`).join("");
+  return `<fieldset class="filters"><legend>${escapeHtml(legend)}</legend>${inputs}</fieldset>`;
+}
+
+const WORK_TYPE_VALUES = ["conversation", "research", "quick-fix", "implementation", "debugging", "mixed"];
+const FIT_VALUES = ["overkill", "match", "underkill", "unknown"];
+
+function filterCss() {
+  const rules = [];
+  for (const provider of ["claude", "codex"]) {
+    rules.push(`main:has(#f-provider-${provider}:checked) tr.session-row:not([data-provider="${provider}"]) { display: none; }`);
+  }
+  for (const type of WORK_TYPE_VALUES) {
+    rules.push(`main:has(#f-work-${type.replace(/[^a-z-]/gi, "")}:checked) tr.session-row:not([data-work-type="${type}"]) { display: none; }`);
+  }
+  for (const fit of FIT_VALUES) {
+    rules.push(`main:has(#f-fit-${fit}:checked) tr.session-row:not([data-fit="${fit}"]) { display: none; }`);
+  }
+  return rules.join("\n    ");
 }
 
 export function renderAnalysisHtml(report, options = {}) {
@@ -117,6 +160,51 @@ export function renderAnalysisHtml(report, options = {}) {
     metricCard("tool calls", formatNumber(totals.tool_calls), `${formatNumber(totals.failed_tool_calls)} failed`, "neutral"),
     metricCard("cost basis", totals.cost.basis, "Local stores carry no billed cost", "guard"),
   ].join("");
+
+  const scorecard = report.scorecard;
+  const workTypeChips = scorecard
+    ? Object.entries(scorecard.work_types)
+      .filter(([, count]) => count > 0)
+      .map(([type, count]) => `<span class="chip">${escapeHtml(type)}: ${escapeHtml(formatNumber(count))}</span>`)
+      .join(" ")
+    : "";
+  const fitChips = scorecard
+    ? Object.entries(scorecard.fit)
+      .filter(([, count]) => count > 0)
+      .map(([verdict, count]) => `<span class="chip chip--${escapeHtml(verdict)}">${escapeHtml(verdict)}: ${escapeHtml(formatNumber(count))}</span>`)
+      .join(" ")
+    : "";
+  const delegationRows = scorecard && scorecard.delegation_candidates.length > 0
+    ? scorecard.delegation_candidates.map((candidate) => `<tr>
+      <th scope="row"><code>${escapeHtml(candidate.session_id)}</code></th>
+      <td>${escapeHtml(candidate.work_type)}</td>
+      <td>${escapeHtml(candidate.models.join(", ") || "—")}</td>
+      <td><code>${escapeHtml(candidate.suggestion)}</code></td>
+    </tr>`).join("")
+    : "";
+  const scorecardSection = scorecard ? `
+    <section aria-label="Usage scorecard">
+      <p class="eyebrow">The scorecard</p>
+      <h2>Was the weapon worth the fight?</h2>
+      <p class="lede">Each session is classified by tool mix, matched against the model that fought it, and scored on token generation per turn, failure hygiene, cache use, and search discipline.</p>
+      <article class="card scorecard" data-testid="analyze-scorecard">
+        <div class="score-hero">
+          <p class="score-grade">${escapeHtml(scorecard.grade ?? "—")}</p>
+          <div>
+            <p class="score-value">${escapeHtml(scorecard.overall_score === null ? "—" : `${scorecard.overall_score}/100`)}</p>
+            <p class="score-quip">${escapeHtml(scorecard.grade_quip)}</p>
+          </div>
+        </div>
+        <blockquote class="score-matchup">${escapeHtml(scorecard.matchup.text).replaceAll(/`([^`]+)`/g, "<code>$1</code>")}</blockquote>
+        <p class="roast-basis">basis: ${escapeHtml(scorecard.matchup.basis)}</p>
+        <p class="score-mix"><strong>Work mix:</strong> ${workTypeChips || '<span class="chip">nothing classified</span>'}</p>
+        <p class="score-mix"><strong>Matchups:</strong> ${fitChips || '<span class="chip">none</span>'}</p>
+        ${delegationRows ? `<details><summary>Delegation candidates (${scorecard.delegation_candidates.length})</summary>
+          <div class="table-wrap"><table><caption>Overkill sessions that a cheaper Agentify route could carry</caption><thead><tr><th scope="col">Session</th><th scope="col">Type</th><th scope="col">Models</th><th scope="col">Try</th></tr></thead><tbody>${delegationRows}</tbody></table></div>
+        </details>` : ""}
+        <p class="opp-caveat">${escapeHtml(scorecard.note)}</p>
+      </article>
+    </section>` : "";
 
   const primary = report.opportunities.slice(0, 3).map(opportunityCard).join("");
   const extra = report.opportunities.slice(3);
@@ -195,6 +283,29 @@ export function renderAnalysisHtml(report, options = {}) {
     .opp-try { margin-top: 10px; }
     .opp-verify, .opp-caveat { color: var(--text-dim); font-size: 0.86rem; margin-top: 6px; }
     .opp-caveat::before { content: "Caveat: "; color: var(--amber); font-weight: 600; }
+    .scorecard { margin-top: 18px; }
+    .score-hero { display: flex; gap: 20px; align-items: center; margin-bottom: 14px; }
+    .score-grade { flex: none; font-family: var(--mono); font-size: 3rem; font-weight: 800; color: var(--accent); border: 2px solid var(--border); border-radius: 14px; width: 84px; height: 84px; display: grid; place-items: center; }
+    .score-value { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .score-quip { color: var(--text-dim); }
+    .score-matchup { font-size: 1.08rem; line-height: 1.55; border-left: 4px solid var(--amber); padding-left: 14px; margin: 14px 0 6px; }
+    .score-mix { margin-top: 10px; font-size: 0.9rem; }
+    .chip--overkill { color: var(--amber); border-color: var(--amber); }
+    .chip--underkill { color: var(--accent); }
+    .chip--match { color: var(--accent-2); }
+    .fit { font-family: var(--mono); font-size: 0.78rem; }
+    .fit--overkill { color: var(--amber); }
+    .fit--underkill { color: var(--accent); }
+    .fit--match { color: var(--accent-2); }
+    .fit--unknown { color: var(--text-dim); }
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 16px; margin: 14px 0 4px; }
+    .filters { border: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+    .filters legend { float: left; color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; margin-right: 8px; padding: 2px 0; }
+    .filter-input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .chip--filter { cursor: pointer; user-select: none; }
+    .filter-input:checked + .chip--filter { color: var(--text); border-color: var(--accent); background: var(--bg-soft); }
+    .filter-input:focus-visible + .chip--filter { outline: 2px solid var(--accent); outline-offset: 2px; }
+    ${filterCss()}
     .roast { border-left: 4px solid var(--amber); border-radius: 0 10px 10px 0; margin-top: 18px; }
     .roast blockquote { font-size: 1.12rem; line-height: 1.55; }
     .roast blockquote code { font-size: 0.9em; }
@@ -250,6 +361,7 @@ export function renderAnalysisHtml(report, options = {}) {
       <h2>The window in six numbers</h2>
       <div class="grid">${cards}</div>
     </section>
+${scorecardSection}
     <section aria-label="Where Agentify helps">
       <p class="eyebrow">Where Agentify helps</p>
       <h2>Evidence-backed opportunities</h2>
@@ -285,8 +397,13 @@ export function renderAnalysisHtml(report, options = {}) {
           <div class="table-wrap"><table><caption>Structured reads only — ${escapeHtml(formatNumber(report.file_activity.opaque_shell_calls))} opaque shell call(s) counted, never mined for paths</caption><thead><tr><th scope="col">File</th><th scope="col">Sessions</th></tr></thead><tbody>${fileRows}</tbody></table></div>
         </article>
       </div>
-      <details><summary>Per-session detail (${report.sessions.length})</summary>
-        <div class="table-wrap"><table><caption>Sessions in window, newest first</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Tools</th><th scope="col">Files</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
+      <details open><summary>Per-session detail (${report.sessions.length})</summary>
+        <div class="filter-bar" role="group" aria-label="Session filters (CSS-only, no script)">
+          ${filterGroup("f-provider", "provider", ["claude", "codex"])}
+          ${filterGroup("f-work", "work type", WORK_TYPE_VALUES)}
+          ${filterGroup("f-fit", "matchup", FIT_VALUES)}
+        </div>
+        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
       </details>
     </section>
     <section aria-label="Privacy receipt">

@@ -7,6 +7,13 @@ import path from "node:path";
 import { buildAnalysisManifest, buildSessionAnalysis, resolveAnalyzeProviders } from "../src/core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "../src/core/session-analysis/report.js";
 import { classifyShellCommand, normalizeFilePath } from "../src/core/session-analysis/normalize.js";
+import {
+  buildScorecard,
+  classifyWorkType,
+  fitVerdict,
+  modelTier,
+  scoreSession,
+} from "../src/core/session-analysis/scorecard.js";
 import { runCli } from "../src/main.js";
 
 const SECRET_COMMAND = "export API_KEY=supersecret123 && curl -s https://internal.example.com";
@@ -219,6 +226,112 @@ test("html report is self-contained, escaped, and carries the roast and privacy 
   assert.ok(!/src=["']https?:/.test(html), "external asset reference found");
   assert.ok(!html.includes("<script"), "script tag present in report");
   assert.ok(html.includes("&lt;script&gt;evil.js"), "hostile path was not escaped");
+});
+
+function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, models = [], userTurns = 0, outputTokens = null, cacheRead = null, freshInput = null, activeMs = 5 * 60 * 1000, shell = {} } = {}) {
+  return {
+    session_id: "synthetic",
+    models,
+    turns: { user: userTurns, assistant_requests: userTurns },
+    usage: { fresh_input_tokens: freshInput, cache_read_tokens: cacheRead, cache_write_tokens: null, output_tokens: outputTokens, reasoning_output_tokens: null },
+    tools: { calls, by_name: byName },
+    file_access: Array.from({ length: writes }, (_, index) => ({ path: `f${index}.js`, in_repo: true, operation: "write" })),
+    failed_tool_calls: failed,
+    active_ms: activeMs,
+    shell_patterns: { grep_like: 0, find_like: 0, cat_search_like: 0, full_test_run: 0, focused_test_run: 0, opaque_shell_calls: 0, ...shell },
+  };
+}
+
+test("model tiers classify heavy, standard, light, and unknown identifiers", () => {
+  assert.equal(modelTier("claude-fable-5").label, "heavy");
+  assert.equal(modelTier("claude-opus-4-8").label, "heavy");
+  assert.equal(modelTier("claude-haiku-4-5-20251001").label, "light");
+  assert.equal(modelTier("gpt-5.2-codex").label, "standard");
+  assert.equal(modelTier("mystery-model-9").label, "unknown");
+});
+
+test("work types come from tool mix with an honest mixed fallback", () => {
+  assert.equal(classifyWorkType(syntheticSession()), "conversation");
+  assert.equal(classifyWorkType(syntheticSession({ calls: 10, byName: { Read: 5, Grep: 3 } })), "research");
+  assert.equal(classifyWorkType(syntheticSession({ calls: 6, byName: { Edit: 1 }, writes: 1 })), "quick-fix");
+  assert.equal(classifyWorkType(syntheticSession({ calls: 30, byName: { Edit: 5 }, writes: 5 })), "implementation");
+  assert.equal(classifyWorkType(syntheticSession({ calls: 20, failed: 4 })), "debugging");
+  assert.equal(classifyWorkType(syntheticSession({ calls: 2, byName: { Bash: 2 } })), "mixed");
+});
+
+test("fit verdicts flag guns at fist fights and butter knives at sword fights", () => {
+  assert.equal(fitVerdict("quick-fix", ["claude-fable-5"]), "overkill");
+  assert.equal(fitVerdict("debugging", ["claude-haiku-4-5-20251001"]), "underkill");
+  assert.equal(fitVerdict("implementation", ["claude-fable-5"]), "match");
+  assert.equal(fitVerdict("research", ["gpt-5.2-codex"]), "match");
+  assert.equal(fitVerdict("quick-fix", []), "unknown");
+});
+
+test("session scores are bounded, null-safe, and reward clean sessions", () => {
+  const clean = syntheticSession({ calls: 6, byName: { Edit: 1 }, writes: 1, models: ["claude-haiku-4-5-20251001"], userTurns: 2, outputTokens: 1_000, cacheRead: 90_000, freshInput: 1_000 });
+  const cleanScore = scoreSession(clean, "quick-fix", "match");
+  assert.equal(cleanScore.score, 30 + 25 + 20 + 15 + 10);
+
+  const messy = syntheticSession({ calls: 20, failed: 8, models: ["claude-fable-5"], userTurns: 1, outputTokens: 40_000, cacheRead: 0, freshInput: 50_000, shell: { grep_like: 12 } });
+  const messyScore = scoreSession(messy, "quick-fix", "overkill");
+  assert.ok(messyScore.score < cleanScore.score);
+  assert.ok(messyScore.score >= 0 && messyScore.score <= 100);
+
+  const sparse = syntheticSession();
+  const sparseScore = scoreSession(sparse, "conversation", "unknown");
+  assert.ok(sparseScore.score > 0, "missing telemetry must not zero the score");
+});
+
+test("the scorecard aggregates fits, calls the overkill matchup, and lists delegation candidates", () => {
+  const sessions = [
+    syntheticSession({ calls: 6, byName: { Edit: 1 }, writes: 1, models: ["claude-fable-5"], userTurns: 1, outputTokens: 500 }),
+    syntheticSession({ calls: 5, byName: { Edit: 1 }, writes: 1, models: ["claude-fable-5"], userTurns: 1, outputTokens: 500 }),
+    syntheticSession({ calls: 30, byName: { Edit: 6 }, writes: 6, models: ["claude-fable-5"], userTurns: 3, outputTokens: 5_000 }),
+  ];
+  const enriched = sessions.map((session) => {
+    const workType = classifyWorkType(session);
+    const fit = fitVerdict(workType, session.models);
+    return { work_type: workType, fit, ...scoreSession(session, workType, fit) };
+  });
+  const scorecard = buildScorecard(sessions, enriched);
+  assert.equal(scorecard.schema, "usage-scorecard-v1");
+  assert.equal(scorecard.sessions_scored, 3);
+  assert.equal(scorecard.fit.overkill, 2);
+  assert.equal(scorecard.matchup.signal, "overkill");
+  assert.match(scorecard.matchup.text, /fist fight|thumb war/);
+  assert.match(scorecard.matchup.text, /delegate quick/);
+  assert.equal(scorecard.delegation_candidates.length, 2);
+  assert.ok(scorecard.overall_score >= 0 && scorecard.overall_score <= 100);
+  assert.ok(scorecard.grade);
+  assert.match(scorecard.note, /heuristic/i);
+
+  const again = buildScorecard(sessions, enriched);
+  assert.deepEqual(again, scorecard);
+});
+
+test("the report carries the scorecard in json, text, and filterable html", async () => {
+  const { report } = await fixtureReport();
+  assert.equal(report.scorecard.schema, "usage-scorecard-v1");
+  assert.equal(report.scorecard.sessions_scored, 4);
+  assert.ok(report.scorecard.overall_score !== null);
+  for (const row of report.sessions) {
+    assert.ok(row.work_type);
+    assert.ok(["overkill", "match", "underkill", "unknown"].includes(row.fit));
+    assert.ok(row.score >= 0 && row.score <= 100);
+    assert.ok(row.user_turns !== undefined);
+  }
+
+  const text = renderAnalysisText(report);
+  assert.match(text, /Scorecard: \d+\/100 \([SABCD]\)/);
+  assert.match(text, /Matchup: /);
+
+  const html = renderAnalysisHtml(report, { projectName: "fixture" });
+  assert.ok(html.includes('data-testid="analyze-scorecard"'));
+  assert.ok(html.includes('name="f-provider"'), "provider filter chips missing");
+  assert.ok(html.includes('name="f-work"'), "work-type filter chips missing");
+  assert.ok(html.includes('name="f-fit"'), "matchup filter chips missing");
+  assert.ok(html.includes("main:has(#f-provider-claude:checked)"), "CSS-only filter rules missing");
+  assert.ok(!html.includes("<script"), "filters must not require a script tag");
 });
 
 test("sessions outside the day window are excluded", async () => {

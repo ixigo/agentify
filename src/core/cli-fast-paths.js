@@ -54,7 +54,7 @@ export async function printHelp() {
     `    ${c("serve")}           ${d("MCP server over stdio: ctx/query/risk/test tools for any MCP-capable agent")}`,
     `    ${c("stats")}           ${d("Session and delegation usage: runs, tokens, cost by kind and model (--days)")}`,
     `    ${c("value")}           ${d("Evidence-backed impact report: context, guardrails, delegation, focused tests (--days, --format)")}`,
-    `    ${c("analyze")}         ${d("Privacy-first analysis of local Claude/Codex session history: usage, insights, one roast (--days, --scope, --format, --yes)")}`,
+    `    ${c("analyze")}         ${d("Privacy-first analysis of local Claude/Codex session history: usage, scorecard, insights, one roast (--days, --scope, --format, --yes)")}`,
     `    ${c("review")}          ${d("Cross-vendor review of a change (--diff <ref>, --push for outgoing commits)")}`,
     `    ${c("skill")}           ${d("Manage built-in agent skills")}`,
     `    ${c("hooks")}           ${d("Install/remove git hooks")}`,
