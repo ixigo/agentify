@@ -8,6 +8,7 @@ import {
   createOutcomeTracker,
   createSessionSkeleton,
   createTimeTracker,
+  outcomeEvidenceReliable,
 } from "../normalize.js";
 import { codexPromptText, createContentClassifier } from "../content-classify.js";
 
@@ -112,7 +113,10 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       return;
     }
 
-    if (record.type === "response_item" && payload.type === "function_call") {
+    // Current rollouts emit both function_call and custom_tool_call
+    // records (the latter dominate in recent CLI versions); both count as
+    // tool activity and both can carry a shell command.
+    if (record.type === "response_item" && (payload.type === "function_call" || payload.type === "custom_tool_call")) {
       const name = String(payload.name || "unknown");
       session.tools.calls += 1;
       session.tools.by_name[name] = (session.tools.by_name[name] || 0) + 1;
@@ -121,7 +125,7 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       // counts only and never persisted or evaluated.
       session.shell_patterns.opaque_shell_calls += 1;
       let commandText = "";
-      if (typeof payload.arguments === "string") {
+      if (payload.type === "function_call" && typeof payload.arguments === "string") {
         try {
           const parsed = JSON.parse(payload.arguments);
           commandText = typeof parsed?.cmd === "string"
@@ -130,20 +134,26 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
         } catch {
           commandText = "";
         }
+      } else if (payload.type === "custom_tool_call" && typeof payload.input === "string" && /shell|exec|bash/i.test(name)) {
+        // Only shell-shaped custom tools carry a command; other custom
+        // tool inputs (patches, plans) must not be text-classified.
+        commandText = payload.input;
       }
       const { kinds } = classifyShellCommand(commandText);
       for (const kind of kinds) {
         if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
       }
-      if (payload.call_id) callKinds.set(String(payload.call_id), kinds);
+      if (payload.call_id) {
+        callKinds.set(String(payload.call_id), { kinds, evidenceReliable: outcomeEvidenceReliable(commandText) });
+      }
       return;
     }
 
-    if (record.type === "response_item" && payload.type === "function_call_output") {
+    if (record.type === "response_item" && (payload.type === "function_call_output" || payload.type === "custom_tool_call_output")) {
       // Outputs are JSON-wrapped in current rollouts; only a structurally
       // recognizable exit_code counts as evidence, anything else stays
       // unknowable and never influences the outcome.
-      const kinds = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
+      const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
       let ok = null;
       if (typeof payload.output === "string") {
         try {
@@ -152,7 +162,7 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
           if (Number.isFinite(Number(exitCode))) ok = Number(exitCode) === 0;
         } catch { /* opaque output: no outcome evidence */ }
       }
-      outcome.record(kinds || [], ok);
+      outcome.record(call?.kinds || [], ok, { evidenceReliable: call ? call.evidenceReliable : true });
     }
   });
 

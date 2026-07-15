@@ -483,12 +483,73 @@ test("outcome detection: commits and test results produce conservative evidence"
   ];
   await fs.writeFile(path.join(projectDir, "failing.jsonl"), `${failing.join("\n")}\n`);
 
+  // Session C: commit succeeds but tests fail AFTERWARDS -> not completed.
+  const regressed = [
+    claudeAssistant({
+      ts: minutesAgo(45), requestId: "req_reg", usage: USAGE, cwd: repoRoot,
+      content: [bashTool("t_c2", 'git commit -m "wip"'), bashTool("t_t3", "npm test")],
+    }),
+    claudeUser({
+      ts: minutesAgo(44), cwd: repoRoot,
+      content: [
+        { type: "tool_result", tool_use_id: "t_c2", is_error: false, content: "committed" },
+        { type: "tool_result", tool_use_id: "t_t3", is_error: true, content: "2 failing" },
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "regressed.jsonl"), `${regressed.join("\n")}\n`);
+
+  // Session D: piped/quoted envelopes are not outcome evidence.
+  const unreliable = [
+    claudeAssistant({
+      ts: minutesAgo(42), requestId: "req_unrel", usage: USAGE, cwd: repoRoot,
+      content: [bashTool("t_p1", "npm test | tail -5"), bashTool("t_p2", 'printf "git commit"')],
+    }),
+    claudeUser({
+      ts: minutesAgo(41), cwd: repoRoot,
+      content: [
+        { type: "tool_result", tool_use_id: "t_p1", is_error: false, content: "5 lines" },
+        { type: "tool_result", tool_use_id: "t_p2", is_error: false, content: "git commit" },
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "unreliable.jsonl"), `${unreliable.join("\n")}\n`);
+
   const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot: path.join(repoRoot, "none"), days: 30 });
-  const rows = Object.fromEntries(report.sessions.map((row) => [row.outcome, row]));
-  assert.ok(rows.completed, "commit+passing tests session must be completed");
-  assert.ok(rows.completed.outcome_evidence.some((entry) => entry.signal === "git-commit-succeeded"));
-  assert.ok(rows["likely-incomplete"], "failing-last-test session must be likely-incomplete");
-  assert.ok(rows["likely-incomplete"].outcome_evidence.some((entry) => entry.signal === "last-test-run-failed"));
+  const bySession = new Map(report.sessions.map((row) => [row.tool_calls + ":" + row.outcome, row]));
+  const outcomes = report.sessions.map((row) => row.outcome).sort();
+  assert.deepEqual(outcomes, ["completed", "likely-incomplete", "likely-incomplete", "unknown"]);
+  const completedRow = report.sessions.find((row) => row.outcome === "completed");
+  assert.ok(completedRow.outcome_evidence.some((entry) => entry.signal === "git-commit-succeeded"));
+  const unknownRow = report.sessions.find((row) => row.outcome === "unknown");
+  assert.equal(unknownRow.outcome_evidence.length, 0, "piped/quoted envelopes must contribute no evidence");
+  assert.ok(bySession, "session map built");
+});
+
+test("codex custom_tool_call records count as tools and drive outcomes", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-codex-custom-");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  const dayDir = path.join(codexRoot, "2026", "07", "14");
+  await fs.mkdir(dayDir, { recursive: true });
+  const lines = [
+    JSON.stringify({ timestamp: minutesAgo(30), type: "session_meta", payload: { cwd: repoRoot, id: "cxc", cli_version: "0.110.0" } }),
+    JSON.stringify({ timestamp: minutesAgo(29), type: "turn_context", payload: { model: "gpt-5.2-codex", cwd: repoRoot } }),
+    JSON.stringify({ timestamp: minutesAgo(28), type: "response_item", payload: { type: "custom_tool_call", name: "shell", call_id: "c1", input: 'git commit -m "ship"' } }),
+    JSON.stringify({ timestamp: minutesAgo(27), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "c1", output: JSON.stringify({ output: "ok", metadata: { exit_code: 0 } }) } }),
+    JSON.stringify({ timestamp: minutesAgo(26), type: "response_item", payload: { type: "custom_tool_call", name: "apply_patch", call_id: "c2", input: "*** Begin Patch\ngit commit inside patch text\n*** End Patch" } }),
+    JSON.stringify({ timestamp: minutesAgo(25), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "c2", output: JSON.stringify({ output: "done", metadata: { exit_code: 0 } }) } }),
+  ];
+  await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-cxc.jsonl"), `${lines.join("\n")}\n`);
+
+  const report = await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot, days: 30 });
+  assert.equal(report.totals.sessions, 1);
+  const row = report.sessions[0];
+  assert.equal(row.tool_calls, 2, "custom_tool_call records must count as tool activity");
+  assert.equal(row.outcome, "completed", "exit_code 0 on a shell git commit is completion evidence");
+  assert.equal(report.tools.shell, 1);
+  assert.equal(report.tools.apply_patch, 1);
+  // Patch bodies must never be classified as shell commands.
+  assert.equal(report.patterns.grep_like, 0);
 });
 
 test("overkill sessions without a completed outcome are withheld from delegation", async () => {

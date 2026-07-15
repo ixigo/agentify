@@ -10,6 +10,7 @@ import {
   createSessionSkeleton,
   createTimeTracker,
   normalizeFilePath,
+  outcomeEvidenceReliable,
   recordFileAccess,
 } from "../normalize.js";
 import { claudePromptText, createContentClassifier } from "../content-classify.js";
@@ -147,7 +148,11 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
             if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
           }
           if (item.id) {
-            shellCallsById.set(item.id, { fingerprint: commandFingerprint(input.command), kinds });
+            shellCallsById.set(item.id, {
+              fingerprint: commandFingerprint(input.command),
+              kinds,
+              evidenceReliable: outcomeEvidenceReliable(input.command),
+            });
           }
         }
       }
@@ -167,7 +172,7 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
         if (item?.type !== "tool_result") continue;
         const failed = item.is_error === true;
         const shellCall = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
-        outcome.record(shellCall?.kinds || [], !failed);
+        outcome.record(shellCall?.kinds || [], !failed, { evidenceReliable: shellCall ? shellCall.evidenceReliable : true });
         if (!failed) continue;
         session.failed_tool_calls += 1;
         if (shellCall?.fingerprint) {
