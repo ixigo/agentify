@@ -1200,14 +1200,18 @@ async function captureStdout(fn) {
 
 test("cli: analyze --json --yes emits the full auditable schema", async () => {
   const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
+  let opened = false;
   const out = await captureStdout(() => runCli([
     "analyze", "--root", repoRoot, "--yes", "--json",
     "--claude-root", claudeRoot, "--codex-root", codexRoot,
-  ]));
+  ], {
+    openBrowser: async () => { opened = true; },
+  }));
   const parsed = JSON.parse(out);
   assert.equal(parsed.schema_version, "session-analysis-v1");
   assert.equal(parsed.privacy.ai_spend_usd, 0);
   assert.ok(parsed.roast.text.length > 0);
+  assert.equal(opened, false);
 });
 
 test("cli: analyze refuses to scan non-interactively without --yes", async () => {
@@ -1218,16 +1222,35 @@ test("cli: analyze refuses to scan non-interactively without --yes", async () =>
   );
 });
 
+test("cli: analyze defaults to HTML and opens the generated report", async () => {
+  const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
+  const outputPath = path.join(repoRoot, "agentify-session-analysis.html");
+  const opened = [];
+  await captureStdout(() => runCli([
+    "analyze", "--root", repoRoot, "--yes",
+    "--claude-root", claudeRoot, "--codex-root", codexRoot,
+  ], {
+    openBrowser: async (targetPath) => opened.push(targetPath),
+  }));
+  const html = await fs.readFile(outputPath, "utf8");
+  assert.ok(html.includes('data-testid="agentify-analyze-report"'));
+  assert.deepEqual(opened, [outputPath]);
+});
+
 test("cli: analyze --format html writes a self-contained themed report", async () => {
   const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
   const outputPath = path.join(repoRoot, "analysis.html");
+  let opened = false;
   await captureStdout(() => runCli([
-    "analyze", "--root", repoRoot, "--yes", "--format", "html", "--output", outputPath,
+    "analyze", "--root", repoRoot, "--yes", "--format", "html", "--output", outputPath, "--no-open",
     "--claude-root", claudeRoot, "--codex-root", codexRoot,
-  ]));
+  ], {
+    openBrowser: async () => { opened = true; },
+  }));
   const html = await fs.readFile(outputPath, "utf8");
   assert.ok(html.includes('data-testid="agentify-analyze-report"'));
   assert.ok(!html.includes("supersecret123"));
+  assert.equal(opened, false);
 });
 
 test("insights packet is sanitized, invocations carry only safety flags, output is strictly validated", async () => {

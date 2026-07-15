@@ -346,10 +346,11 @@ Failures and cross-vendor fallbacks are counted per bucket, so a route whose CLI
 
 ```bash
 agentify analyze --dry-run                  # what would be read, nothing parsed
-agentify analyze                            # current repo, last 30 days, text brief
-agentify analyze --days 7 --format html     # writes agentify-session-analysis.html
-agentify analyze --scope global --yes       # across projects, names pseudonymized
+agentify analyze                            # current repo HTML; prompts, writes, and opens it
+agentify analyze --days 7 --yes             # writes + opens agentify-session-analysis.html
+agentify analyze --scope global --yes       # global HTML, names pseudonymized, opens it
 agentify analyze --provider codex --json    # full auditable schema
+agentify analyze --yes --no-open            # write HTML without opening (CI/headless)
 agentify analyze --no-cache                 # re-parse everything, skip the cache
 agentify analyze --source-root codex=./fixtures/codex --yes   # custom store; repeatable per provider
 agentify analyze --content local-extractive --yes             # opt-in: classify prompt text in memory
@@ -357,6 +358,8 @@ agentify analyze --include-config --yes                       # opt-in: structur
 agentify analyze --insights cli --insights-dry-run --yes      # preview the sanitized packet, invoke nothing
 agentify analyze --insights cli --insights-provider both --yes # paid opt-in: CLI-assisted insights
 ```
+
+HTML is the default output. After the report is written, Agentify launches the platform's default browser. If the browser launcher is unavailable, the report remains on disk and Agentify prints its absolute path so you can open it manually. Explicit `--format text`, `--format json`, or `--json` output never launches a browser.
 
 `--insights cli` is a separate, paid opt-in layered on the deterministic analysis: the locally installed Claude and/or Codex CLI is asked to interpret a **sanitized packet** built exclusively from the report's normalized counts, coverage, rule ids, and model/tool names — raw transcripts, prompts, commands, paths, and config values never reach it. `--insights-dry-run` prints the exact packet and provider invocations without calling anything. Runs are tool-less, persistence-free, config-isolated in an empty temp workspace with an env guard so they are never re-imported as user work; Claude enforces `--max-insights-budget-usd` natively, Codex is bounded by read-only sandbox + ephemeral mode + wall-clock timeout (no native USD cap — stated in the plan). Output must match a strict schema and every insight must cite the packet fields it is grounded in, or it is rejected. Insight spend is recorded separately in the privacy receipt and badged "CLI-assisted" in the report.
 

@@ -488,6 +488,7 @@ test("shared-notes gitignore mode toggles and survives baseline rewrites", async
     const text = await fs.readFile(path.join(dir, ".gitignore"), "utf8");
     assert.ok(hasSharedNotesGitignore(text));
     assert.ok(text.includes(".agentify/context/*"));
+    assert.ok(text.includes("agentify-session-analysis.html"));
     assert.ok(!text.includes("\n.agentify/\n"));
 
     // baseline rewrite without an explicit mode must preserve shared
@@ -499,6 +500,7 @@ test("shared-notes gitignore mode toggles and survives baseline rewrites", async
     const after = await fs.readFile(path.join(dir, ".gitignore"), "utf8");
     assert.ok(!hasSharedNotesGitignore(after));
     assert.ok(after.includes(".agentify/"));
+    assert.ok(after.includes("agentify-session-analysis.html"));
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

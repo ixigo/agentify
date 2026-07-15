@@ -29,6 +29,7 @@ const BOOLEAN_FLAGS = new Set([
   "yes",
   "noCache",
   "noProgress",
+  "noOpen",
   "includeConfig",
   "showProjectNames",
   "showPaths",

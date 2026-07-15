@@ -78,7 +78,8 @@ import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, li
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
 import { resolveAgentifyPaths } from "./core/project-store.js";
 import { writePrivateText } from "./core/fs.js";
-import { withSilent, bold, dim, green, success, log } from "./core/ui.js";
+import { openInBrowser } from "./core/browser.js";
+import { withSilent, bold, dim, green, success, warn, log } from "./core/ui.js";
 
 export { parseArgs };
 
@@ -927,7 +928,7 @@ export async function runCli(argv, _runtime = {}) {
         if (!["current-repo", "global"].includes(scope)) {
           throw new Error('analyze --scope must be one of: current-repo, global');
         }
-        const requestedFormat = String(args.format || "text").toLowerCase();
+        const requestedFormat = String(args.format || (config.json ? "json" : "html")).toLowerCase();
         const format = config.json && requestedFormat !== "html" ? "json" : requestedFormat;
         if (!["text", "json", "html"].includes(format)) {
           throw new Error('analyze --format must be one of: text, json, html');
@@ -1101,6 +1102,15 @@ export async function runCli(argv, _runtime = {}) {
             console.log(JSON.stringify({ command: "analyze", format, path: outputPath, report }, null, 2));
           } else {
             success(`Agentify session analysis written: ${path.relative(root, outputPath) || outputPath}`);
+          }
+          if (args.noOpen !== true && config.json !== true) {
+            try {
+              const openBrowser = _runtime.openBrowser || openInBrowser;
+              await openBrowser(outputPath);
+              success("Opened the report in your default browser.");
+            } catch (error) {
+              warn(`Could not open the report automatically (${error?.code || error?.message || "browser opener failed"}). Open it manually: ${outputPath}`);
+            }
           }
         } else if (format === "json") {
           console.log(JSON.stringify(report, null, 2));

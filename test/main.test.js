@@ -53,10 +53,11 @@ async function captureStdout(fn) {
 // ---------------------------------------------------------------------------
 
 test("parseArgs normalizes dashed flags to camelCase booleans", () => {
-  const args = parseArgs(["scan", "--dry-run", "--json"]);
+  const args = parseArgs(["scan", "--dry-run", "--json", "--no-open"]);
   assert.deepEqual(args._, ["scan"]);
   assert.equal(args.dryRun, true);
   assert.equal(args.json, true);
+  assert.equal(args.noOpen, true);
 });
 
 test("parseArgs reads inline and separate flag values", () => {

@@ -15,6 +15,7 @@ export const AGENTIFY_GITIGNORE_PATTERNS = [
   "output.txt",
   "agentify-report.html",
   "agentify-value-report.html",
+  "agentify-session-analysis.html",
 ];
 
 // Shared-context mode: everything under .agentify/ stays local except
@@ -32,6 +33,7 @@ export const AGENTIFY_SHARED_GITIGNORE_PATTERNS = [
   "output.txt",
   "agentify-report.html",
   "agentify-value-report.html",
+  "agentify-session-analysis.html",
 ];
 
 export const SHARED_NOTES_MARKER = "!.agentify/context/notes.jsonl";

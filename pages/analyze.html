@@ -45,17 +45,13 @@
         <pre tabindex="0"><code><span class="c"># install Agentify</span>
 curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
 
-<span class="c"># analyze this repo and write local HTML</span>
+<span class="c"># analyze this repo, write HTML, and open it</span>
 cd /path/to/your/repo
-<span class="a">agentify analyze</span> \
-  --scope current-repo \
-  --days 30 \
-  --format html \
-  --output agentify-session-analysis.html \
-  --yes
+<span class="a">agentify analyze</span>
 
 <span class="a">✓</span> Agentify session analysis written:
-  agentify-session-analysis.html</code></pre>
+  agentify-session-analysis.html
+<span class="a">✓</span> Opened the report in your default browser.</code></pre>
       </aside>
     </div>
   </header>
@@ -77,20 +73,20 @@ cd /path/to/your/repo
           <article class="move">
             <span class="tag">recommended · this repository</span>
             <h3>Create a focused HTML report</h3>
-            <p>Matches sessions to the current repository and writes one self-contained file beside your code.</p>
-            <span class="cmd">agentify analyze --scope current-repo --days 30 --format html --yes</span>
+            <p>Matches sessions to the current repository, writes one self-contained file beside your code, and opens it in your default browser.</p>
+            <span class="cmd">agentify analyze --scope current-repo --days 30 --yes</span>
           </article>
           <article class="move">
             <span class="tag">optional · all repositories</span>
             <h3>See the global pattern</h3>
             <p>Aggregates recent Claude Code and Codex sessions across projects. Project identities remain pseudonymized unless you explicitly reveal them.</p>
-            <span class="cmd">agentify analyze --scope global --days 30 --format html --output agentify-global-analysis.html --yes</span>
+            <span class="cmd">agentify analyze --scope global --days 30 --output agentify-global-analysis.html --yes</span>
           </article>
           <article class="move">
             <span class="tag">narrow · one provider</span>
             <h3>Compare one harness at a time</h3>
             <p>Use the same report contract for Claude Code or Codex when you want a cleaner provider baseline.</p>
-            <span class="cmd">agentify analyze --provider codex --scope current-repo --format html --yes</span>
+            <span class="cmd">agentify analyze --provider codex --scope current-repo --yes</span>
           </article>
         </div>
       </div>
@@ -177,19 +173,19 @@ cd /path/to/your/repo
             <span class="tag">local task classification</span>
             <h3>Current repo only</h3>
             <p>Use deterministic in-memory rules to add task-category signals without storing prompt text.</p>
-            <span class="cmd">agentify analyze --scope current-repo --content local-extractive --format html --yes</span>
+            <span class="cmd">agentify analyze --scope current-repo --content local-extractive --yes</span>
           </article>
           <article class="command-card">
             <span class="tag">configuration posture</span>
             <h3>Global structural audit</h3>
             <p>Include allowlisted Claude Code and Codex configuration structure in a global report.</p>
-            <span class="cmd">agentify analyze --scope global --include-config --format html --yes</span>
+            <span class="cmd">agentify analyze --scope global --include-config --yes</span>
           </article>
           <article class="command-card">
             <span class="tag">fresh parse</span>
             <h3>Bypass the private cache</h3>
             <p>Re-parse every source file. The default cache contains normalized metadata only and is stored with private permissions.</p>
-            <span class="cmd">agentify analyze --scope current-repo --no-cache --format html --yes</span>
+            <span class="cmd">agentify analyze --scope current-repo --no-cache --yes</span>
           </article>
           <article class="command-card">
             <span class="tag">machine-readable</span>
