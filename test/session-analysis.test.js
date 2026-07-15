@@ -225,7 +225,7 @@ test("html report is self-contained, escaped, and carries the roast and privacy 
   assert.ok(html.includes("Where Agentify helps"));
   assert.ok(!/src=["']https?:/.test(html), "external asset reference found");
   assert.ok(!html.includes("<script"), "script tag present in report");
-  assert.ok(html.includes("&lt;script&gt;evil.js"), "hostile path was not escaped");
+  assert.ok(!html.includes("evil.js"), "file paths must not render in the html report");
 });
 
 function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, models = [], userTurns = 0, outputTokens = null, cacheRead = null, freshInput = null, activeMs = 5 * 60 * 1000, shell = {} } = {}) {

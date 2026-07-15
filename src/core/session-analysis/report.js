@@ -221,9 +221,6 @@ export function renderAnalysisHtml(report, options = {}) {
   const toolRows = Object.entries(report.tools).slice(0, 12).map(([name, count]) => `<tr>
     <th scope="row"><code>${escapeHtml(name)}</code></th><td class="number">${escapeHtml(formatNumber(count))}</td>
   </tr>`).join("") || '<tr><td colspan="2" class="empty">No tool calls observed.</td></tr>';
-  const fileRows = report.file_activity.observed_repo_files.map((entry) => `<tr>
-    <th scope="row"><code>${escapeHtml(entry.path)}</code></th><td class="number">${escapeHtml(formatNumber(entry.sessions))}</td>
-  </tr>`).join("") || '<tr><td colspan="2" class="empty">No structured repo file access observed.</td></tr>';
 
   return `<!doctype html>
 <html lang="en">
@@ -391,10 +388,6 @@ ${scorecardSection}
         <article class="card">
           <h3>Tool mix</h3>
           <div class="table-wrap"><table><caption>Top tool calls across sessions</caption><tbody>${toolRows}</tbody></table></div>
-        </article>
-        <article class="card">
-          <h3>Most re-read repo files</h3>
-          <div class="table-wrap"><table><caption>Structured reads only — ${escapeHtml(formatNumber(report.file_activity.opaque_shell_calls))} opaque shell call(s) counted, never mined for paths</caption><thead><tr><th scope="col">File</th><th scope="col">Sessions</th></tr></thead><tbody>${fileRows}</tbody></table></div>
         </article>
       </div>
       <details open><summary>Per-session detail (${report.sessions.length})</summary>
