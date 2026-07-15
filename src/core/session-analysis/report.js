@@ -463,7 +463,7 @@ export function renderAnalysisHtml(report, options = {}) {
 /_/   \\_\\__, |\\___|_| |_|\\__|_|_|  \\__, |
         |___/                      |___/</pre>
     <h1>What your agent sessions actually did.</h1>
-    <p class="tagline">Agentify analyzed <strong>${formatNumber(totals.sessions)} local session(s)</strong> in ${escapeHtml(scopeLabel)} — ${report.privacy.content_mode === "local-extractive" ? "metadata plus in-memory prompt classification (nothing persisted)" : "metadata only"}, nothing uploaded, zero AI spend — and found where it can pull real weight.</p>
+    <p class="tagline">Agentify analyzed <strong>${formatNumber(totals.sessions)} local session(s)</strong> in ${escapeHtml(scopeLabel)} — ${report.privacy.content_mode === "local-extractive" ? "metadata plus in-memory prompt classification (nothing persisted)" : "metadata only"}, ${report.insights?.results ? `deterministic scan uploaded nothing; the opted-in insight run sent a ${escapeHtml(formatNumber(report.insights.packet_preview.bytes))}-byte sanitized packet (spend $${escapeHtml(String(report.privacy.ai_spend_usd))})` : "nothing uploaded, zero AI spend"} — and found where it can pull real weight.</p>
     <div class="meta-row">
       <span class="meta">scope ${escapeHtml(report.scope)}</span>
       <span class="meta">content ${escapeHtml(report.privacy.content_mode)}</span>

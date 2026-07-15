@@ -1034,7 +1034,11 @@ export async function runCli(argv, _runtime = {}) {
           const insightProviders = resolveInsightsProviders(args.insightsProvider);
           const packet = buildInsightsPacket(report);
           const preview = packetPreview(packet);
-          const budgetUsd = Number.isFinite(Number(args.maxInsightsBudgetUsd)) ? Number(args.maxInsightsBudgetUsd) : DEFAULT_INSIGHTS_BUDGET_USD;
+          if (args.maxInsightsBudgetUsd !== undefined
+            && (typeof args.maxInsightsBudgetUsd === "boolean" || !Number.isFinite(Number(args.maxInsightsBudgetUsd)) || Number(args.maxInsightsBudgetUsd) <= 0)) {
+            throw new Error("analyze --max-insights-budget-usd requires a positive dollar amount");
+          }
+          const budgetUsd = args.maxInsightsBudgetUsd !== undefined ? Number(args.maxInsightsBudgetUsd) : DEFAULT_INSIGHTS_BUDGET_USD;
           const timeoutSec = Number.isFinite(Number(args.insightsTimeout)) && Number(args.insightsTimeout) > 0 ? Number(args.insightsTimeout) : DEFAULT_INSIGHTS_TIMEOUT_S;
           const model = args.insightsModel ? String(args.insightsModel) : null;
           const plan = insightProviders.map((provider) => {
@@ -1048,7 +1052,7 @@ export async function runCli(argv, _runtime = {}) {
           const disclosureLines = [
             `Insights: sending the sanitized packet (${preview.bytes} bytes, ~${preview.token_estimate} tokens; fields: ${preview.fields.join(", ")}) to ${insightProviders.join(" and ")} via the local CLI.`,
             ...plan.map((entry) => `  ${entry.provider}: ${entry.command} — enforcement: ${entry.enforcement}`),
-            `Budget: $${budgetUsd} total · timeout ${timeoutSec}s per provider. This is report-generation spend, recorded separately.`,
+            `Budget: $${budgetUsd} enforced natively per claude run; codex is bounded by read-only sandbox + ephemeral mode + the ${timeoutSec}s timeout only (it has no native USD cap and reports no cost). This is report-generation spend, recorded separately.`,
           ];
           for (const line of disclosureLines) {
             process.stderr.write(`${line}\n`);
@@ -1073,7 +1077,11 @@ export async function runCli(argv, _runtime = {}) {
           }
           if (report.insights) {
             report.privacy.ai_spend_usd = Number((report.insights.total_cost_usd || 0).toFixed(4));
-            report.privacy.notes.push(`CLI-assisted insights were generated from the sanitized packet (${preview.bytes} bytes) via ${insightProviders.join(" and ")}; the packet contains normalized counts and identifiers only, and the run was tool-less, persistence-free, and config-isolated.`);
+            report.privacy.ai_spend_coverage = report.insights.cost_coverage;
+            // One provider round trip per insight run: the CLI is local but
+            // the model behind it is not.
+            report.privacy.network_calls = report.insights.results.length;
+            report.privacy.notes.push(`CLI-assisted insights were generated from the sanitized packet (${preview.bytes} bytes) via ${insightProviders.join(" and ")}; the packet contains normalized counts and identifiers only (no paths), and the run was tool-less, persistence-free, and config-isolated (claude --safe-mode / codex --ignore-user-config).`);
           }
           if (args.keepInsightsPacket === true) {
             const packetPath = path.join(root, ".agentify", `insights-packet-${Date.now()}.json`);

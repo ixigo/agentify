@@ -69,12 +69,27 @@ export function buildInsightsPacket(report) {
     },
     models: report.models.map((entry) => ({ model: entry.model, provider: entry.provider, sessions: entry.sessions })),
     tools: report.tools,
-    patterns: report.patterns,
+    // Patterns minus anything path-shaped: the reread top-list carries
+    // repo-relative file paths, which stay on this machine.
+    patterns: {
+      ...report.patterns,
+      files_reread_across_sessions: {
+        count: report.patterns.files_reread_across_sessions.count,
+        max_sessions: report.patterns.files_reread_across_sessions.top.reduce((max, entry) => Math.max(max, entry.sessions), 0),
+      },
+    },
     outcomes: report.sessions.reduce((acc, row) => {
       acc[row.outcome] = (acc[row.outcome] || 0) + 1;
       return acc;
     }, {}),
-    fired_rules: report.opportunities.map((item) => ({ id: item.id, category: item.category, confidence: item.confidence, observed: item.observed })),
+    // Only scalar observations travel; nested structures (e.g. top_files
+    // with paths) are dropped, matching the HTML card treatment.
+    fired_rules: report.opportunities.map((item) => ({
+      id: item.id,
+      category: item.category,
+      confidence: item.confidence,
+      observed: Object.fromEntries(Object.entries(item.observed).filter(([, value]) => typeof value !== "object" || value === null)),
+    })),
     suppressed_rules: report.suppressed_rules.map((rule) => rule.id),
     coverage: report.coverage,
   };
@@ -151,6 +166,7 @@ export function validateInsightsOutput(parsed, packet) {
   const unknownTop = Object.keys(parsed).filter((key) => !["summary", "insights"].includes(key));
   if (unknownTop.length > 0) errors.push(`unknown top-level field(s): ${unknownTop.join(", ")}`);
   if (typeof parsed.summary !== "string" || !parsed.summary.trim()) errors.push("summary missing");
+  else if (parsed.summary.length > 600) errors.push("summary exceeds 600 characters");
   if (!Array.isArray(parsed.insights)) {
     errors.push("insights missing");
     return { valid: false, errors };
@@ -165,17 +181,23 @@ export function validateInsightsOutput(parsed, packet) {
     const unknown = Object.keys(insight).filter((key) => !["title", "explanation", "category", "grounded_in", "suggested_command", "confidence"].includes(key));
     if (unknown.length > 0) errors.push(`${label} has unknown field(s): ${unknown.join(", ")}`);
     if (typeof insight.title !== "string" || !insight.title.trim()) errors.push(`${label} title missing`);
+    else if (insight.title.length > 120) errors.push(`${label} title exceeds 120 characters`);
     if (typeof insight.explanation !== "string" || !insight.explanation.trim()) errors.push(`${label} explanation missing`);
+    else if (insight.explanation.length > 500) errors.push(`${label} explanation exceeds 500 characters`);
     if (!INSIGHT_CATEGORIES.includes(insight.category)) errors.push(`${label} category invalid`);
     if (!["high", "medium", "low"].includes(insight.confidence)) errors.push(`${label} confidence invalid`);
     if (!Array.isArray(insight.grounded_in) || insight.grounded_in.length === 0) {
       errors.push(`${label} grounded_in missing`);
+    } else if (insight.grounded_in.length > 6) {
+      errors.push(`${label} grounded_in exceeds 6 references`);
     } else {
       for (const ref of insight.grounded_in) {
-        if (!packetHasPath(packet, ref)) errors.push(`${label} grounded_in references unknown packet field "${ref}"`);
+        if (typeof ref !== "string" || ref.length > 120) errors.push(`${label} grounded_in entry is not a short string`);
+        else if (!packetHasPath(packet, ref)) errors.push(`${label} grounded_in references unknown packet field "${ref}"`);
       }
     }
-    if (insight.suggested_command !== undefined && !SUGGESTED_COMMAND_PATTERN.test(insight.suggested_command)) {
+    if (insight.suggested_command !== undefined
+      && (typeof insight.suggested_command !== "string" || insight.suggested_command.length > 140 || !SUGGESTED_COMMAND_PATTERN.test(insight.suggested_command))) {
       errors.push(`${label} suggested_command is not an agentify command`);
     }
   }
@@ -206,7 +228,11 @@ export function buildInsightInvocation(provider, { model, budgetUsd, timeoutSec,
         "--output-format", "json",
         // Inline JSON schema (the claude CLI takes the schema text, not a path).
         "--json-schema", JSON.stringify(INSIGHTS_OUTPUT_SCHEMA),
-        "--allowed-tools", "",
+        // --tools "" removes every tool (an --allowed-tools allowlist would
+        // only gate permissions); --safe-mode keeps user hooks, MCP servers,
+        // plugins, and CLAUDE.md out of the run entirely.
+        "--tools", "",
+        "--safe-mode",
         "--no-session-persistence",
         "--max-budget-usd", String(budgetUsd),
         // Default to the light tier: interpreting a ~3 KB packet needs no
@@ -285,6 +311,7 @@ export async function runCliInsights({ providers, packet, model = null, budgetUs
   const agreement = providers.length === 2 && results.every((result) => result.ok)
     ? compareProviderInsights(results[0], results[1])
     : null;
+  const unreportedCost = results.filter((result) => result.cost_usd === null).length;
   return {
     mode: "cli",
     packet_preview: packetPreview(packet),
@@ -292,7 +319,10 @@ export async function runCliInsights({ providers, packet, model = null, budgetUs
     timeout_s: timeoutSec,
     results,
     agreement,
-    total_cost_usd: results.reduce((sum, result) => sum + (result.cost_usd ?? 0), 0),
+    // Known spend only: a provider that reports no cost (codex) makes the
+    // total a labeled floor, never a fake zero.
+    total_cost_usd: Number(results.reduce((sum, result) => sum + (result.cost_usd ?? 0), 0).toFixed(4)),
+    cost_coverage: unreportedCost === 0 ? "complete" : `partial (${unreportedCost} provider(s) reported no cost; the total is a floor)`,
     note: "CLI-assisted insights interpret the sanitized packet only; consensus between providers is agreement, not proof. Their cost is report-generation spend, separate from the analyzed sessions.",
   };
 }

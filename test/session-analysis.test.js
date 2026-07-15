@@ -1182,6 +1182,10 @@ test("insights packet is sanitized, invocations carry only safety flags, output 
     assert.ok(!serialized.includes(secret), `packet leaked: ${secret}`);
   }
   assert.ok(!serialized.includes("session_id"), "packet must not carry per-session ids");
+  // Repo file paths (reread top-list, rule top_files) must not travel.
+  assert.ok(!serialized.includes("src/core/models.js"), "packet leaked a repo file path");
+  assert.ok(!serialized.includes('"top"'), "packet carries the path-bearing top list");
+  assert.equal(packet.patterns.files_reread_across_sessions.count, report.patterns.files_reread_across_sessions.count);
   assert.equal(packet.schema, "insights-packet-v1");
   assert.ok(packetPreview(packet).bytes > 0);
 
@@ -1189,7 +1193,8 @@ test("insights packet is sanitized, invocations carry only safety flags, output 
   const claude = buildInsightInvocation("claude", { model: null, budgetUsd: 0.25, timeoutSec: 60, schemaPath: "/tmp/s.json" });
   assert.ok(claude.args.includes("--no-session-persistence"));
   assert.ok(claude.args.includes("--max-budget-usd"));
-  assert.deepEqual(claude.args[claude.args.indexOf("--allowed-tools") + 1], "");
+  assert.deepEqual(claude.args[claude.args.indexOf("--tools") + 1], "", "--tools \"\" disables all tools");
+  assert.ok(claude.args.includes("--safe-mode"), "user hooks/MCP/instructions must stay out of the run");
   assert.equal(claude.args[claude.args.indexOf("--model") + 1], "haiku", "insights default to the light tier");
   assert.match(claude.args[claude.args.indexOf("--json-schema") + 1], /^\{/, "schema is passed inline, not as a path");
   const codex = buildInsightInvocation("codex", { model: null, budgetUsd: 0.25, timeoutSec: 60, schemaPath: "/tmp/s.json" });
@@ -1207,6 +1212,15 @@ test("insights packet is sanitized, invocations carry only safety flags, output 
   assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], grounded_in: ["made.up.field"] }] }, packet).valid, false);
   assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], category: "hacking" }] }, packet).valid, false);
   assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], suggested_command: "rm -rf /" }] }, packet).valid, false);
+  // Schema limits are enforced, not just declared.
+  assert.equal(validateInsightsOutput({ summary: "x".repeat(601), insights: good.insights }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], title: "t".repeat(121) }] }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], explanation: "e".repeat(501) }] }, packet).valid, false);
+  assert.equal(validateInsightsOutput({ summary: "ok", insights: [{ ...good.insights[0], grounded_in: Array(7).fill("patterns.grep_like") }] }, packet).valid, false);
+  // Cost coverage: a provider reporting no cost makes the total a floor.
+  const noCostExec = async () => ({ stdout: JSON.stringify({ result: JSON.stringify(good) }) });
+  const floor = await runCliInsights({ providers: ["claude"], packet, exec: noCostExec });
+  assert.match(floor.cost_coverage, /partial/);
 
   // Fake-exec end-to-end: claude envelope parsed, cost recorded separately.
   const fakeExec = async (command, args) => {
