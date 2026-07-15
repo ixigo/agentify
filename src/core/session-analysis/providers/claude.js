@@ -170,6 +170,12 @@ export async function parseClaudeSession(file, { root }) {
     session.usage.cache_read_tokens = add(session.usage.cache_read_tokens, usage.cache_read_input_tokens);
     session.usage.cache_write_tokens = add(session.usage.cache_write_tokens, usage.cache_creation_input_tokens);
     session.usage.output_tokens = add(session.usage.output_tokens, usage.output_tokens);
+    // TTL split (5-minute vs 1-hour writes) matters for pricing: 1h writes
+    // cost 2x input vs 1.25x for the 5m default.
+    if (usage.cache_creation && typeof usage.cache_creation === "object") {
+      session.usage.cache_write_5m_tokens = add(session.usage.cache_write_5m_tokens, usage.cache_creation.ephemeral_5m_input_tokens);
+      session.usage.cache_write_1h_tokens = add(session.usage.cache_write_1h_tokens, usage.cache_creation.ephemeral_1h_input_tokens);
+    }
   }
   session.models = [...models].sort();
   session.turns.assistant_requests = usageByRequest.size;

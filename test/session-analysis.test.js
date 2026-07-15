@@ -345,11 +345,26 @@ test("cost estimates use exact model + effective date and never claim billed spe
   assert.equal(haiku.estimated_usd, 3.825);
   assert.equal(haiku.basis, "versioned-price-estimate");
 
-  // Unknown model, multi-model, and pre-effective-date sessions stay unpriced.
+  // Unknown model, multi-model, pre-effective-date, and undated sessions stay unpriced.
   assert.equal(estimateSessionCost({ models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
   assert.equal(estimateSessionCost({ models: ["claude-haiku-4-5", "gpt-5.1"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
   assert.equal(priceEntryFor("claude-haiku-4-5", "2024-01-01T00:00:00Z"), null);
+  assert.equal(priceEntryFor("claude-haiku-4-5", null), null, "undated sessions must stay unpriced");
   assert.equal(estimateSessionCost({ models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage: { ...usage, output_tokens: null } }).estimated_usd, null);
+
+  // Cache-write TTL split: 1-hour writes cost 2x input, 5-minute 1.25x.
+  const splitUsage = { fresh_input_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 200_000, cache_write_5m_tokens: 100_000, cache_write_1h_tokens: 100_000, output_tokens: 0 };
+  const split = estimateSessionCost({ models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage: splitUsage });
+  assert.equal(split.estimated_usd, Number(((100_000 * 1.25 + 100_000 * 2) / 1e6).toFixed(4)));
+  assert.equal(split.assumption, null);
+  // Without the split, the 5m default rate applies and the assumption is labeled.
+  const unsplit = estimateSessionCost({ models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage: { ...splitUsage, cache_write_5m_tokens: null, cache_write_1h_tokens: null } });
+  assert.match(unsplit.assumption, /5-minute TTL rate/);
+
+  // Aggregation sums raw precision and rounds once at the end.
+  const tiny = Array.from({ length: 1000 }, () => ({ models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage: { fresh_input_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 2 } }));
+  const tinySummary = buildCostSummary(tiny, tiny.map((session) => estimateSessionCost(session)));
+  assert.equal(tinySummary.estimated_usd, 0.01, "1000 x $0.00001 must not vanish to $0.00");
 
   const sessions = [
     { models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage },
