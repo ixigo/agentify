@@ -14,6 +14,7 @@ import {
   modelTier,
   scoreSession,
 } from "../src/core/session-analysis/scorecard.js";
+import { createProgressRenderer } from "../src/core/session-analysis/progress.js";
 import { runCli } from "../src/main.js";
 
 const SECRET_COMMAND = "export API_KEY=supersecret123 && curl -s https://internal.example.com";
@@ -332,6 +333,54 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(html.includes('name="f-fit"'), "matchup filter chips missing");
   assert.ok(html.includes("main:has(#f-provider-claude:checked)"), "CSS-only filter rules missing");
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
+});
+
+test("progress renders throttled TTY lines to stderr and clears on finish", () => {
+  const writes = [];
+  const stream = { isTTY: true, write: (chunk) => writes.push(chunk) };
+  let clock = 0;
+  const renderer = createProgressRenderer({ stream, enabled: true, intervalMs: 80, now: () => clock });
+
+  renderer.update({ provider: "claude", filesDone: 1, filesTotal: 10, bytesDone: 1_000_000, sessions: 1 });
+  clock += 10;
+  renderer.update({ provider: "claude", filesDone: 2, filesTotal: 10, bytesDone: 2_000_000, sessions: 2 });
+  clock += 200;
+  renderer.update({ provider: "claude", filesDone: 5, filesTotal: 10, bytesDone: 5_000_000, sessions: 5 });
+  renderer.update({ provider: "claude", filesDone: 10, filesTotal: 10, bytesDone: 9_500_000, sessions: 8 });
+  renderer.finish();
+
+  // Throttling: the 10ms-later update was skipped; the final update always renders.
+  assert.equal(writes.filter((chunk) => chunk.includes("file(s)")).length, 3);
+  assert.ok(writes.some((chunk) => chunk.includes("claude 10/10 file(s)")));
+  assert.ok(writes.every((chunk) => chunk.startsWith("\r")), "progress must overwrite one line, not scroll");
+  // finish() clears the line.
+  assert.match(writes[writes.length - 1], /^\r +\r$/);
+
+  // Disabled renderer (non-TTY or --no-progress) emits nothing at all.
+  const silentWrites = [];
+  const silent = createProgressRenderer({ stream: { isTTY: false, write: (chunk) => silentWrites.push(chunk) } });
+  silent.update({ provider: "codex", filesDone: 1, filesTotal: 2, bytesDone: 10, sessions: 1 });
+  silent.finish();
+  assert.equal(silentWrites.length, 0);
+});
+
+test("buildSessionAnalysis reports per-provider progress with totals", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-progress-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  await writeClaudeFixtures(claudeRoot, repoRoot);
+  await writeCodexFixtures(codexRoot, repoRoot);
+  const updates = [];
+  await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, onProgress: (update) => updates.push(update) });
+
+  const claudeUpdates = updates.filter((update) => update.provider === "claude");
+  const codexUpdates = updates.filter((update) => update.provider === "codex");
+  assert.equal(claudeUpdates.length, 4, "one progress tick per discovered claude file");
+  assert.equal(codexUpdates.length, 2);
+  const last = claudeUpdates[claudeUpdates.length - 1];
+  assert.equal(last.filesDone, last.filesTotal);
+  assert.ok(last.bytesDone > 0);
+  assert.equal(last.sessions, 3, "foreign-repo session stays out of scope");
 });
 
 test("incremental cache: second scan hits, edits invalidate, --no-cache bypasses", async () => {

@@ -41,6 +41,7 @@ import {
   resolveAnalyzeProviders,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
+import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent } from "./core/profiles.js";
@@ -929,6 +930,11 @@ export async function runCli(argv, _runtime = {}) {
             ? path.join(config._agentifyPaths.cacheRoot, "session-analysis")
             : null,
         };
+        const progress = createProgressRenderer({
+          stream: process.stderr,
+          enabled: args.noProgress === true ? false : undefined,
+        });
+        analyzeOptions.onProgress = (update) => progress.update(update);
 
         // --dry-run discloses roots, file counts, and bytes without parsing
         // any record bodies, so it never needs consent.
@@ -973,7 +979,12 @@ export async function runCli(argv, _runtime = {}) {
           }
         }
 
-        const report = await buildSessionAnalysis(root, analyzeOptions);
+        let report;
+        try {
+          report = await buildSessionAnalysis(root, analyzeOptions);
+        } finally {
+          progress.finish();
+        }
         if (format === "html") {
           if (args.output === true) {
             throw new Error("analyze --output requires a file path");

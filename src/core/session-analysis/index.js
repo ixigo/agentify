@@ -47,6 +47,7 @@ function resolveOptions(root, options) {
     codexRoot: options.codexRoot || null,
     cacheRoot: options.cacheRoot || null,
     cache: options.cache !== false,
+    onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
 
@@ -128,7 +129,16 @@ export async function buildSessionAnalysis(root, options = {}) {
       sessions: 0,
     };
     sourceStats.set(source.provider, stats);
-    for (const file of source.files) {
+    let filesDone = 0;
+    let bytesDone = 0;
+    const report = () => resolved.onProgress?.({
+      provider: source.provider,
+      filesDone,
+      filesTotal: source.files.length,
+      bytesDone,
+      sessions: stats.sessions,
+    });
+    const processFile = async (file) => {
       let session = await cache.get(file, root);
       if (session) {
         // Coverage must stay auditable: a warm entry means the JSONL bytes
@@ -141,7 +151,7 @@ export async function buildSessionAnalysis(root, options = {}) {
             : await parseCodexSession(file, { root });
         } catch {
           stats.files_out_of_scope += 1;
-          continue;
+          return;
         }
         await cache.put(file, root, session);
         stats.files_parsed += 1;
@@ -154,15 +164,21 @@ export async function buildSessionAnalysis(root, options = {}) {
           : codexSessionMatchesRepo(session, root);
         if (!matches) {
           stats.files_out_of_scope += 1;
-          continue;
+          return;
         }
       }
       if (!sessionInWindow(session, file, resolved.cutoffMs)) {
         stats.files_out_of_window += 1;
-        continue;
+        return;
       }
       stats.sessions += 1;
       sessions.push(session);
+    };
+    for (const file of source.files) {
+      await processFile(file);
+      filesDone += 1;
+      bytesDone += file.size || 0;
+      report();
     }
   }
   await cache.sweep(sources.flatMap((source) => source.files), resolved.providers);
