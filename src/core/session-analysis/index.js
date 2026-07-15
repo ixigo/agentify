@@ -91,6 +91,8 @@ function resolveOptions(root, options) {
     includeConfig: options.includeConfig === true,
     claudeHome: options.claudeHome || null,
     codexHome: options.codexHome || null,
+    // Precomputed by the CLI (read-only probes); null keeps the core pure.
+    toolInventory: options.toolInventory || null,
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
@@ -431,7 +433,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     max_repeats: repeatCounts.length > 0 ? Math.max(...repeatCounts) : 0,
   };
 
-  const { opportunities, suppressed } = buildOpportunities(patterns, { windowDays: resolved.days });
+  const { opportunities, suppressed } = buildOpportunities(patterns, { windowDays: resolved.days, inventory: resolved.toolInventory });
   const roast = buildRoast(patterns, totals, { windowDays: resolved.days });
 
   const fileActivity = [...fileSessions.entries()]
@@ -460,6 +462,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     },
     patterns,
     scorecard,
+    tool_inventory: resolved.toolInventory,
     config_audit: resolved.includeConfig
       ? await buildConfigAudit({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome })
       : null,

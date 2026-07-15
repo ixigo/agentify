@@ -44,6 +44,7 @@ import {
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
+import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent } from "./core/profiles.js";
@@ -998,6 +999,9 @@ export async function runCli(argv, _runtime = {}) {
           }
         }
 
+        // Read-only capability probes (tool versions, rtk gain summary,
+        // index freshness) so recommendations only point at what exists.
+        analyzeOptions.toolInventory = await detectToolInventory({ root, artifactPaths: config._agentifyPaths });
         let report;
         try {
           report = await buildSessionAnalysis(root, analyzeOptions);

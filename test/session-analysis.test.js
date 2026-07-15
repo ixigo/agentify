@@ -439,6 +439,58 @@ test("current-repo local-extractive never caches content facts for foreign sessi
   assert.ok(inScopeContentEntries >= 4, "in-scope sessions are content-classified");
 });
 
+test("tool inventory probes read-only and gates recommendations on availability", async () => {
+  const { detectToolInventory } = await import("../src/core/session-analysis/tool-inventory.js");
+  const { buildOpportunities } = await import("../src/core/session-analysis/opportunities.js");
+
+  const calls = [];
+  const fakeExec = async (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "rtk" && args[0] === "--version") return { stdout: "rtk 0.43.0\n" };
+    if (command === "rtk" && args[0] === "gain") return { stdout: JSON.stringify({ summary: { total_commands: 100, total_saved: 5000, avg_savings_pct: 30.5 } }) };
+    if (command === "rg") throw new Error("not found");
+    return { stdout: `${command} version 1.2.3` };
+  };
+  const inventory = await detectToolInventory({ exec: fakeExec });
+  assert.equal(inventory.schema, "tool-inventory-v1");
+  assert.equal(inventory.tools.rtk.available, true);
+  assert.equal(inventory.tools.rtk.version, "0.43.0");
+  assert.equal(inventory.tools.rtk.gain.parse_coverage, "json");
+  assert.equal(inventory.tools.rtk.gain.total_saved_tokens, 5000);
+  assert.equal(inventory.tools.rg.available, false);
+  assert.equal(inventory.agentify_index.status, "unknown");
+  assert.ok(calls.every((call) => /--version|gain --format json/.test(call)), "probes must be read-only version/summary queries");
+
+  const patterns = {
+    sessions: 5, grep_like: 20, find_like: 0, cat_search_like: 0, full_test_runs: 0, focused_test_runs: 0,
+    opaque_shell_calls: 500, failed_tool_calls: 0, files_written: 0, research_heavy_sessions: 0,
+    mechanical_candidate_sessions: 0, longest_session_ms: 0, sidechain_events: 0,
+    files_reread_across_sessions: { count: 0, top: [] },
+    repeated_failed_commands: { fingerprints: 0, max_repeats: 0 },
+  };
+  // rtk installed -> the install tip is suppressed with the measured basis.
+  const withRtk = buildOpportunities(patterns, { windowDays: 30, inventory });
+  const rtkSuppressed = withRtk.suppressed.find((rule) => rule.id === "rtk-token-compression");
+  assert.match(rtkSuppressed.reason, /already installed/);
+  assert.match(rtkSuppressed.reason, /5,000 tokens saved/);
+  // rg missing -> the search suggestion names the install step.
+  const search = withRtk.opportunities.find((item) => item.id === "broad-text-search");
+  assert.match(search.suggestion.command, /brew install ripgrep/);
+
+  // rtk absent with heavy shell volume -> low-confidence tip, no savings claim.
+  const noRtk = { ...inventory, tools: { ...inventory.tools, rtk: { available: false, version: null }, rg: { available: true, version: "14.0.0" } } };
+  const withoutRtk = buildOpportunities(patterns, { windowDays: 30, inventory: noRtk });
+  const rtkTip = withoutRtk.opportunities.find((item) => item.id === "rtk-token-compression");
+  assert.equal(rtkTip.confidence, "low");
+  assert.equal(rtkTip.impact, "unavailable");
+  assert.match(rtkTip.caveat, /No savings are claimed/);
+  assert.ok(!withoutRtk.opportunities.find((item) => item.id === "broad-text-search").suggestion.command.includes("brew install"));
+
+  // Library calls without probes remain pure and say so.
+  const pure = buildOpportunities(patterns, { windowDays: 30 });
+  assert.match(pure.suppressed.find((rule) => rule.id === "rtk-token-compression").reason, /inventory unavailable/);
+});
+
 test("--include-config audits allowlisted sources structurally and leaks no values", async () => {
   const home = await makeRoot("agentify-analyze-config-");
   const claudeHome = path.join(home, "claude-home");

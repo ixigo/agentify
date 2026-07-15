@@ -436,6 +436,13 @@ ${scorecardSection}
           <h3>Tool mix</h3>
           <div class="table-wrap"><table><caption>Top tool calls across sessions</caption><tbody>${toolRows}</tbody></table></div>
         </article>
+        ${report.tool_inventory ? `<article class="card" data-testid="analyze-tool-inventory">
+          <h3>Installed tooling</h3>
+          <div class="table-wrap"><table><caption>Read-only probes — nothing installed or executed from history</caption><tbody>
+            ${Object.entries(report.tool_inventory.tools).map(([name, tool]) => `<tr><th scope="row"><code>${escapeHtml(name)}</code></th><td>${tool.available ? `v${escapeHtml(tool.version || "?")}` : "not detected"}${name === "rtk" && tool.gain?.parse_coverage === "json" ? ` · ${escapeHtml(formatTokens(tool.gain.total_saved_tokens))} tokens saved (measured)` : ""}</td></tr>`).join("")}
+            <tr><th scope="row"><code>agentify index</code></th><td>${escapeHtml(report.tool_inventory.agentify_index.status)}</td></tr>
+          </tbody></table></div>
+        </article>` : ""}
       </div>
       <details open><summary>Per-session detail (${report.sessions.length})</summary>
         <div class="filter-bar" role="group" aria-label="Session filters (CSS-only, no script)">

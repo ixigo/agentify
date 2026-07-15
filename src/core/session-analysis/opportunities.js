@@ -51,11 +51,13 @@ const RULES = [
   {
     id: "broad-text-search",
     category: "search",
-    evaluate(patterns, windowDays) {
+    evaluate(patterns, windowDays, inventory) {
       const broad = patterns.grep_like + patterns.find_like + patterns.cat_search_like;
       if (broad < 10) {
         return { suppressed: `only ${broad} broad grep/find/cat search command(s) observed in ${windowDays} day(s); threshold is 10` };
       }
+      const rgMissing = inventory && inventory.tools?.rg?.available === false;
+      const indexMissing = inventory && ["missing", "unknown"].includes(inventory.agentify_index?.status);
       return recommendation({
         id: "broad-text-search",
         category: "search",
@@ -66,12 +68,42 @@ const RULES = [
         },
         suggestion: {
           capability: "indexed structural queries",
-          command: "agentify query search|def|refs|callers (after `agentify scan`), or rg for plain text",
+          command: `agentify query search|def|refs|callers${indexMissing ? " (run `agentify scan` first — no fresh index found)" : " (after `agentify scan`)"}, or rg for plain text${rgMissing ? " (rg not detected: `brew install ripgrep`)" : ""}`,
         },
         rationale: "Repeated whole-tree text scans re-read the same files every session. An index answers symbol and reference questions once, and rg is measurably faster than grep -r on large trees.",
         confidence: "medium",
         verification: "Run `agentify scan`, then time `agentify query refs --symbol <name>` against your usual grep pipeline.",
         caveat: "Command classification is heuristic and counts invocations, not wall-clock time; small greps over streams are fine.",
+      });
+    },
+  },
+  {
+    id: "rtk-token-compression",
+    category: "shell",
+    evaluate(patterns, windowDays, inventory) {
+      if (!inventory) {
+        return { suppressed: "tool inventory unavailable (library call without CLI probes)" };
+      }
+      const rtk = inventory.tools?.rtk;
+      if (rtk?.available) {
+        const saved = rtk.gain?.total_saved_tokens;
+        return { suppressed: `rtk is already installed${Number.isFinite(saved) && saved > 0 ? ` and has measured ${saved.toLocaleString("en-US")} tokens saved (rtk gain)` : ""}` };
+      }
+      if (patterns.opaque_shell_calls < 100) {
+        return { suppressed: `only ${patterns.opaque_shell_calls} shell call(s) observed in ${windowDays} day(s); threshold for suggesting rtk is 100` };
+      }
+      return recommendation({
+        id: "rtk-token-compression",
+        category: "shell",
+        observed: { shell_calls: patterns.opaque_shell_calls },
+        suggestion: {
+          capability: "command-output token compression",
+          command: "install rtk (github.com/rtk-rs) and let its hook wrap high-volume commands",
+        },
+        rationale: "A large share of agent context is command output. RTK compresses supported command output before the model reads it and measures the savings per command (`rtk gain`).",
+        confidence: "low",
+        verification: "After installing, run `rtk gain` for a week and compare total_saved against zero.",
+        caveat: "No savings are claimed in advance: whether your specific commands are RTK-supported is only measurable after installation.",
       });
     },
   },
@@ -179,11 +211,11 @@ const RULES = [
   },
 ];
 
-export function buildOpportunities(patterns, { windowDays }) {
+export function buildOpportunities(patterns, { windowDays, inventory = null }) {
   const opportunities = [];
   const suppressed = [];
   for (const rule of RULES) {
-    const result = rule.evaluate(patterns, windowDays);
+    const result = rule.evaluate(patterns, windowDays, inventory);
     if (result.suppressed) {
       suppressed.push({ id: rule.id, category: rule.category, reason: result.suppressed });
     } else {
