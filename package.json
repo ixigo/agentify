@@ -21,7 +21,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "bench:analyze": "AGENTIFY_BENCH=1 node --test test/session-analysis-bench.test.js"
   },
   "engines": {
     "node": ">=20"
