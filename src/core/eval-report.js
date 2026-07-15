@@ -662,14 +662,38 @@ export function renderEvalReportHtml(report) {
 <meta charset="utf-8">
 <title>Eval report — ${escapeHtml(report.task.id)} (${escapeHtml(report.run_id)})</title>
 <style>
-  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; color: #1a1a1a; }
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root {
+    color-scheme: dark;
+    --color-bg: #1a1817;
+    --color-surface: #242120;
+    --color-text: #f4f2f0;
+    --color-accent: #f5591f;
+    --color-accent-2: #ff7a4d;
+    --color-divider: color-mix(in srgb, #f4f2f0 20%, transparent);
+    --color-neutral-600: #a8a29d;
+    --color-neutral-700: #c9c3be;
+    --color-accent-700: #ff8a5a;
+    --term-bg: #100f0e;
+    --font-heading: "Archivo", system-ui, sans-serif;
+    --font-body: "Archivo", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  body { font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; background: var(--color-bg); color: var(--color-text); }
+  h1, h2, h3 { font-family: var(--font-heading); font-weight: 800; line-height: 1.12; letter-spacing: -0.015em; }
+  ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+  a { color: var(--color-accent); }
   table { border-collapse: collapse; margin: 0.75rem 0; width: 100%; }
-  th, td { border: 1px solid #ddd; padding: 0.3rem 0.6rem; text-align: left; }
-  th { background: #f5f5f5; }
-  code { background: #f2f2f2; padding: 0 0.25rem; border-radius: 3px; }
-  pre { background: #f7f7f7; padding: 0.5rem; overflow-x: auto; }
-  .labels { color: #b00; font-weight: 600; }
-  details { margin: 0.5rem 0; border: 1px solid #eee; border-radius: 4px; padding: 0.4rem 0.6rem; }
+  th, td { border-bottom: 1px solid var(--color-divider); padding: 0.3rem 0.6rem; text-align: left; }
+  thead th, tr:first-child th { border-bottom: 2px solid var(--color-divider); color: var(--color-neutral-700); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  tbody tr:hover td, tbody tr:hover th { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--color-surface); padding: 1px 6px; }
+  pre { font-family: var(--mono); background: var(--term-bg); color: #f3f2f2; border: 2px solid var(--color-text); border-radius: 0; padding: 0.75rem; overflow-x: auto; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  .labels { color: var(--color-accent-700); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  details { margin: 0.5rem 0; border: 1px solid var(--color-divider); border-radius: 0; padding: 0.4rem 0.6rem; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 </style>
 </head>
 <body>

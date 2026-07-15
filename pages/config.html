@@ -10,18 +10,19 @@
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
 
-  <nav aria-label="Primary navigation">
-    <div class="container">
-      <a class="brand" href="../index.html">Agentify</a>
-      <div class="nav-links">
-        <a href="../index.html">home</a>
-        <a href="analyze.html">analyze</a>
-        <span class="pill" aria-current="page">config</span>
-        <a href="usage.html">usage</a>
-        <a href="../skill-catalog.html">catalog</a>
-      </div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
+      <nav class="topnav" aria-label="Primary navigation">
+        <a href="../index.html">Home</a>
+        <a href="analyze.html">Analyze</a>
+        <a href="config.html" aria-current="page">Config</a>
+        <a href="usage.html">Usage</a>
+        <a href="../skill-catalog.html">Skills</a>
+      </nav>
+      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
     </div>
-  </nav>
+  </header>
 
   <header data-testid="config-page">
     <div class="container hero-grid">
@@ -294,11 +295,21 @@ models:
     </section>
   </main>
 
-  <footer>
+  <section class="poster">
     <div class="container">
-      <span>Agentify · config you can explain</span>
-      <span><a href="../index.html">home</a> · <a href="analyze.html">analyze</a> · <a href="https://github.com/ixigo/agentify">GitHub</a></span>
+      <div class="poster-kicker">agentify route explain "design the migration"</div>
+      <h2>Change the policy, not every default.</h2>
+      <a class="poster-cta" href="usage.html">Explore every command <span class="mono">↗</span></a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span class="foot-brand">AGENTIFY</span>
+      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
     </div>
   </footer>
+
+  <script src="site.js"></script>
 </body>
 </html>

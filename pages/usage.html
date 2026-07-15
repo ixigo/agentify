@@ -11,7 +11,7 @@
     .why-block .tag { margin-bottom: 8px; }
     .evidence-note {
       margin: 18px 0 0; padding: 14px 18px;
-      border: 1px dashed var(--rule); border-radius: 6px;
+      border: 1px dashed var(--rule); border-radius: 0;
       color: var(--muted); font-size: 13.5px;
     }
     .usage-section h3 { margin-top: 26px; }
@@ -20,21 +20,19 @@
   </style>
 </head>
 <body>
-  <nav>
-    <div class="container">
-      <a class="brand" href="../index.html">Agentify</a>
-      <div class="nav-links">
-        <a href="../index.html">home</a>
-        <a href="analyze.html">analyze</a>
-        <a href="config.html">config</a>
-        <span class="pill">usage</span>
-        <a href="../skill-catalog.html">catalog</a>
-        <a href="workflow-gh.html">gh</a>
-        <a href="workflow-glab.html">glab</a>
-        <a href="workflow-azure.html">azure</a>
-      </div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
+      <nav class="topnav" aria-label="Primary navigation">
+        <a href="../index.html">Home</a>
+        <a href="analyze.html">Analyze</a>
+        <a href="config.html">Config</a>
+        <a href="usage.html" aria-current="page">Usage</a>
+        <a href="../skill-catalog.html">Skills</a>
+      </nav>
+      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
     </div>
-  </nav>
+  </header>
 
   <header>
     <div class="container hero-grid">
@@ -229,10 +227,21 @@ tools: ctx_load, ctx_note, ctx_match, query, risk, test_select</pre>
     </section>
   </main>
 
-  <footer>
+  <section class="poster">
     <div class="container">
-      <p><a href="../index.html">Home</a> · <a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="../skill-catalog.html">Skill catalog</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Markdown usage guide</a> · MIT License</p>
+      <div class="poster-kicker">agentify install &amp;&amp; agentify scan</div>
+      <h2>Every capability, driven by your agent.</h2>
+      <a class="poster-cta" href="config.html">Configure Agentify <span class="mono">↗</span></a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span class="foot-brand">AGENTIFY</span>
+      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
     </div>
   </footer>
+
+  <script src="site.js"></script>
 </body>
 </html>

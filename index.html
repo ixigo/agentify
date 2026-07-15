@@ -1,474 +1,679 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentify — switch coding agents without losing context</title>
-<meta name="description" content="Agentify keeps decisions, session summaries, failures, and repo activity in provider-neutral project memory shared by Claude Code, Codex, and MCP-capable agents.">
+<meta name="description" content="Agentify keeps durable working context with the repository instead of trapping it inside one agent harness. Claude Code through hooks, Codex through guidance, everything else through MCP.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-  :root {
-    --bg: #0d1117;
-    --bg-soft: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-dim: #8b949e;
-    --accent: #58a6ff;
-    --accent-2: #7ee787;
-    --code-bg: #161b22;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #ffffff;
-      --bg-soft: #f6f8fa;
-      --border: #d0d7de;
-      --text: #1f2328;
-      --text-dim: #59636e;
-      --accent: #0969da;
-      --accent-2: #1a7f37;
-      --code-bg: #f6f8fa;
-    }
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  .skip-link {
-    position: fixed; top: 10px; left: 10px; z-index: 100; padding: 9px 12px;
-    border-radius: 5px; color: var(--bg); background: var(--accent); font: 700 12px/1 var(--mono);
-    transform: translateY(-180%); transition: transform 120ms;
-  }
-  .skip-link:focus { transform: translateY(0); text-decoration: none; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    line-height: 1.6;
-  }
-  main { max-width: 880px; margin: 0 auto; padding: 0 24px 96px; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+/* ── Modernist design tokens (flat, red-on-light, Archivo, 2px rules, 0 radius) ── */
+:root {
+  color-scheme: dark;
+  --color-bg: #1a1817;
+  --color-surface: #242120;
+  --color-text: #f4f2f0;
+  --color-accent: #f5591f;
+  --color-accent-2: #ff7a4d;
+  --color-divider: color-mix(in srgb, #f4f2f0 20%, transparent);
 
-  nav.site-nav { border-bottom: 1px solid var(--border); }
-  .site-nav .inner {
-    max-width: 880px; margin: 0 auto; padding: 16px 24px;
-    display: flex; align-items: center; justify-content: space-between; gap: 20px;
-  }
-  .site-nav .brand { color: var(--text); font: 700 0.82rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
-  .site-nav .links { display: flex; flex-wrap: wrap; gap: 16px; font: 600 0.78rem/1 var(--mono); }
+  --color-neutral-100: #2a2724;
+  --color-neutral-200: #322e2b;
+  --color-neutral-300: #413c39;
+  --color-neutral-400: #5a5551;
+  --color-neutral-500: #837e7a;
+  --color-neutral-600: #a8a29d;
+  --color-neutral-700: #c9c3be;
+  --color-neutral-800: #e4dfdb;
+  --color-neutral-900: #f4f2f0;
 
-  header.hero { text-align: center; padding: 88px 0 48px; }
-  .hero pre.logo {
-    font-family: var(--mono);
-    font-size: 11px;
-    line-height: 1.25;
-    color: var(--accent);
-    display: inline-block;
-    text-align: left;
-    margin-bottom: 24px;
-  }
-  .hero h1 { font-size: 2.1rem; letter-spacing: -0.02em; margin-bottom: 12px; }
-  .hero p.tagline { font-size: 1.2rem; color: var(--text-dim); max-width: 640px; margin: 0 auto 14px; text-wrap: pretty; }
-  .hero p.install-promise { font-size: 0.98rem; color: var(--text-dim); max-width: 640px; margin: 0 auto 28px; text-wrap: pretty; }
-  .hero p.install-promise strong { color: var(--text); }
-  .hero .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-  .btn {
-    display: inline-block; padding: 10px 20px; border-radius: 8px;
-    border: 1px solid var(--border); font-weight: 600; font-size: 0.95rem;
-  }
-  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
-  .btn.primary:hover { filter: brightness(1.1); text-decoration: none; }
-  .btn:hover { text-decoration: none; border-color: var(--accent); }
+  --color-accent-100: #fff1ec;
+  --color-accent-200: #ffdecf;
+  --color-accent-300: #ffc0a6;
+  --color-accent-400: #ff9c74;
+  --color-accent-500: #fb6e42;
+  --color-accent-600: #c63d0f;
+  --color-accent-700: #ff8a5a;
+  --color-accent-800: #7a260b;
+  --color-accent-900: #4d1e0e;
 
-  section { margin-top: 72px; }
-  h2 { font-size: 1.5rem; margin-bottom: 8px; letter-spacing: -0.01em; }
-  h3 { font-size: 1.05rem; margin: 24px 0 8px; }
-  p.lede { color: var(--text-dim); margin-bottom: 20px; }
-  section > p { margin-bottom: 12px; }
-  .dim-note { color: var(--text-dim); }
-  .dim-note.spaced { margin-top: 16px; }
+  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-heading-weight: 800;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --term-bg: #100f0e;
 
-  pre.code {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 20px;
-    overflow-x: auto;
-    font-family: var(--mono);
-    font-size: 0.86rem;
-    line-height: 1.55;
-    margin: 14px 0;
-  }
-  code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
-  pre.code code { background: none; border: none; padding: 0; }
-  .comment { color: var(--text-dim); }
-  .accent { color: var(--accent); }
-  .green { color: var(--accent-2); }
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --radius-sm: 0px; --radius-md: 0px; --radius-lg: 0px;
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 20px; }
-  .card {
-    background: var(--bg-soft);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 20px;
-  }
-  .card h3 { margin: 0 0 6px; font-size: 1rem; }
-  .card p { color: var(--text-dim); font-size: 0.92rem; }
-  .card code { font-size: 0.8rem; }
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+}
 
-  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.92rem; }
-  .table-wrap { overflow-x: auto; }
-  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
-  th { color: var(--text-dim); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  td code { white-space: nowrap; }
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--color-bg); color: var(--color-text);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55; font-weight: 400;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-decoration: none; text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-neutral-400); }
+.doc-scroll { scroll-margin-top: 84px; }
 
-  .flow { display: grid; gap: 10px; margin-top: 18px; }
-  .flow .step {
-    display: flex; gap: 14px; align-items: baseline;
-    background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px;
-  }
-  .flow .num {
-    font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
-  }
-  .flow p { color: var(--text-dim); font-size: 0.95rem; }
-  .flow strong { color: var(--text); }
+.skip-link {
+  position: fixed; top: 10px; left: 10px; z-index: 100; padding: 9px 12px;
+  color: var(--color-bg); background: var(--color-accent);
+  font: 700 12px/1 var(--font-heading); letter-spacing: .04em;
+  transform: translateY(-180%); transition: transform 120ms;
+}
+.skip-link:focus { transform: translateY(0); }
 
-  footer {
-    border-top: 1px solid var(--border);
-    margin-top: 96px; padding: 28px 24px; text-align: center; color: var(--text-dim); font-size: 0.9rem;
-  }
-  .badge {
-    display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 999px;
-    border: 1px solid var(--border); color: var(--text-dim); margin-left: 8px; vertical-align: middle;
-  }
-  @media (max-width: 620px) {
-    .site-nav .inner { align-items: flex-start; flex-direction: column; gap: 12px; }
-    header.hero { padding-top: 60px; }
-    .hero h1 { font-size: 1.8rem; }
-  }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr !important; }
+  .sidebar { display: none !important; }
+  section.doc-scroll, .poster, footer { padding-left: 24px !important; padding-right: 24px !important; }
+  .hero-h1 { font-size: 38px !important; }
+}
 </style>
 </head>
 <body>
-<a class="skip-link" href="#main-content">Skip to content</a>
-<nav class="site-nav" aria-label="Primary navigation">
-  <div class="inner">
-    <a class="brand" href="index.html">Agentify</a>
-    <div class="links">
-      <a href="pages/analyze.html">Analyze</a>
-      <a href="pages/config.html">Config</a>
-      <a href="pages/usage.html">Usage</a>
-      <a href="skill-catalog.html">Skills</a>
-      <a href="https://github.com/ixigo/agentify">GitHub</a>
+<a class="skip-link" href="#overview">Skip to content</a>
+
+<div style="min-height:100vh;background:var(--color-bg);color:var(--color-text)">
+
+  <!-- ══ TOP BAR ══ -->
+  <header style="position:sticky;top:0;z-index:50;background:var(--color-bg);border-bottom:2px solid var(--color-text)">
+    <div style="max-width:1280px;margin:0 auto;display:flex;align-items:center;gap:20px;padding:14px 28px">
+      <a href="#top" style="display:flex;align-items:baseline;gap:10px;color:var(--color-text)">
+        <span style="font-family:var(--font-heading);font-weight:800;font-size:19px;letter-spacing:-0.02em">AGENTIFY</span>
+        <span style="font:500 11px/1 var(--mono);letter-spacing:.06em;color:var(--color-accent-700)">v0.3</span>
+      </a>
+      <nav style="margin-left:auto;display:flex;align-items:center;gap:22px;font:500 13px/1 var(--font-body)" aria-label="Primary navigation">
+        <a href="#how" style="color:var(--color-text)">How it works</a>
+        <a href="#commands" style="color:var(--color-text)">Commands</a>
+        <a href="#context" style="color:var(--color-text)">Context</a>
+        <a href="#routing" style="color:var(--color-text)">Routing</a>
+        <a href="#eval" style="color:var(--color-text)">Eval</a>
+        <a href="#mcp" style="color:var(--color-text)">MCP</a>
+      </nav>
+      <a href="https://github.com/ixigo/agentify" style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;background:var(--color-text);color:var(--color-bg);font:600 12px/1 var(--font-heading);letter-spacing:.02em">
+        <span style="font-family:var(--mono);font-weight:700">↗</span> GitHub
+      </a>
     </div>
-  </div>
-</nav>
-<main id="main-content" tabindex="-1">
-  <header class="hero" data-testid="agentify-home-focus">
-    <pre class="logo">    _                    _   _  __
+  </header>
+
+  <div id="top"></div>
+
+  <!-- ══ LAYOUT ══ -->
+  <div class="layout" style="max-width:1280px;margin:0 auto;display:grid;grid-template-columns:236px 1fr;align-items:start">
+
+    <!-- ── SIDEBAR TOC ── -->
+    <aside class="sidebar" style="position:sticky;top:57px;align-self:start;height:calc(100vh - 57px);overflow-y:auto;border-right:2px solid var(--color-divider);padding:34px 22px 60px">
+      <div style="font:700 10px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 14px">Contents</div>
+      <nav id="toc" style="display:flex;flex-direction:column;gap:2px;font:500 13px/1.3 var(--font-body)" aria-label="Table of contents">
+        <a class="toc-link" href="#overview" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Overview</a>
+        <a class="toc-link" href="#how" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">How it works</a>
+        <a class="toc-link" href="#install" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Install &amp; quick start</a>
+        <a class="toc-link" href="#commands" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Command reference</a>
+        <a class="toc-link" href="#context" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Context tracking</a>
+        <a class="toc-link" href="#routing" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Model routing</a>
+        <a class="toc-link" href="#eval" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Paired evaluation</a>
+        <a class="toc-link" href="#analyze" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Session analysis</a>
+        <a class="toc-link" href="#workflows" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Platform workflows</a>
+        <a class="toc-link" href="#skills" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Skills</a>
+        <a class="toc-link" href="#mcp" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">MCP server</a>
+        <a class="toc-link" href="#requirements" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Requirements</a>
+        <div style="height:2px;background:var(--color-divider);margin:14px 0"></div>
+        <a class="toc-link" href="pages/analyze.html" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Analyze (page)</a>
+        <a class="toc-link" href="pages/config.html" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Config (page)</a>
+        <a class="toc-link" href="pages/usage.html" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Usage (page)</a>
+        <a class="toc-link" href="skill-catalog.html" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Skill catalog</a>
+      </nav>
+    </aside>
+
+    <!-- ── MAIN ── -->
+    <main id="main-content" style="min-width:0;padding:0 0 120px" tabindex="-1">
+
+      <!-- HERO -->
+      <section id="overview" class="doc-scroll" data-testid="agentify-home-focus" style="padding:56px 56px 48px;border-bottom:2px solid var(--color-text)">
+        <pre style="margin:0 0 26px;font:700 10px/1.15 var(--mono);color:var(--color-accent);overflow:auto">    _                    _   _  __
    / \   __ _  ___ _ __ | |_(_)/ _|_   _
   / _ \ / _` |/ _ \ '_ \| __| | |_| | | |
  / ___ \ (_| |  __/ | | | |_| |  _| |_| |
 /_/   \_\__, |\___|_| |_|\__|_|_|  \__, |
         |___/                      |___/</pre>
-    <h1>Switch agents. Keep the repo's working memory.</h1>
-    <p class="tagline">Move from Claude Code to Codex—or any MCP-capable agent—without making the next harness rediscover the project. Agentify keeps durable context with the repo, then lets each agent load the same facts.</p>
-    <p class="install-promise"><strong>Install once. Your coding agent uses it automatically.</strong> From then on, the agent drives Agentify—not you: Claude Code through lifecycle hooks, Codex through installed guidance.</p>
-    <div class="cta">
-      <a class="btn primary" href="pages/analyze.html">Analyze your usage</a>
-      <a class="btn" href="pages/config.html">Personalize config</a>
-      <a class="btn" href="#portable">Cross-agent memory</a>
-      <a class="btn" href="https://github.com/ixigo/agentify">GitHub</a>
-    </div>
-  </header>
+        <div style="display:flex;gap:8px;margin:0 0 20px;flex-wrap:wrap">
+          <span style="font:500 11px/1 var(--mono);letter-spacing:.04em;padding:5px 10px;background:var(--color-surface);border:1px solid var(--color-divider);color:var(--color-neutral-800)">MIT LICENSE</span>
+          <span style="font:500 11px/1 var(--mono);letter-spacing:.04em;padding:5px 10px;background:var(--color-surface);border:1px solid var(--color-divider);color:var(--color-neutral-800)">NODE 20+</span>
+          <span style="font:500 11px/1 var(--mono);letter-spacing:.04em;padding:5px 10px;background:var(--color-accent);color:var(--color-bg)">CLAUDE CODE · CODEX · MCP</span>
+        </div>
+        <h1 class="hero-h1" style="font-size:52px;line-height:1.02;letter-spacing:-0.03em;max-width:16ch;margin:0 0 18px">Switch agents. Keep the repo&#39;s working memory.</h1>
+        <p style="font-size:18px;line-height:1.55;max-width:62ch;color:var(--color-neutral-800);margin:0 0 14px">Agentify keeps durable working context <em>with the repository</em> instead of trapping it inside one agent harness. Install once — from then on your coding agent drives it automatically.</p>
+        <p style="font-size:15px;max-width:62ch;color:var(--color-neutral-700);margin:0 0 30px">Claude Code through lifecycle hooks, Codex through installed guidance, everything else through MCP. It carries forward explicit, compact project evidence — decisions, session summaries, failures, hot files — that should survive the switch.</p>
+        <div data-term data-label="bash" style="border:2px solid var(--color-text);background:var(--term-bg);max-width:720px"></div>
+      </section>
 
-  <section id="portable">
-    <h2>The context belongs to the repo, not the harness.</h2>
-    <p class="lede">Agentify stores durable working memory under <code>.agentify/context/</code>: decisions, session summaries, unresolved failures, hot files, and recent repo activity. Claude Code and Codex read the same store, while MCP exposes it to other compatible agents.</p>
-    <pre class="code" tabindex="0"><code><span class="comment"># install both first-class integrations into this repo</span>
-curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
-cd /path/to/your/repo
-<span class="green">agentify install --provider all</span>
+      <!-- HOW IT WORKS -->
+      <section id="how" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">01 — How it works</div>
+        <h2 style="font-size:34px;margin:0 0 16px">One store. Every session picks up where the last left off.</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 28px"><code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">agentify install --provider all</code> wires both harnesses against one repo-owned <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">.agentify/context/</code> store. No daemon, no database server, no per-command wrapping.</p>
 
-<span class="comment"># switch Claude Code ↔ Codex; load the same repo memory</span>
-<span class="green">agentify ctx load</span>
+        <div data-term data-label="agentify install --provider all" data-plain="1" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 34px"></div>
 
-<span class="comment"># expose the same capabilities to any MCP-capable client</span>
-<span class="green">agentify serve</span></code></pre>
-    <div class="grid">
-      <div class="card"><h3>What survives</h3><p>Recorded decisions, notes, session summaries, failed commands, recently edited files, and structural repo evidence—the facts a new agent should not have to rediscover.</p></div>
-      <div class="card"><h3>What stays honest</h3><p>Agentify does not replay a provider's hidden chat state or copy private chain-of-thought. It carries forward explicit, compact project evidence.</p></div>
-      <div class="card"><h3>Why it compounds</h3><p>The store gets more useful as agents leave decisions and handoffs. You can change the harness or model without resetting the project's operational memory.</p></div>
-    </div>
-  </section>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:2px solid var(--color-divider)">
+          <div style="padding:22px 24px;border-right:2px solid var(--color-divider);border-bottom:2px solid var(--color-divider)">
+            <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">1 — Session starts</div>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">Claude Code&#39;s hook injects the context digest automatically. Codex follows its installed <code style="font-family:var(--mono);font-size:12px">AGENTS.md</code> guidance and loads the same store.</p>
+          </div>
+          <div style="padding:22px 24px;border-bottom:2px solid var(--color-divider)">
+            <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">2 — Agent works</div>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">Hooks track edits and shell commands as compact JSONL (auto-compacted, capped ~512 KB). Command failures are remembered and checked before a retry.</p>
+          </div>
+          <div style="padding:22px 24px;border-right:2px solid var(--color-divider)">
+            <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">3 — Learns something</div>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">It runs <code style="font-family:var(--mono);font-size:12px">agentify ctx note</code>. Notes are verified on injection: a note referencing a missing file is flagged as possibly stale.</p>
+          </div>
+          <div style="padding:22px 24px">
+            <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">4 — Session ends</div>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">A short extractive handoff is created from tracked evidence at zero model cost. An LLM refinement is a budgeted opt-in.</p>
+          </div>
+        </div>
+      </section>
 
-  <section id="why">
-    <h2>Why Agentify over a raw agent?</h2>
-    <p class="lede">Raw Claude Code and Codex start every session amnesiac: they re-derive project knowledge, retry known dead ends, run full test suites, and review their own code with their own blind spots. Agentify fixes each of those with plumbing, not prompting. <strong>Every terminal output below is captured from a real run</strong> in a small payment-service demo repo — the review findings are Codex's actual words, the costs are the provider's actual numbers.</p>
+      <!-- INSTALL -->
+      <section id="install" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">02 — Install &amp; quick start</div>
+        <h2 style="font-size:34px;margin:0 0 24px">Installs straight from GitHub</h2>
 
-    <h3>1 · It remembers what failed — and says so <em>before</em> the retry</h3>
-    <p>Command results are tracked, not just commands. When the agent is about to rerun something that failed in a previous session, a <code>PreToolUse</code> hook injects a warning first:</p>
-    <pre class="code"><code><span class="comment"># session 1: the agent runs a migration; it fails. sessions later, it tries again —</span>
-Agentify: this exact command failed in a previous session (2026-07-07) (exit 1):
-error: relation "orders" already exists. If the underlying cause was not fixed
-since, try a different approach instead of retrying it as-is.</code></pre>
-    <p class="dim-note">One later success clears the failure. Warnings dedupe per session and never fire for failures the current session already saw.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start">
+          <div>
+            <h4 style="font-size:16px;margin:0 0 10px">One-line installer</h4>
+            <div data-term data-label="terminal" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 8px"></div>
+            <p style="font-size:13px;color:var(--color-neutral-700);margin:0">Checks Node 20+ and git, then verifies the CLI. Pin a ref with <code style="font-family:var(--mono);font-size:12px">AGENTIFY_REF=v0.3.0</code>.</p>
+          </div>
+          <div>
+            <h4 style="font-size:16px;margin:0 0 10px">Wire into a repo</h4>
+            <div data-term data-label="terminal" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 8px"></div>
+            <p style="font-size:13px;color:var(--color-neutral-700);margin:0">Both install and uninstall are surgical — only content between the managed markers is touched. Your own <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> and hooks are preserved.</p>
+          </div>
+        </div>
+      </section>
 
-    <h3>2 · It runs the tests your change affects — not the whole suite</h3>
-    <p><code>agentify test</code> walks the import graph in the structural index from your changed files to the test files that actually exercise them:</p>
-    <pre class="code"><code><span class="green">$ agentify test</span>   <span class="comment"># only src/pay/retry.js was modified</span>
-Selected tests: 1 file(s) from 1 changed file(s)
-- test/retry.test.js (imports changed code)
-Run:
-- node --test test/retry.test.js</code></pre>
-    <p class="dim-note">The unrelated <code>test/dash.test.js</code> is skipped. <code>--run</code> executes the selection and exits non-zero on failure; when no related tests exist, it says so and recommends the full suite — silence is never treated as coverage.</p>
+      <!-- COMMANDS -->
+      <section id="commands" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">03 — Command reference</div>
+        <h2 style="font-size:34px;margin:0 0 8px">Every command</h2>
+        <p style="font-size:15px;color:var(--color-neutral-700);margin:0 0 6px">All commands accept <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">--json</code> for machine-readable output — which is how agents are expected to call them.</p>
+        <div id="cmdtables"></div>
+      </section>
 
-    <h3>3 · A different vendor reviews the code — and catches real things</h3>
-    <p>The <code>review</code> route goes to the other vendor by default. This is Codex's unedited verdict on a commit that added <code>ts: Date.now()</code> to a retry payload:</p>
-    <pre class="code"><code><span class="green">$ agentify review --diff HEAD~1</span>
-cross-vendor review by codex — diff since HEAD~1
+      <!-- CONTEXT -->
+      <section id="context" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">04 — Context tracking</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Context arrives when it&#39;s relevant, not as a firehose</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Sessions start with a one-line pointer, and each prompt is matched against the store — only related notes and files get injected, deduplicated per session. Ask about payment retries:</p>
 
-**Findings**
-- Medium: src/pay/retry.js now adds `ts: Date.now()` to the retry return value.
-  This makes retryPayment(2, "k1") non-deterministic and changes the public shape
-  from { attempt, key } to { attempt, key, ts }. For payment retry/idempotency
-  code, that is risky: callers that serialize, compare, dedupe, cache, or sign
-  the retry payload can now see different values for the same attempt/key.</code></pre>
-    <p class="dim-note">Opt in with <code>hooks.prePush: true</code> and this runs on every <code>git push</code> — advisory, never blocking.</p>
+        <div data-md style="border:2px solid var(--color-divider);background:var(--color-surface);padding:22px 24px;margin:0 0 34px">
+          <div style="font:700 12px/1 var(--mono);letter-spacing:.02em;color:var(--color-accent-700);margin:0 0 14px">## Agentify context (relevant to this task)</div>
+          <div style="font:600 12px/1 var(--mono);color:var(--color-neutral-700);margin:0 0 6px">### Related notes from earlier sessions</div>
+          <div style="font:400 13px/1.6 var(--mono);color:var(--color-text);margin:0 0 16px">- [2026-07-05] payment retries: idempotency key lives in <span style="color:var(--color-accent-700)">src/pay/retry.ts</span>, do not regenerate per attempt</div>
+          <div style="font:600 12px/1 var(--mono);color:var(--color-neutral-700);margin:0 0 6px">### Files previously worked on that look related</div>
+          <div style="font:400 13px/1.6 var(--mono);color:var(--color-text)">- <span style="color:var(--color-accent-700)">src/pay/retry.ts</span> (14 edits)<br>- <span style="color:var(--color-accent-700)">src/pay/retry.test.ts</span> (9 edits)</div>
+        </div>
 
-    <h3>4 · Its memory flags its own rot</h3>
-    <p>A note that references a file which no longer exists is the most dangerous kind of memory — confidently wrong. Notes are verified against the working tree at injection time:</p>
-    <pre class="code"><code>### Notes left for this session
-- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js — never regenerate per attempt
-- [2026-07-07] legacy card vault code is in src/pay/vault-legacy.js, do not touch without compliance
-  — <span class="accent">STALE? references missing path(s): src/pay/vault-legacy.js; verify before trusting</span></code></pre>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:2px solid var(--color-divider);margin:0 0 8px">
+          <div style="padding:22px 22px;border-right:2px solid var(--color-divider)">
+            <h4 style="font-size:16px;margin:0 0 8px">Failure memory</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">A command that failed in a previous session triggers a <code style="font-family:var(--mono);font-size:12px">PreToolUse</code> warning before the exact retry — so doomed migrations and deploys aren&#39;t run twice.</p>
+          </div>
+          <div style="padding:22px 22px;border-right:2px solid var(--color-divider)">
+            <h4 style="font-size:16px;margin:0 0 8px">Decision log</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)"><code style="font-family:var(--mono);font-size:12px">ctx decision</code> records durable trade-offs; <code style="font-family:var(--mono);font-size:12px">ctx decisions "topic"</code> answers &ldquo;why did we choose X&rdquo; later. With <code style="font-family:var(--mono);font-size:12px">ctx share</code> it&#39;s a team ADR log.</p>
+          </div>
+          <div style="padding:22px 22px">
+            <h4 style="font-size:16px;margin:0 0 8px">Stale-note flagging</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">Every file path in a note is checked against the working tree on injection. Missing paths are flagged in place so the agent re-verifies instead of trusting outdated memory.</p>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:16px 0 0">Prefer always-on? Set <code style="font-family:var(--mono);font-size:12px;background:var(--color-surface);padding:1px 6px">context.injection: digest</code> in <code style="font-family:var(--mono);font-size:12px;background:var(--color-surface);padding:1px 6px">.agentify.yaml</code> (or <code style="font-family:var(--mono);font-size:12px;background:var(--color-surface);padding:1px 6px">off</code> to disable injection — tracking continues either way).</p>
+      </section>
 
-    <h3>5 · Decisions stay decided</h3>
-    <p>Settled trade-offs get relitigated by every new session unless they're on record — and queryable:</p>
-    <pre class="code"><code><span class="green">$ agentify ctx decisions "why client side idempotency keys"</span>
-Decisions matching "why client side idempotency keys":
-- [2026-07-07] chose idempotency keys stored client-side over server-side dedup
-  because the gateway retries before our server sees the request</code></pre>
-    <p class="dim-note">With <code>agentify ctx share</code>, the committed notes file doubles as a lightweight team ADR log.</p>
+      <!-- ROUTING -->
+      <section id="routing" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">05 — Model routing</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Shell work out to the model best suited for it</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px"><code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">agentify install</code> writes a routing table into <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">.agentify.yaml</code> mapping kinds of work to models. The guidance block teaches the agent to delegate instead of doing everything inline.</p>
 
-    <h3>6 · You can see what the routing costs</h3>
-    <p>Every delegation is logged with the provider's real usage numbers where the CLI reports them. Actual output after one Haiku research call and one Codex review:</p>
-    <pre class="code"><code><span class="green">$ agentify stats</span>
-Delegations:
-- total: 2 run(s), 50.1k in / 530 out, cost $0.0212 (1/2 reported)
+        <div data-term data-label="delegate" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 28px"></div>
 
-By kind:
-- research: 1 run(s), 49.9k in / 301 out, cost $0.0212
-- review:   1 run(s), 199 in / 229 out, cost n/a
+        <div id="routetable"></div>
 
-Note: token counts for 1 run(s) are estimates (~4 chars/token); the provider
-CLI reported no usage.</code></pre>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:18px 0 0;max-width:68ch">Every route carries a hard per-run ceiling — dollars, agent turns, and wall-clock — so no Agentify-initiated paid run is ever unbounded. If a route&#39;s CLI isn&#39;t installed, Agentify falls back to the other vendor <strong>at the same capability tier</strong>. Routing profiles (<code style="font-family:var(--mono);font-size:12px">cost</code> · <code style="font-family:var(--mono);font-size:12px">balanced</code> · <code style="font-family:var(--mono);font-size:12px">performance</code>) choose how to route inside those ceilings, fed by local <code style="font-family:var(--mono);font-size:12px">agentify eval</code> runs — never rewriting your config.</p>
+      </section>
 
-    <h3>7 · It works beyond Claude Code and Codex</h3>
-    <p>Everything above is also exposed as an MCP server — Cursor, Zed, Windsurf, Claude Desktop, Gemini CLI, anything MCP-capable:</p>
-    <pre class="code"><code><span class="green">$ agentify serve</span>   <span class="comment"># stdio MCP server, zero extra dependencies</span>
-tools: ctx_load, ctx_note, ctx_match, query, risk, test_select</code></pre>
+      <!-- EVAL -->
+      <section id="eval" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">06 — Paired evaluation</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Does Agentify actually help?</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Cost only means something next to task success. <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">agentify eval</code> runs the same task, prompt, pinned model, and budget through paired arms — <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">agentify</code> vs <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">plain-safe</code> vs <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">plain-project</code> — and grades each attempt with deterministic checks.</p>
 
-    <h3>8 · It's benchmarked against plain Claude Code — and reported honestly</h3>
-    <p>An 8-task paired benchmark runs in <a href="https://www.harborframework.com">Harbor</a> (Terminal-Bench 2.0) containers: same image, same pinned model, same budget, same deterministic verifier — the only difference between the arms is <code>agentify install</code> plus context recorded in earlier sessions. First full nightly suite, 2026-07-14, three attempts per arm:</p>
-    <pre class="code"><code>agentify      24/24 passed   $0.055/attempt   Wilson 95% CI  86.2–100%
-claude-code   21/24 passed   $0.033/attempt   Wilson 95% CI  69.0–95.7%
+        <div style="display:grid;grid-template-columns:1fr 300px;gap:28px;align-items:start">
+          <div data-term data-label="eval" style="border:2px solid var(--color-text);background:var(--term-bg)"></div>
+          <div style="border:2px solid var(--color-text);background:var(--color-accent);color:var(--color-bg);padding:24px">
+            <div style="font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;opacity:.85;margin:0 0 14px">First nightly · 2026-07-14</div>
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:44px;line-height:1;margin:0 0 4px">24 / 24</div>
+            <div style="font-size:13px;opacity:.9;margin:0 0 16px">Agentify arm passed, vs <strong>21/24</strong> for plain Claude Code on the same images, model &amp; verifiers.</div>
+            <div style="height:2px;background:var(--color-bg);opacity:.4;margin:0 0 14px"></div>
+            <div style="font-size:12.5px;line-height:1.5;opacity:.92">The report still declares <strong>no winner</strong> by design — 3 discordant pairs give p = 0.25 and overlapping intervals. Accumulating nightly runs is what gets there.</div>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:18px 0 0;max-width:68ch">Every attempt runs in a disposable clone at the manifest&#39;s immutable <code style="font-family:var(--mono);font-size:12px">base_ref</code> with a hard per-attempt ceiling. Turn a run into a decision with <code style="font-family:var(--mono);font-size:12px">agentify eval report --format html</code>: per-arm pass rates with 95% CIs, cost per passing task, and a cost-quality frontier. A second harness (<strong>Harbor</strong> / Terminal-Bench 2.0) runs the same paired question in container isolation to catch anything that only looks like a win inside Agentify&#39;s own runner.</p>
+      </section>
 
-All 3 baseline failures: avoid-cache-regression — the task where a recorded
-production incident is the only difference between the arms (0/3 vs 3/3).
-Controls held: the mechanical task and the misleading-note task tied 3/3.
-Flakes: 0 in 48 trials. Total spend: $2.10 against a $16.80 hard ceiling.
+      <!-- ANALYZE -->
+      <section id="analyze" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">07 — Session analysis</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Look at the session history you already have</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Where <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">stats</code> and <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">value</code> report Agentify-owned telemetry, <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">agentify analyze</code> looks at the other side — your local Claude Code and Codex session history — and shows usage, tool patterns, and concrete, evidence-backed places where Agentify would have helped. Plus exactly one roast, because the data earned it.</p>
 
-Verdict: <span class="accent">no winner declared</span> — 3 discordant pairs give sign-test p = 0.25;
-the fail-closed rule requires CI separation AND p &lt; 0.05. That bar is the
-point: the report never manufactures a confident winner from thin data.</code></pre>
-    <p class="dim-note">About that cost gap: persistent context is paid for in tokens, so the context arm runs ~66% more per attempt — and on the only task with signal, that ~$0.03 premium was the difference between failing and passing. This suite isolates the context layer only. In real workflows the model routing in #6 is designed to win the premium back — quick and mechanical work goes to economy models, reviews to the other vendor — but that's an economics claim this container benchmark deliberately does not measure; <code>agentify stats</code> and <code>agentify value</code> report what routing actually saves from your own logged runs, and the optimization-profile suite exists to test it.</p>
-  </section>
+        <div data-term data-label="agentify analyze" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 30px"></div>
 
-  <section id="how">
-    <h2>How it works</h2>
-    <p class="lede">One command connects Claude Code and Codex to the same repo-owned store, then stays out of your way.</p>
-    <pre class="code" tabindex="0"><code><span class="green">agentify install --provider all</span>
-  ├── CLAUDE.md             <span class="comment">← Claude Code guidance</span>
-  ├── AGENTS.md             <span class="comment">← Codex guidance: load, note, decide, hand off</span>
-  ├── .claude/settings.json <span class="comment">← Claude Code lifecycle hooks:</span>
-  │     SessionStart     → agentify ctx load     <span class="comment">(inject context digest)</span>
-  │     UserPromptSubmit → agentify ctx match    <span class="comment">(inject only task-relevant context)</span>
-  │     PreToolUse       → agentify ctx precheck <span class="comment">(warn before repeating a failed command)</span>
-  │     PostToolUse      → agentify ctx track    <span class="comment">(record edits, commands + failures)</span>
-  │     SessionEnd       → agentify ctx track    <span class="comment">(close out the session)</span>
-  └── .agentify/            <span class="comment">← shared JSONL context store + structural index</span></code></pre>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:2px solid var(--color-divider)">
+          <div style="padding:22px 22px;border-right:2px solid var(--color-divider)">
+            <h4 style="font-size:16px;margin:0 0 8px">Consent-gated &amp; private</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">Metadata-only by default. Transcript bodies are never analyzed, command text never leaves memory, nothing is uploaded, and <strong>$0 AI spend</strong>. <code style="font-family:var(--mono);font-size:12px">--dry-run</code> previews exactly what would be read.</p>
+          </div>
+          <div style="padding:22px 22px;border-right:2px solid var(--color-divider)">
+            <h4 style="font-size:16px;margin:0 0 8px">0&ndash;100 usage scorecard</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">Each session is classified by tool mix and matched to the weight class of the model that ran it. Heavyweight-on-featherweight work is flagged <code style="font-family:var(--mono);font-size:12px">overkill</code> &mdash; &ldquo;a gun at a fist fight&rdquo; &mdash; as a delegation candidate.</p>
+          </div>
+          <div style="padding:22px 22px">
+            <h4 style="font-size:16px;margin:0 0 8px">Self-contained report</h4>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">An Agentify-themed HTML brief: headline totals, filterable per-session rows, recommendation cards, an API-equivalent list-price estimate (never spend), and a privacy receipt of exactly what was read.</p>
+          </div>
+        </div>
+      </section>
 
-    <div class="flow">
-      <div class="step"><span class="num">01</span><p><strong>You ask for something</strong> — each prompt is matched against the store and only <em>related</em> notes and files are injected (set <code>context.injection: digest</code> for the old always-on digest).</p></div>
-      <div class="step"><span class="num">02</span><p><strong>Agent works</strong> — Claude Code hooks track edits and commands automatically. Codex has no lifecycle hooks; its guidance tells the agent to record durable notes and decisions explicitly.</p></div>
-      <div class="step"><span class="num">03</span><p><strong>Agent learns something worth keeping</strong> — it runs <code>agentify ctx note "..."</code> so the knowledge survives the session.</p></div>
-      <div class="step"><span class="num">04</span><p><strong>Session ends</strong> — Agentify builds a short extractive summary from tracked evidence with zero model cost. LLM refinement is a budgeted opt-in; <code>agentify ctx share</code> makes notes committable team memory.</p></div>
-    </div>
-    <p class="dim-note spaced">No daemon, no database server, no per-command wrapping. Install and uninstall are surgical: only the marker-delimited block and Agentify's own hook entries are ever touched.</p>
-  </section>
+      <!-- WORKFLOWS -->
+      <section id="workflows" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">08 — Platform workflows</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Board to draft PR — you never invoke the workflow by name</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">The bundle installs as agent skills, and the agent matches them to plain requests. Triage the board, pick up an item, implement it in an isolated worktree, and raise a draft PR — on GitHub, GitLab, or Azure DevOps.</p>
 
-  <section id="quick-start">
-    <h2>Quick start</h2>
-    <pre class="code"><code><span class="comment"># install the CLI straight from GitHub</span>
-curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
-<span class="comment"># (equivalent: npm install -g github:ixigo/agentify)</span>
+        <div id="wftable" style="margin:0 0 28px"></div>
 
-<span class="comment"># wire Claude Code + Codex to one repo-owned context store</span>
-cd /path/to/your/repo
-<span class="green">agentify install --provider all</span>
+        <div data-term data-label="a day with the workflow" style="border:2px solid var(--color-text);background:var(--term-bg)"></div>
+      </section>
 
-<span class="comment"># or install one integration only</span>
-agentify install --provider claude
-agentify install --provider codex
+      <!-- SKILLS -->
+      <section id="skills" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">09 — Skills</div>
+        <h2 style="font-size:34px;margin:0 0 16px">A catalog the agent matches to plain requests</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Agentify bundles a catalog of agent skills &mdash; TDD, PR and commit workflows, board triage, refactor plans, and more. Install them per provider and scope; each skill declares when it applies, so the agent picks the right one from what you ask &mdash; you never invoke a skill by name. <a href="skill-catalog.html" style="color:var(--color-accent-700)">Browse the full catalog &rarr;</a></p>
 
-<span class="comment"># or one global setup instead of per-repo files</span>
-agentify install --global --provider all
+        <div data-term data-label="agentify skill" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 28px"></div>
 
-<span class="comment"># optional: build the structural index for query/risk</span>
-agentify scan
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">tdd</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">pr-creator</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">commit-creator</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">github-triage</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">issue-killer</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">grill-me</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">worktree-autopilot</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">request-refactor-plan</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">setup-pre-commit</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-divider);color:var(--color-neutral-800)">write-a-skill</span>
+        </div>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:18px 0 0">Scopes: <code style="font-family:var(--mono);font-size:12px;background:var(--color-surface);padding:1px 6px">--provider claude|codex|gemini|opencode</code> · <code style="font-family:var(--mono);font-size:12px;background:var(--color-surface);padding:1px 6px">--scope project|global</code>. The platform workflow bundles above install as these same skills.</p>
+      </section>
 
-<span class="comment"># shell work out to the right model</span>
-agentify delegate quick "rename getUser to fetchUser" --write
-agentify delegate review --diff origin/main
+      <!-- MCP -->
+      <section id="mcp" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">10 — MCP server</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Every other agent speaks MCP</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Hooks are Claude Code-specific and <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">AGENTS.md</code> guidance is best-effort. For Cursor, Zed, Windsurf, Gemini CLI, or Claude Desktop, Agentify speaks <a href="https://modelcontextprotocol.io" style="color:var(--color-accent-700)">MCP</a> — the server is part of the CLI, no extra dependencies.</p>
 
-<span class="comment"># check or undo at any time</span>
-agentify status
-agentify uninstall</code></pre>
-  </section>
+        <div data-term data-label="agentify serve" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 26px"></div>
 
-  <section id="works-with">
-    <h2>Works with</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>Claude Code <span class="badge">automatic</span></h3>
-        <p>Hooks track every file edit and command with zero agent effort. A <code>SessionStart</code> hook injects the context digest into each new session. Guidance lives in <code>CLAUDE.md</code>.</p>
-      </div>
-      <div class="card">
-        <h3>Codex <span class="badge">guidance-driven</span></h3>
-        <p>Codex has no lifecycle hooks, so <code>agentify install --provider codex</code> writes an <code>AGENTS.md</code> block teaching Codex to load context at session start and record notes as it works.</p>
-      </div>
-      <div class="card">
-        <h3>Any MCP-capable agent <span class="badge">MCP + CLI</span></h3>
-        <p><code>agentify serve</code> exposes context, notes, structural query, risk, and test selection over MCP. The same capabilities also remain available as a plain CLI with <code>--json</code> output.</p>
-      </div>
-    </div>
-  </section>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_load</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_note</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_match</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">query</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">risk</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">test_select</span>
+        </div>
+      </section>
 
-  <section id="workflows">
-    <h2>Platform workflows</h2>
-    <p class="lede">On GitHub, GitLab, or Azure DevOps — there's a prebuilt workflow to get things done. <code>agentify workflow install</code> detects your platform from the git remote and installs the bundle: triage the board, pick up an item, implement in an isolated worktree, raise a draft PR.</p>
-    <div class="grid">
-      <div class="card">
-        <h3><a href="pages/workflow-gh.html">GitHub</a> <span class="badge">gh</span></h3>
-        <p>github-triage label state machine, gh-autopilot execution, issue-killer parallel worktree fan-out, draft PRs via pr-creator.</p>
-      </div>
-      <div class="card">
-        <h3><a href="pages/workflow-glab.html">GitLab</a> <span class="badge">glab</span></h3>
-        <p>gitlab-triage, glab-autopilot for issues and MRs, the same worktree isolation and parallel fan-out, draft MRs.</p>
-      </div>
-      <div class="card">
-        <h3><a href="pages/workflow-azure.html">Azure DevOps</a> <span class="badge">az</span></h3>
-        <p>azure-devops-triage over Azure Boards, ado-autopilot for work items and Repos PRs, plus pr-convention-learner for reviewer conventions.</p>
-      </div>
-    </div>
-    <pre class="code"><code><span class="green">agentify workflow install</span>   <span class="comment"># auto-detects gh / glab / azure from the git remote</span>
-agentify workflow list      <span class="comment"># bundles + platform CLI availability</span></code></pre>
-    <p class="dim-note">You never invoke the workflow by name — the skills match plain requests. A typical day:</p>
-    <pre class="code"><code><span class="comment">"triage the new issues"</span>          → github-triage labels the board, marks agentify-ready
-<span class="comment">"pick up issue 231"</span>              → isolated worktree, implement, test, cross-vendor review, draft PR
-<span class="comment">"kill everything agentify-ready"</span> → issue-killer fans out parallel tmux worktree agents
-<span class="comment">next session</span>                     → the SessionStart digest recalls what's in flight</code></pre>
-  </section>
+      <!-- REQUIREMENTS -->
+      <section id="requirements" class="doc-scroll" style="padding:52px 56px">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">11 — Requirements</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:2px solid var(--color-text)">
+          <div style="padding:26px 24px;border-right:2px solid var(--color-divider)">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:26px;margin:0 0 6px">Node 20+</div>
+            <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">The runtime floor for the CLI.</p>
+          </div>
+          <div style="padding:26px 24px;border-right:2px solid var(--color-divider)">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:26px;margin:0 0 6px">Git</div>
+            <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Context is per-checkout; worktrees each get their own store.</p>
+          </div>
+          <div style="padding:26px 24px">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:26px;margin:0 0 6px">An agent</div>
+            <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Claude Code for hooks, or Codex for guidance-driven tracking. Anything else via MCP or the plain CLI.</p>
+          </div>
+        </div>
+      </section>
 
-  <section id="routing">
-    <h2>Model routing</h2>
-    <p class="lede">Install also sets up a routing table: each kind of work goes to the model best suited for it, and the agent is taught to delegate instead of doing everything inline.</p>
-    <div class="table-wrap">
-    <table>
-      <tbody>
-      <tr><th>Kind</th><th>Default route</th><th>Used for</th></tr>
-      <tr><td><code>quick</code></td><td>Claude Haiku</td><td>Small, low-impact edits, mechanical changes, quick questions</td></tr>
-      <tr><td><code>implement</code></td><td>Claude Sonnet</td><td>Standard feature work and multi-file refactors</td></tr>
-      <tr><td><code>heavy</code></td><td>Claude Opus</td><td>Architecture decisions, deep debugging, high-risk changes</td></tr>
-      <tr><td><code>review</code></td><td>Codex</td><td>Independent post-change review by a different vendor</td></tr>
-      <tr><td><code>research</code></td><td>Claude Haiku</td><td>Fast exploration, summarization, doc lookups</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <pre class="code"><code><span class="comment"># after finishing a change, the agent gets a second opinion from another vendor</span>
-<span class="green">agentify delegate review --diff origin/main</span>
+      <!-- CLOSING POSTER -->
+      <section class="poster" style="margin:0 56px 0;background:var(--color-accent);color:var(--color-bg);padding:56px 48px 52px">
+        <div style="font:700 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;opacity:.85;margin:0 0 20px">agentify install --provider all</div>
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:46px;line-height:1.03;letter-spacing:-0.02em;max-width:20ch;margin:0 0 26px">Install once. Your coding agent uses it automatically.</h2>
+        <a href="https://github.com/ixigo/agentify" style="display:inline-flex;align-items:center;gap:8px;padding:13px 22px;background:var(--color-bg);color:var(--color-text);font:700 14px/1 var(--font-heading);letter-spacing:.01em">github.com/ixigo/agentify <span style="font-family:var(--mono)">↗</span></a>
+      </section>
 
-**Findings**
-- **High**: math.js:1 changes add(a, b) from addition to subtraction.
-  Callers expecting add(2, 1) === 3 now get 1 — a direct behavioral regression.</code></pre>
-    <p class="dim-note">Routes use version-independent model aliases so they don't rot, fall back across vendors when a CLI is missing, run read-only unless <code>--write</code> is passed, and are fully overridable in <code>.agentify.yaml</code> under <code>models.routes</code>.</p>
-  </section>
+      <footer style="padding:36px 56px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;border-top:2px solid var(--color-text);margin-top:56px">
+        <span style="font:700 13px/1 var(--font-heading);letter-spacing:.02em">AGENTIFY</span>
+        <span style="font:400 12px/1 var(--mono);color:var(--color-neutral-600)">MIT · Switch agents. Keep the repo&#39;s working memory.</span>
+      </footer>
 
-  <section id="context">
-    <h2>What the agent sees</h2>
-    <p class="lede">Context arrives when it's relevant. Ask about payment retries, and only the related notes and files are injected — a CSS question pulls nothing:</p>
-    <pre class="code"><code>## Agentify context (relevant to this task)
+    </main>
+  </div>
+</div>
 
-### Related notes from earlier sessions
-- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js
-  — never regenerate per attempt
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const root = document;
+  const $ = (s, c) => (c || root).querySelector(s);
+  const $$ = (s, c) => Array.from((c || root).querySelectorAll(s));
 
-### Related commands that previously failed (avoid repeating as-is)
-- [2026-07-07] `npm run migrate` (exit 1) — error: relation "orders" already exists
+  // ── monospace token colors ──
+  const C = {
+    prompt: "#ff7a4d", cmd: "#f3f2f2", flag: "#ffc0a6",
+    comment: "#8b8888", out: "#c9c5c5", str: "#ffb894", dim: "#9b9797"
+  };
 
-### Files previously worked on that look related
-- src/pay/retry.js (14 edits)
-- test/retry.test.js (9 edits)
+  // ── terminal renderer ──
+  const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const hl = (t) => esc(t).replace(/("[^"]*")|(^|\s)(--?[a-z][\w-]*)/g, (m, str, pre, flag) =>
+    str ? `<span style="color:${C.str}">${str}</span>`
+        : `${pre}<span style="color:${C.flag}">${flag}</span>`);
 
-Full history: `agentify ctx load`.</code></pre>
-    <p class="dim-note">Matching is BM25-ranked with light stemming — "payment <em>retries</em>" finds the <em>retry</em> module's notes, rare terms outrank boilerplate, and injected items dedupe per session. Events are single-line JSON records under <code>.agentify/context/</code>. Command text is clipped, output is never captured, and secrets are redacted from run reports.</p>
-  </section>
+  const termData = {
+    hero: [
+      {c:"# install straight from GitHub — no npm registry release needed"},
+      {p:"$", t:"curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash"},
+      {blank:1},
+      {p:"$", t:"cd /path/to/your/repo"},
+      {p:"$", t:"agentify install --provider all"},
+      {o:"✓ CLAUDE.md, AGENTS.md, .claude/settings.json, .agentify/ — one repo-owned store"}
+    ],
+    how: [
+      {p:"$", t:"agentify install --provider all"},
+      {o:"  |-- CLAUDE.md             <- Claude Code guidance"},
+      {o:"  |-- AGENTS.md             <- Codex guidance: load, note, decide, hand off"},
+      {o:"  |-- .claude/settings.json <- hooks:"},
+      {o:"  |     SessionStart -> agentify ctx load     (inject context digest)"},
+      {o:"  |     PreToolUse   -> agentify ctx precheck (warn before a failed retry)"},
+      {o:"  |     PostToolUse  -> agentify ctx track    (record edits + commands)"},
+      {o:"  |     SessionEnd   -> agentify ctx track    (close out the session)"},
+      {o:"  `-- .agentify/            <- shared JSONL context store + optional index"}
+    ],
+    curl: [
+      {c:"# the one-line installer"},
+      {p:"$", t:"curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash"}
+    ],
+    wire: [
+      {p:"$", t:"agentify install --provider all"},
+      {c:"# or one harness only"},
+      {p:"$", t:"agentify install --provider claude"},
+      {p:"$", t:"agentify status"},
+      {p:"$", t:"agentify uninstall"}
+    ],
+    delegate: [
+      {p:"$", t:'agentify delegate quick "rename getUser to fetchUser" --write'},
+      {p:"$", t:"agentify delegate review --diff origin/main"},
+      {c:"# independent review by a different vendor"},
+      {p:"$", t:'agentify delegate heavy "why does this deadlock under load?"'},
+      {p:"$", t:'agentify delegate auto "fix the failing checkout flow"'},
+      {p:"$", t:"agentify models"},
+      {o:"routing table + provider availability"}
+    ],
+    eval: [
+      {p:"$", t:"agentify eval init my-task"},
+      {c:"# commit-pinned manifest in evals/my-task.yaml"},
+      {p:"$", t:"agentify eval run my-task --dry-run"},
+      {o:"exact arm commands + maximum possible spend, no provider call"},
+      {p:"$", t:"agentify eval run my-task --repeat 3"},
+      {p:"$", t:"agentify eval report --format html"}
+    ],
+    workflow: [
+      {c:'9:05   "triage the new issues"'},
+      {o:"       -> github-triage labels the board, marks agentify-ready"},
+      {c:'9:20   "pick up issue 231"'},
+      {o:"       -> worktree-autopilot: isolated branch, implement, test,"},
+      {o:"          cross-vendor review, draft PR"},
+      {c:'11:40  "kill everything agentify-ready"'},
+      {o:"       -> issue-killer fans out tmux worktree agents"},
+      {c:"next session"},
+      {o:"       -> the SessionStart digest recalls what's in flight"}
+    ],
+    serve: [
+      {p:"$", t:"agentify serve"},
+      {c:"# stdio MCP server, run from the repo root"},
+      {p:"$", t:"claude mcp add agentify -- agentify serve"}
+    ],
+    analyze: [
+      {p:"$", t:"agentify analyze --dry-run"},
+      {o:"what would be read, nothing parsed"},
+      {p:"$", t:"agentify analyze --days 7 --format html"},
+      {o:"writes agentify-session-analysis.html"},
+      {p:"$", t:"agentify analyze --scope global --yes"},
+      {c:"# across projects, names pseudonymized — $0 AI spend"}
+    ],
+    skills: [
+      {p:"$", t:"agentify skill list"},
+      {p:"$", t:"agentify skill install grill-me --provider claude --scope project"},
+      {p:"$", t:"agentify skill install all --provider claude --scope project"}
+    ]
+  };
 
-  <section id="commands">
-    <h2>Commands</h2>
-    <p class="lede">All commands accept <code>--json</code> — which is how agents call them.</p>
-    <div class="table-wrap">
-    <table>
-      <tbody>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>agentify install [--global] [--provider claude|codex|all]</code></td><td>Wire Agentify into the repo or your home config</td></tr>
-      <tr><td><code>agentify uninstall</code></td><td>Remove the managed block and hooks — nothing else</td></tr>
-      <tr><td><code>agentify status</code></td><td>Integration + context-tracking status</td></tr>
-      <tr><td><code>agentify ctx load</code></td><td>Digest of recent activity, notes, hot files</td></tr>
-      <tr><td><code>agentify ctx note "&lt;text&gt;"</code></td><td>Record a note for future sessions</td></tr>
-      <tr><td><code>agentify ctx decision "&lt;text&gt;"</code></td><td>Record a durable decision; query later with <code>ctx decisions "&lt;topic&gt;"</code></td></tr>
-      <tr><td><code>agentify ctx precheck "&lt;cmd&gt;"</code></td><td>Did this command fail in an earlier session? (automatic via hook)</td></tr>
-      <tr><td><code>agentify ctx handoff ["task"]</code></td><td>Write a handoff summary</td></tr>
-      <tr><td><code>agentify delegate &lt;kind&gt; ["task"]</code></td><td>Shell a task out to the routed model (<code>--diff</code>, <code>--write</code>)</td></tr>
-      <tr><td><code>agentify review [--diff &lt;ref&gt;|--push]</code></td><td>Cross-vendor review of a change or outgoing commits</td></tr>
-      <tr><td><code>agentify models</code></td><td>Model routing table + provider availability</td></tr>
-      <tr><td><code>agentify stats [--days N]</code></td><td>Delegation + session usage: runs, tokens, cost by kind and model</td></tr>
-      <tr><td><code>agentify analyze [--scope current-repo|global] [--format text|json|html]</code></td><td>Generate a private, evidence-based usage report (<a href="pages/analyze.html">analyze guide</a>)</td></tr>
-      <tr><td><code>agentify scan</code></td><td>Build the SQLite structural index</td></tr>
-      <tr><td><code>agentify query …</code></td><td>owner, deps, changed, search, def, refs, callers, impacts</td></tr>
-      <tr><td><code>agentify risk --since &lt;ref&gt;</code></td><td>Blast radius + suggested regression tests</td></tr>
-      <tr><td><code>agentify test [--since &lt;ref&gt;] [--run]</code></td><td>Select (and run) only the tests affected by a change</td></tr>
-      <tr><td><code>agentify serve</code></td><td>MCP server over stdio for any MCP-capable agent</td></tr>
-      <tr><td><code>agentify up</code> / <code>agentify check</code></td><td>Refresh the index / validate freshness</td></tr>
-      <tr><td><code>agentify skill list|install</code></td><td>Install bundled agent skills (<a href="skill-catalog.html">browse the catalog</a>, <a href="pages/skill.html">command reference</a>)</td></tr>
-      <tr><td><code>agentify workflow list|install</code></td><td>Platform workflows: <a href="pages/workflow-gh.html">GitHub</a>, <a href="pages/workflow-glab.html">GitLab</a>, <a href="pages/workflow-azure.html">Azure DevOps</a></td></tr>
-      <tr><td><code>agentify hooks install</code></td><td>Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review)</td></tr>
-      <tr><td><code>agentify doctor</code> / <code>clean</code> / <code>completion</code></td><td>Toolchain readiness, artifact pruning, shell completion</td></tr>
-      </tbody>
-    </table>
-    </div>
-  </section>
+  const renderLine = (ln) => {
+    if (ln.blank) return `<div style="height:12px"></div>`;
+    if (ln.c) return `<div style="color:${C.comment}">${esc(ln.c)}</div>`;
+    if (ln.o) return `<div style="color:${C.out};white-space:pre">${esc(ln.o)}</div>`;
+    return `<div><span style="color:${C.prompt};user-select:none">${ln.p} </span><span style="color:${C.cmd}">${hl(ln.t)}</span></div>`;
+  };
+  const plainText = (lines) => lines.map(l => l.blank ? "" : (l.c||l.o|| ((l.p?l.p+" ":"")+(l.t||"")))).join("\n");
 
-  <section id="design">
-    <h2>Design principles</h2>
-    <div class="grid">
-      <div class="card"><h3>Lightweight</h3><p>Context is plain JSONL. The event log auto-compacts past ~512&nbsp;KB. Hook commands are designed to never fail and never block the agent.</p></div>
-      <div class="card"><h3>Reversible</h3><p>Everything install writes is marker-delimited or prefix-identified. <code>uninstall</code> removes exactly what was added; your own config survives.</p></div>
-      <div class="card"><h3>Agent-first</h3><p>JSON output everywhere, structural queries over a deterministic index, and guidance blocks that teach the agent when to reach for each command.</p></div>
-    </div>
-  </section>
+  const termKeyOrder = ["hero","how","curl","wire","delegate","eval","analyze","workflow","skills","serve"];
+  let ti = 0;
+  $$("[data-term]").forEach((box) => {
+    const key = termKeyOrder[ti++] || "hero";
+    const lines = termData[key] || [];
+    const label = box.getAttribute("data-label") || "bash";
+    const body = lines.map(renderLine).join("");
+    const raw = plainText(lines);
+    box.innerHTML =
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid rgba(243,242,242,.14)">
+         <span style="display:flex;align-items:center;gap:7px;font:500 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:${C.dim}">
+           <span style="display:inline-flex;gap:5px"><i style="width:9px;height:9px;background:#ff5f56"></i><i style="width:9px;height:9px;background:#ffbd2e"></i><i style="width:9px;height:9px;background:#27c93f"></i></span>
+           ${esc(label)}
+         </span>
+         <button data-copy type="button" style="cursor:pointer;font:500 10.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:${C.dim};background:transparent;border:1px solid rgba(243,242,242,.22);padding:5px 9px">copy</button>
+       </div>
+       <pre style="margin:0;padding:16px 18px;overflow-x:auto;font:400 13px/1.75 var(--mono)">${body}</pre>`;
+    box.querySelectorAll("i").forEach(d => { d.style.display="inline-block"; d.style.borderRadius="50%"; });
+    const btn = box.querySelector("[data-copy]");
+    btn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(raw); } catch(e){}
+      const o = btn.textContent; btn.textContent = "copied"; btn.style.color = C.prompt;
+      setTimeout(() => { btn.textContent = o; btn.style.color = C.dim; }, 1200);
+    });
+  });
 
-  <footer>
-    <p><a href="https://github.com/ixigo/agentify">GitHub</a> · <a href="pages/analyze.html">Analyze</a> · <a href="pages/config.html">Config</a> · <a href="pages/usage.html">Usage guide</a> · <a href="skill-catalog.html">Skill catalog</a> · <a href="pages/workflow-gh.html">GitHub workflow</a> · <a href="pages/workflow-glab.html">GitLab workflow</a> · <a href="pages/workflow-azure.html">Azure workflow</a> · <a href="https://github.com/ixigo/agentify/blob/main/docs/LLM_PROMPT.md">Agent setup prompt</a> · MIT License</p>
-  </footer>
-</main>
+  // ── command reference tables ──
+  const groups = [
+    { name: "Core", rows: [
+      ["agentify install [--global] [--provider claude|codex|all]", "Wire Agentify into the repo (or your home config)"],
+      ["agentify uninstall [--global]", "Remove the managed block and hooks"],
+      ["agentify status", "Integration + context-tracking status"],
+      ["agentify doctor", "Toolchain and provider CLI readiness"],
+      ["agentify clean", "Prune stale generated artifacts"],
+      ["agentify completion zsh|bash|fish", "Shell completion"]
+    ]},
+    { name: "Context", rows: [
+      ["agentify ctx load", "Digest of recent activity, notes, hot files"],
+      ["agentify ctx note \"<text>\"", "Record a note for future sessions"],
+      ["agentify ctx decision \"<text>\"", "Record a durable technical decision"],
+      ["agentify ctx explain \"<task>\"", "Dry-run of per-task injection: budget, profile, every include/skip reason"],
+      ["agentify ctx precheck \"<cmd>\"", "Check whether a command failed in an earlier session"],
+      ["agentify ctx handoff [\"task\"]", "Write a handoff summary"],
+      ["agentify ctx summarize", "~3-line model-written session summary"],
+      ["agentify ctx share [--off]", "Make notes committable team memory"],
+      ["agentify ctx pause|resume|clear", "Stop the digest + tracking, or archive and reset"]
+    ]},
+    { name: "Model routing", rows: [
+      ["agentify delegate <kind> [\"task\"]", "Shell a task out to the routed model (--diff, --write)"],
+      ["agentify models", "Model routing table + provider availability"],
+      ["agentify route explain \"<task>\"", "Dry-run the routing decision for a task"],
+      ["agentify stats [--days N]", "Session + delegation usage: runs, tokens, cost by kind and model"],
+      ["agentify value [--days N] [--format …]", "Evidence-backed impact receipt"],
+      ["agentify analyze [--days N] [--scope …]", "Privacy-first analysis of local session history + usage scorecard"]
+    ]},
+    { name: "Evaluation", rows: [
+      ["agentify eval init|run|report|compare|list", "Paired Agentify+Claude vs plain-Claude benchmarks"],
+      ["agentify eval harbor validate|plan|import", "Harbor (Terminal-Bench 2.0) container adapter"]
+    ]},
+    { name: "Structural index", rows: [
+      ["agentify scan", "Build the SQLite structural index"],
+      ["agentify query <owner|deps|changed|search|def|refs|callers|impacts>", "Structural queries over the index"],
+      ["agentify risk --since <ref>", "Blast radius + suggested regression tests"],
+      ["agentify test [--since <ref>] [--run]", "Select (and run) only the tests affected by a change"],
+      ["agentify up", "scan -> check"],
+      ["agentify check", "Validate index freshness and generated artifacts"]
+    ]},
+    { name: "Workflows & serve", rows: [
+      ["agentify workflow list|install", "Board-to-draft-PR workflow bundle for your platform"],
+      ["agentify serve", "MCP server over stdio — Agentify tools for any MCP-capable agent"],
+      ["agentify skill list|install", "Install bundled agent skills"],
+      ["agentify review [--diff <ref>] [--push]", "Cross-vendor review of a change"],
+      ["agentify hooks install|remove|status", "Optional git hooks (pre-commit, post-merge, opt-in pre-push review)"]
+    ]}
+  ];
+  const tblHost = $("#cmdtables");
+  if (tblHost) {
+    const escC = (c) => c.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    tblHost.innerHTML = `<div style="margin:22px 0 0;border-top:2px solid var(--color-divider)">` + groups.map(g => `
+      <div data-grp style="border-bottom:2px solid var(--color-divider)">
+        <button data-grp-toggle type="button" aria-expanded="false" style="width:100%;display:flex;align-items:center;gap:14px;padding:17px 4px;background:transparent;border:0;cursor:pointer;text-align:left;color:var(--color-text)">
+          <span style="font-family:var(--font-heading);font-weight:800;font-size:19px">${g.name}</span>
+          <span style="font:500 11px/1 var(--mono);letter-spacing:.04em;color:var(--color-neutral-600);padding:3px 7px;border:1px solid var(--color-divider)">${g.rows.length}</span>
+          <span style="flex:1"></span>
+          <span data-chev style="font-family:var(--mono);font-weight:400;font-size:22px;line-height:1;color:var(--color-accent)">+</span>
+        </button>
+        <div data-grp-body hidden style="padding:0 0 14px">
+          <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+            <tbody>
+              ${g.rows.map(([c,d]) => `
+                <tr style="border-top:1px solid var(--color-divider)">
+                  <td style="padding:11px 16px 11px 0;vertical-align:top;width:48%"><code style="font-family:var(--mono);font-size:12.5px;color:var(--color-accent-700)">${escC(c)}</code></td>
+                  <td style="padding:11px 0;vertical-align:top;color:var(--color-neutral-800)">${d}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join("") + `</div>`;
+    $$("[data-grp]", tblHost).forEach(grp => {
+      const btn = $("[data-grp-toggle]", grp), body = $("[data-grp-body]", grp), chev = $("[data-chev]", grp);
+      btn.addEventListener("click", () => {
+        const opening = body.hasAttribute("hidden");
+        if (opening) { body.removeAttribute("hidden"); chev.textContent = "–"; btn.setAttribute("aria-expanded","true"); }
+        else { body.setAttribute("hidden",""); chev.textContent = "+"; btn.setAttribute("aria-expanded","false"); }
+      });
+      btn.addEventListener("mouseenter", () => { btn.style.color = "var(--color-accent-700)"; });
+      btn.addEventListener("mouseleave", () => { btn.style.color = "var(--color-text)"; });
+    });
+  }
+
+  // ── routing table ──
+  const routes = [
+    ["quick", "Claude Haiku", "Small, low-impact edits, mechanical changes, quick questions"],
+    ["implement", "Claude Sonnet", "Standard feature work and multi-file refactors"],
+    ["heavy", "Claude Opus", "Architecture decisions, deep debugging, high-risk changes"],
+    ["review", "Codex (CLI default)", "Independent post-change review by a different vendor"],
+    ["research", "Claude Haiku", "Fast exploration, summarization, doc lookups"]
+  ];
+  const rt = $("#routetable");
+  if (rt) {
+    rt.innerHTML = `
+      <div style="border:2px solid var(--color-text)">
+        <div style="display:grid;grid-template-columns:150px 200px 1fr;background:var(--color-text);color:var(--color-bg)">
+          <div style="padding:11px 16px;font:700 10.5px/1 var(--font-heading);letter-spacing:.1em;text-transform:uppercase">Kind</div>
+          <div style="padding:11px 16px;font:700 10.5px/1 var(--font-heading);letter-spacing:.1em;text-transform:uppercase">Default route</div>
+          <div style="padding:11px 16px;font:700 10.5px/1 var(--font-heading);letter-spacing:.1em;text-transform:uppercase">Used for</div>
+        </div>
+        ${routes.map((r,i) => `
+          <div style="display:grid;grid-template-columns:150px 200px 1fr;${i<routes.length-1?'border-bottom:1px solid var(--color-divider)':''}">
+            <div style="padding:13px 16px"><code style="font-family:var(--mono);font-size:13px;color:var(--color-accent-700);font-weight:500">${r[0]}</code></div>
+            <div style="padding:13px 16px;font-size:13.5px;font-weight:600">${r[1]}</div>
+            <div style="padding:13px 16px;font-size:13.5px;color:var(--color-neutral-800)">${r[2]}</div>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  // ── workflow platform table ──
+  const wf = [
+    ["GitHub", "gh", "github-triage · gh-autopilot · issue-killer · worktree-autopilot · pr-creator"],
+    ["GitLab", "glab", "gitlab-triage · glab-autopilot · issue-killer · worktree-autopilot · pr-creator"],
+    ["Azure DevOps", "az", "azure-devops-triage · ado-autopilot · pr-convention-learner · pr-creator"]
+  ];
+  const wfh = $("#wftable");
+  if (wfh) {
+    wfh.innerHTML = `
+      <div style="border:2px solid var(--color-divider)">
+        ${wf.map((r,i) => `
+          <div style="display:grid;grid-template-columns:150px 90px 1fr;${i<wf.length-1?'border-bottom:2px solid var(--color-divider)':''}">
+            <div style="padding:16px 18px;font-family:var(--font-heading);font-weight:800;font-size:16px">${r[0]}</div>
+            <div style="padding:16px 18px"><code style="font-family:var(--mono);font-size:13px;color:var(--color-accent-700)">${r[1]}</code></div>
+            <div style="padding:16px 18px;font:400 12.5px/1.55 var(--mono);color:var(--color-neutral-700)">${r[2]}</div>
+          </div>`).join("")}
+      </div>`;
+  }
+
+  // ── scroll-spy ──
+  const links = $$(".toc-link").filter(l => l.getAttribute("href").startsWith("#"));
+  const setActive = (id) => {
+    links.forEach(l => {
+      const on = l.getAttribute("href").slice(1) === id;
+      l.style.borderLeftColor = on ? "var(--color-accent)" : "transparent";
+      l.style.color = on ? "var(--color-accent-700)" : "var(--color-neutral-800)";
+      l.style.fontWeight = on ? "700" : "500";
+      l.style.background = on ? "color-mix(in srgb, var(--color-accent) 8%, transparent)" : "transparent";
+    });
+  };
+  const secs = $$("section[id]");
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) setActive(e.target.id); });
+  }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
+  secs.forEach(s => io.observe(s));
+  setActive("overview");
+});
+</script>
 </body>
 </html>
