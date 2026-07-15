@@ -21,7 +21,6 @@ Agentify keeps durable working context with the repository instead of trapping i
 
 Agentify does not replay a provider's hidden conversation state or copy private chain-of-thought. It carries forward explicit, compact project evidence that should survive the switch.
 
-Think of it like [`rtk`](https://github.com/rtk-ai/rtk): a tool you install into a project that wires itself into your agent's configuration and then stays out of your way.
 
 ## How it works
 
