@@ -372,6 +372,56 @@ test("multiple source roots per provider are scanned, deduplicated, and reported
   assert.equal(manifest.sources.filter((source) => source.provider === "claude").length, 2);
 });
 
+test("overlapping roots never double count the same session file", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-overlap-");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  await writeCodexFixtures(codexRoot, repoRoot);
+  const baseline = await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot, days: 30 });
+
+  // The same store passed twice: once as-is and once via a nested subdir.
+  const overlapping = await buildSessionAnalysis(repoRoot, {
+    providers: ["codex"],
+    codexRoots: [codexRoot, path.join(codexRoot, "2026")],
+    days: 30,
+  });
+  assert.equal(overlapping.totals.sessions, baseline.totals.sessions);
+  assert.deepEqual(overlapping.totals.usage, baseline.totals.usage);
+  const nested = overlapping.sources.find((source) => source.root.endsWith("2026"));
+  assert.equal(nested.files_discovered, 0, "files already claimed by the outer root are not re-counted");
+});
+
+test("cache sweep is scoped to scanned roots so switching stores keeps other entries", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-sweepscope-");
+  const codexRootA = path.join(repoRoot, "history", "codex-a");
+  const codexRootB = path.join(repoRoot, "history", "codex-b");
+  const cacheRoot = path.join(repoRoot, "cache", "session-analysis");
+  await writeCodexFixtures(codexRootA, repoRoot);
+  await writeCodexFixtures(codexRootB, repoRoot);
+
+  await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot: codexRootA, cacheRoot, days: 30 });
+  await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot: codexRootB, cacheRoot, days: 30 });
+  const afterBoth = (await fs.readdir(cacheRoot)).length;
+  assert.equal(afterBoth, 4, "both stores keep their entries");
+
+  // Re-scanning store A must not evict store B's entries...
+  const rescanA = await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot: codexRootA, cacheRoot, days: 30 });
+  assert.equal(rescanA.coverage.cache.pruned, 0);
+  assert.equal(rescanA.coverage.cache.hits, 2);
+  assert.equal((await fs.readdir(cacheRoot)).length, 4);
+
+  // ...but deleting a file inside the scanned store still sweeps it.
+  await fs.rm(path.join(codexRootA, "2026", "07", "14", "rollout-2026-07-14-cx2.jsonl"));
+  const afterDelete = await buildSessionAnalysis(repoRoot, { providers: ["codex"], codexRoot: codexRootA, cacheRoot, days: 30 });
+  assert.equal(afterDelete.coverage.cache.pruned, 1);
+  assert.equal((await fs.readdir(cacheRoot)).length, 3);
+});
+
+test("inline --flag=value parsing keeps '=' inside the value", async () => {
+  const { parseArgs } = await import("../src/core/cli-args.js");
+  const args = parseArgs(["analyze", "--source-root=codex=./fixtures/codex", "--source-root", "claude=./a=b"]);
+  assert.deepEqual(args.sourceRoot, ["codex=./fixtures/codex", "claude=./a=b"]);
+});
+
 test("progress renders throttled TTY lines to stderr and clears on finish", () => {
   const writes = [];
   const stream = { isTTY: true, write: (chunk) => writes.push(chunk) };

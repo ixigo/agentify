@@ -94,7 +94,11 @@ export function parseArgs(argv) {
       continue;
     }
 
-    const [rawKey, inlineValue] = token.slice(2).split("=", 2);
+    // Split at the FIRST '=' only; the value may itself contain '='
+    // (e.g. --source-root=codex=./fixtures).
+    const eqIndex = token.indexOf("=", 2);
+    const rawKey = eqIndex === -1 ? token.slice(2) : token.slice(2, eqIndex);
+    const inlineValue = eqIndex === -1 ? undefined : token.slice(eqIndex + 1);
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
       assignFlag(args, key, parseValue(inlineValue));

@@ -80,6 +80,7 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
           parser_version: ANALYSIS_PARSER_VERSION,
           provider: file.provider,
           root,
+          source_path: path.resolve(file.path),
           size: file.size || 0,
           mtime_ms: file.mtime_ms,
           session,
@@ -92,11 +93,16 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
     },
 
     // Evict entries whose source file is gone from discovery (deleted, or
-    // aged past every window) for the providers this scan covered.
-    // Entries for providers outside this scan are left alone.
-    async sweep(discoveredFiles, providers) {
+    // aged past every window). Only entries that THIS scan could have
+    // re-discovered are candidates: the entry's provider must be selected
+    // and its source path must live under one of the scanned roots, so
+    // switching between custom --source-root stores never evicts entries
+    // belonging to a store the current scan did not look at.
+    async sweep(discoveredFiles, providers, scannedRoots) {
       if (!active) return;
       const keep = new Set(discoveredFiles.map((file) => `${stableSessionId(file.provider, file.path)}.json`));
+      const roots = (scannedRoots || []).map((entry) => path.resolve(entry));
+      const underScannedRoot = (sourcePath) => roots.some((scanned) => sourcePath === scanned || sourcePath.startsWith(`${scanned}${path.sep}`));
       let names = [];
       try {
         names = await fs.readdir(cacheRoot);
@@ -106,18 +112,22 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
       for (const name of names) {
         if (!name.endsWith(".json") || keep.has(name)) continue;
         const fullPath = path.join(cacheRoot, name);
+        let remove = false;
         try {
           const entry = await readJson(fullPath);
-          if (entry?.provider && !providers.includes(entry.provider)) continue;
+          if (entry?.parser_version !== ANALYSIS_PARSER_VERSION || typeof entry?.source_path !== "string") {
+            remove = true; // stale schema: useless to every future scan
+          } else {
+            remove = providers.includes(entry.provider) && underScannedRoot(entry.source_path);
+          }
+        } catch {
+          remove = true; // unreadable entry is junk either way
+        }
+        if (!remove) continue;
+        try {
           await fs.unlink(fullPath);
           stats.pruned += 1;
-        } catch {
-          // An unreadable stray entry is junk either way; try to remove it.
-          try {
-            await fs.unlink(fullPath);
-            stats.pruned += 1;
-          } catch { /* leave it; never fail the scan over cache hygiene */ }
-        }
+        } catch { /* leave it; never fail the scan over cache hygiene */ }
       }
     },
   };

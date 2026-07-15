@@ -95,6 +95,19 @@ async function discover(resolved) {
       sources.push({ provider: "codex", ...discovered });
     }
   }
+  // Overlapping roots (e.g. a store and one of its subdirectories) find
+  // the same file more than once; only the first occurrence survives so
+  // nothing is double counted. Distinct string paths to one inode (via
+  // symlinks) are not resolved here.
+  const seen = new Set();
+  for (const source of sources) {
+    source.files = source.files.filter((file) => {
+      const key = `${source.provider}:${path.resolve(file.path)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
   return sources;
 }
 
@@ -215,7 +228,11 @@ export async function buildSessionAnalysis(root, options = {}) {
       report();
     }
   }
-  await cache.sweep(sources.flatMap((source) => source.files), resolved.providers);
+  await cache.sweep(
+    sources.flatMap((source) => source.files),
+    resolved.providers,
+    sources.map((source) => source.root),
+  );
 
   // Global scope pseudonymizes projects by first-seen order; the mapping
   // never leaves this function, so real paths stay out of the report.
