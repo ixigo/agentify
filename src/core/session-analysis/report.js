@@ -468,6 +468,7 @@ ${report.config_audit ? configAuditSection(report.config_audit) : ""}
         <p><strong>Mode:</strong> ${escapeHtml(report.privacy.content_mode)} · <strong>network calls:</strong> ${escapeHtml(report.privacy.network_calls)} · <strong>AI spend:</strong> $${escapeHtml(report.privacy.ai_spend_usd)}</p>
         <p><strong>Roots read:</strong> ${report.privacy.roots_read.map((entry) => `<code>${escapeHtml(entry)}</code>`).join(" ")}</p>
         ${report.privacy.config_sources_read?.length > 0 ? `<p><strong>Config sources read (structural, allowlisted):</strong> ${report.privacy.config_sources_read.map((entry) => `<code>${escapeHtml(entry)}</code>`).join(" ")}</p>` : ""}
+        ${report.privacy.evidence_sources_read?.length > 0 ? `<p><strong>Routing evidence read:</strong> ${report.privacy.evidence_sources_read.map((entry) => escapeHtml(entry)).join(" ")}</p>` : ""}
         <ul>${report.privacy.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
         <ul>
           <li>Coverage: ${escapeHtml(formatNumber(report.coverage.sessions_analyzed))} session(s) analyzed, ${escapeHtml(formatNumber(report.coverage.sessions_with_usage))} with usage metadata, ${escapeHtml(formatNumber(report.coverage.malformed_lines))} malformed line(s) skipped.</li>

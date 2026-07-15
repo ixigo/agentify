@@ -491,6 +491,9 @@ export async function buildSessionAnalysis(root, options = {}) {
       config_sources_read: resolved.includeConfig
         ? configAuditSources({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome }).map(homeRelative)
         : [],
+      evidence_sources_read: resolved.routeEvidence && resolved.routeEvidence.runs_scanned > 0
+        ? [`.agentify/evals/runs — ${resolved.routeEvidence.runs_scanned} run summar${resolved.routeEvidence.runs_scanned === 1 ? "y" : "ies"} read for aggregate pass/cost routing evidence (this repository's own eval artifacts)`]
+        : [],
       transcript_bodies_analyzed: resolved.contentMode === "local-extractive",
       content_persisted: false,
       network_calls: 0,

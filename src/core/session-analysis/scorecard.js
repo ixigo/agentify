@@ -52,10 +52,13 @@ export function classifyWorkType(session) {
   return "mixed";
 }
 
+// Heavy is checked first: "gemini-3.1-pro" must land on its "-pro" marker
+// before the light pattern can see the "mini" inside "gemini". Light
+// markers require a segment boundary for the same reason.
 const MODEL_TIERS = [
-  { tier: 0, label: "light", pattern: /haiku|mini|nano|flash|lite/i },
   { tier: 2, label: "heavy", pattern: /fable|mythos|opus|-pro\b|pro-|o1-pro/i },
-  { tier: 1, label: "standard", pattern: /sonnet|gpt|codex|o[34]|claude/i },
+  { tier: 0, label: "light", pattern: /(^|[-./~])(haiku|mini|nano|flash|lite)\b/i },
+  { tier: 1, label: "standard", pattern: /sonnet|gpt|codex|o[34]|claude|gemini/i },
 ];
 
 export function modelTier(model) {
@@ -165,19 +168,24 @@ function matchupQuip(fitCounts, heaviestModel, scored) {
   };
 }
 
-// Evidence ladder for "this could have run on a cheaper model" (#308):
-// high = an eval-run model at a cheaper tier clears the routing quality
-// floor with sufficient attempts; medium = this same analysis window
-// contains repeated completed sessions of the same work type that ran on
-// cheaper tiers; low = tier heuristic only, and it says so.
+// Evidence ladder for "this could have run on a cheaper model" (#308).
+// The suggested routes (delegate quick / delegate research) default to
+// LIGHT-tier models, so only light-tier evidence counts — 8/8 on a
+// standard model proves nothing about the route being recommended:
+// high = a light-tier model in this repository's eval runs clears the
+// routing quality floor with sufficient attempts; medium = this analysis
+// window contains repeated completed sessions of the same work type that
+// ran on light-tier models; low = tier heuristic only, and it says so.
 function delegationEvidence({ workType, routeEvidence, localComparable }) {
   for (const [key, stats] of Object.entries(routeEvidence?.models || {})) {
-    const { tier } = modelTier(key.split(":")[1] || key);
-    if (tier === null || tier >= 2) continue;
+    // Evidence keys are "provider/model" (or "provider/~family").
+    const modelPart = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
+    const { tier } = modelTier(modelPart);
+    if (tier !== 0) continue;
     if (stats.sufficient && stats.pass_rate !== null && stats.pass_rate >= EVIDENCE_QUALITY_FLOOR && stats.attempts >= EVIDENCE_MIN_ATTEMPTS) {
       return {
         confidence: "high",
-        basis: `eval evidence: ${key} passed ${stats.passes}/${stats.attempts} attempt(s) (pass rate ${stats.pass_rate}) on a cheaper tier, above the ${EVIDENCE_QUALITY_FLOOR} quality floor`,
+        basis: `eval evidence (this repository): ${key} passed ${stats.passes}/${stats.attempts} attempt(s) (pass rate ${stats.pass_rate}) on the light tier the suggested route uses, above the ${EVIDENCE_QUALITY_FLOOR} quality floor`,
       };
     }
   }
@@ -185,12 +193,12 @@ function delegationEvidence({ workType, routeEvidence, localComparable }) {
   if (comparable >= LOCAL_COMPARABLE_MIN) {
     return {
       confidence: "medium",
-      basis: `local history: ${comparable} completed ${workType} session(s) in this window already ran on cheaper tiers`,
+      basis: `local history: ${comparable} completed ${workType} session(s) in this window already ran on light-tier models`,
     };
   }
   return {
     confidence: "low",
-    basis: "tier heuristic only — no eval or comparable local-history evidence was found for a cheaper route",
+    basis: "tier heuristic only — no light-tier eval or comparable local-history evidence was found for the suggested route",
   };
 }
 
@@ -206,14 +214,15 @@ export function buildScorecard(sessions, enriched, { routeEvidence = null } = {}
   const delegationCandidates = [];
   let delegationWithheld = 0;
 
-  // Completed sessions of each work type that already ran on cheaper
-  // tiers — the "medium" rung of the delegation evidence ladder.
+  // Completed sessions of each work type that already ran on LIGHT-tier
+  // models (the tier the suggested routes use) — the "medium" rung of
+  // the delegation evidence ladder.
   const localComparable = {};
   for (let index = 0; index < sessions.length; index += 1) {
     const session = sessions[index];
     if (session.outcome?.status !== "completed") continue;
     const tiers = session.models.map((model) => modelTier(model).tier).filter((tier) => tier !== null);
-    if (tiers.length === 0 || Math.max(...tiers) >= 2) continue;
+    if (tiers.length === 0 || Math.max(...tiers) !== 0) continue;
     const type = enriched[index].work_type;
     localComparable[type] = (localComparable[type] || 0) + 1;
   }

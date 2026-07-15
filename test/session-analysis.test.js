@@ -250,6 +250,11 @@ test("model tiers classify heavy, standard, light, and unknown identifiers", () 
   assert.equal(modelTier("claude-haiku-4-5-20251001").label, "light");
   assert.equal(modelTier("gpt-5.2-codex").label, "standard");
   assert.equal(modelTier("mystery-model-9").label, "unknown");
+  // "gemini" must not match the light tier's "mini" marker.
+  assert.equal(modelTier("gemini-3.1-pro-preview").label, "heavy");
+  assert.equal(modelTier("gemini-3-flash").label, "light");
+  assert.equal(modelTier("gemini-3").label, "standard");
+  assert.equal(modelTier("gpt-5.1-codex-mini").label, "light");
 });
 
 test("work types come from tool mix with an honest mixed fallback", () => {
@@ -573,16 +578,29 @@ test("delegation confidence climbs the evidence ladder: heuristic, local history
   assert.equal(medium.delegation_candidates[0].confidence, "medium");
   assert.match(medium.delegation_candidates[0].evidence_basis, /3 completed quick-fix session/);
 
-  // Sufficient eval evidence above the quality floor -> high.
-  const routeEvidence = { models: { "claude:haiku": { attempts: 8, passes: 8, pass_rate: 1, sufficient: true } } };
+  // Sufficient LIGHT-tier eval evidence above the quality floor -> high
+  // (keys use the router's provider/model format).
+  const routeEvidence = { models: { "claude/haiku": { attempts: 8, passes: 8, pass_rate: 1, sufficient: true } } };
   const high = buildScorecard([overkillSession], enrichedFor([overkillSession]), { routeEvidence });
   assert.equal(high.delegation_candidates[0].confidence, "high");
-  assert.match(high.delegation_candidates[0].evidence_basis, /claude:haiku passed 8\/8/);
+  assert.match(high.delegation_candidates[0].evidence_basis, /claude\/haiku passed 8\/8/);
 
-  // Insufficient or heavy-tier eval evidence never upgrades.
-  const weak = { models: { "claude:haiku": { attempts: 2, passes: 2, pass_rate: 1, sufficient: false }, "claude:opus": { attempts: 10, passes: 10, pass_rate: 1, sufficient: true } } };
+  // Insufficient, standard-tier, or heavy-tier evidence never upgrades:
+  // the suggested quick/research routes run light models.
+  const weak = { models: {
+    "claude/haiku": { attempts: 2, passes: 2, pass_rate: 1, sufficient: false },
+    "claude/sonnet": { attempts: 10, passes: 10, pass_rate: 1, sufficient: true },
+    "claude/opus": { attempts: 10, passes: 10, pass_rate: 1, sufficient: true },
+    "gemini/gemini-3.1-pro-preview": { attempts: 10, passes: 10, pass_rate: 1, sufficient: true },
+  } };
   const stillLow = buildScorecard([overkillSession], enrichedFor([overkillSession]), { routeEvidence: weak });
   assert.equal(stillLow.delegation_candidates[0].confidence, "low");
+
+  // Standard-tier local sessions do not count as comparable either.
+  const sonnetDone = Array.from({ length: 3 }, () => syntheticSession({ ...base, models: ["claude-sonnet-4-5"] }));
+  const withSonnet = [overkillSession, ...sonnetDone];
+  const sonnetCard = buildScorecard(withSonnet, enrichedFor(withSonnet));
+  assert.equal(sonnetCard.delegation_candidates[0].confidence, "low");
 });
 
 test("overkill sessions without a completed outcome are withheld from delegation", async () => {

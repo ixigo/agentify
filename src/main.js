@@ -978,6 +978,7 @@ export async function runCli(argv, _runtime = {}) {
             ...(args.includeConfig === true && Array.isArray(manifest.config_sources)
               ? ["Config audit (--include-config) reads ONLY these allowlisted sources, structurally:", ...manifest.config_sources.map((source) => `  ${source}`)]
               : []),
+            "Routing evidence: this repository's own eval artifacts (.agentify/evals/runs) are read for aggregate pass/cost statistics to grade cheaper-route suggestions.",
           ];
           if (!process.stdin.isTTY || !process.stderr.isTTY) {
             throw new Error(`analyze needs explicit consent in non-interactive mode. ${disclosure.join(" ")} Re-run with --yes to consent, or --dry-run to preview.`);
