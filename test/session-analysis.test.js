@@ -335,6 +335,52 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
 });
 
+test("cost estimates use exact model + effective date and never claim billed spend", async () => {
+  const { estimateSessionCost, buildCostSummary, priceEntryFor } = await import("../src/core/session-analysis/pricing.js");
+  const usage = { fresh_input_tokens: 1_000_000, cache_read_tokens: 2_000_000, cache_write_tokens: 100_000, output_tokens: 500_000, reasoning_output_tokens: null };
+
+  // Dated snapshot suffix maps to the same priced model.
+  const haiku = estimateSessionCost({ models: ["claude-haiku-4-5-20251001"], started_at: "2026-07-01T00:00:00Z", usage });
+  // 1*1 + 2*0.1 + 0.1*1.25 + 0.5*5 = 3.825
+  assert.equal(haiku.estimated_usd, 3.825);
+  assert.equal(haiku.basis, "versioned-price-estimate");
+
+  // Unknown model, multi-model, and pre-effective-date sessions stay unpriced.
+  assert.equal(estimateSessionCost({ models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
+  assert.equal(estimateSessionCost({ models: ["claude-haiku-4-5", "gpt-5.1"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
+  assert.equal(priceEntryFor("claude-haiku-4-5", "2024-01-01T00:00:00Z"), null);
+  assert.equal(estimateSessionCost({ models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage: { ...usage, output_tokens: null } }).estimated_usd, null);
+
+  const sessions = [
+    { models: ["claude-haiku-4-5"], started_at: "2026-07-01T00:00:00Z", usage },
+    { models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage },
+  ];
+  const summary = buildCostSummary(sessions, sessions.map((session) => estimateSessionCost(session)));
+  assert.equal(summary.reported_usd, null, "estimates must never masquerade as reported cost");
+  assert.equal(summary.estimated_usd, 3.83);
+  assert.equal(summary.coverage.sessions_priced, 1);
+  assert.equal(summary.coverage.priced_output_token_share, 0.5);
+  assert.ok(summary.coverage.unpriced_reasons["no list price for mystery-9"]);
+  assert.match(summary.note, /NOT billed spend/);
+});
+
+test("report carries per-session estimates and labeled totals in all formats", async () => {
+  const { report } = await fixtureReport();
+  // Fixture models: claude-fable-5 (no list price) and gpt-5.2-codex (priced).
+  assert.equal(report.totals.cost.basis, "versioned-price-estimate");
+  assert.equal(report.totals.cost.coverage.sessions_priced, 1);
+  assert.ok(report.totals.cost.coverage.unpriced_reasons["no list price for claude-fable-5"]);
+  const codexRow = report.sessions.find((row) => row.provider === "codex");
+  assert.ok(codexRow.cost_estimate_usd > 0);
+  assert.equal(report.sessions.find((row) => row.provider === "claude").cost_estimate_usd, null);
+
+  const text = renderAnalysisText(report);
+  assert.match(text, /est\. \$[\d.]+ list price, 1\/4 session\(s\) priced — not billed spend/);
+  const html = renderAnalysisHtml(report, { projectName: "fixture" });
+  assert.ok(html.includes("not billed spend"));
+  assert.ok(html.includes("Est. $ (list)"));
+});
+
 test("parseSourceRoots validates provider=path entries and resolves paths", () => {
   const roots = parseSourceRoots(["claude=fixtures/a", "claude=/abs/b", "codex=fixtures/c"], { root: "/repo" });
   assert.deepEqual(roots.claude, ["/repo/fixtures/a", "/abs/b"]);

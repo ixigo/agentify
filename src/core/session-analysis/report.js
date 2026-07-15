@@ -28,11 +28,16 @@ function formatDuration(milliseconds) {
   return `${(minutes * 60).toFixed(0)}s`;
 }
 
+function costLabel(cost) {
+  if (cost.estimated_usd === null) return cost.basis;
+  return `est. $${cost.estimated_usd} list price, ${cost.coverage.sessions_priced}/${cost.coverage.sessions_total} session(s) priced — not billed spend`;
+}
+
 export function renderAnalysisText(report) {
   const totals = report.totals;
   const lines = [
     `Agentify analyze — ${report.scope}, last ${report.window_days} day(s), providers: ${report.providers.join(", ")}`,
-    `${totals.sessions} session(s) · active ${formatDuration(totals.active_ms)} · ${formatNumber(totals.tool_calls)} tool call(s) · cost ${totals.cost.basis}`,
+    `${totals.sessions} session(s) · active ${formatDuration(totals.active_ms)} · ${formatNumber(totals.tool_calls)} tool call(s) · cost ${costLabel(totals.cost)}`,
     `Tokens: ${formatTokens(totals.usage.fresh_input_tokens)} fresh in · ${formatTokens(totals.usage.cache_read_tokens)} cache read · ${formatTokens(totals.usage.output_tokens)} out`,
   ];
   const scorecard = report.scorecard;
@@ -103,7 +108,7 @@ function opportunityCard(item, index) {
 
 function sessionRowsHtml(rows) {
   if (rows.length === 0) {
-    return '<tr><td colspan="12" class="empty">No sessions in this window.</td></tr>';
+    return '<tr><td colspan="13" class="empty">No sessions in this window.</td></tr>';
   }
   return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}">
     <th scope="row"><code>${escapeHtml(row.session_id)}</code></th>
@@ -118,6 +123,7 @@ function sessionRowsHtml(rows) {
     <td class="number">${escapeHtml(formatNumber(row.user_turns))}</td>
     <td class="number">${escapeHtml(formatNumber(row.tool_calls))}</td>
     <td class="number">${escapeHtml(formatNumber(row.files_touched))}</td>
+    <td class="number">${escapeHtml(row.cost_estimate_usd === null || row.cost_estimate_usd === undefined ? "—" : `$${row.cost_estimate_usd.toFixed(2)}`)}</td>
   </tr>`).join("");
 }
 
@@ -158,7 +164,9 @@ export function renderAnalysisHtml(report, options = {}) {
     metricCard("fresh input tokens", formatTokens(totals.usage.fresh_input_tokens), `plus ${formatTokens(totals.usage.cache_read_tokens)} read from cache`, "good"),
     metricCard("output tokens", formatTokens(totals.usage.output_tokens), "Across all models in window", "good"),
     metricCard("tool calls", formatNumber(totals.tool_calls), `${formatNumber(totals.failed_tool_calls)} failed`, "neutral"),
-    metricCard("cost basis", totals.cost.basis, "Local stores carry no billed cost", "guard"),
+    totals.cost.estimated_usd !== null
+      ? metricCard("cost estimate", `$${formatNumber(totals.cost.estimated_usd)}`, `List price · ${formatNumber(totals.cost.coverage.sessions_priced)}/${formatNumber(totals.cost.coverage.sessions_total)} sessions priced · not billed spend`, "guard")
+      : metricCard("cost basis", totals.cost.basis, "Local stores carry no billed cost", "guard"),
   ].join("");
 
   const scorecard = report.scorecard;
@@ -396,7 +404,7 @@ ${scorecardSection}
           ${filterGroup("f-work", "work type", WORK_TYPE_VALUES)}
           ${filterGroup("f-fit", "matchup", FIT_VALUES)}
         </div>
-        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
+        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
       </details>
     </section>
     <section aria-label="Privacy receipt">

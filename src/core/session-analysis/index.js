@@ -20,6 +20,7 @@ import {
 import { buildOpportunities, buildRoast } from "./opportunities.js";
 import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./scorecard.js";
 import { createAnalysisCache } from "./cache.js";
+import { buildCostSummary, estimateSessionCost } from "./pricing.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -244,6 +245,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     return projectLabels.get(key);
   };
 
+  const costEstimates = sessions.map((session) => estimateSessionCost(session));
   const totals = {
     sessions: sessions.length,
     duration_ms: null,
@@ -251,12 +253,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     tool_calls: 0,
     failed_tool_calls: 0,
     usage: emptyUsage(),
-    cost: {
-      reported_usd: null,
-      estimated_usd: null,
-      basis: "unavailable",
-      note: "Local session stores do not include billed cost; token-derived estimates are intentionally not shown as spend.",
-    },
+    cost: buildCostSummary(sessions, costEstimates),
   };
   const modelRollup = new Map();
   const toolRollup = new Map();
@@ -282,7 +279,7 @@ export async function buildSessionAnalysis(root, options = {}) {
   let malformedTotal = 0;
   let usageSessions = 0;
 
-  for (const session of sessions) {
+  for (const [sessionIndex, session] of sessions.entries()) {
     totals.duration_ms = add(totals.duration_ms, session.duration_ms);
     totals.active_ms = add(totals.active_ms, session.active_ms);
     totals.tool_calls += session.tools.calls;
@@ -347,6 +344,8 @@ export async function buildSessionAnalysis(root, options = {}) {
       work_type: workType,
       fit,
       score,
+      cost_estimate_usd: costEstimates[sessionIndex].estimated_usd,
+      cost_basis: costEstimates[sessionIndex].basis,
     });
   }
   const scorecard = buildScorecard(sessions, scoredSessions);
