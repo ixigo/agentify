@@ -47,7 +47,7 @@ import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
-import { classifyTaskIntent } from "./core/profiles.js";
+import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
 import {
@@ -1003,6 +1003,8 @@ export async function runCli(argv, _runtime = {}) {
         // freshness) so recommendations only point at what exists. Version/
         // summary queries only — nothing from history is ever executed.
         analyzeOptions.toolInventory = await detectToolInventory({ root, artifactPaths: config._agentifyPaths });
+        // Local eval-run evidence upgrades cheaper-route confidence tiers.
+        analyzeOptions.routeEvidence = await loadRouteEvidence(root);
         let report;
         try {
           report = await buildSessionAnalysis(root, analyzeOptions);

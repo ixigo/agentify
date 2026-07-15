@@ -552,6 +552,39 @@ test("codex custom_tool_call records count as tools and drive outcomes", async (
   assert.equal(report.patterns.grep_like, 0);
 });
 
+test("delegation confidence climbs the evidence ladder: heuristic, local history, eval", () => {
+  const base = { calls: 6, byName: { Edit: 1 }, writes: 1, models: ["claude-fable-5"], userTurns: 1, outputTokens: 500 };
+  const overkillSession = syntheticSession(base);
+  const enrichedFor = (sessions) => sessions.map((session) => {
+    const workType = classifyWorkType(session);
+    const fit = fitVerdict(workType, session.models);
+    return { work_type: workType, work_type_source: "metadata", fit, ...scoreSession(session, workType, fit) };
+  });
+
+  // No evidence at all -> low, and the basis says so.
+  const low = buildScorecard([overkillSession], enrichedFor([overkillSession]));
+  assert.equal(low.delegation_candidates[0].confidence, "low");
+  assert.match(low.delegation_candidates[0].evidence_basis, /heuristic only/);
+
+  // 3+ completed same-type sessions on cheaper tiers -> medium.
+  const cheapDone = Array.from({ length: 3 }, () => syntheticSession({ ...base, models: ["claude-haiku-4-5-20251001"] }));
+  const withLocal = [overkillSession, ...cheapDone];
+  const medium = buildScorecard(withLocal, enrichedFor(withLocal));
+  assert.equal(medium.delegation_candidates[0].confidence, "medium");
+  assert.match(medium.delegation_candidates[0].evidence_basis, /3 completed quick-fix session/);
+
+  // Sufficient eval evidence above the quality floor -> high.
+  const routeEvidence = { models: { "claude:haiku": { attempts: 8, passes: 8, pass_rate: 1, sufficient: true } } };
+  const high = buildScorecard([overkillSession], enrichedFor([overkillSession]), { routeEvidence });
+  assert.equal(high.delegation_candidates[0].confidence, "high");
+  assert.match(high.delegation_candidates[0].evidence_basis, /claude:haiku passed 8\/8/);
+
+  // Insufficient or heavy-tier eval evidence never upgrades.
+  const weak = { models: { "claude:haiku": { attempts: 2, passes: 2, pass_rate: 1, sufficient: false }, "claude:opus": { attempts: 10, passes: 10, pass_rate: 1, sufficient: true } } };
+  const stillLow = buildScorecard([overkillSession], enrichedFor([overkillSession]), { routeEvidence: weak });
+  assert.equal(stillLow.delegation_candidates[0].confidence, "low");
+});
+
 test("overkill sessions without a completed outcome are withheld from delegation", async () => {
   const enrichedFor = (sessions) => sessions.map((session) => {
     const workType = classifyWorkType(session);

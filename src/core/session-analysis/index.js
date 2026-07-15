@@ -93,6 +93,7 @@ function resolveOptions(root, options) {
     codexHome: options.codexHome || null,
     // Precomputed by the CLI (read-only probes); null keeps the core pure.
     toolInventory: options.toolInventory || null,
+    routeEvidence: options.routeEvidence || null,
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
@@ -418,7 +419,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       cost_basis: costEstimates[sessionIndex].basis,
     });
   }
-  const scorecard = buildScorecard(sessions, scoredSessions);
+  const scorecard = buildScorecard(sessions, scoredSessions, { routeEvidence: resolved.routeEvidence });
   sessionRows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 
   const rereadEntries = [...fileSessions.entries()]

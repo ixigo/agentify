@@ -226,6 +226,7 @@ export function renderAnalysisHtml(report, options = {}) {
       <th scope="row"><code>${escapeHtml(candidate.session_id)}</code></th>
       <td>${escapeHtml(candidate.work_type)}</td>
       <td>${escapeHtml(candidate.models.join(", ") || "—")}</td>
+      <td title="${escapeHtml(candidate.evidence_basis || "")}">${escapeHtml(candidate.confidence || "low")}</td>
       <td><code>${escapeHtml(candidate.suggestion)}</code></td>
     </tr>`).join("")
     : "";
@@ -247,7 +248,7 @@ export function renderAnalysisHtml(report, options = {}) {
         <p class="score-mix"><strong>Work mix:</strong> ${workTypeChips || '<span class="chip">nothing classified</span>'}</p>
         <p class="score-mix"><strong>Matchups:</strong> ${fitChips || '<span class="chip">none</span>'}</p>
         ${delegationRows ? `<details><summary>Delegation candidates (${scorecard.delegation_candidates.length})</summary>
-          <div class="table-wrap"><table><caption>Overkill sessions with a completed outcome that a cheaper Agentify route could carry</caption><thead><tr><th scope="col">Session</th><th scope="col">Type</th><th scope="col">Models</th><th scope="col">Try</th></tr></thead><tbody>${delegationRows}</tbody></table></div>
+          <div class="table-wrap"><table><caption>Overkill sessions with a completed outcome that a cheaper Agentify route could carry</caption><thead><tr><th scope="col">Session</th><th scope="col">Type</th><th scope="col">Models</th><th scope="col">Confidence</th><th scope="col">Try</th></tr></thead><tbody>${delegationRows}</tbody></table></div>
         </details>` : ""}
         ${scorecard.delegation_candidates_withheld > 0 ? `<p class="opp-caveat">${escapeHtml(`${scorecard.delegation_candidates_withheld} overkill session(s) withheld: ${scorecard.delegation_withheld_reason}`)}</p>` : ""}
         <p class="opp-caveat">${escapeHtml(scorecard.note)}</p>

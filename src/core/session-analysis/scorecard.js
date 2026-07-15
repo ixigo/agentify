@@ -1,5 +1,11 @@
 import { USAGE_SCORECARD_SCHEMA_VERSION } from "./normalize.js";
 
+// Same bar the routing policy uses (profiles.js): evidence below this
+// volume or pass rate never upgrades a recommendation.
+const EVIDENCE_MIN_ATTEMPTS = 5;
+const EVIDENCE_QUALITY_FLOOR = 0.9;
+const LOCAL_COMPARABLE_MIN = 3;
+
 // The usage scorecard is the fun-but-honest layer on top of the metadata:
 // each session gets a work-type guess, a "was this model the right weapon"
 // verdict, and a 0-100 efficiency score built from token generation per
@@ -159,7 +165,36 @@ function matchupQuip(fitCounts, heaviestModel, scored) {
   };
 }
 
-export function buildScorecard(sessions, enriched) {
+// Evidence ladder for "this could have run on a cheaper model" (#308):
+// high = an eval-run model at a cheaper tier clears the routing quality
+// floor with sufficient attempts; medium = this same analysis window
+// contains repeated completed sessions of the same work type that ran on
+// cheaper tiers; low = tier heuristic only, and it says so.
+function delegationEvidence({ workType, routeEvidence, localComparable }) {
+  for (const [key, stats] of Object.entries(routeEvidence?.models || {})) {
+    const { tier } = modelTier(key.split(":")[1] || key);
+    if (tier === null || tier >= 2) continue;
+    if (stats.sufficient && stats.pass_rate !== null && stats.pass_rate >= EVIDENCE_QUALITY_FLOOR && stats.attempts >= EVIDENCE_MIN_ATTEMPTS) {
+      return {
+        confidence: "high",
+        basis: `eval evidence: ${key} passed ${stats.passes}/${stats.attempts} attempt(s) (pass rate ${stats.pass_rate}) on a cheaper tier, above the ${EVIDENCE_QUALITY_FLOOR} quality floor`,
+      };
+    }
+  }
+  const comparable = localComparable[workType] || 0;
+  if (comparable >= LOCAL_COMPARABLE_MIN) {
+    return {
+      confidence: "medium",
+      basis: `local history: ${comparable} completed ${workType} session(s) in this window already ran on cheaper tiers`,
+    };
+  }
+  return {
+    confidence: "low",
+    basis: "tier heuristic only — no eval or comparable local-history evidence was found for a cheaper route",
+  };
+}
+
+export function buildScorecard(sessions, enriched, { routeEvidence = null } = {}) {
   const workTypes = Object.fromEntries(WORK_TYPES.map((type) => [type, 0]));
   const fitCounts = Object.fromEntries(FIT_VERDICTS.map((verdict) => [verdict, 0]));
   const workTypeSources = { metadata: 0, "content-hint": 0 };
@@ -170,6 +205,18 @@ export function buildScorecard(sessions, enriched) {
   let heaviestTier = -1;
   const delegationCandidates = [];
   let delegationWithheld = 0;
+
+  // Completed sessions of each work type that already ran on cheaper
+  // tiers — the "medium" rung of the delegation evidence ladder.
+  const localComparable = {};
+  for (let index = 0; index < sessions.length; index += 1) {
+    const session = sessions[index];
+    if (session.outcome?.status !== "completed") continue;
+    const tiers = session.models.map((model) => modelTier(model).tier).filter((tier) => tier !== null);
+    if (tiers.length === 0 || Math.max(...tiers) >= 2) continue;
+    const type = enriched[index].work_type;
+    localComparable[type] = (localComparable[type] || 0) + 1;
+  }
 
   for (let index = 0; index < sessions.length; index += 1) {
     const session = sessions[index];
@@ -195,11 +242,14 @@ export function buildScorecard(sessions, enriched) {
       // session that failed (or whose ending is unknowable) must not be
       // pitched as if a lighter model would have succeeded.
       if (session.outcome?.status === "completed") {
+        const evidence = delegationEvidence({ workType: extra.work_type, routeEvidence, localComparable });
         delegationCandidates.push({
           session_id: session.session_id,
           work_type: extra.work_type,
           models: session.models,
           outcome: session.outcome.status,
+          confidence: evidence.confidence,
+          evidence_basis: evidence.basis,
           suggestion: extra.work_type === "research"
             ? 'agentify delegate research "<question>"'
             : 'agentify delegate quick "<task>" --write',
