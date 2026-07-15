@@ -6,6 +6,7 @@ import { streamJsonlRecords } from "../stream-jsonl.js";
 import {
   classifyShellCommand,
   commandFingerprint,
+  createOutcomeTracker,
   createSessionSkeleton,
   createTimeTracker,
   normalizeFilePath,
@@ -80,6 +81,7 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   const models = new Set();
   const fileAccessSeen = new Map();
   const shellCallsById = new Map();
+  const outcome = createOutcomeTracker();
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
@@ -142,10 +144,10 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
           session.shell_patterns.opaque_shell_calls += 1;
           const { kinds } = classifyShellCommand(input.command);
           for (const kind of kinds) {
-            session.shell_patterns[kind] += 1;
+            if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
           }
           if (item.id) {
-            shellCallsById.set(item.id, commandFingerprint(input.command));
+            shellCallsById.set(item.id, { fingerprint: commandFingerprint(input.command), kinds });
           }
         }
       }
@@ -162,11 +164,14 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
       }
       const content = Array.isArray(message.content) ? message.content : [];
       for (const item of content) {
-        if (item?.type !== "tool_result" || item.is_error !== true) continue;
+        if (item?.type !== "tool_result") continue;
+        const failed = item.is_error === true;
+        const shellCall = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
+        outcome.record(shellCall?.kinds || [], !failed);
+        if (!failed) continue;
         session.failed_tool_calls += 1;
-        const fingerprint = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
-        if (fingerprint) {
-          session.failed_command_fingerprints[fingerprint] = (session.failed_command_fingerprints[fingerprint] || 0) + 1;
+        if (shellCall?.fingerprint) {
+          session.failed_command_fingerprints[shellCall.fingerprint] = (session.failed_command_fingerprints[shellCall.fingerprint] || 0) + 1;
         }
       }
     }
@@ -191,6 +196,7 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
     session.task = { content_mode: "local-extractive", content_rules: rulesVersion, category_hint, hint_confidence, prompts_seen, signal_counts };
   }
   time.finish(session);
+  outcome.finish(session, { writes: session.file_access.filter((entry) => entry.operation === "write").length });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
   return session;

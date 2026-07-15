@@ -5,6 +5,7 @@ import path from "node:path";
 import { streamJsonlRecords } from "../stream-jsonl.js";
 import {
   classifyShellCommand,
+  createOutcomeTracker,
   createSessionSkeleton,
   createTimeTracker,
 } from "../normalize.js";
@@ -56,6 +57,8 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   let turnContexts = 0;
   let userMessages = 0;
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
+  const outcome = createOutcomeTracker();
+  const callKinds = new Map();
   let sawEventPrompts = false;
   const fallbackPrompts = [];
 
@@ -130,8 +133,26 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       }
       const { kinds } = classifyShellCommand(commandText);
       for (const kind of kinds) {
-        session.shell_patterns[kind] += 1;
+        if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
       }
+      if (payload.call_id) callKinds.set(String(payload.call_id), kinds);
+      return;
+    }
+
+    if (record.type === "response_item" && payload.type === "function_call_output") {
+      // Outputs are JSON-wrapped in current rollouts; only a structurally
+      // recognizable exit_code counts as evidence, anything else stays
+      // unknowable and never influences the outcome.
+      const kinds = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
+      let ok = null;
+      if (typeof payload.output === "string") {
+        try {
+          const parsed = JSON.parse(payload.output);
+          const exitCode = parsed?.metadata?.exit_code;
+          if (Number.isFinite(Number(exitCode))) ok = Number(exitCode) === 0;
+        } catch { /* opaque output: no outcome evidence */ }
+      }
+      outcome.record(kinds || [], ok);
     }
   });
 
@@ -159,6 +180,7 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   }
   session.project_key = session.cwd ? `codex:${session.cwd}` : `codex:${file.path}`;
   time.finish(session);
+  outcome.finish(session, { writes: session.tools.by_name.apply_patch || 0 });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
   return session;

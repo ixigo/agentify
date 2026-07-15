@@ -229,9 +229,10 @@ test("html report is self-contained, escaped, and carries the roast and privacy 
   assert.ok(!html.includes("evil.js"), "file paths must not render in the html report");
 });
 
-function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, models = [], userTurns = 0, outputTokens = null, cacheRead = null, freshInput = null, activeMs = 5 * 60 * 1000, shell = {} } = {}) {
+function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, models = [], userTurns = 0, outputTokens = null, cacheRead = null, freshInput = null, activeMs = 5 * 60 * 1000, shell = {}, outcome = { status: "completed", evidence: [] } } = {}) {
   return {
     session_id: "synthetic",
+    outcome,
     models,
     turns: { user: userTurns, assistant_requests: userTurns },
     usage: { fresh_input_tokens: freshInput, cache_read_tokens: cacheRead, cache_write_tokens: null, output_tokens: outputTokens, reasoning_output_tokens: null },
@@ -437,6 +438,74 @@ test("current-repo local-extractive never caches content facts for foreign sessi
   }
   assert.ok(foreignEntries >= 2, "fixture includes foreign claude and codex sessions");
   assert.ok(inScopeContentEntries >= 4, "in-scope sessions are content-classified");
+});
+
+test("outcome detection: commits and test results produce conservative evidence", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-outcome-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const projectDir = path.join(claudeRoot, "-fixture-project");
+  await fs.mkdir(projectDir, { recursive: true });
+  const bashTool = (id, command) => ({ type: "tool_use", id, name: "Bash", input: { command } });
+
+  // Session A: tests pass, then a git commit succeeds -> completed.
+  const done = [
+    claudeAssistant({
+      ts: minutesAgo(60), requestId: "req_done", usage: USAGE, cwd: repoRoot,
+      content: [
+        { type: "tool_use", id: "t_edit", name: "Edit", input: { file_path: path.join(repoRoot, "src/a.js") } },
+        bashTool("t_test", "npm test"),
+        bashTool("t_commit", 'git commit -m "done"'),
+      ],
+    }),
+    claudeUser({
+      ts: minutesAgo(59), cwd: repoRoot,
+      content: [
+        { type: "tool_result", tool_use_id: "t_test", is_error: false, content: "ok" },
+        { type: "tool_result", tool_use_id: "t_commit", is_error: false, content: "committed" },
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "done.jsonl"), `${done.join("\n")}\n`);
+
+  // Session B: last test run fails -> likely-incomplete.
+  const failing = [
+    claudeAssistant({
+      ts: minutesAgo(50), requestId: "req_fail", usage: USAGE, cwd: repoRoot,
+      content: [bashTool("t_t1", "npm test"), bashTool("t_t2", "node --test test/x.test.js")],
+    }),
+    claudeUser({
+      ts: minutesAgo(49), cwd: repoRoot,
+      content: [
+        { type: "tool_result", tool_use_id: "t_t1", is_error: false, content: "ok" },
+        { type: "tool_result", tool_use_id: "t_t2", is_error: true, content: "1 failing" },
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "failing.jsonl"), `${failing.join("\n")}\n`);
+
+  const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot: path.join(repoRoot, "none"), days: 30 });
+  const rows = Object.fromEntries(report.sessions.map((row) => [row.outcome, row]));
+  assert.ok(rows.completed, "commit+passing tests session must be completed");
+  assert.ok(rows.completed.outcome_evidence.some((entry) => entry.signal === "git-commit-succeeded"));
+  assert.ok(rows["likely-incomplete"], "failing-last-test session must be likely-incomplete");
+  assert.ok(rows["likely-incomplete"].outcome_evidence.some((entry) => entry.signal === "last-test-run-failed"));
+});
+
+test("overkill sessions without a completed outcome are withheld from delegation", async () => {
+  const enrichedFor = (sessions) => sessions.map((session) => {
+    const workType = classifyWorkType(session);
+    const fit = fitVerdict(workType, session.models);
+    return { work_type: workType, work_type_source: "metadata", fit, ...scoreSession(session, workType, fit) };
+  });
+  const base = { calls: 6, byName: { Edit: 1 }, writes: 1, models: ["claude-fable-5"], userTurns: 1, outputTokens: 500 };
+  const completed = syntheticSession(base);
+  const unknown = syntheticSession({ ...base, outcome: { status: "unknown", evidence: [] } });
+  const scorecard = buildScorecard([completed, unknown], enrichedFor([completed, unknown]));
+  assert.equal(scorecard.fit.overkill, 2);
+  assert.equal(scorecard.delegation_candidates.length, 1);
+  assert.equal(scorecard.delegation_candidates[0].outcome, "completed");
+  assert.equal(scorecard.delegation_candidates_withheld, 1);
+  assert.match(scorecard.delegation_withheld_reason, /cannot be assumed/);
 });
 
 test("tool inventory probes read-only and gates recommendations on availability", async () => {

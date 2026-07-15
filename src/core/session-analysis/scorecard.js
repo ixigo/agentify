@@ -169,6 +169,7 @@ export function buildScorecard(sessions, enriched) {
   let heaviestModel = null;
   let heaviestTier = -1;
   const delegationCandidates = [];
+  let delegationWithheld = 0;
 
   for (let index = 0; index < sessions.length; index += 1) {
     const session = sessions[index];
@@ -190,14 +191,22 @@ export function buildScorecard(sessions, enriched) {
       }
     }
     if (extra.fit === "overkill") {
-      delegationCandidates.push({
-        session_id: session.session_id,
-        work_type: extra.work_type,
-        models: session.models,
-        suggestion: extra.work_type === "research"
-          ? 'agentify delegate research "<question>"'
-          : 'agentify delegate quick "<task>" --write',
-      });
+      // A cheaper-route candidate requires an outcome we can point at: a
+      // session that failed (or whose ending is unknowable) must not be
+      // pitched as if a lighter model would have succeeded.
+      if (session.outcome?.status === "completed") {
+        delegationCandidates.push({
+          session_id: session.session_id,
+          work_type: extra.work_type,
+          models: session.models,
+          outcome: session.outcome.status,
+          suggestion: extra.work_type === "research"
+            ? 'agentify delegate research "<question>"'
+            : 'agentify delegate quick "<task>" --write',
+        });
+      } else {
+        delegationWithheld += 1;
+      }
     }
   }
 
@@ -224,6 +233,10 @@ export function buildScorecard(sessions, enriched) {
     work_type_sources: workTypeSources,
     fit: fitCounts,
     delegation_candidates: delegationCandidates.slice(0, 5),
+    delegation_candidates_withheld: delegationWithheld,
+    delegation_withheld_reason: delegationWithheld > 0
+      ? "overkill session(s) without a completed outcome are not pitched for a cheaper route — success on a lighter model cannot be assumed for work that did not verifiably finish"
+      : null,
     note: workTypeSources["content-hint"] > 0
       ? `Scores and verdicts are deterministic heuristics for orientation and entertainment. Work types come from tool mix, with ${workTypeSources["content-hint"]} session(s) refined by opt-in in-memory prompt classification; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.`
       : "Scores and verdicts are metadata-only heuristics for orientation and entertainment. Work types come from tool mix, not task content; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.",

@@ -412,6 +412,8 @@ export async function buildSessionAnalysis(root, options = {}) {
       work_type_source: workTypeSource,
       fit,
       score,
+      outcome: session.outcome?.status || "unknown",
+      outcome_evidence: session.outcome?.evidence || [],
       cost_estimate_usd: costEstimates[sessionIndex].estimated_usd,
       cost_basis: costEstimates[sessionIndex].basis,
     });

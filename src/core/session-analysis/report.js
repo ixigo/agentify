@@ -116,7 +116,7 @@ function opportunityCard(item, index) {
 
 function sessionRowsHtml(rows) {
   if (rows.length === 0) {
-    return '<tr><td colspan="13" class="empty">No sessions in this window.</td></tr>';
+    return '<tr><td colspan="14" class="empty">No sessions in this window.</td></tr>';
   }
   return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}">
     <th scope="row"><code>${escapeHtml(row.session_id)}</code></th>
@@ -125,6 +125,7 @@ function sessionRowsHtml(rows) {
     <td>${escapeHtml(row.date || "—")}</td>
     <td>${escapeHtml(row.work_type)}</td>
     <td><span class="fit fit--${escapeHtml(row.fit)}">${escapeHtml(row.fit)}</span></td>
+    <td><span class="outcome outcome--${escapeHtml(row.outcome)}">${escapeHtml(row.outcome)}</span></td>
     <td class="number">${escapeHtml(row.score === null || row.score === undefined ? "—" : String(row.score))}</td>
     <td class="number">${escapeHtml(formatDuration(row.active_ms))}</td>
     <td>${escapeHtml(row.models.join(", ") || "—")}</td>
@@ -246,8 +247,9 @@ export function renderAnalysisHtml(report, options = {}) {
         <p class="score-mix"><strong>Work mix:</strong> ${workTypeChips || '<span class="chip">nothing classified</span>'}</p>
         <p class="score-mix"><strong>Matchups:</strong> ${fitChips || '<span class="chip">none</span>'}</p>
         ${delegationRows ? `<details><summary>Delegation candidates (${scorecard.delegation_candidates.length})</summary>
-          <div class="table-wrap"><table><caption>Overkill sessions that a cheaper Agentify route could carry</caption><thead><tr><th scope="col">Session</th><th scope="col">Type</th><th scope="col">Models</th><th scope="col">Try</th></tr></thead><tbody>${delegationRows}</tbody></table></div>
+          <div class="table-wrap"><table><caption>Overkill sessions with a completed outcome that a cheaper Agentify route could carry</caption><thead><tr><th scope="col">Session</th><th scope="col">Type</th><th scope="col">Models</th><th scope="col">Try</th></tr></thead><tbody>${delegationRows}</tbody></table></div>
         </details>` : ""}
+        ${scorecard.delegation_candidates_withheld > 0 ? `<p class="opp-caveat">${escapeHtml(`${scorecard.delegation_candidates_withheld} overkill session(s) withheld: ${scorecard.delegation_withheld_reason}`)}</p>` : ""}
         <p class="opp-caveat">${escapeHtml(scorecard.note)}</p>
       </article>
     </section>` : "";
@@ -341,6 +343,10 @@ export function renderAnalysisHtml(report, options = {}) {
     .fit--underkill { color: var(--accent); }
     .fit--match { color: var(--accent-2); }
     .fit--unknown { color: var(--text-dim); }
+    .outcome { font-family: var(--mono); font-size: 0.78rem; }
+    .outcome--completed { color: var(--accent-2); }
+    .outcome--likely-incomplete { color: var(--amber); }
+    .outcome--unknown { color: var(--text-dim); }
     .filter-bar { display: flex; flex-wrap: wrap; gap: 16px; margin: 14px 0 4px; }
     .filters { border: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
     .filters legend { float: left; color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; margin-right: 8px; padding: 2px 0; }
@@ -450,7 +456,7 @@ ${scorecardSection}
           ${filterGroup("f-work", "work type", WORK_TYPE_VALUES)}
           ${filterGroup("f-fit", "matchup", FIT_VALUES)}
         </div>
-        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
+        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Outcome</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
       </details>
     </section>
 ${report.config_audit ? configAuditSection(report.config_audit) : ""}
