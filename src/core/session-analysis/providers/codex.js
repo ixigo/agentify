@@ -52,6 +52,8 @@ export async function parseCodexSession(file, _context = {}) {
   const time = createTimeTracker();
   const models = new Set();
   let lastTokenUsage = null;
+  let turnContexts = 0;
+  let userMessages = 0;
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
     const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
@@ -65,8 +67,14 @@ export async function parseCodexSession(file, _context = {}) {
     }
 
     if (record.type === "turn_context") {
+      turnContexts += 1;
       if (payload.model) models.add(String(payload.model));
       if (payload.cwd && !session.cwd) session.cwd = String(payload.cwd);
+      return;
+    }
+
+    if (record.type === "event_msg" && payload.type === "user_message") {
+      userMessages += 1;
       return;
     }
 
@@ -119,6 +127,10 @@ export async function parseCodexSession(file, _context = {}) {
     session.usage.reasoning_output_tokens = finiteOrNull(lastTokenUsage.reasoning_output_tokens);
   }
   session.models = [...models].sort();
+  // A turn_context record opens each turn; older rollouts without it still
+  // carry user_message events, so the larger observed count wins.
+  session.turns.user = Math.max(turnContexts, userMessages);
+  session.turns.assistant_requests = session.coverage.usage_records;
   session.project_key = session.cwd ? `codex:${session.cwd}` : `codex:${file.path}`;
   time.finish(session);
   session.coverage.lines = lines;
