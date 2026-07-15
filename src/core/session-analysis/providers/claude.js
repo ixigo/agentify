@@ -6,11 +6,14 @@ import { streamJsonlRecords } from "../stream-jsonl.js";
 import {
   classifyShellCommand,
   commandFingerprint,
+  createOutcomeTracker,
   createSessionSkeleton,
   createTimeTracker,
   normalizeFilePath,
+  outcomeEvidenceReliable,
   recordFileAccess,
 } from "../normalize.js";
+import { claudePromptText, createContentClassifier } from "../content-classify.js";
 
 export function defaultClaudeRoot() {
   return path.join(os.homedir(), ".claude", "projects");
@@ -42,6 +45,37 @@ export async function discoverClaudeSessions({ claudeRoot, cutoffMs }) {
       continue;
     }
     for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Subagent transcripts live at <project>/<session-id>/subagents/
+        // agent-*.jsonl; the directory name is the parent session's id.
+        const subagentsPath = path.join(projectPath, entry.name, "subagents");
+        let subEntries = [];
+        try {
+          subEntries = await fs.readdir(subagentsPath, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const subEntry of subEntries) {
+          if (!subEntry.isFile() || !subEntry.name.endsWith(".jsonl")) continue;
+          const filePath = path.join(subagentsPath, subEntry.name);
+          let stat;
+          try {
+            stat = await fs.stat(filePath);
+          } catch {
+            continue;
+          }
+          if (Number.isFinite(cutoffMs) && stat.mtimeMs < cutoffMs) continue;
+          files.push({
+            provider: "claude",
+            path: filePath,
+            project_dir: dir.name,
+            subagent_parent_stem: entry.name,
+            size: stat.size,
+            mtime_ms: stat.mtimeMs,
+          });
+        }
+        continue;
+      }
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       const filePath = path.join(projectPath, entry.name);
       let stat;
@@ -71,7 +105,7 @@ function toolInputPath(input) {
   return input?.file_path || input?.notebook_path || input?.path || null;
 }
 
-export async function parseClaudeSession(file, { root }) {
+export async function parseClaudeSession(file, { root, contentMode = "metadata-only" }) {
   const session = createSessionSkeleton("claude", file.path);
   session.project_key = `claude:${file.project_dir}`;
   const time = createTimeTracker();
@@ -79,10 +113,20 @@ export async function parseClaudeSession(file, { root }) {
   const models = new Set();
   const fileAccessSeen = new Map();
   const shellCallsById = new Map();
+  const outcome = createOutcomeTracker();
+  const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
+  let recordCount = 0;
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
+    if (classifier) {
+      // Prompt text is inspected here, in memory, and goes no further.
+      const promptText = claudePromptText(record);
+      if (promptText !== null) classifier.observe(promptText);
+    }
+    recordCount += 1;
     if (record.timestamp) time.observe(record.timestamp);
     if (record.cwd && !session.cwd) session.cwd = String(record.cwd);
+    if (record.sessionId && !session.provider_session_id) session.provider_session_id = String(record.sessionId);
     if (record.gitBranch && !session.branch) session.branch = String(record.gitBranch);
     if (record.version && !session.cli_version) session.cli_version = String(record.version);
     if (record.isSidechain === true) session.sidechain_events += 1;
@@ -135,10 +179,14 @@ export async function parseClaudeSession(file, { root }) {
           session.shell_patterns.opaque_shell_calls += 1;
           const { kinds } = classifyShellCommand(input.command);
           for (const kind of kinds) {
-            session.shell_patterns[kind] += 1;
+            if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
           }
           if (item.id) {
-            shellCallsById.set(item.id, commandFingerprint(input.command));
+            shellCallsById.set(item.id, {
+              fingerprint: commandFingerprint(input.command),
+              kinds,
+              evidenceReliable: outcomeEvidenceReliable(input.command),
+            });
           }
         }
       }
@@ -155,11 +203,14 @@ export async function parseClaudeSession(file, { root }) {
       }
       const content = Array.isArray(message.content) ? message.content : [];
       for (const item of content) {
-        if (item?.type !== "tool_result" || item.is_error !== true) continue;
+        if (item?.type !== "tool_result") continue;
+        const failed = item.is_error === true;
+        const shellCall = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
+        outcome.record(shellCall?.kinds || [], !failed, { evidenceReliable: shellCall ? shellCall.evidenceReliable : true });
+        if (!failed) continue;
         session.failed_tool_calls += 1;
-        const fingerprint = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
-        if (fingerprint) {
-          session.failed_command_fingerprints[fingerprint] = (session.failed_command_fingerprints[fingerprint] || 0) + 1;
+        if (shellCall?.fingerprint) {
+          session.failed_command_fingerprints[shellCall.fingerprint] = (session.failed_command_fingerprints[shellCall.fingerprint] || 0) + 1;
         }
       }
     }
@@ -170,12 +221,36 @@ export async function parseClaudeSession(file, { root }) {
     session.usage.cache_read_tokens = add(session.usage.cache_read_tokens, usage.cache_read_input_tokens);
     session.usage.cache_write_tokens = add(session.usage.cache_write_tokens, usage.cache_creation_input_tokens);
     session.usage.output_tokens = add(session.usage.output_tokens, usage.output_tokens);
+    // TTL split (5-minute vs 1-hour writes) matters for pricing: 1h writes
+    // cost 2x input vs 1.25x for the 5m default.
+    if (usage.cache_creation && typeof usage.cache_creation === "object") {
+      session.usage.cache_write_5m_tokens = add(session.usage.cache_write_5m_tokens, usage.cache_creation.ephemeral_5m_input_tokens);
+      session.usage.cache_write_1h_tokens = add(session.usage.cache_write_1h_tokens, usage.cache_creation.ephemeral_1h_input_tokens);
+    }
   }
   session.models = [...models].sort();
   session.turns.assistant_requests = usageByRequest.size;
+  if (classifier) {
+    const { category_hint, hint_confidence, prompts_seen, signal_counts, classifier: rulesVersion } = classifier.result();
+    session.task = { content_mode: "local-extractive", content_rules: rulesVersion, category_hint, hint_confidence, prompts_seen, signal_counts };
+  }
   time.finish(session);
+  outcome.finish(session, { writes: session.file_access.filter((entry) => entry.operation === "write").length });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
+  // A subagent transcript belongs UNDER a primary session: either its
+  // path says so (<session-id>/subagents/agent-*.jsonl, where the
+  // directory names the parent) or its records are predominantly
+  // sidechain events. Counting it as its own session would misattribute
+  // the parent's work.
+  session.file_stem = path.basename(file.path, ".jsonl");
+  if (file.subagent_parent_stem) {
+    session.is_sidechain_transcript = true;
+    session.sidechain_parent_stem = file.subagent_parent_stem;
+  } else {
+    session.is_sidechain_transcript = recordCount > 0 && session.sidechain_events >= Math.ceil(recordCount / 2);
+    session.sidechain_parent_stem = session.is_sidechain_transcript ? (session.provider_session_id || null) : null;
+  }
   return session;
 }
 

@@ -1,5 +1,11 @@
 import { USAGE_SCORECARD_SCHEMA_VERSION } from "./normalize.js";
 
+// Same bar the routing policy uses (profiles.js): evidence below this
+// volume or pass rate never upgrades a recommendation.
+const EVIDENCE_MIN_ATTEMPTS = 5;
+const EVIDENCE_QUALITY_FLOOR = 0.9;
+const LOCAL_COMPARABLE_MIN = 3;
+
 // The usage scorecard is the fun-but-honest layer on top of the metadata:
 // each session gets a work-type guess, a "was this model the right weapon"
 // verdict, and a 0-100 efficiency score built from token generation per
@@ -46,10 +52,13 @@ export function classifyWorkType(session) {
   return "mixed";
 }
 
+// Heavy is checked first: "gemini-3.1-pro" must land on its "-pro" marker
+// before the light pattern can see the "mini" inside "gemini". Light
+// markers require a segment boundary for the same reason.
 const MODEL_TIERS = [
-  { tier: 0, label: "light", pattern: /haiku|mini|nano|flash|lite/i },
   { tier: 2, label: "heavy", pattern: /fable|mythos|opus|-pro\b|pro-|o1-pro/i },
-  { tier: 1, label: "standard", pattern: /sonnet|gpt|codex|o[34]|claude/i },
+  { tier: 0, label: "light", pattern: /(^|[-./~])(haiku|mini|nano|flash|lite)\b/i },
+  { tier: 1, label: "standard", pattern: /sonnet|gpt|codex|o[34]|claude|gemini/i },
 ];
 
 export function modelTier(model) {
@@ -159,20 +168,70 @@ function matchupQuip(fitCounts, heaviestModel, scored) {
   };
 }
 
-export function buildScorecard(sessions, enriched) {
+// Evidence ladder for "this could have run on a cheaper model" (#308).
+// The suggested routes (delegate quick / delegate research) default to
+// LIGHT-tier models, so only light-tier evidence counts — 8/8 on a
+// standard model proves nothing about the route being recommended:
+// high = a light-tier model in this repository's eval runs clears the
+// routing quality floor with sufficient attempts; medium = this analysis
+// window contains repeated completed sessions of the same work type that
+// ran on light-tier models; low = tier heuristic only, and it says so.
+function delegationEvidence({ workType, routeEvidence, localComparable }) {
+  for (const [key, stats] of Object.entries(routeEvidence?.models || {})) {
+    // Evidence keys are "provider/model" (or "provider/~family").
+    const modelPart = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
+    const { tier } = modelTier(modelPart);
+    if (tier !== 0) continue;
+    if (stats.sufficient && stats.pass_rate !== null && stats.pass_rate >= EVIDENCE_QUALITY_FLOOR && stats.attempts >= EVIDENCE_MIN_ATTEMPTS) {
+      return {
+        confidence: "high",
+        basis: `eval evidence (this repository): ${key} passed ${stats.passes}/${stats.attempts} attempt(s) (pass rate ${stats.pass_rate}) on the light tier the suggested route uses, above the ${EVIDENCE_QUALITY_FLOOR} quality floor`,
+      };
+    }
+  }
+  const comparable = localComparable[workType] || 0;
+  if (comparable >= LOCAL_COMPARABLE_MIN) {
+    return {
+      confidence: "medium",
+      basis: `local history: ${comparable} completed ${workType} session(s) in this window already ran on light-tier models`,
+    };
+  }
+  return {
+    confidence: "low",
+    basis: "tier heuristic only — no light-tier eval or comparable local-history evidence was found for the suggested route",
+  };
+}
+
+export function buildScorecard(sessions, enriched, { routeEvidence = null } = {}) {
   const workTypes = Object.fromEntries(WORK_TYPES.map((type) => [type, 0]));
   const fitCounts = Object.fromEntries(FIT_VERDICTS.map((verdict) => [verdict, 0]));
+  const workTypeSources = { metadata: 0, "content-hint": 0 };
   const componentTotals = {};
   let weightedScore = 0;
   let weightTotal = 0;
   let heaviestModel = null;
   let heaviestTier = -1;
   const delegationCandidates = [];
+  let delegationWithheld = 0;
+
+  // Completed sessions of each work type that already ran on LIGHT-tier
+  // models (the tier the suggested routes use) — the "medium" rung of
+  // the delegation evidence ladder.
+  const localComparable = {};
+  for (let index = 0; index < sessions.length; index += 1) {
+    const session = sessions[index];
+    if (session.outcome?.status !== "completed") continue;
+    const tiers = session.models.map((model) => modelTier(model).tier).filter((tier) => tier !== null);
+    if (tiers.length === 0 || Math.max(...tiers) !== 0) continue;
+    const type = enriched[index].work_type;
+    localComparable[type] = (localComparable[type] || 0) + 1;
+  }
 
   for (let index = 0; index < sessions.length; index += 1) {
     const session = sessions[index];
     const extra = enriched[index];
     workTypes[extra.work_type] += 1;
+    workTypeSources[extra.work_type_source === "content-hint" ? "content-hint" : "metadata"] += 1;
     fitCounts[extra.fit] += 1;
     const weight = session.tools.calls + (session.turns?.user || 0) + 1;
     weightedScore += extra.score * weight;
@@ -188,14 +247,25 @@ export function buildScorecard(sessions, enriched) {
       }
     }
     if (extra.fit === "overkill") {
-      delegationCandidates.push({
-        session_id: session.session_id,
-        work_type: extra.work_type,
-        models: session.models,
-        suggestion: extra.work_type === "research"
-          ? 'agentify delegate research "<question>"'
-          : 'agentify delegate quick "<task>" --write',
-      });
+      // A cheaper-route candidate requires an outcome we can point at: a
+      // session that failed (or whose ending is unknowable) must not be
+      // pitched as if a lighter model would have succeeded.
+      if (session.outcome?.status === "completed") {
+        const evidence = delegationEvidence({ workType: extra.work_type, routeEvidence, localComparable });
+        delegationCandidates.push({
+          session_id: session.session_id,
+          work_type: extra.work_type,
+          models: session.models,
+          outcome: session.outcome.status,
+          confidence: evidence.confidence,
+          evidence_basis: evidence.basis,
+          suggestion: extra.work_type === "research"
+            ? 'agentify delegate research "<question>"'
+            : 'agentify delegate quick "<task>" --write',
+        });
+      } else {
+        delegationWithheld += 1;
+      }
     }
   }
 
@@ -219,8 +289,15 @@ export function buildScorecard(sessions, enriched) {
       Object.entries(componentTotals).map(([key, total]) => [key, scored > 0 ? Math.round((total / scored) * 10) / 10 : null]),
     ),
     work_types: workTypes,
+    work_type_sources: workTypeSources,
     fit: fitCounts,
     delegation_candidates: delegationCandidates.slice(0, 5),
-    note: "Scores and verdicts are metadata-only heuristics for orientation and entertainment. Work types come from tool mix, not task content; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.",
+    delegation_candidates_withheld: delegationWithheld,
+    delegation_withheld_reason: delegationWithheld > 0
+      ? "overkill session(s) without a completed outcome are not pitched for a cheaper route — success on a lighter model cannot be assumed for work that did not verifiably finish"
+      : null,
+    note: workTypeSources["content-hint"] > 0
+      ? `Scores and verdicts are deterministic heuristics for orientation and entertainment. Work types come from tool mix, with ${workTypeSources["content-hint"]} session(s) refined by opt-in in-memory prompt classification; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.`
+      : "Scores and verdicts are metadata-only heuristics for orientation and entertainment. Work types come from tool mix, not task content; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.",
   };
 }

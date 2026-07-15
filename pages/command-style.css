@@ -45,6 +45,28 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  padding: 9px 12px;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 4px;
+  font: 700 12px/1 var(--mono);
+  text-decoration: none;
+  transform: translateY(-180%);
+  transition: transform 120ms;
+}
+
+.skip-link:focus { transform: translateY(0); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 body {
   margin: 0;
   min-height: 100vh;

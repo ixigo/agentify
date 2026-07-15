@@ -38,12 +38,26 @@ import {
   buildAnalysisManifest,
   buildSessionAnalysis,
   defaultAnalysisReportPath,
+  parseSourceRoots,
   resolveAnalyzeProviders,
+  resolveContentMode,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
+import { createProgressRenderer } from "./core/session-analysis/progress.js";
+import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
+import {
+  DEFAULT_INSIGHTS_BUDGET_USD,
+  DEFAULT_INSIGHTS_TIMEOUT_S,
+  buildInsightInvocation,
+  buildInsightsPacket,
+  packetPreview,
+  resolveInsightsMode,
+  resolveInsightsProviders,
+  runCliInsights,
+} from "./core/session-analysis/insights.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
-import { classifyTaskIntent } from "./core/profiles.js";
+import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
 import {
@@ -918,13 +932,30 @@ export async function runCli(argv, _runtime = {}) {
         if (!["text", "json", "html"].includes(format)) {
           throw new Error('analyze --format must be one of: text, json, html');
         }
+        const sourceRoots = parseSourceRoots(args.sourceRoot, { root });
+        const contentMode = resolveContentMode(args.content);
         const analyzeOptions = {
           days,
           scope,
+          contentMode,
+          includeConfig: args.includeConfig === true,
+          showProjectNames: args.showProjectNames === true,
+          showPaths: args.showPaths === true,
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
+          claudeRoots: sourceRoots.claude,
+          codexRoots: sourceRoots.codex,
+          cache: args.noCache !== true,
+          cacheRoot: config._agentifyPaths?.cacheRoot
+            ? path.join(config._agentifyPaths.cacheRoot, "session-analysis")
+            : null,
         };
+        const progress = createProgressRenderer({
+          stream: process.stderr,
+          enabled: args.noProgress === true ? false : undefined,
+        });
+        analyzeOptions.onProgress = (update) => progress.update(update);
 
         // --dry-run discloses roots, file counts, and bytes without parsing
         // any record bodies, so it never needs consent.
@@ -937,6 +968,12 @@ export async function runCli(argv, _runtime = {}) {
             for (const source of manifest.sources) {
               log(`${bold(source.provider.padEnd(7))} ${dim(source.root)} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`);
             }
+            if (Array.isArray(manifest.config_sources)) {
+              log("Config audit (--include-config) would read only these allowlisted sources, structurally:");
+              for (const source of manifest.config_sources) {
+                log(`  ${dim(source)}`);
+              }
+            }
             log(dim(manifest.note));
           }
           return;
@@ -947,7 +984,13 @@ export async function runCli(argv, _runtime = {}) {
           const disclosure = [
             "Agentify will read local session history to extract usage and tool metadata.",
             ...manifest.sources.map((source) => `  ${source.provider}: ${source.root} — ${source.missing ? "not found" : `${source.files} file(s), ${(source.bytes / 1_000_000).toFixed(1)} MB`}`),
-            `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
+            contentMode === "local-extractive"
+              ? `Scope: ${manifest.scope}. Content mode: local-extractive — prompt text WILL be classified in memory by deterministic keyword rules; only match counts and a category label are kept, the text itself is never stored, cached, or uploaded. Nothing leaves this machine and no model is started.`
+              : `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
+            ...(args.includeConfig === true && Array.isArray(manifest.config_sources)
+              ? ["Config audit (--include-config) reads ONLY these allowlisted sources, structurally:", ...manifest.config_sources.map((source) => `  ${source}`)]
+              : []),
+            "Routing evidence: this repository's own eval artifacts (.agentify/evals/runs) are read for aggregate pass/cost statistics to grade cheaper-route suggestions.",
           ];
           if (!process.stdin.isTTY || !process.stderr.isTTY) {
             throw new Error(`analyze needs explicit consent in non-interactive mode. ${disclosure.join(" ")} Re-run with --yes to consent, or --dry-run to preview.`);
@@ -969,7 +1012,83 @@ export async function runCli(argv, _runtime = {}) {
           }
         }
 
-        const report = await buildSessionAnalysis(root, analyzeOptions);
+        // Capability probes (tool versions, rtk gain summary, index
+        // freshness) so recommendations only point at what exists. Version/
+        // summary queries only — nothing from history is ever executed.
+        analyzeOptions.toolInventory = await detectToolInventory({ root, artifactPaths: config._agentifyPaths });
+        // Local eval-run evidence upgrades cheaper-route confidence tiers.
+        analyzeOptions.routeEvidence = await loadRouteEvidence(root);
+        let report;
+        try {
+          report = await buildSessionAnalysis(root, analyzeOptions);
+        } finally {
+          progress.finish();
+        }
+
+        // CLI-assisted insights: a separate, explicit paid opt-in on top
+        // of the deterministic analysis. The exact sanitized packet and
+        // provider plan are shown (and are the entire output under
+        // --insights-dry-run) before anything is invoked.
+        const insightsMode = resolveInsightsMode(args.insights);
+        if (insightsMode === "cli") {
+          const insightProviders = resolveInsightsProviders(args.insightsProvider);
+          const packet = buildInsightsPacket(report);
+          const preview = packetPreview(packet);
+          if (args.maxInsightsBudgetUsd !== undefined
+            && (typeof args.maxInsightsBudgetUsd === "boolean" || !Number.isFinite(Number(args.maxInsightsBudgetUsd)) || Number(args.maxInsightsBudgetUsd) <= 0)) {
+            throw new Error("analyze --max-insights-budget-usd requires a positive dollar amount");
+          }
+          const budgetUsd = args.maxInsightsBudgetUsd !== undefined ? Number(args.maxInsightsBudgetUsd) : DEFAULT_INSIGHTS_BUDGET_USD;
+          const timeoutSec = Number.isFinite(Number(args.insightsTimeout)) && Number(args.insightsTimeout) > 0 ? Number(args.insightsTimeout) : DEFAULT_INSIGHTS_TIMEOUT_S;
+          const model = args.insightsModel ? String(args.insightsModel) : null;
+          const plan = insightProviders.map((provider) => {
+            const invocation = buildInsightInvocation(provider, { model, budgetUsd, timeoutSec, schemaPath: "<workspace>/schema.json" });
+            return { provider, command: invocation.command, args: invocation.args.map((arg) => (arg === "__PROMPT__" ? "<packet prompt>" : arg === "__OUT__" ? "<workspace>/last-message.json" : arg)), enforcement: invocation.enforcement };
+          });
+          if (args.insightsDryRun === true) {
+            console.log(JSON.stringify({ command: "analyze", insights_dry_run: true, packet, packet_preview: preview, budget_usd: budgetUsd, timeout_s: timeoutSec, plan }, null, 2));
+            return;
+          }
+          const disclosureLines = [
+            `Insights: sending the sanitized packet (${preview.bytes} bytes, ~${preview.token_estimate} tokens; fields: ${preview.fields.join(", ")}) to ${insightProviders.join(" and ")} via the local CLI.`,
+            ...plan.map((entry) => `  ${entry.provider}: ${entry.command} — enforcement: ${entry.enforcement}`),
+            `Budget: $${budgetUsd} enforced natively per claude run; codex is bounded by read-only sandbox + ephemeral mode + the ${timeoutSec}s timeout only (it has no native USD cap and reports no cost). This is report-generation spend, recorded separately.`,
+          ];
+          for (const line of disclosureLines) {
+            process.stderr.write(`${line}\n`);
+          }
+          if (process.stdin.isTTY && process.stderr.isTTY) {
+            const readlinePromises = await import("node:readline/promises");
+            const prompt = readlinePromises.createInterface({ input: process.stdin, output: process.stderr });
+            let answer;
+            try {
+              answer = await prompt.question("Send packet and spend up to the budget? [y/N] ");
+            } finally {
+              prompt.close();
+            }
+            if (!/^y(es)?$/i.test(answer.trim())) {
+              log("insights cancelled — the deterministic report continues without them.");
+              report.insights = null;
+            } else {
+              report.insights = await runCliInsights({ providers: insightProviders, packet, model, budgetUsd, timeoutSec });
+            }
+          } else {
+            report.insights = await runCliInsights({ providers: insightProviders, packet, model, budgetUsd, timeoutSec });
+          }
+          if (report.insights) {
+            report.privacy.ai_spend_usd = Number((report.insights.total_cost_usd || 0).toFixed(4));
+            report.privacy.ai_spend_coverage = report.insights.cost_coverage;
+            // One provider round trip per insight run: the CLI is local but
+            // the model behind it is not.
+            report.privacy.network_calls = report.insights.results.length;
+            report.privacy.notes.push(`CLI-assisted insights were generated from the sanitized packet (${preview.bytes} bytes) via ${insightProviders.join(" and ")}; the packet contains normalized counts and identifiers only (no paths), and the run was tool-less, persistence-free, and config-isolated (claude --safe-mode / codex --ignore-user-config).`);
+          }
+          if (args.keepInsightsPacket === true) {
+            const packetPath = path.join(root, ".agentify", `insights-packet-${Date.now()}.json`);
+            await writePrivateText(packetPath, JSON.stringify(packet, null, 2), { privateDir: false });
+            process.stderr.write(`Packet kept at ${packetPath} (private artifact, --keep-insights-packet)\n`);
+          }
+        }
         if (format === "html") {
           if (args.output === true) {
             throw new Error("analyze --output requires a file path");

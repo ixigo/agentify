@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Personalize models, context, and opt-in features</title>
+  <meta name="description" content="Configure Agentify model profiles, routes, budgets, context behavior, and opt-in features in .agentify.yaml, with commands to inspect every routing decision.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <nav aria-label="Primary navigation">
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <a href="analyze.html">analyze</a>
+        <span class="pill" aria-current="page">config</span>
+        <a href="usage.html">usage</a>
+        <a href="../skill-catalog.html">catalog</a>
+      </div>
+    </div>
+  </nav>
+
+  <header data-testid="config-page">
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">Personalize deliberately</span>
+        <h1>Make Agentify fit <span class="accent">your repo.</span></h1>
+        <p class="lede">Use the analysis report to decide what to change, then override only the models, budgets, context policy, or opt-in features that earn their place.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#starter">Start with YAML</a>
+          <a class="cta cta-secondary" href="analyze.html">Analyze usage first</a>
+        </div>
+        <div class="hero-meta">
+          <span>versioned per repo</span>
+          <span>deep-merged defaults</span>
+          <span>explainable routing</span>
+        </div>
+      </div>
+
+      <aside class="terminal" aria-label="Install and inspect configuration">
+        <div class="terminal-top"><span>setup and inspect</span><span>.agentify.yaml</span></div>
+        <pre tabindex="0"><code><span class="c"># wire Claude Code + Codex to one store</span>
+<span class="a">agentify install --provider all</span>
+
+<span class="c"># see resolved providers, models, and ceilings</span>
+<span class="a">agentify models</span>
+
+<span class="c"># explain a decision without running a model</span>
+<span class="a">agentify route explain</span> \
+  "design the migration" \
+  --profile performance
+
+<span class="c"># validate local readiness</span>
+<span class="a">agentify doctor</span></code></pre>
+      </aside>
+    </div>
+  </header>
+
+  <main id="main-content" tabindex="-1">
+    <section class="shell" id="starter">
+      <div class="container">
+        <span class="section-label">01 · starter</span>
+        <h2>Change the policy, not every default.</h2>
+        <p class="section-lede">Agentify writes <code>.agentify.yaml</code> during install. Configuration is deep-merged, so the useful mental model is: keep the generated file, edit the few values your evidence supports.</p>
+
+        <div class="warning-panel panel">
+          <div>
+            <span class="tag">focused example</span>
+            <p>This example chooses the balanced profile, adds rolling spend caps, keeps deterministic summaries, and leaves pre-push review off until you opt in.</p>
+          </div>
+          <pre tabindex="0"><code>models:
+  profile: balanced
+  budget:
+    dailyUsd: 5
+    monthlyUsd: 50
+    onLimit: block
+  routes:
+    review:
+      provider: codex
+      model: null
+      maxBudgetUsd: 0.75
+
+context:
+  injection: relevant
+  sessionSummaries: extractive
+
+hooks:
+  prePush: false</code></pre>
+        </div>
+
+        <div class="campaign stacked-grid">
+          <div class="campaign-row">
+            <span class="key">null model</span>
+            <p><code>model: null</code> lets the Codex CLI use its configured default. Pin a full model ID only when reproducibility matters more than automatic model updates.</p>
+          </div>
+          <div class="campaign-row">
+            <span class="key">hard limits</span>
+            <p>Per-route ceilings remain in force across fallbacks. Rolling daily and monthly caps use locally recorded spend; <code>onLimit: block</code> fails before starting another provider process.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="profiles">
+      <div class="container">
+        <span class="section-label">02 · models</span>
+        <h2>Pick an objective, then inspect the route.</h2>
+        <p class="section-lede">Profiles select within hard ceilings and local eval evidence. They never rewrite your config, and a higher price is not treated as proof of higher quality.</p>
+
+        <div class="move-grid">
+          <article class="move">
+            <span class="tag">cost</span>
+            <h3>Spend less with a quality floor</h3>
+            <p>Chooses the cheapest evaluated route that meets the configured floor. Without sufficient evidence, it does not silently downgrade.</p>
+          </article>
+          <article class="move">
+            <span class="tag">balanced · default</span>
+            <h3>Optimize cost per passing task</h3>
+            <p>Uses the lowest measured cost per pass. With no eval evidence, it behaves like the explicit route table.</p>
+          </article>
+          <article class="move">
+            <span class="tag">performance</span>
+            <h3>Prefer measured pass rate</h3>
+            <p>Escalates only when local evaluations show a gain, while staying inside the same budget and tier bounds.</p>
+          </article>
+          <article class="move">
+            <span class="tag">one-off override</span>
+            <h3>Keep experiments temporary</h3>
+            <p><code>--profile</code>, <code>--provider</code>, and <code>--model</code> let you test a route without changing the repo policy.</p>
+            <span class="cmd">agentify delegate quick "summarize this diff" --provider codex --dry-run</span>
+          </article>
+        </div>
+
+        <div class="docs-strip">
+          <p>Inspect the resolved profile, tier, limits, fallback chain, evidence, and alias-drift warning before any paid run.</p>
+          <span class="cmd">agentify route explain "fix the checkout race" --profile balanced</span>
+          <a class="doc-link" href="usage.html">Usage guide</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="routes">
+      <div class="container">
+        <span class="section-label">03 · routes</span>
+        <h2>Route by work, not by habit.</h2>
+        <p class="section-lede">Every default route has a dollar, turn, and wall-clock ceiling. Override a route only when your own evals or operational needs justify it.</p>
+
+        <div class="command-grid">
+          <article class="command-card">
+            <span class="tag">quick · Claude Haiku</span>
+            <h3>Small, low-impact work</h3>
+            <p>Mechanical edits and fast questions. Default ceiling: $0.10, 4 turns, 120 seconds.</p>
+          </article>
+          <article class="command-card">
+            <span class="tag">implement · Claude Sonnet</span>
+            <h3>Normal feature work</h3>
+            <p>Multi-file implementation and refactors. Default ceiling: $1.00, 30 turns, 600 seconds.</p>
+          </article>
+          <article class="command-card">
+            <span class="tag">heavy · Claude Opus</span>
+            <h3>Architecture and deep debugging</h3>
+            <p>High-risk reasoning where more capability is justified. Default ceiling: $2.50, 40 turns, 600 seconds.</p>
+          </article>
+          <article class="command-card">
+            <span class="tag">review · Codex default</span>
+            <h3>Independent second opinion</h3>
+            <p>Uses a different vendor by default. Default ceiling: $0.75, 20 turns, 600 seconds.</p>
+          </article>
+        </div>
+
+        <pre tabindex="0" class="stacked-grid"><code><span class="c"># override only one route in .agentify.yaml</span>
+models:
+  routes:
+    quick:
+      provider: claude
+      model: haiku
+      maxBudgetUsd: 0.10
+      maxTurns: 4
+      timeoutSeconds: 120
+    review:
+      provider: codex
+      model: null
+      maxBudgetUsd: 0.75
+      maxTurns: 20
+      timeoutSeconds: 600</code></pre>
+      </div>
+    </section>
+
+    <section class="shell" id="features">
+      <div class="container">
+        <span class="section-label">04 · opt in</span>
+        <h2>Features that stay off until you choose them.</h2>
+        <p class="section-lede">These switches add cost, external tooling, or broader automation. Enable them one at a time and verify the resolved behavior.</p>
+
+        <div class="move-grid">
+          <article class="move">
+            <span class="tag">cross-vendor review</span>
+            <h3>Review before every push</h3>
+            <p>Advisory findings print without blocking the push. Enable the setting, then install the managed hook.</p>
+            <pre tabindex="0"><code>hooks:
+  prePush: true</code></pre>
+            <span class="cmd">agentify hooks install</span>
+          </article>
+          <article class="move">
+            <span class="tag">budgeted LLM handoff</span>
+            <h3>Refine larger summaries</h3>
+            <p>The quick route receives only the extractive summary, stays under its own cap, and falls back to deterministic text.</p>
+            <pre tabindex="0"><code>context:
+  sessionSummaries: llm
+  summary:
+    llmMinEvents: 20
+    maxBudgetUsd: 0.03</code></pre>
+          </article>
+          <article class="move">
+            <span class="tag">opt-in providers</span>
+            <h3>Add providers after evaluation</h3>
+            <p>Gemini and OpenCode stay out of default routes and fallbacks until the repo explicitly enables them.</p>
+            <pre tabindex="0"><code>models:
+  providers:
+    gemini:
+      enabled: true
+    opencode:
+      enabled: true</code></pre>
+          </article>
+          <article class="move">
+            <span class="tag">context budget · advanced</span>
+            <h3>Pin only with evidence</h3>
+            <p>Keep the default relevant-injection policy unless an eval shows a better token budget for this repo.</p>
+            <pre tabindex="0"><code>context:
+  injection: relevant
+  maxInjectedTokens: 1200
+  reserve:
+    decisions: 250
+    failures: 250</code></pre>
+          </article>
+          <article class="move">
+            <span class="tag">external search · optional</span>
+            <h3>Enable Zoekt only when needed</h3>
+            <p>Agentify's built-in index is the default. Opt into the external search toolchain for repositories where it adds measurable value.</p>
+            <pre tabindex="0"><code>toolchain:
+  zoekt: true</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="verify">
+      <div class="container">
+        <span class="section-label">05 · verify</span>
+        <h2>Know what will run before it runs.</h2>
+        <p class="section-lede">Agentify exposes the resolved policy instead of asking you to infer it from YAML.</p>
+
+        <div class="command-grid">
+          <article class="command-card">
+            <span class="tag">availability</span>
+            <h3>Models and controls</h3>
+            <p>Shows routes, installed provider CLIs, fallback targets, limits, and which ceilings each CLI can enforce natively.</p>
+            <span class="cmd">agentify models</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">decision trace</span>
+            <h3>Route explanation</h3>
+            <p>Shows the selected profile and model, evidence source, budget, fallback chain, and alias warnings without invoking a provider.</p>
+            <span class="cmd">agentify route explain "design the migration" --profile performance</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">delegation plan</span>
+            <h3>Dry run</h3>
+            <p>Resolves the exact command and sandbox policy while keeping the provider process stopped.</p>
+            <span class="cmd">agentify delegate review --diff origin/main --dry-run</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">environment</span>
+            <h3>Doctor</h3>
+            <p>Checks local toolchain readiness after config changes and before relying on optional providers or search tools.</p>
+            <span class="cmd">agentify doctor</span>
+          </article>
+        </div>
+
+        <nav class="page-nav" aria-label="Guide pagination">
+          <a class="nav-btn prev" href="analyze.html">
+            <span class="nav-dir">analyze</span>
+            <span class="nav-title">Generate evidence first</span>
+          </a>
+          <a class="nav-btn next" href="usage.html">
+            <span class="nav-dir">usage</span>
+            <span class="nav-title">Explore every command</span>
+          </a>
+        </nav>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify · config you can explain</span>
+      <span><a href="../index.html">home</a> · <a href="analyze.html">analyze</a> · <a href="https://github.com/ixigo/agentify">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

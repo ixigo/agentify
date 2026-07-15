@@ -19,6 +19,9 @@ import {
 } from "./providers/codex.js";
 import { buildOpportunities, buildRoast } from "./opportunities.js";
 import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./scorecard.js";
+import { createAnalysisCache } from "./cache.js";
+import { buildCostSummary, estimateSessionCost } from "./pricing.js";
+import { buildConfigAudit, configAuditSources } from "./config-audit.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -32,6 +35,44 @@ export function resolveAnalyzeProviders(raw) {
   throw new Error(`analyze --provider must be one of: claude, codex, all (got "${raw}")`);
 }
 
+// --source-root claude=<path> / codex=<path>, repeatable. Explicit roots
+// for fixtures and custom installations. All explicit roots for a
+// provider (--source-root entries plus --claude-root/--codex-root) are
+// scanned as a union; the provider default is used only when no explicit
+// root was given for it.
+export const ANALYZE_CONTENT_MODES = ["metadata-only", "local-extractive"];
+
+export function resolveContentMode(raw) {
+  const value = String(raw || "metadata-only").trim().toLowerCase();
+  if (ANALYZE_CONTENT_MODES.includes(value)) return value;
+  throw new Error(`analyze --content must be one of: ${ANALYZE_CONTENT_MODES.join(", ")} (got "${raw}")`);
+}
+
+export function parseSourceRoots(raw, { root }) {
+  const entries = raw === undefined ? [] : [].concat(raw);
+  const roots = { claude: [], codex: [] };
+  for (const entry of entries) {
+    const text = String(entry === true ? "" : entry).trim();
+    const [provider, ...rest] = text.split("=");
+    const target = rest.join("=").trim();
+    if (!ANALYZE_PROVIDERS.includes(provider) || !target) {
+      throw new Error(`analyze --source-root requires claude=<path> or codex=<path> (got "${text}")`);
+    }
+    roots[provider].push(path.resolve(root, target));
+  }
+  return roots;
+}
+
+// A provider's roots are the explicit --source-root entries plus the
+// single-root override (or the provider default when neither is given),
+// deduplicated so the same store is never scanned twice.
+function providerRoots(explicitRoots, singleRoot) {
+  const roots = [...(explicitRoots || [])];
+  if (singleRoot) roots.push(singleRoot);
+  if (roots.length === 0) roots.push(null); // provider default
+  return [...new Set(roots.map((entry) => (entry === null ? null : path.resolve(entry))))];
+}
+
 function resolveOptions(root, options) {
   const days = Number.isFinite(options.days) && options.days > 0 ? Math.floor(options.days) : DEFAULT_WINDOW_DAYS;
   const now = options.now instanceof Date ? options.now : new Date();
@@ -42,20 +83,51 @@ function resolveOptions(root, options) {
     scope,
     cutoffMs: now.getTime() - days * DAY_MS,
     providers: options.providers || [...ANALYZE_PROVIDERS],
-    claudeRoot: options.claudeRoot || null,
-    codexRoot: options.codexRoot || null,
+    claudeRoots: providerRoots(options.claudeRoots, options.claudeRoot),
+    codexRoots: providerRoots(options.codexRoots, options.codexRoot),
+    cacheRoot: options.cacheRoot || null,
+    cache: options.cache !== false,
+    contentMode: resolveContentMode(options.contentMode),
+    includeConfig: options.includeConfig === true,
+    claudeHome: options.claudeHome || null,
+    codexHome: options.codexHome || null,
+    // Precomputed by the CLI (read-only probes); null keeps the core pure.
+    toolInventory: options.toolInventory || null,
+    routeEvidence: options.routeEvidence || null,
+    // Display-only opt-ins for global scope; they change labels, never
+    // what is scanned.
+    showProjectNames: options.showProjectNames === true,
+    showPaths: options.showPaths === true,
+    onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
 
 async function discover(resolved) {
   const sources = [];
   if (resolved.providers.includes("claude")) {
-    const discovered = await discoverClaudeSessions({ claudeRoot: resolved.claudeRoot, cutoffMs: resolved.cutoffMs });
-    sources.push({ provider: "claude", ...discovered });
+    for (const claudeRoot of resolved.claudeRoots) {
+      const discovered = await discoverClaudeSessions({ claudeRoot, cutoffMs: resolved.cutoffMs });
+      sources.push({ provider: "claude", ...discovered });
+    }
   }
   if (resolved.providers.includes("codex")) {
-    const discovered = await discoverCodexSessions({ codexRoot: resolved.codexRoot, cutoffMs: resolved.cutoffMs });
-    sources.push({ provider: "codex", ...discovered });
+    for (const codexRoot of resolved.codexRoots) {
+      const discovered = await discoverCodexSessions({ codexRoot, cutoffMs: resolved.cutoffMs });
+      sources.push({ provider: "codex", ...discovered });
+    }
+  }
+  // Overlapping roots (e.g. a store and one of its subdirectories) find
+  // the same file more than once; only the first occurrence survives so
+  // nothing is double counted. Distinct string paths to one inode (via
+  // symlinks) are not resolved here.
+  const seen = new Set();
+  for (const source of sources) {
+    source.files = source.files.filter((file) => {
+      const key = `${source.provider}:${path.resolve(file.path)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
   return sources;
 }
@@ -79,6 +151,9 @@ export async function buildAnalysisManifest(root, options = {}) {
       files: source.files.length,
       bytes: source.files.reduce((sum, file) => sum + (file.size || 0), 0),
     })),
+    config_sources: resolved.includeConfig
+      ? configAuditSources({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome }).map(homeRelative)
+      : null,
     note: "No session record bodies were parsed in this dry run.",
   };
 }
@@ -107,7 +182,9 @@ export async function buildSessionAnalysis(root, options = {}) {
   const resolved = resolveOptions(root, options);
   const sources = await discover(resolved);
   const sessions = [];
+  const sidechainTranscripts = [];
   const sourceStats = new Map();
+  const cache = createAnalysisCache({ cacheRoot: resolved.cacheRoot, enabled: resolved.cache });
 
   for (const source of sources) {
     const stats = {
@@ -116,54 +193,181 @@ export async function buildSessionAnalysis(root, options = {}) {
       missing: source.missing,
       files_discovered: source.files.length,
       files_parsed: 0,
+      files_from_cache: 0,
       files_out_of_scope: 0,
       files_out_of_window: 0,
+      files_sidechain: 0,
       bytes_parsed: 0,
       malformed_lines: 0,
       sessions: 0,
     };
-    sourceStats.set(source.provider, stats);
-    for (const file of source.files) {
-      let session;
-      try {
-        session = source.provider === "claude"
-          ? await parseClaudeSession(file, { root })
-          : await parseCodexSession(file, { root });
-      } catch {
-        stats.files_out_of_scope += 1;
-        continue;
+    sourceStats.set(`${source.provider}:${source.root}`, stats);
+    let filesDone = 0;
+    let bytesDone = 0;
+    const report = () => resolved.onProgress?.({
+      provider: source.provider,
+      filesDone,
+      filesTotal: source.files.length,
+      bytesDone,
+      sessions: stats.sessions,
+    });
+    const parseWith = (file, contentMode) => (source.provider === "claude"
+      ? parseClaudeSession(file, { root, contentMode })
+      : parseCodexSession(file, { root, contentMode }));
+    const matchesRepo = (session, file) => (source.provider === "claude"
+      ? claudeSessionMatchesRepo(session, file, root)
+      : codexSessionMatchesRepo(session, root));
+    // Coverage must stay auditable: a warm entry means the JSONL bytes
+    // were NOT re-read this run, so it counts separately from parses.
+    const bookkeep = (session, parsedFresh, file) => {
+      if (parsedFresh) {
+        stats.files_parsed += 1;
+        stats.bytes_parsed += file.size || 0;
+      } else {
+        stats.files_from_cache += 1;
       }
-      stats.files_parsed += 1;
-      stats.bytes_parsed += file.size || 0;
       stats.malformed_lines += session.coverage.malformed_lines;
-      if (resolved.scope === "current-repo") {
-        const matches = source.provider === "claude"
-          ? claudeSessionMatchesRepo(session, file, root)
-          : codexSessionMatchesRepo(session, root);
-        if (!matches) {
+    };
+
+    // Consent boundary: in current-repo scope, prompt classification may
+    // only touch this repository's sessions, but scope is only knowable
+    // AFTER parsing. So local-extractive runs two-phase there: files are
+    // parsed metadata-only first, and only in-scope sessions are parsed
+    // again with the classifier. Out-of-scope prompt bodies are never
+    // examined and no content-derived facts about them are cached.
+    const scopeGated = resolved.contentMode === "local-extractive" && resolved.scope === "current-repo";
+
+    const processFile = async (file) => {
+      let session = null;
+      let parsedFresh = false;
+      if (!scopeGated) {
+        session = await cache.get(file, root, resolved.contentMode);
+        if (!session) {
+          try {
+            session = await parseWith(file, resolved.contentMode);
+          } catch {
+            stats.files_out_of_scope += 1;
+            return;
+          }
+          await cache.put(file, root, session, resolved.contentMode);
+          parsedFresh = true;
+        }
+        if (resolved.scope === "current-repo" && !matchesRepo(session, file)) {
+          bookkeep(session, parsedFresh, file);
           stats.files_out_of_scope += 1;
-          continue;
+          return;
+        }
+      } else {
+        session = await cache.get(file, root, "local-extractive");
+        if (!session) {
+          let metaSession = await cache.get(file, root, "metadata-only");
+          if (!metaSession) {
+            try {
+              metaSession = await parseWith(file, "metadata-only");
+            } catch {
+              stats.files_out_of_scope += 1;
+              return;
+            }
+            parsedFresh = true;
+          }
+          if (!matchesRepo(metaSession, file)) {
+            await cache.put(file, root, metaSession, "metadata-only");
+            bookkeep(metaSession, parsedFresh, file);
+            stats.files_out_of_scope += 1;
+            return;
+          }
+          session = await parseWith(file, "local-extractive");
+          parsedFresh = true;
+          await cache.put(file, root, session, "local-extractive");
         }
       }
+      bookkeep(session, parsedFresh, file);
       if (!sessionInWindow(session, file, resolved.cutoffMs)) {
         stats.files_out_of_window += 1;
-        continue;
+        return;
+      }
+      // Subagent transcripts belong under their primary session; counting
+      // them as sessions would double count the parent's work.
+      if (session.is_sidechain_transcript) {
+        stats.files_sidechain += 1;
+        sidechainTranscripts.push(session);
+        return;
       }
       stats.sessions += 1;
       sessions.push(session);
+    };
+    for (const file of source.files) {
+      await processFile(file);
+      filesDone += 1;
+      bytesDone += file.size || 0;
+      report();
+    }
+  }
+  await cache.sweep(
+    sources.flatMap((source) => source.files),
+    resolved.providers,
+    sources.map((source) => source.root),
+  );
+
+  // Subagent transcripts carry REAL, separate API usage and tool calls
+  // (their requests are disjoint from the parent's), so their counters
+  // merge into the parent session rather than being dropped or double
+  // counted as extra sessions. A transcript whose parent is not in this
+  // window/scope is kept as its own session so nothing goes missing.
+  const parentLookup = new Map();
+  for (const session of sessions) {
+    if (session.provider_session_id) parentLookup.set(session.provider_session_id, session);
+    if (session.file_stem) parentLookup.set(session.file_stem, session);
+  }
+  const sidechains = [];
+  for (const transcript of sidechainTranscripts) {
+    const parent = transcript.sidechain_parent_stem ? parentLookup.get(transcript.sidechain_parent_stem) : null;
+    sidechains.push({
+      session_id: transcript.session_id,
+      parent_session_id: parent ? parent.session_id : null,
+      merged_into_parent: Boolean(parent),
+      tool_calls: transcript.tools.calls,
+      output_tokens: transcript.usage.output_tokens,
+    });
+    if (!parent) {
+      sessions.push(transcript);
+      continue;
+    }
+    mergeUsage(parent.usage, transcript.usage);
+    parent.tools.calls += transcript.tools.calls;
+    for (const [name, count] of Object.entries(transcript.tools.by_name)) {
+      parent.tools.by_name[name] = (parent.tools.by_name[name] || 0) + count;
+    }
+    parent.failed_tool_calls += transcript.failed_tool_calls;
+    for (const key of Object.keys(parent.shell_patterns)) {
+      parent.shell_patterns[key] += transcript.shell_patterns[key] || 0;
+    }
+    for (const access of transcript.file_access) {
+      const existing = parent.file_access.find((entry) => entry.path === access.path && entry.operation === access.operation);
+      if (existing) existing.events += access.events;
+      else parent.file_access.push({ ...access });
+    }
+    parent.sidechain_events += transcript.coverage.lines;
+    for (const [fingerprint, count] of Object.entries(transcript.failed_command_fingerprints)) {
+      parent.failed_command_fingerprints[fingerprint] = (parent.failed_command_fingerprints[fingerprint] || 0) + count;
     }
   }
 
   // Global scope pseudonymizes projects by first-seen order; the mapping
   // never leaves this function, so real paths stay out of the report.
+  // --show-project-names / --show-paths are explicit display-only opt-ins
+  // (badged in every output) that swap the label, never what is scanned.
   const projectLabels = new Map();
   const projectLabel = (session) => {
     if (resolved.scope === "current-repo") return path.basename(root);
+    if (resolved.showPaths && session.cwd) return homeRelative(session.cwd);
+    if (resolved.showProjectNames && session.cwd) return path.basename(session.cwd);
     const key = session.project_key || "unknown";
     if (!projectLabels.has(key)) projectLabels.set(key, `Project ${projectLabels.size + 1}`);
     return projectLabels.get(key);
   };
 
+  const costEstimates = sessions.map((session) => estimateSessionCost(session));
   const totals = {
     sessions: sessions.length,
     duration_ms: null,
@@ -171,12 +375,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     tool_calls: 0,
     failed_tool_calls: 0,
     usage: emptyUsage(),
-    cost: {
-      reported_usd: null,
-      estimated_usd: null,
-      basis: "unavailable",
-      note: "Local session stores do not include billed cost; token-derived estimates are intentionally not shown as spend.",
-    },
+    cost: buildCostSummary(sessions, costEstimates),
   };
   const modelRollup = new Map();
   const toolRollup = new Map();
@@ -202,7 +401,7 @@ export async function buildSessionAnalysis(root, options = {}) {
   let malformedTotal = 0;
   let usageSessions = 0;
 
-  for (const session of sessions) {
+  for (const [sessionIndex, session] of sessions.entries()) {
     totals.duration_ms = add(totals.duration_ms, session.duration_ms);
     totals.active_ms = add(totals.active_ms, session.active_ms);
     totals.tool_calls += session.tools.calls;
@@ -243,10 +442,17 @@ export async function buildSessionAnalysis(root, options = {}) {
     if (shape.researchHeavy) patterns.research_heavy_sessions += 1;
     if (shape.mechanical) patterns.mechanical_candidate_sessions += 1;
 
-    const workType = classifyWorkType(session);
+    // Metadata rules first; the opt-in content hint only breaks a "mixed"
+    // tie and its provenance is recorded, never silently blended.
+    let workType = classifyWorkType(session);
+    let workTypeSource = "metadata";
+    if (workType === "mixed" && session.task?.category_hint) {
+      workType = session.task.category_hint;
+      workTypeSource = "content-hint";
+    }
     const fit = fitVerdict(workType, session.models);
     const { score, components } = scoreSession(session, workType, fit);
-    scoredSessions.push({ work_type: workType, fit, score, components });
+    scoredSessions.push({ work_type: workType, work_type_source: workTypeSource, fit, score, components });
 
     sessionRows.push({
       session_id: session.session_id,
@@ -265,11 +471,16 @@ export async function buildSessionAnalysis(root, options = {}) {
       branch: resolved.scope === "current-repo" ? session.branch : null,
       user_turns: session.turns?.user ?? null,
       work_type: workType,
+      work_type_source: workTypeSource,
       fit,
       score,
+      outcome: session.outcome?.status || "unknown",
+      outcome_evidence: session.outcome?.evidence || [],
+      cost_estimate_usd: costEstimates[sessionIndex].estimated_usd,
+      cost_basis: costEstimates[sessionIndex].basis,
     });
   }
-  const scorecard = buildScorecard(sessions, scoredSessions);
+  const scorecard = buildScorecard(sessions, scoredSessions, { routeEvidence: resolved.routeEvidence });
   sessionRows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 
   const rereadEntries = [...fileSessions.entries()]
@@ -286,7 +497,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     max_repeats: repeatCounts.length > 0 ? Math.max(...repeatCounts) : 0,
   };
 
-  const { opportunities, suppressed } = buildOpportunities(patterns, { windowDays: resolved.days });
+  const { opportunities, suppressed } = buildOpportunities(patterns, { windowDays: resolved.days, inventory: resolved.toolInventory });
   const roast = buildRoast(patterns, totals, { windowDays: resolved.days });
 
   const fileActivity = [...fileSessions.entries()]
@@ -308,6 +519,14 @@ export async function buildSessionAnalysis(root, options = {}) {
     models: [...modelRollup.values()].sort((a, b) => b.sessions - a.sessions),
     tools: Object.fromEntries([...toolRollup.entries()].sort((a, b) => b[1] - a[1])),
     sessions: sessionRows,
+    sidechains: {
+      transcripts: sidechains,
+      note: "Subagent transcripts carry real, separate usage: their counters are merged into the parent session (never counted as extra sessions); a transcript with no in-window parent is kept as its own session so nothing is dropped.",
+    },
+    display: {
+      project_names_shown: resolved.scope === "global" && resolved.showProjectNames,
+      paths_shown: resolved.scope === "global" && resolved.showPaths,
+    },
     file_activity: {
       observed_repo_files: fileActivity,
       note: "Observed = structured tool inputs only. Opaque shell calls are counted, never mined for paths.",
@@ -315,6 +534,10 @@ export async function buildSessionAnalysis(root, options = {}) {
     },
     patterns,
     scorecard,
+    tool_inventory: resolved.toolInventory,
+    config_audit: resolved.includeConfig
+      ? await buildConfigAudit({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome })
+      : null,
     opportunities,
     suppressed_rules: suppressed,
     roast,
@@ -322,6 +545,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       sessions_analyzed: sessions.length,
       sessions_with_usage: usageSessions,
       malformed_lines: malformedTotal,
+      cache: cache.stats(),
       sources: sourceList.map((entry) => ({
         provider: entry.provider,
         files_discovered: entry.files_discovered,
@@ -331,18 +555,36 @@ export async function buildSessionAnalysis(root, options = {}) {
       })),
     },
     privacy: {
-      content_mode: "metadata-only",
+      content_mode: resolved.contentMode,
       roots_read: sourceList.map((entry) => entry.root),
-      transcript_bodies_analyzed: false,
+      config_sources_read: resolved.includeConfig
+        ? configAuditSources({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome }).map(homeRelative)
+        : [],
+      evidence_sources_read: resolved.routeEvidence && resolved.routeEvidence.runs_scanned > 0
+        ? [`.agentify/evals/runs — ${resolved.routeEvidence.runs_scanned} run summar${resolved.routeEvidence.runs_scanned === 1 ? "y" : "ies"} read for aggregate pass/cost routing evidence (this repository's own eval artifacts)`]
+        : [],
+      transcript_bodies_analyzed: resolved.contentMode === "local-extractive",
       content_persisted: false,
       network_calls: 0,
       ai_spend_usd: 0,
       notes: [
-        "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
+        resolved.contentMode === "local-extractive"
+          ? "Prompt text was classified in memory by deterministic keyword rules (opt-in local-extractive mode); only rule-match counts and a category label were kept. Prompt text was never persisted, cached, rendered, or uploaded, and no model was started."
+          : "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
         "Shell commands were classified in memory into pattern counts; only counts and irreversible fingerprints appear in output.",
+        resolved.cache && resolved.cacheRoot
+          ? `Normalized session metadata (workspace path, branch, models, counters — never transcript, prompt, or command content) is cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; entries are swept when their source file disappears, and --no-cache disables the cache.`
+          : "Incremental caching was disabled for this run; every file was re-parsed.",
         resolved.scope === "global"
-          ? "Project names and paths are pseudonymized in global scope."
+          ? (resolved.showPaths
+            ? "DISPLAY OPT-IN ACTIVE: real project paths are shown in this report (--show-paths)."
+            : resolved.showProjectNames
+              ? "DISPLAY OPT-IN ACTIVE: real project names are shown in this report (--show-project-names)."
+              : "Project names and paths are pseudonymized in global scope.")
           : "Only sessions whose working directory matches this repository were included.",
+        ...(resolved.includeConfig
+          ? ["Allowlisted global configuration files were audited structurally (sizes, counts, names, allowlisted keys). Instruction text and settings/env values were not reproduced; credential, cache, backup, and database files were never opened."]
+          : []),
       ],
     },
   };

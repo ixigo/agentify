@@ -5,9 +5,12 @@ import path from "node:path";
 import { streamJsonlRecords } from "../stream-jsonl.js";
 import {
   classifyShellCommand,
+  createOutcomeTracker,
   createSessionSkeleton,
   createTimeTracker,
+  outcomeEvidenceReliable,
 } from "../normalize.js";
+import { codexPromptText, createContentClassifier } from "../content-classify.js";
 
 export function defaultCodexRoot() {
   return path.join(os.homedir(), ".codex", "sessions");
@@ -47,19 +50,40 @@ export async function discoverCodexSessions({ codexRoot, cutoffMs }) {
   return { root: sourceRoot, files, missing: !found };
 }
 
-export async function parseCodexSession(file, _context = {}) {
+export async function parseCodexSession(file, { contentMode = "metadata-only" } = {}) {
   const session = createSessionSkeleton("codex", file.path);
   const time = createTimeTracker();
   const models = new Set();
   let lastTokenUsage = null;
   let turnContexts = 0;
   let userMessages = 0;
+  const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
+  const outcome = createOutcomeTracker();
+  const callKinds = new Map();
+  let sawEventPrompts = false;
+  const fallbackPrompts = [];
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
     const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
     time.observe(record.timestamp || payload.timestamp);
+    if (classifier) {
+      // Prompt text is inspected in memory only. event_msg records are the
+      // human turns; response_item user messages duplicate them and add
+      // injected context, so they are buffered as a fallback used only
+      // when a rollout carries no user_message events at all.
+      const prompt = codexPromptText(record, payload);
+      if (prompt) {
+        if (prompt.source === "event") {
+          sawEventPrompts = true;
+          classifier.observe(prompt.text);
+        } else if (!sawEventPrompts && fallbackPrompts.length < 50) {
+          fallbackPrompts.push(prompt.text.slice(0, 4000));
+        }
+      }
+    }
 
     if (record.type === "session_meta" || payload.type === "session_meta") {
+      if (payload.id && !session.provider_session_id) session.provider_session_id = String(payload.id);
       if (payload.cwd && !session.cwd) session.cwd = String(payload.cwd);
       if (payload.cli_version && !session.cli_version) session.cli_version = String(payload.cli_version);
       if (payload.git?.branch && !session.branch) session.branch = String(payload.git.branch);
@@ -90,7 +114,10 @@ export async function parseCodexSession(file, _context = {}) {
       return;
     }
 
-    if (record.type === "response_item" && payload.type === "function_call") {
+    // Current rollouts emit both function_call and custom_tool_call
+    // records (the latter dominate in recent CLI versions); both count as
+    // tool activity and both can carry a shell command.
+    if (record.type === "response_item" && (payload.type === "function_call" || payload.type === "custom_tool_call")) {
       const name = String(payload.name || "unknown");
       session.tools.calls += 1;
       session.tools.by_name[name] = (session.tools.by_name[name] || 0) + 1;
@@ -99,7 +126,7 @@ export async function parseCodexSession(file, _context = {}) {
       // counts only and never persisted or evaluated.
       session.shell_patterns.opaque_shell_calls += 1;
       let commandText = "";
-      if (typeof payload.arguments === "string") {
+      if (payload.type === "function_call" && typeof payload.arguments === "string") {
         try {
           const parsed = JSON.parse(payload.arguments);
           commandText = typeof parsed?.cmd === "string"
@@ -108,11 +135,35 @@ export async function parseCodexSession(file, _context = {}) {
         } catch {
           commandText = "";
         }
+      } else if (payload.type === "custom_tool_call" && typeof payload.input === "string" && /shell|exec|bash/i.test(name)) {
+        // Only shell-shaped custom tools carry a command; other custom
+        // tool inputs (patches, plans) must not be text-classified.
+        commandText = payload.input;
       }
       const { kinds } = classifyShellCommand(commandText);
       for (const kind of kinds) {
-        session.shell_patterns[kind] += 1;
+        if (kind in session.shell_patterns) session.shell_patterns[kind] += 1;
       }
+      if (payload.call_id) {
+        callKinds.set(String(payload.call_id), { kinds, evidenceReliable: outcomeEvidenceReliable(commandText) });
+      }
+      return;
+    }
+
+    if (record.type === "response_item" && (payload.type === "function_call_output" || payload.type === "custom_tool_call_output")) {
+      // Outputs are JSON-wrapped in current rollouts; only a structurally
+      // recognizable exit_code counts as evidence, anything else stays
+      // unknowable and never influences the outcome.
+      const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
+      let ok = null;
+      if (typeof payload.output === "string") {
+        try {
+          const parsed = JSON.parse(payload.output);
+          const exitCode = parsed?.metadata?.exit_code;
+          if (Number.isFinite(Number(exitCode))) ok = Number(exitCode) === 0;
+        } catch { /* opaque output: no outcome evidence */ }
+      }
+      outcome.record(call?.kinds || [], ok, { evidenceReliable: call ? call.evidenceReliable : true });
     }
   });
 
@@ -131,8 +182,16 @@ export async function parseCodexSession(file, _context = {}) {
   // carry user_message events, so the larger observed count wins.
   session.turns.user = Math.max(turnContexts, userMessages);
   session.turns.assistant_requests = session.coverage.usage_records;
+  if (classifier) {
+    if (!sawEventPrompts) {
+      for (const text of fallbackPrompts) classifier.observe(text);
+    }
+    const { category_hint, hint_confidence, prompts_seen, signal_counts, classifier: rulesVersion } = classifier.result();
+    session.task = { content_mode: "local-extractive", content_rules: rulesVersion, category_hint, hint_confidence, prompts_seen, signal_counts };
+  }
   session.project_key = session.cwd ? `codex:${session.cwd}` : `codex:${file.path}`;
   time.finish(session);
+  outcome.finish(session, { writes: session.tools.by_name.apply_patch || 0 });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
   return session;
