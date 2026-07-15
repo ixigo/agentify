@@ -353,7 +353,10 @@ agentify analyze --provider codex --json    # full auditable schema
 agentify analyze --no-cache                 # re-parse everything, skip the cache
 agentify analyze --source-root codex=./fixtures/codex --yes   # custom store; repeatable per provider
 agentify analyze --content local-extractive --yes             # opt-in: classify prompt text in memory
+agentify analyze --include-config --yes                       # opt-in: structural audit of global config
 ```
+
+`--include-config` adds a structural audit of allowlisted global configuration: sizes and token estimates of `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (plus cross-provider duplicated-line count), permission/hook/env **counts** from `settings.json`, allowlisted scalar keys from `config.toml`, and the names of installed skills/agents/commands. Instruction text and settings/env values are never reproduced; `auth.json`, credentials, caches, backups, and databases are never opened. The consent disclosure lists the exact allowlisted sources before scanning.
 
 `--content local-extractive` is an explicit opt-in that sharpens work-type classification: prompt text is matched against deterministic keyword rules **in memory during the streaming parse** — only rule-match counts and a category label survive; the text itself is never persisted, cached, rendered, or uploaded, and no model is started. The consent disclosure names the mode, sessions classified this way carry `work_type_source: "content-hint"`, and the privacy receipt records that transcript bodies were analyzed in memory. Default remains `metadata-only`.
 

@@ -29,6 +29,7 @@ const BOOLEAN_FLAGS = new Set([
   "yes",
   "noCache",
   "noProgress",
+  "includeConfig",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

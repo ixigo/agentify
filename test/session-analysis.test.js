@@ -439,6 +439,68 @@ test("current-repo local-extractive never caches content facts for foreign sessi
   assert.ok(inScopeContentEntries >= 4, "in-scope sessions are content-classified");
 });
 
+test("--include-config audits allowlisted sources structurally and leaks no values", async () => {
+  const home = await makeRoot("agentify-analyze-config-");
+  const claudeHome = path.join(home, "claude-home");
+  const codexHome = path.join(home, "codex-home");
+  await fs.mkdir(path.join(claudeHome, "skills", "my-skill"), { recursive: true });
+  await fs.mkdir(path.join(claudeHome, "agents"), { recursive: true });
+  await fs.mkdir(codexHome, { recursive: true });
+  const sharedLine = "Always run the linter before committing anything at all.";
+  await fs.writeFile(path.join(claudeHome, "CLAUDE.md"), `# Global rules\n${sharedLine}\nUse pnpm not npm for this machine.\n`);
+  await fs.writeFile(path.join(codexHome, "AGENTS.md"), `# Codex rules\n${sharedLine}\n${"x".repeat(9000)}\n`);
+  await fs.writeFile(path.join(claudeHome, "agents", "reviewer.md"), "agent body SHOULD NOT LEAK");
+  await fs.writeFile(path.join(claudeHome, "settings.json"), JSON.stringify({
+    model: "opus",
+    permissions: { allow: ["Bash(ls:*)", "Read"], deny: ["WebFetch"] },
+    hooks: { PreToolUse: [], SessionStart: [] },
+    env: { MY_API_KEY: "supersecret-env-value", OTHER: "v" },
+  }));
+  await fs.writeFile(path.join(codexHome, "config.toml"), [
+    'model = "gpt-5.2-codex"',
+    'approval_policy = "on-request"',
+    'api_key = "supersecret-toml-value"',
+    "[mcp_servers.foo]",
+    'url = "https://example.com"',
+  ].join("\n"));
+  await fs.writeFile(path.join(codexHome, "auth.json"), '{"token":"supersecret-auth-token"}');
+
+  const { buildConfigAudit } = await import("../src/core/session-analysis/config-audit.js");
+  const audit = await buildConfigAudit({ claudeHome, codexHome });
+  assert.equal(audit.schema, "config-audit-v1");
+  assert.equal(audit.claude.settings.permission_allow_rules, 2);
+  assert.equal(audit.claude.settings.permission_deny_rules, 1);
+  assert.equal(audit.claude.settings.hook_events, 2);
+  assert.equal(audit.claude.settings.env_vars, 2);
+  assert.deepEqual(audit.claude.skills, ["my-skill"]);
+  assert.deepEqual(audit.claude.agents, ["reviewer"]);
+  assert.equal(audit.codex.config.allowlisted.model, "gpt-5.2-codex");
+  assert.equal(audit.codex.config.secret_like_keys_counted_not_read, 1);
+  assert.equal(audit.cross_provider.duplicated_instruction_lines, 1);
+  assert.equal(audit.codex.global_instructions.oversized, true);
+  assert.ok(audit.findings.some((finding) => /oversized|2k tokens/.test(finding)));
+
+  const serialized = JSON.stringify(audit);
+  for (const secret of ["supersecret-env-value", "supersecret-toml-value", "supersecret-auth-token", "SHOULD NOT LEAK", "MY_API_KEY", sharedLine, "Use pnpm not npm"]) {
+    assert.ok(!serialized.includes(secret), `config audit leaked: ${secret}`);
+  }
+
+  // Wired through the full report + html when includeConfig is set.
+  const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
+  const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, includeConfig: true, claudeHome, codexHome });
+  assert.equal(report.config_audit.schema, "config-audit-v1");
+  const html = renderAnalysisHtml(report, { projectName: "fixture" });
+  assert.ok(html.includes('data-testid="analyze-config-audit"'));
+  assert.ok(!html.includes("supersecret"), "secret leaked into html");
+  const withoutFlag = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30 });
+  assert.equal(withoutFlag.config_audit, null);
+
+  // Dry-run manifest discloses the allowlisted config sources.
+  const manifest = await buildAnalysisManifest(repoRoot, { claudeRoot, codexRoot, days: 30, includeConfig: true, claudeHome, codexHome });
+  assert.ok(manifest.config_sources.some((source) => source.endsWith("CLAUDE.md")));
+  assert.ok(manifest.config_sources.some((source) => source.includes("config.toml")));
+});
+
 test("cost estimates use exact model + effective date and never claim billed spend", async () => {
   const { estimateSessionCost, buildCostSummary, priceEntryFor } = await import("../src/core/session-analysis/pricing.js");
   const usage = { fresh_input_tokens: 1_000_000, cache_read_tokens: 2_000_000, cache_write_tokens: 100_000, output_tokens: 500_000, reasoning_output_tokens: null };

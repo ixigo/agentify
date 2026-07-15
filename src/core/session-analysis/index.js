@@ -21,6 +21,7 @@ import { buildOpportunities, buildRoast } from "./opportunities.js";
 import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./scorecard.js";
 import { createAnalysisCache } from "./cache.js";
 import { buildCostSummary, estimateSessionCost } from "./pricing.js";
+import { buildConfigAudit, configAuditSources } from "./config-audit.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -87,6 +88,9 @@ function resolveOptions(root, options) {
     cacheRoot: options.cacheRoot || null,
     cache: options.cache !== false,
     contentMode: resolveContentMode(options.contentMode),
+    includeConfig: options.includeConfig === true,
+    claudeHome: options.claudeHome || null,
+    codexHome: options.codexHome || null,
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
@@ -140,6 +144,9 @@ export async function buildAnalysisManifest(root, options = {}) {
       files: source.files.length,
       bytes: source.files.reduce((sum, file) => sum + (file.size || 0), 0),
     })),
+    config_sources: resolved.includeConfig
+      ? configAuditSources({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome }).map(homeRelative)
+      : null,
     note: "No session record bodies were parsed in this dry run.",
   };
 }
@@ -453,6 +460,9 @@ export async function buildSessionAnalysis(root, options = {}) {
     },
     patterns,
     scorecard,
+    config_audit: resolved.includeConfig
+      ? await buildConfigAudit({ claudeHome: resolved.claudeHome, codexHome: resolved.codexHome })
+      : null,
     opportunities,
     suppressed_rules: suppressed,
     roast,
@@ -487,6 +497,9 @@ export async function buildSessionAnalysis(root, options = {}) {
         resolved.scope === "global"
           ? "Project names and paths are pseudonymized in global scope."
           : "Only sessions whose working directory matches this repository were included.",
+        ...(resolved.includeConfig
+          ? ["Allowlisted global configuration files were audited structurally (sizes, counts, names, allowlisted keys). Instruction text and settings/env values were not reproduced; credential, cache, backup, and database files were never opened."]
+          : []),
       ],
     },
   };

@@ -54,6 +54,14 @@ export function renderAnalysisText(report) {
       `Work mix: ${workMix || "nothing classified"}`,
     );
   }
+  if (report.config_audit) {
+    const audit = report.config_audit;
+    lines.push(
+      "",
+      `Config audit: ~${formatNumber(audit.cross_provider.always_loaded_token_estimate)} always-loaded instruction token(s) · ${formatNumber(audit.cross_provider.duplicated_instruction_lines)} line(s) duplicated across CLAUDE.md/AGENTS.md`,
+      ...audit.findings.map((finding) => `  - ${finding}`),
+    );
+  }
   lines.push("", "Where Agentify helps:");
   if (report.opportunities.length === 0) {
     lines.push("- No evidence-backed opportunities fired in this window.");
@@ -151,6 +159,36 @@ function filterCss() {
     rules.push(`main:has(#f-fit-${fit}:checked) tr.session-row:not([data-fit="${fit}"]) { display: none; }`);
   }
   return rules.join("\n    ");
+}
+
+function instructionCells(facts) {
+  if (!facts?.present) return "<td>not present</td><td class=\"number\">—</td><td class=\"number\">—</td>";
+  if (facts.unreadable) return "<td>unreadable</td><td class=\"number\">—</td><td class=\"number\">—</td>";
+  return `<td>${facts.oversized ? "present · oversized" : "present"}</td><td class="number">${escapeHtml(formatNumber(facts.lines))}</td><td class="number">~${escapeHtml(formatNumber(facts.always_loaded_token_estimate))}</td>`;
+}
+
+function configAuditSection(audit) {
+  const nameList = (names) => (names === null ? "—" : names.length === 0 ? "none" : names.map((name) => `<code>${escapeHtml(name)}</code>`).join(" "));
+  return `
+    <section aria-label="Configuration audit">
+      <p class="eyebrow">Configuration audit</p>
+      <h2>What every session carries before work starts</h2>
+      <article class="card" data-testid="analyze-config-audit">
+        <div class="table-wrap"><table><caption>Global instruction files (structural facts only; text is never reproduced)</caption>
+          <thead><tr><th scope="col">File</th><th scope="col">Status</th><th scope="col">Lines</th><th scope="col">Token est.</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><code>${escapeHtml(audit.homes.claude)}/CLAUDE.md</code></th>${instructionCells(audit.claude.global_instructions)}</tr>
+            <tr><th scope="row"><code>${escapeHtml(audit.homes.codex)}/AGENTS.md</code></th>${instructionCells(audit.codex.global_instructions)}</tr>
+          </tbody>
+        </table></div>
+        <p class="score-mix"><strong>Always loaded:</strong> ~${escapeHtml(formatNumber(audit.cross_provider.always_loaded_token_estimate))} token(s) · <strong>duplicated lines across providers:</strong> ${escapeHtml(formatNumber(audit.cross_provider.duplicated_instruction_lines))}</p>
+        <p class="score-mix"><strong>Claude skills:</strong> ${nameList(audit.claude.skills)}</p>
+        <p class="score-mix"><strong>Claude agents:</strong> ${nameList(audit.claude.agents)} · <strong>commands:</strong> ${nameList(audit.claude.commands)}</p>
+        <p class="score-mix"><strong>Codex skills:</strong> ${nameList(audit.codex.skills)}</p>
+        ${audit.findings.length > 0 ? `<ul>${audit.findings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join("")}</ul>` : ""}
+        <p class="opp-caveat">${escapeHtml(audit.note)}</p>
+      </article>
+    </section>`;
 }
 
 export function renderAnalysisHtml(report, options = {}) {
@@ -408,6 +446,7 @@ ${scorecardSection}
         <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
       </details>
     </section>
+${report.config_audit ? configAuditSection(report.config_audit) : ""}
     <section aria-label="Privacy receipt">
       <p class="eyebrow">Privacy receipt</p>
       <h2>Exactly what was read</h2>

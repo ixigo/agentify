@@ -927,6 +927,7 @@ export async function runCli(argv, _runtime = {}) {
           days,
           scope,
           contentMode,
+          includeConfig: args.includeConfig === true,
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
@@ -967,6 +968,9 @@ export async function runCli(argv, _runtime = {}) {
             contentMode === "local-extractive"
               ? `Scope: ${manifest.scope}. Content mode: local-extractive — prompt text WILL be classified in memory by deterministic keyword rules; only match counts and a category label are kept, the text itself is never stored, cached, or uploaded. Nothing leaves this machine and no model is started.`
               : `Scope: ${manifest.scope}. JSONL bytes are read to parse envelopes; transcript bodies are not analyzed, retained, or uploaded. Nothing leaves this machine and no model is started.`,
+            ...(args.includeConfig === true && Array.isArray(manifest.config_sources)
+              ? ["Config audit (--include-config) reads ONLY these allowlisted sources, structurally:", ...manifest.config_sources.map((source) => `  ${source}`)]
+              : []),
           ];
           if (!process.stdin.isTTY || !process.stderr.isTTY) {
             throw new Error(`analyze needs explicit consent in non-interactive mode. ${disclosure.join(" ")} Re-run with --yes to consent, or --dry-run to preview.`);

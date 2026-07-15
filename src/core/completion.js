@@ -203,6 +203,7 @@ const COMMANDS = [
       flag("--no-progress", { description: "Suppress the stderr progress line (progress is TTY-only anyway)" }),
       flag("--source-root", { valueKind: "text", description: "History root override as claude=<path> or codex=<path>; repeatable, replaces that provider's default" }),
       flag("--content", { values: ["metadata-only", "local-extractive"], description: "local-extractive classifies prompt text in memory (deterministic rules, nothing persisted)" }),
+      flag("--include-config", { description: "Audit allowlisted global config (instruction sizes, skill/agent names, allowlisted keys; no text/values)" }),
     ],
   }),
   command("test", "Select and run tests affected by a change", {
