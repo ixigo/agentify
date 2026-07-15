@@ -19,14 +19,24 @@ const RULES = [
   { category: "research", pattern: /\b(how|why|what|explain|investigate|understand|compare|analy[sz]e|look into|summari[sz]e)\b/gi },
 ];
 
+// Injected context (system reminders, command wrappers, AGENTS/environment
+// blocks) must never influence classification: only what the human typed
+// counts, and injected text could otherwise steer the label.
+function looksInjected(text) {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith("<") || trimmed.startsWith("Caveat:");
+}
+
+const MAX_CLASSIFIED_CHARS = 4000;
+
 export function createContentClassifier() {
   const counts = Object.fromEntries(RULES.map((rule) => [rule.category, 0]));
   let promptsSeen = 0;
   return {
     // Called per user prompt while streaming; the text stays in this frame.
     observe(text) {
-      const value = String(text || "");
-      if (!value.trim()) return;
+      const value = String(text || "").slice(0, MAX_CLASSIFIED_CHARS);
+      if (!value.trim() || looksInjected(value)) return;
       promptsSeen += 1;
       for (const rule of RULES) {
         const matches = value.match(rule.pattern);
@@ -59,8 +69,10 @@ export function createContentClassifier() {
 
 // Extracts user prompt text from the record shapes both providers use.
 // Returns null for anything that is not a human-typed prompt.
+// isMeta records are command wrappers/outputs Claude Code injects as user
+// records; they are not prompts.
 export function claudePromptText(record) {
-  if (record?.type !== "user" || record.isSidechain === true) return null;
+  if (record?.type !== "user" || record.isSidechain === true || record.isMeta === true) return null;
   const message = record.message;
   if (!message || typeof message !== "object") return null;
   if (typeof message.content === "string") return message.content;
@@ -71,14 +83,19 @@ export function claudePromptText(record) {
   return null;
 }
 
+// Codex writes a genuine turn BOTH as an event_msg user_message and as a
+// response_item user message (which additionally carries injected AGENTS/
+// environment context). Returns { source, text } so the caller can prefer
+// event_msg records and fall back to response_item only when a rollout
+// has no user_message events — counting both would double every keyword.
 export function codexPromptText(record, payload) {
   if (record?.type === "event_msg" && payload?.type === "user_message") {
-    if (typeof payload.message === "string") return payload.message;
-    if (typeof payload.text === "string") return payload.text;
+    if (typeof payload.message === "string") return { source: "event", text: payload.message };
+    if (typeof payload.text === "string") return { source: "event", text: payload.text };
   }
   if (record?.type === "response_item" && payload?.type === "message" && payload.role === "user" && Array.isArray(payload.content)) {
     const parts = payload.content.filter((item) => item?.type === "input_text" && typeof item.text === "string");
-    if (parts.length > 0) return parts.map((item) => item.text).join("\n");
+    if (parts.length > 0) return { source: "response", text: parts.map((item) => item.text).join("\n") };
   }
   return null;
 }

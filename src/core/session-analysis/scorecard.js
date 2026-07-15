@@ -162,6 +162,7 @@ function matchupQuip(fitCounts, heaviestModel, scored) {
 export function buildScorecard(sessions, enriched) {
   const workTypes = Object.fromEntries(WORK_TYPES.map((type) => [type, 0]));
   const fitCounts = Object.fromEntries(FIT_VERDICTS.map((verdict) => [verdict, 0]));
+  const workTypeSources = { metadata: 0, "content-hint": 0 };
   const componentTotals = {};
   let weightedScore = 0;
   let weightTotal = 0;
@@ -173,6 +174,7 @@ export function buildScorecard(sessions, enriched) {
     const session = sessions[index];
     const extra = enriched[index];
     workTypes[extra.work_type] += 1;
+    workTypeSources[extra.work_type_source === "content-hint" ? "content-hint" : "metadata"] += 1;
     fitCounts[extra.fit] += 1;
     const weight = session.tools.calls + (session.turns?.user || 0) + 1;
     weightedScore += extra.score * weight;
@@ -219,8 +221,11 @@ export function buildScorecard(sessions, enriched) {
       Object.entries(componentTotals).map(([key, total]) => [key, scored > 0 ? Math.round((total / scored) * 10) / 10 : null]),
     ),
     work_types: workTypes,
+    work_type_sources: workTypeSources,
     fit: fitCounts,
     delegation_candidates: delegationCandidates.slice(0, 5),
-    note: "Scores and verdicts are metadata-only heuristics for orientation and entertainment. Work types come from tool mix, not task content; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.",
+    note: workTypeSources["content-hint"] > 0
+      ? `Scores and verdicts are deterministic heuristics for orientation and entertainment. Work types come from tool mix, with ${workTypeSources["content-hint"]} session(s) refined by opt-in in-memory prompt classification; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.`
+      : "Scores and verdicts are metadata-only heuristics for orientation and entertainment. Work types come from tool mix, not task content; an “overkill” verdict is a delegation candidate, never proof a cheaper model would have succeeded.",
   };
 }

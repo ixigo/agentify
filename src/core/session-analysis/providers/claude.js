@@ -187,8 +187,8 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   session.models = [...models].sort();
   session.turns.assistant_requests = usageByRequest.size;
   if (classifier) {
-    const { category_hint, hint_confidence, prompts_seen } = classifier.result();
-    session.task = { content_mode: "local-extractive", category_hint, hint_confidence, prompts_seen };
+    const { category_hint, hint_confidence, prompts_seen, signal_counts, classifier: rulesVersion } = classifier.result();
+    session.task = { content_mode: "local-extractive", content_rules: rulesVersion, category_hint, hint_confidence, prompts_seen, signal_counts };
   }
   time.finish(session);
   session.coverage.lines = lines;

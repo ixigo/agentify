@@ -194,7 +194,7 @@ export function renderAnalysisHtml(report, options = {}) {
     <section aria-label="Usage scorecard">
       <p class="eyebrow">The scorecard</p>
       <h2>Was the weapon worth the fight?</h2>
-      <p class="lede">Each session is classified by tool mix, matched against the model that fought it, and scored on token generation per turn, failure hygiene, cache use, and search discipline.</p>
+      <p class="lede">Each session is classified by tool mix${scorecard.work_type_sources?.["content-hint"] > 0 ? ` (${formatNumber(scorecard.work_type_sources["content-hint"])} refined by opt-in in-memory prompt classification)` : ""}, matched against the model that fought it, and scored on token generation per turn, failure hygiene, cache use, and search discipline.</p>
       <article class="card scorecard" data-testid="analyze-scorecard">
         <div class="score-hero">
           <p class="score-grade">${escapeHtml(scorecard.grade ?? "—")}</p>
@@ -352,9 +352,10 @@ export function renderAnalysisHtml(report, options = {}) {
 /_/   \\_\\__, |\\___|_| |_|\\__|_|_|  \\__, |
         |___/                      |___/</pre>
     <h1>What your agent sessions actually did.</h1>
-    <p class="tagline">Agentify analyzed <strong>${formatNumber(totals.sessions)} local session(s)</strong> in ${escapeHtml(scopeLabel)} — metadata only, nothing uploaded, zero AI spend — and found where it can pull real weight.</p>
+    <p class="tagline">Agentify analyzed <strong>${formatNumber(totals.sessions)} local session(s)</strong> in ${escapeHtml(scopeLabel)} — ${report.privacy.content_mode === "local-extractive" ? "metadata plus in-memory prompt classification (nothing persisted)" : "metadata only"}, nothing uploaded, zero AI spend — and found where it can pull real weight.</p>
     <div class="meta-row">
       <span class="meta">scope ${escapeHtml(report.scope)}</span>
+      <span class="meta">content ${escapeHtml(report.privacy.content_mode)}</span>
       <span class="meta">last ${escapeHtml(report.window_days)} day(s)</span>
       <span class="meta">${escapeHtml(report.providers.join(" + "))}</span>
       <span class="meta">generated ${escapeHtml(generated)} UTC</span>

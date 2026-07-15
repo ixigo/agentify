@@ -195,35 +195,77 @@ export async function buildSessionAnalysis(root, options = {}) {
       bytesDone,
       sessions: stats.sessions,
     });
-    const processFile = async (file) => {
-      let session = await cache.get(file, root, resolved.contentMode);
-      if (session) {
-        // Coverage must stay auditable: a warm entry means the JSONL bytes
-        // were NOT re-read this run, so it counts separately from parses.
-        stats.files_from_cache += 1;
-      } else {
-        try {
-          session = source.provider === "claude"
-            ? await parseClaudeSession(file, { root, contentMode: resolved.contentMode })
-            : await parseCodexSession(file, { root, contentMode: resolved.contentMode });
-        } catch {
-          stats.files_out_of_scope += 1;
-          return;
-        }
-        await cache.put(file, root, session, resolved.contentMode);
+    const parseWith = (file, contentMode) => (source.provider === "claude"
+      ? parseClaudeSession(file, { root, contentMode })
+      : parseCodexSession(file, { root, contentMode }));
+    const matchesRepo = (session, file) => (source.provider === "claude"
+      ? claudeSessionMatchesRepo(session, file, root)
+      : codexSessionMatchesRepo(session, root));
+    // Coverage must stay auditable: a warm entry means the JSONL bytes
+    // were NOT re-read this run, so it counts separately from parses.
+    const bookkeep = (session, parsedFresh, file) => {
+      if (parsedFresh) {
         stats.files_parsed += 1;
         stats.bytes_parsed += file.size || 0;
+      } else {
+        stats.files_from_cache += 1;
       }
       stats.malformed_lines += session.coverage.malformed_lines;
-      if (resolved.scope === "current-repo") {
-        const matches = source.provider === "claude"
-          ? claudeSessionMatchesRepo(session, file, root)
-          : codexSessionMatchesRepo(session, root);
-        if (!matches) {
+    };
+
+    // Consent boundary: in current-repo scope, prompt classification may
+    // only touch this repository's sessions, but scope is only knowable
+    // AFTER parsing. So local-extractive runs two-phase there: files are
+    // parsed metadata-only first, and only in-scope sessions are parsed
+    // again with the classifier. Out-of-scope prompt bodies are never
+    // examined and no content-derived facts about them are cached.
+    const scopeGated = resolved.contentMode === "local-extractive" && resolved.scope === "current-repo";
+
+    const processFile = async (file) => {
+      let session = null;
+      let parsedFresh = false;
+      if (!scopeGated) {
+        session = await cache.get(file, root, resolved.contentMode);
+        if (!session) {
+          try {
+            session = await parseWith(file, resolved.contentMode);
+          } catch {
+            stats.files_out_of_scope += 1;
+            return;
+          }
+          await cache.put(file, root, session, resolved.contentMode);
+          parsedFresh = true;
+        }
+        if (resolved.scope === "current-repo" && !matchesRepo(session, file)) {
+          bookkeep(session, parsedFresh, file);
           stats.files_out_of_scope += 1;
           return;
         }
+      } else {
+        session = await cache.get(file, root, "local-extractive");
+        if (!session) {
+          let metaSession = await cache.get(file, root, "metadata-only");
+          if (!metaSession) {
+            try {
+              metaSession = await parseWith(file, "metadata-only");
+            } catch {
+              stats.files_out_of_scope += 1;
+              return;
+            }
+            parsedFresh = true;
+          }
+          if (!matchesRepo(metaSession, file)) {
+            await cache.put(file, root, metaSession, "metadata-only");
+            bookkeep(metaSession, parsedFresh, file);
+            stats.files_out_of_scope += 1;
+            return;
+          }
+          session = await parseWith(file, "local-extractive");
+          parsedFresh = true;
+          await cache.put(file, root, session, "local-extractive");
+        }
       }
+      bookkeep(session, parsedFresh, file);
       if (!sessionInWindow(session, file, resolved.cutoffMs)) {
         stats.files_out_of_window += 1;
         return;
@@ -339,7 +381,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     }
     const fit = fitVerdict(workType, session.models);
     const { score, components } = scoreSession(session, workType, fit);
-    scoredSessions.push({ work_type: workType, fit, score, components });
+    scoredSessions.push({ work_type: workType, work_type_source: workTypeSource, fit, score, components });
 
     sessionRows.push({
       session_id: session.session_id,

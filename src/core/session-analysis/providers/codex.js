@@ -56,14 +56,26 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   let turnContexts = 0;
   let userMessages = 0;
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
+  let sawEventPrompts = false;
+  const fallbackPrompts = [];
 
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
     const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
     time.observe(record.timestamp || payload.timestamp);
     if (classifier) {
-      // Prompt text is inspected here, in memory, and goes no further.
-      const promptText = codexPromptText(record, payload);
-      if (promptText !== null) classifier.observe(promptText);
+      // Prompt text is inspected in memory only. event_msg records are the
+      // human turns; response_item user messages duplicate them and add
+      // injected context, so they are buffered as a fallback used only
+      // when a rollout carries no user_message events at all.
+      const prompt = codexPromptText(record, payload);
+      if (prompt) {
+        if (prompt.source === "event") {
+          sawEventPrompts = true;
+          classifier.observe(prompt.text);
+        } else if (!sawEventPrompts && fallbackPrompts.length < 50) {
+          fallbackPrompts.push(prompt.text.slice(0, 4000));
+        }
+      }
     }
 
     if (record.type === "session_meta" || payload.type === "session_meta") {
@@ -139,8 +151,11 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   session.turns.user = Math.max(turnContexts, userMessages);
   session.turns.assistant_requests = session.coverage.usage_records;
   if (classifier) {
-    const { category_hint, hint_confidence, prompts_seen } = classifier.result();
-    session.task = { content_mode: "local-extractive", category_hint, hint_confidence, prompts_seen };
+    if (!sawEventPrompts) {
+      for (const text of fallbackPrompts) classifier.observe(text);
+    }
+    const { category_hint, hint_confidence, prompts_seen, signal_counts, classifier: rulesVersion } = classifier.result();
+    session.task = { content_mode: "local-extractive", content_rules: rulesVersion, category_hint, hint_confidence, prompts_seen, signal_counts };
   }
   session.project_key = session.cwd ? `codex:${session.cwd}` : `codex:${file.path}`;
   time.finish(session);

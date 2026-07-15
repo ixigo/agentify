@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { readJson, writePrivateJson, ensurePrivateDir } from "../fs.js";
 import { ANALYSIS_PARSER_VERSION, stableSessionId } from "./normalize.js";
+import { CONTENT_CLASSIFIER_VERSION } from "./content-classify.js";
 
 // Incremental cache for normalized session facts. Entries hold the
 // normalized session metadata (workspace path, branch, models, usage
@@ -58,8 +59,10 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
         && entry.provider === file.provider
         && entry.root === root
         // Sessions parsed under a different content mode carry different
-        // task hints, so they never serve each other.
+        // task hints, so they never serve each other; content-mode entries
+        // are additionally tied to the classifier rules that produced them.
         && (entry.content_mode || "metadata-only") === contentMode
+        && (contentMode !== "local-extractive" || entry.content_rules === CONTENT_CLASSIFIER_VERSION)
         && entry.size === (file.size || 0)
         && entry.mtime_ms === file.mtime_ms
         && isUsableSession(entry.session);
@@ -84,6 +87,7 @@ export function createAnalysisCache({ cacheRoot, enabled = true }) {
           provider: file.provider,
           root,
           content_mode: contentMode,
+          content_rules: contentMode === "local-extractive" ? CONTENT_CLASSIFIER_VERSION : null,
           source_path: path.resolve(file.path),
           size: file.size || 0,
           mtime_ms: file.mtime_ms,
