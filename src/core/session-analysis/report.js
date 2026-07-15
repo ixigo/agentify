@@ -99,7 +99,7 @@ function opportunityCard(item, index) {
     .filter(([, value]) => typeof value !== "object")
     .map(([key, value]) => `<span class="chip">${escapeHtml(key.replaceAll("_", " "))}: ${escapeHtml(formatNumber(value))}</span>`)
     .join(" ");
-  return `<article class="card opp">
+  return `<article class="card opp" data-confidence="${escapeHtml(item.confidence)}">
     <header class="opp-head">
       <span class="opp-rank">${index + 1}</span>
       <div>
@@ -114,11 +114,11 @@ function opportunityCard(item, index) {
   </article>`;
 }
 
-function sessionRowsHtml(rows) {
+function sessionRowsHtml(rows, projectKeys) {
   if (rows.length === 0) {
     return '<tr><td colspan="14" class="empty">No sessions in this window.</td></tr>';
   }
-  return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}">
+  return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}" data-outcome="${escapeHtml(row.outcome)}" data-month="${escapeHtml(String(row.date || "").slice(0, 7) || "unknown")}" data-project-key="${escapeHtml(projectKeys.get(row.project) || "other")}">
     <th scope="row"><code>${escapeHtml(row.session_id)}</code></th>
     <td>${escapeHtml(row.provider)}</td>
     <td>${escapeHtml(row.project)}</td>
@@ -138,17 +138,26 @@ function sessionRowsHtml(rows) {
 
 // CSS-only filtering: the radio chips below pair with `main:has()` rules in
 // the stylesheet, so the report keeps its strict no-<script> guarantee.
+// Sorting is deliberately absent for the same reason.
 function filterGroup(name, legend, values) {
   const options = [{ id: `${name}-all`, value: null, label: "all" }]
-    .concat(values.map((value) => ({ id: `${name}-${value.replace(/[^a-z-]/gi, "")}`, value, label: value })));
+    .concat(values.map((value) => ({
+      id: `${name}-${(value.id ?? value).toString().replace(/[^a-z0-9-]/gi, "")}`,
+      label: value.label ?? value,
+    })));
   const inputs = options.map((option, index) => `<input type="radio" class="filter-input" name="${escapeHtml(name)}" id="${escapeHtml(option.id)}"${index === 0 ? " checked" : ""}><label class="chip chip--filter" for="${escapeHtml(option.id)}">${escapeHtml(option.label)}</label>`).join("");
   return `<fieldset class="filters"><legend>${escapeHtml(legend)}</legend>${inputs}</fieldset>`;
 }
 
 const WORK_TYPE_VALUES = ["conversation", "research", "quick-fix", "implementation", "debugging", "mixed"];
 const FIT_VALUES = ["overkill", "match", "underkill", "unknown"];
+const OUTCOME_VALUES = ["completed", "likely-incomplete", "unknown"];
+const CONFIDENCE_VALUES = ["high", "medium", "low"];
+const MAX_PROJECT_FILTERS = 12;
 
-function filterCss() {
+// Rows carry data-* attributes; each checked radio hides every row that
+// does not match its dimension, and independent dimensions compose as AND.
+function filterCss({ months, projectCount }) {
   const rules = [];
   for (const provider of ["claude", "codex"]) {
     rules.push(`main:has(#f-provider-${provider}:checked) tr.session-row:not([data-provider="${provider}"]) { display: none; }`);
@@ -158,6 +167,18 @@ function filterCss() {
   }
   for (const fit of FIT_VALUES) {
     rules.push(`main:has(#f-fit-${fit}:checked) tr.session-row:not([data-fit="${fit}"]) { display: none; }`);
+  }
+  for (const outcome of OUTCOME_VALUES) {
+    rules.push(`main:has(#f-outcome-${outcome.replace(/[^a-z-]/gi, "")}:checked) tr.session-row:not([data-outcome="${outcome}"]) { display: none; }`);
+  }
+  for (const month of months) {
+    rules.push(`main:has(#f-month-${month.replace(/[^0-9-]/g, "")}:checked) tr.session-row:not([data-month="${month}"]) { display: none; }`);
+  }
+  for (let index = 0; index < projectCount; index += 1) {
+    rules.push(`main:has(#f-project-p${index}:checked) tr.session-row:not([data-project-key="p${index}"]) { display: none; }`);
+  }
+  for (const confidence of CONFIDENCE_VALUES) {
+    rules.push(`main:has(#f-conf-${confidence}:checked) article.opp:not([data-confidence="${confidence}"]) { display: none; }`);
   }
   return rules.join("\n    ");
 }
@@ -263,6 +284,14 @@ export function renderAnalysisHtml(report, options = {}) {
       </article>
     </section>` : "";
 
+  // Dynamic filter vocabularies: months and (capped) project aliases
+  // present in this report's rows.
+  const months = [...new Set(report.sessions.map((row) => String(row.date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  const distinctProjects = [...new Set(report.sessions.map((row) => row.project))];
+  const projectList = distinctProjects.slice(0, MAX_PROJECT_FILTERS);
+  const projectOverflow = distinctProjects.length - projectList.length;
+  const projectKeys = new Map(projectList.map((name, index) => [name, `p${index}`]));
+
   const primary = report.opportunities.slice(0, 3).map(opportunityCard).join("");
   const extra = report.opportunities.slice(3);
   const suppressedRows = report.suppressed_rules.map((rule) => `<tr>
@@ -364,7 +393,7 @@ export function renderAnalysisHtml(report, options = {}) {
     .chip--filter { cursor: pointer; user-select: none; }
     .filter-input:checked + .chip--filter { color: var(--text); border-color: var(--accent); background: var(--bg-soft); }
     .filter-input:focus-visible + .chip--filter { outline: 2px solid var(--accent); outline-offset: 2px; }
-    ${filterCss()}
+    ${filterCss({ months, projectCount: projectList.length })}
     .roast { border-left: 4px solid var(--amber); border-radius: 0 10px 10px 0; margin-top: 18px; }
     .roast blockquote { font-size: 1.12rem; line-height: 1.55; }
     .roast blockquote code { font-size: 0.9em; }
@@ -427,6 +456,9 @@ ${scorecardSection}
       <p class="eyebrow">Where Agentify helps</p>
       <h2>Evidence-backed opportunities</h2>
       <p class="lede">Each card links an observed pattern to a specific capability. Confidence and caveats are part of the claim.</p>
+      <div class="filter-bar" role="group" aria-label="Opportunity filters (CSS-only, no script)">
+        ${filterGroup("f-conf", "confidence", CONFIDENCE_VALUES)}
+      </div>
       <div class="opps">${primary || '<article class="card"><p class="empty">No evidence-backed opportunities fired in this window — thresholds and suppression reasons are listed below.</p></article>'}</div>
       ${extra.length > 0 ? `<details><summary>${extra.length} more opportunit${extra.length === 1 ? "y" : "ies"}</summary><div class="opps">${extra.map(opportunityCard).join("")}</div></details>` : ""}
       <details><summary>Rules that did not fire, and why</summary>
@@ -466,8 +498,12 @@ ${scorecardSection}
           ${filterGroup("f-provider", "provider", ["claude", "codex"])}
           ${filterGroup("f-work", "work type", WORK_TYPE_VALUES)}
           ${filterGroup("f-fit", "matchup", FIT_VALUES)}
+          ${filterGroup("f-outcome", "outcome", OUTCOME_VALUES)}
+          ${months.length > 1 ? filterGroup("f-month", "month", months) : ""}
+          ${projectList.length > 1 ? filterGroup("f-project", "project", projectList.map((name, index) => ({ id: `p${index}`, label: name }))) : ""}
         </div>
-        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Outcome</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
+        ${projectOverflow > 0 ? `<p class="lede">${escapeHtml(`${projectOverflow} more project(s) have no filter chip (cap ${MAX_PROJECT_FILTERS}); their rows always show under "all".`)}</p>` : ""}
+        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script; sorting is omitted to keep the report script-free</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Outcome</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions, projectKeys)}</tbody></table></div>
       </details>
     </section>
 ${report.config_audit ? configAuditSection(report.config_audit) : ""}

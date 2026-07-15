@@ -337,8 +337,22 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(html.includes('name="f-provider"'), "provider filter chips missing");
   assert.ok(html.includes('name="f-work"'), "work-type filter chips missing");
   assert.ok(html.includes('name="f-fit"'), "matchup filter chips missing");
+  assert.ok(html.includes('name="f-outcome"'), "outcome filter chips missing");
+  assert.ok(html.includes('name="f-conf"'), "confidence filter chips missing");
   assert.ok(html.includes("main:has(#f-provider-claude:checked)"), "CSS-only filter rules missing");
+  assert.ok(html.includes("main:has(#f-conf-high:checked)"), "confidence filter rules missing");
+  assert.ok(/data-outcome="/.test(html) && /data-month="/.test(html) && /data-project-key="/.test(html), "row filter attributes missing");
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
+
+  // Month/project groups appear only when they can narrow anything: the
+  // current-repo fixture has one project and one month, so no chips.
+  assert.ok(!html.includes('name="f-project"'), "single-project report must not render a project filter");
+
+  // Global scope pseudonymizes into multiple projects -> chips appear.
+  const { report: globalReport } = await fixtureReport({ scope: "global" });
+  const globalHtml = renderAnalysisHtml(globalReport, { projectName: "fixture" });
+  assert.ok(globalHtml.includes('name="f-project"'), "multi-project report must render project filter chips");
+  assert.ok(globalHtml.includes("main:has(#f-project-p0:checked)"), "project filter rules missing");
 });
 
 test("local-extractive mode classifies prompts in memory and persists no text", async () => {
