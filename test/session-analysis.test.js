@@ -229,6 +229,51 @@ test("html report is self-contained, escaped, and carries the roast and privacy 
   assert.ok(!html.includes("evil.js"), "file paths must not render in the html report");
 });
 
+test("cli-assisted insights render as a readable brief with collapsed grounding", async () => {
+  const { report } = await fixtureReport();
+  report.insights = {
+    packet_preview: { bytes: 420 },
+    total_cost_usd: 0.03,
+    results: [{
+      ok: true,
+      provider: "claude",
+      cost_usd: 0.03,
+      summary: "The strongest signal is repeated search work.",
+      insights: [{
+        title: "Index the repeated search",
+        explanation: "Repeated broad search calls point to a structural-query opportunity.",
+        category: "search",
+        grounded_in: ["patterns.grep_like"],
+        confidence: "high",
+        suggested_command: "agentify query search",
+      }],
+    }, {
+      ok: true,
+      provider: "codex",
+      cost_usd: null,
+      summary: "The same search signal is visible, but this provider reported no cost.",
+      insights: [{
+        title: "Use the structural index",
+        explanation: "Repeated broad search calls support trying the local query command.",
+        category: "search",
+        grounded_in: ["patterns.grep_like"],
+        confidence: "high",
+        suggested_command: "agentify query search",
+      }],
+    }],
+    agreement: null,
+  };
+  report.privacy.ai_spend_usd = 0.03;
+  const html = renderAnalysisHtml(report, { projectName: "fixture" });
+  assert.ok(html.includes('class="card insight-report"'));
+  assert.ok(html.includes('class="insight-summary"'));
+  assert.ok(html.includes('class="insight-list"'));
+  assert.match(html, /<details class="insight-grounding">\s*<summary>Show evidence used/);
+  assert.equal((html.match(/cost \$0\.03/g) || []).length, 1, "aggregate cost must not repeat in every provider card");
+  assert.match(html, /codex analysis[\s\S]*?cost not reported/);
+  assert.ok(!html.includes('<details class="insight-grounding" open>'), "grounding must be collapsed by default");
+});
+
 function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, models = [], userTurns = 0, outputTokens = null, cacheRead = null, freshInput = null, activeMs = 5 * 60 * 1000, shell = {}, outcome = { status: "completed", evidence: [] } } = {}) {
   return {
     session_id: "synthetic",
@@ -345,18 +390,17 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   // confidence filter can always reveal its matches.
   assert.ok(!/<details><summary>\d+ more opportunit/.test(html), "extras must not be trapped in a details section");
   assert.ok(html.includes("main:has(#f-conf-high:checked) article.opp--extra { display: block; }"), "confidence filters must force-reveal extras");
-  assert.ok(/data-outcome="/.test(html) && /data-month="/.test(html) && /data-project-key="/.test(html), "row filter attributes missing");
+  assert.ok(/data-outcome="/.test(html) && /data-month="/.test(html), "row filter attributes missing");
+  assert.ok(!html.includes("data-project-key="), "project filter row attributes must not render");
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
 
-  // Month/project groups appear only when they can narrow anything: the
-  // current-repo fixture has one project and one month, so no chips.
-  assert.ok(!html.includes('name="f-project"'), "single-project report must not render a project filter");
-
-  // Global scope pseudonymizes into multiple projects -> chips appear.
+  // Project is a detail column, never a filter, even in global reports with
+  // many pseudonymized projects.
+  assert.ok(!html.includes('name="f-project"'), "project filter must not render");
   const { report: globalReport } = await fixtureReport({ scope: "global" });
   const globalHtml = renderAnalysisHtml(globalReport, { projectName: "fixture" });
-  assert.ok(globalHtml.includes('name="f-project"'), "multi-project report must render project filter chips");
-  assert.ok(globalHtml.includes("main:has(#f-project-p0:checked)"), "project filter rules missing");
+  assert.ok(!globalHtml.includes('name="f-project"'), "global report must not render project filter chips");
+  assert.ok(!globalHtml.includes("#f-project-"), "global report must not render project filter CSS");
 });
 
 test("local-extractive mode classifies prompts in memory and persists no text", async () => {
@@ -841,6 +885,15 @@ test("cost estimates use exact model + effective date and never claim billed spe
   // 1*1 + 2*0.1 + 0.1*1.25 + 0.5*5 = 3.825
   assert.equal(haiku.estimated_usd, 3.825);
   assert.equal(haiku.basis, "versioned-price-estimate");
+  assert.deepEqual(
+    haiku.line_items.map(({ token_type, tokens, rate_usd_per_million }) => ({ token_type, tokens, rate_usd_per_million })),
+    [
+      { token_type: "fresh_input", tokens: 1_000_000, rate_usd_per_million: 1 },
+      { token_type: "cache_read", tokens: 2_000_000, rate_usd_per_million: 0.1 },
+      { token_type: "cache_write", tokens: 100_000, rate_usd_per_million: 1.25 },
+      { token_type: "output", tokens: 500_000, rate_usd_per_million: 5 },
+    ],
+  );
 
   // Unknown model, multi-model, pre-effective-date, and undated sessions stay unpriced.
   assert.equal(estimateSessionCost({ models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
@@ -872,25 +925,34 @@ test("cost estimates use exact model + effective date and never claim billed spe
   assert.equal(summary.estimated_usd, 3.83);
   assert.equal(summary.coverage.sessions_priced, 1);
   assert.equal(summary.coverage.priced_output_token_share, 0.5);
+  assert.equal(summary.breakdown.find((item) => item.token_type === "fresh_input").estimated_usd, 1);
+  assert.equal(summary.breakdown.find((item) => item.token_type === "output").estimated_usd, 2.5);
   assert.ok(summary.coverage.unpriced_reasons["no list price for mystery-9"]);
   assert.match(summary.note, /NOT billed spend/);
 });
 
 test("report carries per-session estimates and labeled totals in all formats", async () => {
   const { report } = await fixtureReport();
-  // Fixture models: claude-fable-5 (no list price) and gpt-5.2-codex (priced).
+  // Fixture models: claude-fable-5 and gpt-5.2-codex are both exactly priced.
   assert.equal(report.totals.cost.basis, "versioned-price-estimate");
-  assert.equal(report.totals.cost.coverage.sessions_priced, 1);
-  assert.ok(report.totals.cost.coverage.unpriced_reasons["no list price for claude-fable-5"]);
+  assert.equal(report.totals.cost.coverage.sessions_priced, 4);
+  assert.deepEqual(report.totals.cost.coverage.unpriced_reasons, {});
   const codexRow = report.sessions.find((row) => row.provider === "codex");
   assert.ok(codexRow.cost_estimate_usd > 0);
-  assert.equal(report.sessions.find((row) => row.provider === "claude").cost_estimate_usd, null);
+  assert.ok(report.sessions.find((row) => row.provider === "claude").cost_estimate_usd > 0);
 
   const text = renderAnalysisText(report);
-  assert.match(text, /est\. \$[\d.]+ list price, 1\/4 session\(s\) priced — not billed spend/);
+  assert.match(text, /est\. \$[\d.]+ list price, 4\/4 session\(s\) priced — not billed spend/);
   const html = renderAnalysisHtml(report, { projectName: "fixture" });
   assert.ok(html.includes("not billed spend"));
   assert.ok(html.includes("Est. $ (list)"));
+  assert.ok(html.includes('data-testid="analyze-cost-breakdown"'));
+  assert.ok(html.includes("Tokens used × public list rate"));
+  assert.match(html, /<details class="card cost-breakdown">\s*<summary>Show expected cost calculation/);
+  assert.ok(!html.includes('<details class="card cost-breakdown" open>'), "cost table must be collapsed by default");
+  assert.ok(html.includes("Rate since"));
+  assert.ok(html.includes("Rate / 1M"));
+  assert.ok(html.includes("Expected total"));
 });
 
 test("parseSourceRoots validates provider=path entries and resolves paths", () => {

@@ -20,6 +20,16 @@ function formatTokens(value) {
   return formatNumber(count);
 }
 
+function formatUsd(value) {
+  if (value === null || value === undefined) return "—";
+  const amount = Number(value) || 0;
+  const fractionDigits = amount > 0 && amount < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount);
+}
+
 function formatDuration(milliseconds) {
   if (milliseconds === null || milliseconds === undefined) return "—";
   const minutes = (Number(milliseconds) || 0) / 60000;
@@ -110,6 +120,47 @@ function metricCard(label, value, note, tone = "neutral") {
   </article>`;
 }
 
+const COST_TOKEN_TYPE_LABELS = {
+  fresh_input: "fresh input",
+  cache_read: "cache read",
+  cache_write: "cache write",
+  cache_write_5m: "cache write (5m)",
+  cache_write_1h: "cache write (1h)",
+  output: "output",
+};
+
+function costBreakdownSection(cost) {
+  if (!Array.isArray(cost.breakdown) || cost.breakdown.length === 0) return "";
+  const rows = cost.breakdown.map((item) => `<tr>
+    <th scope="row"><code>${escapeHtml(item.model)}</code></th>
+    <td>${escapeHtml(item.pricing_effective)}</td>
+    <td>${escapeHtml(COST_TOKEN_TYPE_LABELS[item.token_type] || item.token_type)}</td>
+    <td class="number">${escapeHtml(formatNumber(item.tokens))}</td>
+    <td class="number">$${escapeHtml(formatUsd(item.rate_usd_per_million))}</td>
+    <td class="number">$${escapeHtml(formatUsd(item.estimated_usd))}</td>
+  </tr>`).join("");
+  const assumptions = Object.entries(cost.coverage.assumptions || {})
+    .map(([assumption, sessions]) => `${assumption} (${sessions} session${sessions === 1 ? "" : "s"})`)
+    .join("; ");
+  return `
+    <section aria-label="Expected token cost" data-testid="analyze-cost-breakdown">
+      <p class="eyebrow">Expected cost</p>
+      <h2>Tokens used × public list rate</h2>
+      <p class="lede">Each subtotal is calculated as tokens used × the model's USD rate per 1 million tokens. Rates are selected by exact model and session date from <code>${escapeHtml(cost.pricing_table)}</code>.</p>
+      <details class="card cost-breakdown">
+        <summary>Show expected cost calculation (${escapeHtml(formatNumber(cost.breakdown.length))} rate line items)</summary>
+        <div class="table-wrap"><table><caption>API-equivalent list-price estimate by model and token type</caption>
+          <thead><tr><th scope="col">Model</th><th scope="col">Rate since</th><th scope="col">Token type</th><th scope="col">Tokens used</th><th scope="col">Rate / 1M</th><th scope="col">Expected</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><th scope="row" colspan="5">Expected total</th><td class="number">$${escapeHtml(formatUsd(cost.estimated_usd))}</td></tr></tfoot>
+        </table></div>
+        <p class="cost-note">${escapeHtml(cost.note)}</p>
+        ${assumptions ? `<p class="cost-note"><strong>Assumptions:</strong> ${escapeHtml(assumptions)}</p>` : ""}
+        <p class="cost-note"><strong>Coverage:</strong> ${escapeHtml(formatNumber(cost.coverage.sessions_priced))}/${escapeHtml(formatNumber(cost.coverage.sessions_total))} sessions priced.</p>
+      </details>
+    </section>`;
+}
+
 function opportunityCard(item, index) {
   const observed = Object.entries(item.observed)
     .filter(([, value]) => typeof value !== "object")
@@ -130,11 +181,11 @@ function opportunityCard(item, index) {
   </article>`;
 }
 
-function sessionRowsHtml(rows, projectKeys) {
+function sessionRowsHtml(rows) {
   if (rows.length === 0) {
     return '<tr><td colspan="14" class="empty">No sessions in this window.</td></tr>';
   }
-  return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}" data-outcome="${escapeHtml(row.outcome)}" data-month="${escapeHtml(String(row.date || "").slice(0, 7) || "unknown")}" data-project-key="${escapeHtml(projectKeys.get(row.project) || "other")}">
+  return rows.map((row) => `<tr class="session-row" data-provider="${escapeHtml(row.provider)}" data-work-type="${escapeHtml(row.work_type)}" data-fit="${escapeHtml(row.fit)}" data-outcome="${escapeHtml(row.outcome)}" data-month="${escapeHtml(String(row.date || "").slice(0, 7) || "unknown")}">
     <th scope="row"><code>${escapeHtml(row.session_id)}</code></th>
     <td>${escapeHtml(row.provider)}</td>
     <td>${escapeHtml(row.project)}</td>
@@ -169,11 +220,12 @@ const WORK_TYPE_VALUES = ["conversation", "research", "quick-fix", "implementati
 const FIT_VALUES = ["overkill", "match", "underkill", "unknown"];
 const OUTCOME_VALUES = ["completed", "likely-incomplete", "unknown"];
 const CONFIDENCE_VALUES = ["high", "medium", "low"];
-const MAX_PROJECT_FILTERS = 12;
 
 // Rows carry data-* attributes; each checked radio hides every row that
 // does not match its dimension, and independent dimensions compose as AND.
-function filterCss({ months, projectCount }) {
+// (No project filter: real stores have dozens of projects and a chip row
+// that long is noise — the Project column itself stays visible.)
+function filterCss({ months }) {
   const rules = [];
   for (const provider of ["claude", "codex"]) {
     rules.push(`main:has(#f-provider-${provider}:checked) tr.session-row:not([data-provider="${provider}"]) { display: none; }`);
@@ -189,9 +241,6 @@ function filterCss({ months, projectCount }) {
   }
   for (const month of months) {
     rules.push(`main:has(#f-month-${month.replace(/[^0-9-]/g, "")}:checked) tr.session-row:not([data-month="${month}"]) { display: none; }`);
-  }
-  for (let index = 0; index < projectCount; index += 1) {
-    rules.push(`main:has(#f-project-p${index}:checked) tr.session-row:not([data-project-key="p${index}"]) { display: none; }`);
   }
   // The extras toggle and confidence filters cooperate: extras are hidden
   // by default, shown when the toggle is checked, and force-shown while
@@ -258,7 +307,7 @@ export function renderAnalysisHtml(report, options = {}) {
     metricCard("output tokens", formatTokens(totals.usage.output_tokens), "Across all models in window", "good"),
     metricCard("tool calls", formatNumber(totals.tool_calls), `${formatNumber(totals.failed_tool_calls)} failed`, "neutral"),
     totals.cost.estimated_usd !== null
-      ? metricCard("cost estimate", `$${formatNumber(totals.cost.estimated_usd)}`, `List price · ${formatNumber(totals.cost.coverage.sessions_priced)}/${formatNumber(totals.cost.coverage.sessions_total)} sessions priced · not billed spend`, "guard")
+      ? metricCard("expected token cost", `$${formatUsd(totals.cost.estimated_usd)}`, `API list rates · ${formatNumber(totals.cost.coverage.sessions_priced)}/${formatNumber(totals.cost.coverage.sessions_total)} sessions priced · not billed spend`, "guard")
       : metricCard("cost basis", totals.cost.basis, "Local stores carry no billed cost", "guard"),
   ].join("");
 
@@ -309,13 +358,9 @@ export function renderAnalysisHtml(report, options = {}) {
       </article>
     </section>` : "";
 
-  // Dynamic filter vocabularies: months and (capped) project aliases
-  // present in this report's rows.
+  // Dynamic month vocabulary present in this report's rows. Projects stay
+  // visible as a table column but intentionally have no filter controls.
   const months = [...new Set(report.sessions.map((row) => String(row.date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
-  const distinctProjects = [...new Set(report.sessions.map((row) => row.project))];
-  const projectList = distinctProjects.slice(0, MAX_PROJECT_FILTERS);
-  const projectOverflow = distinctProjects.length - projectList.length;
-  const projectKeys = new Map(projectList.map((name, index) => [name, `p${index}`]));
 
   // All opportunity cards live in ONE grid (extras hidden by a CSS
   // toggle, auto-revealed while a confidence filter is active) so a
@@ -336,7 +381,7 @@ export function renderAnalysisHtml(report, options = {}) {
     <th scope="row"><code>${escapeHtml(name)}</code></th><td class="number">${escapeHtml(formatNumber(count))}</td>
   </tr>`).join("") || '<tr><td colspan="2" class="empty">No tool calls observed.</td></tr>';
 
-  return `<!doctype html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -387,6 +432,8 @@ export function renderAnalysisHtml(report, options = {}) {
     .metric--guard .metric-value { color: var(--amber); font-size: 1.3rem; }
     .metric--signal .metric-value { color: var(--accent); }
     .metric-note { color: var(--text-dim); font-size: 0.85rem; }
+    .cost-note { color: var(--text-dim); font-size: 0.85rem; margin-top: 8px; }
+    .cost-breakdown[open] summary { margin-bottom: 14px; }
     .opps { display: grid; gap: 14px; margin-top: 18px; }
     .opp-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 10px; }
     .opp-rank { flex: none; font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--accent); border: 1px solid var(--border); border-radius: 8px; width: 34px; height: 34px; display: grid; place-items: center; }
@@ -421,7 +468,23 @@ export function renderAnalysisHtml(report, options = {}) {
     .chip--filter { cursor: pointer; user-select: none; }
     .filter-input:checked + .chip--filter { color: var(--text); border-color: var(--accent); background: var(--bg-soft); }
     .filter-input:focus-visible + .chip--filter { outline: 2px solid var(--accent); outline-offset: 2px; }
-    ${filterCss({ months, projectCount: projectList.length })}
+    ${filterCss({ months })}
+    .insight-report { margin-top: 18px; padding: 0; overflow: hidden; border-left: 3px solid var(--accent); }
+    .insight-report-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .insight-provider { color: var(--accent); font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .insight-provenance { color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; }
+    .insight-summary { max-width: 70ch; padding: 20px; font-size: 1.08rem; line-height: 1.65; text-wrap: pretty; }
+    .insight-list { margin: 0; padding: 0; list-style: none; counter-reset: insight; }
+    .insight-item { counter-increment: insight; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 18px 20px; border-top: 1px solid var(--border); }
+    .insight-item::before { content: counter(insight, decimal-leading-zero); color: var(--accent); font-family: var(--mono); font-size: 0.72rem; font-weight: 700; }
+    .insight-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; }
+    .insight-confidence { color: var(--text-dim); font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; }
+    .insight-explanation { color: var(--text-dim); font-size: 0.92rem; text-wrap: pretty; }
+    .insight-action { margin-top: 10px; font-size: 0.88rem; }
+    .insight-grounding { margin-top: 8px; }
+    .insight-grounding summary { font-size: 0.72rem; }
+    .insight-grounding p { margin-top: 8px; }
+    .insight-agreement { color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem; margin-top: 12px; }
     .roast { border-left: 4px solid var(--amber); border-radius: 0 10px 10px 0; margin-top: 18px; }
     .roast blockquote { font-size: 1.12rem; line-height: 1.55; }
     .roast blockquote code { font-size: 0.9em; }
@@ -479,6 +542,7 @@ export function renderAnalysisHtml(report, options = {}) {
       <h2>The window in six numbers</h2>
       <div class="grid">${cards}</div>
     </section>
+${costBreakdownSection(totals.cost)}
 ${scorecardSection}
     <section aria-label="Where Agentify helps">
       <p class="eyebrow">Where Agentify helps</p>
@@ -494,16 +558,32 @@ ${scorecardSection}
       </details>
     </section>
 ${report.insights?.results ? `
-    <section aria-label="CLI-assisted insights">
+    <section id="cli-insights" aria-label="CLI-assisted insights">
       <p class="eyebrow">CLI-assisted insights</p>
-      <h2>What another model saw in the numbers</h2>
-      <p class="lede"><span class="meta meta--warn">⚠ CLI-assisted — cost $${escapeHtml(String(report.insights.total_cost_usd ?? 0))}</span> Generated from the sanitized packet (${escapeHtml(formatNumber(report.insights.packet_preview.bytes))} bytes of counts and identifiers), tool-less and persistence-free. Deterministic sections above are unaffected.</p>
-      ${report.insights.results.map((result) => result.ok ? `<article class="card" data-testid="analyze-insights-${escapeHtml(result.provider)}">
-        <h3>${escapeHtml(result.provider)}</h3>
-        <p>${escapeHtml(result.summary)}</p>
-        <ul>${result.insights.map((insight) => `<li><strong>${escapeHtml(insight.title)}</strong> [${escapeHtml(insight.confidence)}] — ${escapeHtml(insight.explanation)}${insight.suggested_command ? ` <code>${escapeHtml(insight.suggested_command)}</code>` : ""}<br><span class="roast-basis">grounded in: ${insight.grounded_in.map((ref) => `<code>${escapeHtml(ref)}</code>`).join(" ")}</span></li>`).join("")}</ul>
+      <h2>A second opinion, grounded in the same evidence</h2>
+      <p class="lede">An opted-in CLI model reviewed a sanitized packet of counts and identifiers. It had no tools, stored no packet, and did not change the deterministic findings above.</p>
+      ${report.insights.results.map((result) => result.ok ? `<article class="card insight-report" data-testid="analyze-insights-${escapeHtml(result.provider)}">
+        <header class="insight-report-head">
+          <p class="insight-provider">${escapeHtml(result.provider)} analysis</p>
+          <p class="insight-provenance">${escapeHtml(formatNumber(report.insights.packet_preview.bytes))} byte packet · ${result.cost_usd === null || result.cost_usd === undefined ? "cost not reported" : `cost $${escapeHtml(formatUsd(result.cost_usd))}`}</p>
+        </header>
+        <p class="insight-summary">${escapeHtml(result.summary)}</p>
+        <ol class="insight-list">${result.insights.map((insight) => `<li class="insight-item">
+          <div>
+            <div class="insight-title-row">
+              <h3>${escapeHtml(insight.title)}</h3>
+              <span class="insight-confidence">${escapeHtml(insight.category)} · ${escapeHtml(insight.confidence)} confidence</span>
+            </div>
+            <p class="insight-explanation">${escapeHtml(insight.explanation)}</p>
+            ${insight.suggested_command ? `<p class="insight-action">Try <code>${escapeHtml(insight.suggested_command)}</code></p>` : ""}
+            <details class="insight-grounding">
+              <summary>Show evidence used (${escapeHtml(formatNumber(insight.grounded_in.length))})</summary>
+              <p>${insight.grounded_in.map((ref) => `<code>${escapeHtml(ref)}</code>`).join(" ")}</p>
+            </details>
+          </div>
+        </li>`).join("")}</ol>
       </article>` : `<article class="card"><h3>${escapeHtml(result.provider)}</h3><p class="empty">Failed closed: ${escapeHtml(result.error)}</p></article>`).join("")}
-      ${report.insights.agreement ? `<p class="roast-basis">agreement between providers: ${escapeHtml(report.insights.agreement.agreed_categories.join(", ") || "none")} — consensus is agreement, not proof</p>` : ""}
+      ${report.insights.agreement ? `<p class="insight-agreement">Provider agreement: ${escapeHtml(report.insights.agreement.agreed_categories.join(", ") || "none")} · consensus is agreement, not proof.</p>` : ""}
     </section>` : ""}
     <section aria-label="The roast">
       <p class="eyebrow">The roast</p>
@@ -540,10 +620,8 @@ ${report.insights?.results ? `
           ${filterGroup("f-fit", "matchup", FIT_VALUES)}
           ${filterGroup("f-outcome", "outcome", OUTCOME_VALUES)}
           ${months.length > 1 ? filterGroup("f-month", "month", months) : ""}
-          ${projectList.length > 1 ? filterGroup("f-project", "project", projectList.map((name, index) => ({ id: `p${index}`, label: name }))) : ""}
         </div>
-        ${projectOverflow > 0 ? `<p class="lede">${escapeHtml(`${projectOverflow} more project(s) have no filter chip (cap ${MAX_PROJECT_FILTERS}); their rows always show under "all".`)}</p>` : ""}
-        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script; sorting is omitted to keep the report script-free</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Outcome</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions, projectKeys)}</tbody></table></div>
+        <div class="table-wrap"><table><caption>Sessions in window, newest first — filters above narrow this table without any script; sorting is omitted to keep the report script-free</caption><thead><tr><th scope="col">Session</th><th scope="col">Provider</th><th scope="col">Project</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Matchup</th><th scope="col">Outcome</th><th scope="col">Score</th><th scope="col">Active</th><th scope="col">Models</th><th scope="col">Turns</th><th scope="col">Tools</th><th scope="col">Files</th><th scope="col">Est. $ (list)</th></tr></thead><tbody>${sessionRowsHtml(report.sessions)}</tbody></table></div>
       </details>
     </section>
 ${report.config_audit ? configAuditSection(report.config_audit) : ""}
@@ -565,5 +643,5 @@ ${report.config_audit ? configAuditSection(report.config_audit) : ""}
   </main>
   <footer>Generated locally by Agentify analyze · self-contained, no external assets · session content never leaves this machine</footer>
 </body>
-</html>\n`;
+</html>\n`.replace(/[ \t]+$/gm, "");
 }

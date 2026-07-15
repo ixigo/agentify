@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Analyze coding-agent usage locally</title>
+  <meta name="description" content="Install Agentify and turn local Claude Code and Codex session metadata into a private, evidence-based HTML report for one repo or your global history.">
+  <link rel="stylesheet" href="command-style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <nav aria-label="Primary navigation">
+    <div class="container">
+      <a class="brand" href="../index.html">Agentify</a>
+      <div class="nav-links">
+        <a href="../index.html">home</a>
+        <span class="pill" aria-current="page">analyze</span>
+        <a href="config.html">config</a>
+        <a href="usage.html">usage</a>
+        <a href="../skill-catalog.html">catalog</a>
+      </div>
+    </div>
+  </nav>
+
+  <header data-testid="analyze-page">
+    <div class="container hero-grid">
+      <div>
+        <span class="eyebrow">Analyze first</span>
+        <h1>Turn agent history into <span class="accent">local evidence.</span></h1>
+        <p class="lede">See how Claude Code and Codex are being used, where time and tokens go, and which Agentify changes are worth making. The report is a private HTML file generated on your machine.</p>
+        <div class="cta-row">
+          <a class="cta cta-primary" href="#run">Generate a report</a>
+          <a class="cta cta-secondary" href="#privacy">Review privacy</a>
+        </div>
+        <div class="hero-meta">
+          <span>metadata-only by default</span>
+          <span>current repo or global</span>
+          <span>no model required</span>
+        </div>
+      </div>
+
+      <aside class="terminal" aria-label="Install and analyze command">
+        <div class="terminal-top"><span>local report</span><span>one install</span></div>
+        <pre tabindex="0"><code><span class="c"># install Agentify</span>
+curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
+
+<span class="c"># analyze this repo and write local HTML</span>
+cd /path/to/your/repo
+<span class="a">agentify analyze</span> \
+  --scope current-repo \
+  --days 30 \
+  --format html \
+  --output agentify-session-analysis.html \
+  --yes
+
+<span class="a">✓</span> Agentify session analysis written:
+  agentify-session-analysis.html</code></pre>
+      </aside>
+    </div>
+  </header>
+
+  <main id="main-content" tabindex="-1">
+    <section class="shell" id="run">
+      <div class="container">
+        <span class="section-label">01 · run</span>
+        <h2>Preview, consent, then generate.</h2>
+        <p class="section-lede">Start with the repo in front of you. Expand to global history only when you want a cross-project view.</p>
+
+        <div class="move-grid">
+          <article class="move">
+            <span class="tag">preview · reads names and sizes</span>
+            <h3>See the exact sources first</h3>
+            <p><code>--dry-run</code> lists providers, roots, file counts, bytes, scope, and the privacy contract without parsing session bodies.</p>
+            <span class="cmd">agentify analyze --scope current-repo --days 30 --dry-run</span>
+          </article>
+          <article class="move">
+            <span class="tag">recommended · this repository</span>
+            <h3>Create a focused HTML report</h3>
+            <p>Matches sessions to the current repository and writes one self-contained file beside your code.</p>
+            <span class="cmd">agentify analyze --scope current-repo --days 30 --format html --yes</span>
+          </article>
+          <article class="move">
+            <span class="tag">optional · all repositories</span>
+            <h3>See the global pattern</h3>
+            <p>Aggregates recent Claude Code and Codex sessions across projects. Project identities remain pseudonymized unless you explicitly reveal them.</p>
+            <span class="cmd">agentify analyze --scope global --days 30 --format html --output agentify-global-analysis.html --yes</span>
+          </article>
+          <article class="move">
+            <span class="tag">narrow · one provider</span>
+            <h3>Compare one harness at a time</h3>
+            <p>Use the same report contract for Claude Code or Codex when you want a cleaner provider baseline.</p>
+            <span class="cmd">agentify analyze --provider codex --scope current-repo --format html --yes</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="inside">
+      <div class="container">
+        <span class="section-label">02 · evidence</span>
+        <h2>What the report helps you decide.</h2>
+        <p class="section-lede">The report connects observed usage to concrete next actions. It labels incomplete evidence instead of inventing certainty.</p>
+
+        <div class="campaign">
+          <div class="campaign-row">
+            <span class="key">usage</span>
+            <p>Sessions, active days, provider mix, models, token coverage, costs, cache behavior, and outcome signals—with missing provider data called out.</p>
+          </div>
+          <div class="campaign-row">
+            <span class="key">workflow</span>
+            <p>Tool patterns, repeated searches, command outcomes, edited files, handoff behavior, and where Agentify context or structural queries could remove rediscovery.</p>
+          </div>
+          <div class="campaign-row">
+            <span class="key">routing</span>
+            <p>Model-routing suggestions are graded against local eval artifacts when available. A cheaper route is not presented as proven without pass-and-cost evidence.</p>
+          </div>
+          <div class="campaign-row">
+            <span class="key">next step</span>
+            <p>Recommendations include the exact Agentify command or <code>.agentify.yaml</code> setting to try, so analysis leads directly into configuration.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="privacy">
+      <div class="container">
+        <span class="section-label">03 · privacy</span>
+        <h2>Useful by default. Deeper only by opt-in.</h2>
+        <p class="section-lede">Every wider read is explicit. Start at metadata-only, then add only the evidence you actually need.</p>
+
+        <div class="level-grid">
+          <article class="level-card">
+            <span class="tag">default</span>
+            <h3>Metadata only</h3>
+            <p>Parses record envelopes and counters. Prompt, response, and thinking bodies are not analyzed. Shell command text is classified in memory into pattern counts and irreversible fingerprints, then never retained, rendered, or uploaded.</p>
+          </article>
+          <article class="level-card">
+            <span class="tag">local opt-in</span>
+            <h3>Task categories</h3>
+            <p><code>--content local-extractive</code> classifies in-scope prompt text in memory with deterministic rules. Only match counts and a category label survive.</p>
+          </article>
+          <article class="level-card">
+            <span class="tag">structural opt-in</span>
+            <h3>Config audit</h3>
+            <p><code>--include-config</code> reads an allowlist of provider config files and reports structural names and counts—not secrets or prompt bodies.</p>
+          </article>
+          <article class="level-card danger">
+            <span class="tag">paid network opt-in</span>
+            <h3>CLI insights</h3>
+            <p><code>--insights cli</code> sends a sanitized counts-only packet through an installed provider CLI. Its cost and network calls are recorded separately.</p>
+          </article>
+        </div>
+
+        <div class="warning-panel panel stacked-grid">
+          <div>
+            <span class="tag">inspect before sending</span>
+            <p>Preview the exact sanitized packet and provider invocation. This produces JSON and starts no model.</p>
+          </div>
+          <pre tabindex="0"><code>agentify analyze --scope current-repo \
+  --insights cli \
+  --insights-provider both \
+  --insights-dry-run \
+  --yes</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell" id="opt-in">
+      <div class="container">
+        <span class="section-label">04 · opt in</span>
+        <h2>Add detail deliberately.</h2>
+        <p class="section-lede">These commands are separate so the privacy boundary remains visible at the moment you cross it.</p>
+
+        <div class="command-grid">
+          <article class="command-card">
+            <span class="tag">local task classification</span>
+            <h3>Current repo only</h3>
+            <p>Use deterministic in-memory rules to add task-category signals without storing prompt text.</p>
+            <span class="cmd">agentify analyze --scope current-repo --content local-extractive --format html --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">configuration posture</span>
+            <h3>Global structural audit</h3>
+            <p>Include allowlisted Claude Code and Codex configuration structure in a global report.</p>
+            <span class="cmd">agentify analyze --scope global --include-config --format html --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">fresh parse</span>
+            <h3>Bypass the private cache</h3>
+            <p>Re-parse every source file. The default cache contains normalized metadata only and is stored with private permissions.</p>
+            <span class="cmd">agentify analyze --scope current-repo --no-cache --format html --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">machine-readable</span>
+            <h3>Use JSON in automation</h3>
+            <p>Keep the same deterministic report contract and feed it into your own local tooling.</p>
+            <span class="cmd">agentify analyze --scope current-repo --format json --yes</span>
+          </article>
+        </div>
+
+        <div class="docs-strip">
+          <p>Once the evidence is clear, personalize Agentify without rewriting the whole config.</p>
+          <a class="doc-link" href="config.html">Configure Agentify</a>
+          <a class="doc-link" href="usage.html">Full usage guide</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>Agentify · local-first repo intelligence</span>
+      <span><a href="../index.html">home</a> · <a href="config.html">config</a> · <a href="https://github.com/ixigo/agentify">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

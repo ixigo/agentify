@@ -13,32 +13,37 @@
 [![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
 [![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
 
-> **Install once. Your coding agent uses it automatically.**
+> **Switch agents. Keep the repo's working memory.**
 
-Agentify gives AI coding agents lightweight, persistent context. You run `agentify install` once per repo; from then on **the agent drives Agentify, not you**. With Claude Code, hooks track what the agent touches automatically; with Codex, an `AGENTS.md` guidance block drives the same workflow. Every new session starts with a digest of what happened before.
+> **Install once. Your coding agent uses it automatically.** From then on, the agent drives Agentify—not you: Claude Code through lifecycle hooks, Codex through installed guidance.
+
+Agentify keeps durable working context with the repository instead of trapping it inside one agent harness. Install Claude Code and Codex support against the same `.agentify/context/` store, switch between them, and let the next agent load the recorded decisions, session summaries, failures, hot files, and recent activity instead of rediscovering the project. MCP exposes the same capabilities to other compatible agents.
+
+Agentify does not replay a provider's hidden conversation state or copy private chain-of-thought. It carries forward explicit, compact project evidence that should survive the switch.
 
 Think of it like [`rtk`](https://github.com/rtk-ai/rtk): a tool you install into a project that wires itself into your agent's configuration and then stays out of your way.
 
 ## How it works
 
 ```
-agentify install
-  |-- CLAUDE.md             <- managed guidance block: how the agent should use agentify
+agentify install --provider all
+  |-- CLAUDE.md             <- Claude Code guidance
+  |-- AGENTS.md             <- Codex guidance: load, note, decide, hand off
   |-- .claude/settings.json <- Claude Code hooks:
   |     SessionStart -> agentify ctx load     (inject context digest)
   |     PreToolUse   -> agentify ctx precheck (warn before repeating a failed command)
   |     PostToolUse  -> agentify ctx track    (record edits + commands + failures)
   |     ExitPlanMode -> plan-to-html.mjs      (save approved plans to plans/*.html)
   |     SessionEnd   -> agentify ctx track    (close out the session)
-  `-- .agentify/            <- lightweight JSONL context store + optional repo index
+  `-- .agentify/            <- shared JSONL context store + optional repo index
 ```
 
 Every session after that:
 
-1. **Session starts** -> the hook injects a digest: recent notes, hot files, last activity.
-2. **Agent works** -> file edits and shell commands are tracked automatically (compact JSONL, auto-compacted, capped at ~512 KB). Command failures are remembered: if the agent is about to rerun a command that failed in an earlier session and was never fixed, a warning is injected before it runs — no more rediscovering the same dead end every session.
+1. **Session starts** -> Claude Code's hook injects the digest automatically; Codex follows the installed `AGENTS.md` guidance and runs `agentify ctx load` against the same store.
+2. **Agent works** -> Claude Code hooks track file edits and shell commands automatically (compact JSONL, auto-compacted, capped at ~512 KB). Command failures are remembered and checked before a retry. Codex has no lifecycle hooks: its installed guidance tells the agent to load context and explicitly record durable notes, decisions, and handoffs as it works.
 3. **Agent learns something worth keeping** -> it runs `agentify ctx note "..."`. Notes are verified when injected: if a note references a file that no longer exists, it's flagged as possibly stale so the agent re-verifies instead of trusting outdated memory.
-4. **Session ends** -> a fast model compresses the session into a ~3-line handoff, stored for future sessions (`agentify ctx handoff` for explicit ones).
+4. **Session ends** -> Agentify creates a short extractive handoff from tracked evidence with zero model cost (`agentify ctx handoff` for explicit ones; an LLM refinement is a budgeted opt-in).
 
 No daemon, no database server, no per-command wrapping. Context tracking is plain JSONL under `.agentify/context/`.
 
@@ -68,12 +73,11 @@ Pin a branch, tag, or commit with the installer: `AGENTIFY_REF=v0.3.0 bash insta
 
 ```bash
 cd /path/to/your/repo
-agentify install          # wire up this repo (CLAUDE.md + Claude Code hooks)
+agentify install --provider all   # Claude Code + Codex, one repo-owned store
 
-# using Codex? this writes guidance into AGENTS.md instead
+# or wire one harness only
+agentify install --provider claude
 agentify install --provider codex
-# or wire up both agents at once
-agentify install --provider all
 
 # optional: build the structural index for query/risk commands
 agentify scan
@@ -82,8 +86,7 @@ agentify scan
 Prefer a single global setup instead of per-repo files?
 
 ```bash
-agentify install --global                    # ~/.claude/CLAUDE.md + ~/.claude/settings.json
-agentify install --global --provider codex   # ~/.codex/AGENTS.md
+agentify install --global --provider all     # Claude Code + Codex global guidance
 ```
 
 Check or undo at any time:

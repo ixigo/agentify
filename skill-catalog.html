@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -962,7 +962,7 @@
 
     function skillRow(s) {
       const need = needs[s.name] || "files, creds, local tools as required";
-      const cmd = `gh skill install ixigo/agentify skills/${s.name} --agent codex`;
+      const cmd = `gh skill install ixigo/agentify skills/${s.name}`;
       const tags = s.tags.map(t => `<span class="t">${t}</span>`).join("");
       const blob = [s.name, s.short, need, cmd, s.when, s.why, s.helps, s.invoke, s.tags.join(" ")].join(" ").toLowerCase();
       return `
