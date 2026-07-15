@@ -341,6 +341,10 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(html.includes('name="f-conf"'), "confidence filter chips missing");
   assert.ok(html.includes("main:has(#f-provider-claude:checked)"), "CSS-only filter rules missing");
   assert.ok(html.includes("main:has(#f-conf-high:checked)"), "confidence filter rules missing");
+  // Extra opportunity cards live in the same grid (not a <details>), so a
+  // confidence filter can always reveal its matches.
+  assert.ok(!/<details><summary>\d+ more opportunit/.test(html), "extras must not be trapped in a details section");
+  assert.ok(html.includes("main:has(#f-conf-high:checked) article.opp--extra { display: block; }"), "confidence filters must force-reveal extras");
   assert.ok(/data-outcome="/.test(html) && /data-month="/.test(html) && /data-project-key="/.test(html), "row filter attributes missing");
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
 

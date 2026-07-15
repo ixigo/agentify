@@ -99,7 +99,7 @@ function opportunityCard(item, index) {
     .filter(([, value]) => typeof value !== "object")
     .map(([key, value]) => `<span class="chip">${escapeHtml(key.replaceAll("_", " "))}: ${escapeHtml(formatNumber(value))}</span>`)
     .join(" ");
-  return `<article class="card opp" data-confidence="${escapeHtml(item.confidence)}">
+  return `<article class="card opp${index >= 3 ? " opp--extra" : ""}" data-confidence="${escapeHtml(item.confidence)}">
     <header class="opp-head">
       <span class="opp-rank">${index + 1}</span>
       <div>
@@ -176,6 +176,15 @@ function filterCss({ months, projectCount }) {
   }
   for (let index = 0; index < projectCount; index += 1) {
     rules.push(`main:has(#f-project-p${index}:checked) tr.session-row:not([data-project-key="p${index}"]) { display: none; }`);
+  }
+  // The extras toggle and confidence filters cooperate: extras are hidden
+  // by default, shown when the toggle is checked, and force-shown while
+  // any confidence filter is active so matches can never be trapped
+  // out of sight. Hide rules come last, so they win over the reveals.
+  rules.push("article.opp--extra { display: none; }");
+  rules.push("main:has(#opps-more:checked) article.opp--extra { display: block; }");
+  for (const confidence of CONFIDENCE_VALUES) {
+    rules.push(`main:has(#f-conf-${confidence}:checked) article.opp--extra { display: block; }`);
   }
   for (const confidence of CONFIDENCE_VALUES) {
     rules.push(`main:has(#f-conf-${confidence}:checked) article.opp:not([data-confidence="${confidence}"]) { display: none; }`);
@@ -292,8 +301,11 @@ export function renderAnalysisHtml(report, options = {}) {
   const projectOverflow = distinctProjects.length - projectList.length;
   const projectKeys = new Map(projectList.map((name, index) => [name, `p${index}`]));
 
-  const primary = report.opportunities.slice(0, 3).map(opportunityCard).join("");
-  const extra = report.opportunities.slice(3);
+  // All opportunity cards live in ONE grid (extras hidden by a CSS
+  // toggle, auto-revealed while a confidence filter is active) so a
+  // filter can never leave its matches trapped inside a closed section.
+  const allOpportunityCards = report.opportunities.map(opportunityCard).join("");
+  const extraCount = Math.max(0, report.opportunities.length - 3);
   const suppressedRows = report.suppressed_rules.map((rule) => `<tr>
     <th scope="row"><code>${escapeHtml(rule.id)}</code></th><td>${escapeHtml(rule.category)}</td><td>${escapeHtml(rule.reason)}</td>
   </tr>`).join("");
@@ -459,8 +471,8 @@ ${scorecardSection}
       <div class="filter-bar" role="group" aria-label="Opportunity filters (CSS-only, no script)">
         ${filterGroup("f-conf", "confidence", CONFIDENCE_VALUES)}
       </div>
-      <div class="opps">${primary || '<article class="card"><p class="empty">No evidence-backed opportunities fired in this window — thresholds and suppression reasons are listed below.</p></article>'}</div>
-      ${extra.length > 0 ? `<details><summary>${extra.length} more opportunit${extra.length === 1 ? "y" : "ies"}</summary><div class="opps">${extra.map(opportunityCard).join("")}</div></details>` : ""}
+      <div class="opps">${allOpportunityCards || '<article class="card"><p class="empty">No evidence-backed opportunities fired in this window — thresholds and suppression reasons are listed below.</p></article>'}</div>
+      ${extraCount > 0 ? `<input type="checkbox" class="filter-input" id="opps-more"><label class="chip chip--filter" for="opps-more">show ${extraCount} more opportunit${extraCount === 1 ? "y" : "ies"} (auto-shown while a confidence filter is active)</label>` : ""}
       <details><summary>Rules that did not fire, and why</summary>
         <div class="table-wrap"><table><caption>Suppressed recommendations</caption><thead><tr><th scope="col">Rule</th><th scope="col">Category</th><th scope="col">Reason</th></tr></thead><tbody>${suppressedRows || '<tr><td colspan="3" class="empty">Every rule fired.</td></tr>'}</tbody></table></div>
       </details>
