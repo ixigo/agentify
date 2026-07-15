@@ -120,6 +120,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       missing: source.missing,
       files_discovered: source.files.length,
       files_parsed: 0,
+      files_from_cache: 0,
       files_out_of_scope: 0,
       files_out_of_window: 0,
       bytes_parsed: 0,
@@ -129,7 +130,11 @@ export async function buildSessionAnalysis(root, options = {}) {
     sourceStats.set(source.provider, stats);
     for (const file of source.files) {
       let session = await cache.get(file, root);
-      if (!session) {
+      if (session) {
+        // Coverage must stay auditable: a warm entry means the JSONL bytes
+        // were NOT re-read this run, so it counts separately from parses.
+        stats.files_from_cache += 1;
+      } else {
         try {
           session = source.provider === "claude"
             ? await parseClaudeSession(file, { root })
@@ -139,9 +144,9 @@ export async function buildSessionAnalysis(root, options = {}) {
           continue;
         }
         await cache.put(file, root, session);
+        stats.files_parsed += 1;
+        stats.bytes_parsed += file.size || 0;
       }
-      stats.files_parsed += 1;
-      stats.bytes_parsed += file.size || 0;
       stats.malformed_lines += session.coverage.malformed_lines;
       if (resolved.scope === "current-repo") {
         const matches = source.provider === "claude"
@@ -160,6 +165,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       sessions.push(session);
     }
   }
+  await cache.sweep(sources.flatMap((source) => source.files), resolved.providers);
 
   // Global scope pseudonymizes projects by first-seen order; the mapping
   // never leaves this function, so real paths stay out of the report.
@@ -349,7 +355,7 @@ export async function buildSessionAnalysis(root, options = {}) {
         "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
         "Shell commands were classified in memory into pattern counts; only counts and irreversible fingerprints appear in output.",
         resolved.cache && resolved.cacheRoot
-          ? `Normalized, content-free session facts are cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; --no-cache disables this.`
+          ? `Normalized session metadata (workspace path, branch, models, counters — never transcript, prompt, or command content) is cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; entries are swept when their source file disappears, and --no-cache disables the cache.`
           : "Incremental caching was disabled for this run; every file was re-parsed.",
         resolved.scope === "global"
           ? "Project names and paths are pseudonymized in global scope."

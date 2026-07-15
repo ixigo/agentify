@@ -354,6 +354,11 @@ test("incremental cache: second scan hits, edits invalidate, --no-cache bypasses
   // Cached and fresh scans must produce identical analysis.
   assert.deepEqual(second.totals, first.totals);
   assert.deepEqual(second.scorecard, first.scorecard);
+  // Coverage stays auditable: warm files are counted as from-cache, not parsed.
+  const warmClaude = second.sources.find((source) => source.provider === "claude");
+  assert.equal(warmClaude.files_parsed, 0);
+  assert.equal(warmClaude.bytes_parsed, 0);
+  assert.ok(warmClaude.files_from_cache >= 4);
 
   // Touching one file invalidates exactly that entry.
   const target = path.join(claudeRoot, "-fixture-project", "s2.jsonl");
@@ -381,6 +386,23 @@ test("incremental cache: second scan hits, edits invalidate, --no-cache bypasses
   // Without a cache root (default in unit tests), caching is off.
   const noRoot = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30 });
   assert.equal(noRoot.coverage.cache.enabled, false);
+
+  // A structurally corrupt entry is discarded and re-parsed, not trusted.
+  const cacheEntries = await fs.readdir(cacheRoot);
+  const victim = path.join(cacheRoot, cacheEntries[0]);
+  const corrupt = JSON.parse(await fs.readFile(victim, "utf8"));
+  corrupt.session = {};
+  await fs.writeFile(victim, JSON.stringify(corrupt));
+  const healed = await buildSessionAnalysis(repoRoot, options);
+  assert.equal(healed.coverage.cache.invalidated, 1);
+  assert.deepEqual(healed.totals, third.totals);
+
+  // Deleting a source file sweeps its cache entry on the next scan.
+  await fs.unlink(path.join(claudeRoot, "-fixture-project", "s3.jsonl"));
+  const swept = await buildSessionAnalysis(repoRoot, options);
+  assert.equal(swept.coverage.cache.pruned, 1);
+  const remaining = await fs.readdir(cacheRoot);
+  assert.equal(remaining.length, cacheEntries.length - 1);
 });
 
 test("sessions outside the day window are excluded", async () => {
