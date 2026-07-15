@@ -334,6 +334,55 @@ test("the report carries the scorecard in json, text, and filterable html", asyn
   assert.ok(!html.includes("<script"), "filters must not require a script tag");
 });
 
+test("incremental cache: second scan hits, edits invalidate, --no-cache bypasses", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-cache-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  const cacheRoot = path.join(repoRoot, "cache", "session-analysis");
+  await writeClaudeFixtures(claudeRoot, repoRoot);
+  await writeCodexFixtures(codexRoot, repoRoot);
+  const options = { claudeRoot, codexRoot, cacheRoot, days: 30 };
+
+  const first = await buildSessionAnalysis(repoRoot, options);
+  assert.equal(first.coverage.cache.enabled, true);
+  assert.equal(first.coverage.cache.hits, 0);
+  assert.ok(first.coverage.cache.misses >= 6, "first scan should miss for every parsed file");
+
+  const second = await buildSessionAnalysis(repoRoot, options);
+  assert.equal(second.coverage.cache.misses, 0);
+  assert.equal(second.coverage.cache.hits, first.coverage.cache.misses);
+  // Cached and fresh scans must produce identical analysis.
+  assert.deepEqual(second.totals, first.totals);
+  assert.deepEqual(second.scorecard, first.scorecard);
+
+  // Touching one file invalidates exactly that entry.
+  const target = path.join(claudeRoot, "-fixture-project", "s2.jsonl");
+  const content = await fs.readFile(target, "utf8");
+  await fs.writeFile(target, `${content}${claudeAssistant({ ts: minutesAgo(1), requestId: "req_s2b", usage: USAGE, cwd: repoRoot })}\n`);
+  const third = await buildSessionAnalysis(repoRoot, options);
+  assert.equal(third.coverage.cache.misses, 1);
+  assert.equal(third.coverage.cache.hits, first.coverage.cache.misses - 1);
+
+  // Cache entries hold only normalized facts, never transcript content.
+  const cacheFiles = await fs.readdir(cacheRoot);
+  assert.ok(cacheFiles.length >= 6);
+  for (const name of cacheFiles) {
+    const raw = await fs.readFile(path.join(cacheRoot, name), "utf8");
+    assert.ok(!raw.includes("supersecret123"), "secret leaked into cache");
+    assert.ok(!raw.includes("SUPER SECRET"), "prompt leaked into cache");
+    assert.ok(!raw.includes("internal.example.com"), "command leaked into cache");
+  }
+
+  const bypass = await buildSessionAnalysis(repoRoot, { ...options, cache: false });
+  assert.equal(bypass.coverage.cache.enabled, false);
+  assert.equal(bypass.coverage.cache.hits, 0);
+  assert.deepEqual(bypass.totals, third.totals);
+
+  // Without a cache root (default in unit tests), caching is off.
+  const noRoot = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30 });
+  assert.equal(noRoot.coverage.cache.enabled, false);
+});
+
 test("sessions outside the day window are excluded", async () => {
   const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
   const projectDir = path.join(claudeRoot, "-fixture-project");

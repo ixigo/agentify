@@ -19,6 +19,7 @@ import {
 } from "./providers/codex.js";
 import { buildOpportunities, buildRoast } from "./opportunities.js";
 import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./scorecard.js";
+import { createAnalysisCache } from "./cache.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -44,6 +45,8 @@ function resolveOptions(root, options) {
     providers: options.providers || [...ANALYZE_PROVIDERS],
     claudeRoot: options.claudeRoot || null,
     codexRoot: options.codexRoot || null,
+    cacheRoot: options.cacheRoot || null,
+    cache: options.cache !== false,
   };
 }
 
@@ -108,6 +111,7 @@ export async function buildSessionAnalysis(root, options = {}) {
   const sources = await discover(resolved);
   const sessions = [];
   const sourceStats = new Map();
+  const cache = createAnalysisCache({ cacheRoot: resolved.cacheRoot, enabled: resolved.cache });
 
   for (const source of sources) {
     const stats = {
@@ -124,14 +128,17 @@ export async function buildSessionAnalysis(root, options = {}) {
     };
     sourceStats.set(source.provider, stats);
     for (const file of source.files) {
-      let session;
-      try {
-        session = source.provider === "claude"
-          ? await parseClaudeSession(file, { root })
-          : await parseCodexSession(file, { root });
-      } catch {
-        stats.files_out_of_scope += 1;
-        continue;
+      let session = await cache.get(file, root);
+      if (!session) {
+        try {
+          session = source.provider === "claude"
+            ? await parseClaudeSession(file, { root })
+            : await parseCodexSession(file, { root });
+        } catch {
+          stats.files_out_of_scope += 1;
+          continue;
+        }
+        await cache.put(file, root, session);
       }
       stats.files_parsed += 1;
       stats.bytes_parsed += file.size || 0;
@@ -322,6 +329,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       sessions_analyzed: sessions.length,
       sessions_with_usage: usageSessions,
       malformed_lines: malformedTotal,
+      cache: cache.stats(),
       sources: sourceList.map((entry) => ({
         provider: entry.provider,
         files_discovered: entry.files_discovered,
@@ -340,6 +348,9 @@ export async function buildSessionAnalysis(root, options = {}) {
       notes: [
         "JSONL bytes were read to parse record envelopes; prompt, response, thinking, and command bodies were not analyzed, retained, or uploaded.",
         "Shell commands were classified in memory into pattern counts; only counts and irreversible fingerprints appear in output.",
+        resolved.cache && resolved.cacheRoot
+          ? `Normalized, content-free session facts are cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; --no-cache disables this.`
+          : "Incremental caching was disabled for this run; every file was re-parsed.",
         resolved.scope === "global"
           ? "Project names and paths are pseudonymized in global scope."
           : "Only sessions whose working directory matches this repository were included.",

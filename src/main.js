@@ -924,6 +924,10 @@ export async function runCli(argv, _runtime = {}) {
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,
+          cache: args.noCache !== true,
+          cacheRoot: config._agentifyPaths?.cacheRoot
+            ? path.join(config._agentifyPaths.cacheRoot, "session-analysis")
+            : null,
         };
 
         // --dry-run discloses roots, file counts, and bytes without parsing

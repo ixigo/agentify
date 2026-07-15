@@ -199,6 +199,7 @@ const COMMANDS = [
       flag("--output", { valueKind: "path", description: "HTML output path" }),
       flag("--yes", { description: "Consent to reading local session history (required non-interactively)" }),
       flag("--dry-run", { description: "Preview roots, file counts, and bytes without parsing" }),
+      flag("--no-cache", { description: "Re-parse every file instead of using the private incremental cache" }),
     ],
   }),
   command("test", "Select and run tests affected by a change", {

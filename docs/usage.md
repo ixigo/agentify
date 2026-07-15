@@ -350,7 +350,10 @@ agentify analyze                            # current repo, last 30 days, text b
 agentify analyze --days 7 --format html     # writes agentify-session-analysis.html
 agentify analyze --scope global --yes       # across projects, names pseudonymized
 agentify analyze --provider codex --json    # full auditable schema
+agentify analyze --no-cache                 # re-parse everything, skip the cache
 ```
+
+Repeated scans are incremental: normalized, content-free session facts are cached privately (mode 0600) under the Agentify store, keyed by file size, mtime, and parser version, so unchanged session files are not re-parsed. Cache hits and misses are reported under `coverage.cache` in JSON output; `--no-cache` re-parses everything.
 
 The report also carries a **usage scorecard**: each session is classified by tool mix into a work type (`conversation`, `research`, `quick-fix`, `implementation`, `debugging`, or an honest `mixed`), matched against the weight class of the model that ran it, and scored 0–100 from token generation per turn, failure hygiene, cache efficiency, and search discipline. Sessions where a heavyweight model did featherweight work are flagged `overkill` — the report calls the matchup ("a gun at a fist fight") and lists them as delegation candidates for `agentify delegate quick|research`. The verdicts are labeled heuristics for orientation and entertainment: an overkill flag is a candidate, never proof a cheaper model would have succeeded. In the HTML report the per-session table is filterable by provider, work type, and matchup using CSS-only controls, so the page still contains no script tag at all.
 
