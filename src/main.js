@@ -929,6 +929,8 @@ export async function runCli(argv, _runtime = {}) {
           scope,
           contentMode,
           includeConfig: args.includeConfig === true,
+          showProjectNames: args.showProjectNames === true,
+          showPaths: args.showPaths === true,
           providers: resolveAnalyzeProviders(args.provider),
           claudeRoot: args.claudeRoot ? path.resolve(root, String(args.claudeRoot)) : null,
           codexRoot: args.codexRoot ? path.resolve(root, String(args.codexRoot)) : null,

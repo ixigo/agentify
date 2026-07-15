@@ -531,6 +531,53 @@ test("outcome detection: commits and test results produce conservative evidence"
   assert.ok(bySession, "session map built");
 });
 
+test("sidechain transcripts are linked to parents and excluded from totals", async () => {
+  const repoRoot = await makeRoot("agentify-analyze-sidechain-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const projectDir = path.join(claudeRoot, "-fixture-project");
+  await fs.mkdir(projectDir, { recursive: true });
+
+  const primary = [
+    JSON.stringify({ type: "assistant", timestamp: minutesAgo(30), requestId: "req_p", cwd: repoRoot, sessionId: "sess-parent", message: { id: "m1", model: "claude-fable-5", usage: USAGE, content: [] } }),
+  ];
+  await fs.writeFile(path.join(projectDir, "primary.jsonl"), `${primary.join("\n")}\n`);
+  // A subagent transcript: every record is sidechain, same provider session id.
+  const sidechain = [
+    JSON.stringify({ type: "assistant", timestamp: minutesAgo(29), requestId: "req_s1", cwd: repoRoot, sessionId: "sess-parent", isSidechain: true, message: { id: "m2", model: "claude-fable-5", usage: USAGE, content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: path.join(repoRoot, "a.js") } }] } }),
+    JSON.stringify({ type: "user", timestamp: minutesAgo(28), cwd: repoRoot, sessionId: "sess-parent", isSidechain: true, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", is_error: false, content: "x" }] } }),
+  ];
+  await fs.writeFile(path.join(projectDir, "sidechain.jsonl"), `${sidechain.join("\n")}\n`);
+
+  const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot: path.join(repoRoot, "none"), days: 30 });
+  assert.equal(report.totals.sessions, 1, "the transcript must not count as a session");
+  assert.equal(report.totals.usage.output_tokens, 150, "transcript usage must not be summed into totals");
+  assert.equal(report.sidechains.transcripts.length, 1);
+  const transcript = report.sidechains.transcripts[0];
+  assert.equal(transcript.parent_session_id, report.sessions[0].session_id, "transcript links to its parent by provider session id");
+  const claudeSource = report.sources.find((source) => source.provider === "claude");
+  assert.equal(claudeSource.files_sidechain, 1);
+});
+
+test("global display opt-ins swap labels only and are badged", async () => {
+  const { repoRoot, claudeRoot, codexRoot } = await fixtureReport();
+  const pseudo = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, scope: "global" });
+  assert.ok(pseudo.sessions.every((row) => /^Project \d+$/.test(row.project)));
+  assert.equal(pseudo.display.project_names_shown, false);
+
+  const named = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, scope: "global", showProjectNames: true });
+  assert.ok(named.sessions.some((row) => row.project === path.basename(repoRoot)), "real basenames shown");
+  assert.ok(named.privacy.notes.some((note) => note.includes("--show-project-names")));
+
+  const pathed = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, scope: "global", showPaths: true });
+  assert.ok(pathed.sessions.some((row) => row.project.includes(path.basename(repoRoot))));
+  const html = renderAnalysisHtml(pathed, { projectName: "fixture" });
+  assert.ok(html.includes("real paths shown"), "display badge missing");
+
+  // Current-repo scope ignores the opt-ins entirely.
+  const local = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, showPaths: true });
+  assert.equal(local.display.paths_shown, false);
+});
+
 test("codex custom_tool_call records count as tools and drive outcomes", async () => {
   const repoRoot = await makeRoot("agentify-analyze-codex-custom-");
   const codexRoot = path.join(repoRoot, "history", "codex");

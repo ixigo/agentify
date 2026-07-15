@@ -5,7 +5,7 @@ import path from "node:path";
 export const SESSION_ANALYSIS_SCHEMA_VERSION = "session-analysis-v1";
 export const RECOMMENDATION_SCHEMA_VERSION = "recommendation-v1";
 export const USAGE_SCORECARD_SCHEMA_VERSION = "usage-scorecard-v1";
-export const ANALYSIS_PARSER_VERSION = "analyze-parser-v6";
+export const ANALYSIS_PARSER_VERSION = "analyze-parser-v7";
 
 // null means "the provider never reported this dimension"; zero means an
 // observed zero. Adding a value to null promotes it to a number.
@@ -109,6 +109,8 @@ export function createSessionSkeleton(provider, filePath) {
     tools: { calls: 0, by_name: {} },
     file_access: [],
     sidechain_events: 0,
+    provider_session_id: null,
+    is_sidechain_transcript: false,
     // Filled by the opt-in local-extractive classifier; carries only rule
     // match counts and a label, never prompt text.
     task: { content_mode: "metadata-only", category_hint: null, hint_confidence: 0 },

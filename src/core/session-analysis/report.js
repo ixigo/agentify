@@ -194,7 +194,15 @@ function configAuditSection(audit) {
 
 export function renderAnalysisHtml(report, options = {}) {
   const project = options.projectName || "this repository";
-  const scopeLabel = report.scope === "global" ? "all projects (pseudonymized)" : project;
+  const display = report.display || {};
+  const scopeLabel = report.scope === "global"
+    ? (display.paths_shown || display.project_names_shown ? "all projects" : "all projects (pseudonymized)")
+    : project;
+  const displayBadge = display.paths_shown
+    ? '<span class="meta meta--warn">⚠ real paths shown (--show-paths)</span>'
+    : display.project_names_shown
+      ? '<span class="meta meta--warn">⚠ real project names shown (--show-project-names)</span>'
+      : "";
   const generated = new Date(report.generated_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
   const totals = report.totals;
   const cards = [
@@ -308,6 +316,7 @@ export function renderAnalysisHtml(report, options = {}) {
     .hero .tagline strong { color: var(--text); }
     .meta-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
     .meta { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); background: var(--bg-soft); border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; white-space: nowrap; }
+    .meta--warn { color: var(--amber); border-color: var(--amber); }
     section { margin-top: 56px; }
     h2 { font-size: 1.35rem; margin-bottom: 6px; letter-spacing: -0.01em; }
     h3 { font-size: 1.02rem; letter-spacing: -0.01em; }
@@ -404,6 +413,7 @@ export function renderAnalysisHtml(report, options = {}) {
       <span class="meta">last ${escapeHtml(report.window_days)} day(s)</span>
       <span class="meta">${escapeHtml(report.providers.join(" + "))}</span>
       <span class="meta">generated ${escapeHtml(generated)} UTC</span>
+      ${displayBadge}
     </div>
   </header>
   <main id="content" data-testid="agentify-analyze-report">

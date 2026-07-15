@@ -94,6 +94,10 @@ function resolveOptions(root, options) {
     // Precomputed by the CLI (read-only probes); null keeps the core pure.
     toolInventory: options.toolInventory || null,
     routeEvidence: options.routeEvidence || null,
+    // Display-only opt-ins for global scope; they change labels, never
+    // what is scanned.
+    showProjectNames: options.showProjectNames === true,
+    showPaths: options.showPaths === true,
     onProgress: typeof options.onProgress === "function" ? options.onProgress : null,
   };
 }
@@ -178,6 +182,7 @@ export async function buildSessionAnalysis(root, options = {}) {
   const resolved = resolveOptions(root, options);
   const sources = await discover(resolved);
   const sessions = [];
+  const sidechainTranscripts = [];
   const sourceStats = new Map();
   const cache = createAnalysisCache({ cacheRoot: resolved.cacheRoot, enabled: resolved.cache });
 
@@ -191,6 +196,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       files_from_cache: 0,
       files_out_of_scope: 0,
       files_out_of_window: 0,
+      files_sidechain: 0,
       bytes_parsed: 0,
       malformed_lines: 0,
       sessions: 0,
@@ -280,6 +286,13 @@ export async function buildSessionAnalysis(root, options = {}) {
         stats.files_out_of_window += 1;
         return;
       }
+      // Subagent transcripts belong under their primary session; counting
+      // them as sessions would double count the parent's work.
+      if (session.is_sidechain_transcript) {
+        stats.files_sidechain += 1;
+        sidechainTranscripts.push(session);
+        return;
+      }
       stats.sessions += 1;
       sessions.push(session);
     };
@@ -298,9 +311,13 @@ export async function buildSessionAnalysis(root, options = {}) {
 
   // Global scope pseudonymizes projects by first-seen order; the mapping
   // never leaves this function, so real paths stay out of the report.
+  // --show-project-names / --show-paths are explicit display-only opt-ins
+  // (badged in every output) that swap the label, never what is scanned.
   const projectLabels = new Map();
   const projectLabel = (session) => {
     if (resolved.scope === "current-repo") return path.basename(root);
+    if (resolved.showPaths && session.cwd) return homeRelative(session.cwd);
+    if (resolved.showProjectNames && session.cwd) return path.basename(session.cwd);
     const key = session.project_key || "unknown";
     if (!projectLabels.has(key)) projectLabels.set(key, `Project ${projectLabels.size + 1}`);
     return projectLabels.get(key);
@@ -444,6 +461,20 @@ export async function buildSessionAnalysis(root, options = {}) {
     .sort((a, b) => b.sessions - a.sessions)
     .slice(0, 20);
 
+  // Sidechain transcripts attach to their primary session by provider
+  // session id where one matches; either way they are listed, not summed.
+  const primaryByProviderId = new Map(
+    sessions.filter((session) => session.provider_session_id).map((session) => [session.provider_session_id, session.session_id]),
+  );
+  const sidechains = sidechainTranscripts.map((transcript) => ({
+    session_id: transcript.session_id,
+    parent_session_id: transcript.provider_session_id
+      ? primaryByProviderId.get(transcript.provider_session_id) || null
+      : null,
+    tool_calls: transcript.tools.calls,
+    output_tokens: transcript.usage.output_tokens,
+  }));
+
   const sourceList = [...sourceStats.values()];
   return {
     schema_version: SESSION_ANALYSIS_SCHEMA_VERSION,
@@ -458,6 +489,14 @@ export async function buildSessionAnalysis(root, options = {}) {
     models: [...modelRollup.values()].sort((a, b) => b.sessions - a.sessions),
     tools: Object.fromEntries([...toolRollup.entries()].sort((a, b) => b[1] - a[1])),
     sessions: sessionRows,
+    sidechains: {
+      transcripts: sidechains,
+      note: "Subagent transcripts are listed here and excluded from session totals so parent work is never double counted.",
+    },
+    display: {
+      project_names_shown: resolved.scope === "global" && resolved.showProjectNames,
+      paths_shown: resolved.scope === "global" && resolved.showPaths,
+    },
     file_activity: {
       observed_repo_files: fileActivity,
       note: "Observed = structured tool inputs only. Opaque shell calls are counted, never mined for paths.",
@@ -507,7 +546,11 @@ export async function buildSessionAnalysis(root, options = {}) {
           ? `Normalized session metadata (workspace path, branch, models, counters — never transcript, prompt, or command content) is cached privately (mode 0600) under ${homeRelative(resolved.cacheRoot)} so unchanged files are not re-parsed; entries are swept when their source file disappears, and --no-cache disables the cache.`
           : "Incremental caching was disabled for this run; every file was re-parsed.",
         resolved.scope === "global"
-          ? "Project names and paths are pseudonymized in global scope."
+          ? (resolved.showPaths
+            ? "DISPLAY OPT-IN ACTIVE: real project paths are shown in this report (--show-paths)."
+            : resolved.showProjectNames
+              ? "DISPLAY OPT-IN ACTIVE: real project names are shown in this report (--show-project-names)."
+              : "Project names and paths are pseudonymized in global scope.")
           : "Only sessions whose working directory matches this repository were included.",
         ...(resolved.includeConfig
           ? ["Allowlisted global configuration files were audited structurally (sizes, counts, names, allowlisted keys). Instruction text and settings/env values were not reproduced; credential, cache, backup, and database files were never opened."]

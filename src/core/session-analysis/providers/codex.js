@@ -83,6 +83,7 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
     }
 
     if (record.type === "session_meta" || payload.type === "session_meta") {
+      if (payload.id && !session.provider_session_id) session.provider_session_id = String(payload.id);
       if (payload.cwd && !session.cwd) session.cwd = String(payload.cwd);
       if (payload.cli_version && !session.cli_version) session.cli_version = String(payload.cli_version);
       if (payload.git?.branch && !session.branch) session.branch = String(payload.git.branch);

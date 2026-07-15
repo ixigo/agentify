@@ -30,6 +30,8 @@ const BOOLEAN_FLAGS = new Set([
   "noCache",
   "noProgress",
   "includeConfig",
+  "showProjectNames",
+  "showPaths",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

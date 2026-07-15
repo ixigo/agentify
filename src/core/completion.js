@@ -204,6 +204,8 @@ const COMMANDS = [
       flag("--source-root", { valueKind: "text", description: "History root override as claude=<path> or codex=<path>; repeatable, replaces that provider's default" }),
       flag("--content", { values: ["metadata-only", "local-extractive"], description: "local-extractive classifies prompt text in memory (deterministic rules, nothing persisted)" }),
       flag("--include-config", { description: "Audit allowlisted global config (instruction sizes, skill/agent names; only identifier-like allowlisted values pass, all else withheld)" }),
+      flag("--show-project-names", { description: "Global scope display opt-in: real project names instead of pseudonyms (badged in the report)" }),
+      flag("--show-paths", { description: "Global scope display opt-in: real project paths instead of pseudonyms (badged in the report)" }),
     ],
   }),
   command("test", "Select and run tests affected by a change", {

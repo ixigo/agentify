@@ -85,14 +85,17 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   const outcome = createOutcomeTracker();
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
+  let recordCount = 0;
   const { lines, malformed } = await streamJsonlRecords(file.path, (record) => {
     if (classifier) {
       // Prompt text is inspected here, in memory, and goes no further.
       const promptText = claudePromptText(record);
       if (promptText !== null) classifier.observe(promptText);
     }
+    recordCount += 1;
     if (record.timestamp) time.observe(record.timestamp);
     if (record.cwd && !session.cwd) session.cwd = String(record.cwd);
+    if (record.sessionId && !session.provider_session_id) session.provider_session_id = String(record.sessionId);
     if (record.gitBranch && !session.branch) session.branch = String(record.gitBranch);
     if (record.version && !session.cli_version) session.cli_version = String(record.version);
     if (record.isSidechain === true) session.sidechain_events += 1;
@@ -204,6 +207,11 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   outcome.finish(session, { writes: session.file_access.filter((entry) => entry.operation === "write").length });
   session.coverage.lines = lines;
   session.coverage.malformed_lines = malformed;
+  // A file that is predominantly sidechain records is a subagent
+  // transcript: it belongs UNDER a primary session (linked by the
+  // provider session id), and counting it as its own session would
+  // double count the parent's work.
+  session.is_sidechain_transcript = recordCount > 0 && session.sidechain_events >= Math.ceil(recordCount / 2);
   return session;
 }
 
