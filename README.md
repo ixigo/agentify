@@ -70,6 +70,9 @@ Pin a branch, tag, or commit with the installer: `AGENTIFY_REF=v0.3.0 bash insta
 
 </details>
 
+<details open>
+<summary><strong>For humans</strong> — wire it into a repo, then get out of the way</summary>
+
 ```bash
 cd /path/to/your/repo
 agentify install --provider all   # Claude Code + Codex, one repo-owned store
@@ -97,13 +100,63 @@ agentify uninstall            # removes only Agentify's managed block and hooks
 
 Both install and uninstall are surgical: they only touch content between `<!-- agentify:begin -->` / `<!-- agentify:end -->` markers, Agentify-managed hook entries, and Agentify's generated `.claude/hooks/plan-to-html.mjs` file. Your own CLAUDE.md content and hooks are preserved.
 
+</details>
+
+<details>
+<summary><strong>For agents</strong> — you drive Agentify, not the human</summary>
+
+After install, the human steps back — the coding agent runs Agentify itself. Claude Code does this through lifecycle hooks with no extra effort; Codex and other agents follow the installed `AGENTS.md` guidance. Call every command with `--json` for machine-readable output.
+
+```bash
+# start of session — load durable context (Claude Code's SessionStart hook does this automatically)
+agentify ctx load --json
+
+# before repeating a shell command that may have failed before
+agentify ctx precheck "<cmd>" --json
+
+# when you learn something worth keeping
+agentify ctx note "<gotcha or open thread>"
+agentify ctx decision "chose X over Y because Z"
+
+# before finishing a change: blast radius + only the affected tests
+agentify risk --since origin/main --json
+agentify test --since origin/main --run --json
+
+# shell work out to the best-suited model instead of doing it all inline
+agentify delegate quick "<small edit>" --write
+agentify delegate review --diff origin/main
+
+# end of a long task
+agentify ctx handoff --json
+```
+
+Every other agent — Cursor, Zed, Windsurf, Gemini CLI, Claude Desktop — reaches the same capabilities over [MCP](https://modelcontextprotocol.io): run `agentify serve` from the repo root.
+
+</details>
+
 ## Commands
+
+All commands accept `--json` for machine-readable output — which is how agents are expected to call them. Grouped below; expand a section for its commands.
+
+<details>
+<summary><strong>Core</strong> — install, status, housekeeping (6)</summary>
 
 | Command | What it does |
 | --- | --- |
 | `agentify install [--global] [--provider claude\|codex\|all]` | Wire Agentify into the repo (or your home config) |
 | `agentify uninstall [--global]` | Remove the managed block and hooks |
 | `agentify status` | Integration + context-tracking status |
+| `agentify doctor` | Toolchain and provider CLI readiness |
+| `agentify clean` | Prune stale generated artifacts |
+| `agentify completion zsh\|bash\|fish` | Shell completion |
+
+</details>
+
+<details>
+<summary><strong>Context</strong> — the working-memory store (9)</summary>
+
+| Command | What it does |
+| --- | --- |
 | `agentify ctx load` | Digest of recent activity, notes, hot files |
 | `agentify ctx note "<text>"` | Record a note for future sessions |
 | `agentify ctx decision "<text>"` | Record a durable technical decision; `agentify ctx decisions "<topic>"` answers "why did we choose X" later |
@@ -112,30 +165,60 @@ Both install and uninstall are surgical: they only touch content between `<!-- a
 | `agentify ctx handoff ["task"]` | Write a handoff summary |
 | `agentify ctx summarize` | ~3-line model-written session summary (automatic on session end) |
 | `agentify ctx share [--off]` | Make notes committable team memory — with decisions, that's a lightweight team ADR log |
-| `agentify ctx status` | Event/note counts, log size, paused state |
-| `agentify ctx pause\|resume\|clear` | Start from scratch: stop the digest + tracking, or archive and reset (`AGENTIFY_CTX=off` for one session) |
+| `agentify ctx pause\|resume\|clear` | Start from scratch: stop the digest + tracking, or archive and reset (`AGENTIFY_CTX=off` for one session); `agentify ctx status` shows event/note counts, log size, paused state |
+
+</details>
+
+<details>
+<summary><strong>Model routing</strong> — delegate, stats, value, analyze (6)</summary>
+
+| Command | What it does |
+| --- | --- |
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
 | `agentify models` | Model routing table + provider availability |
+| `agentify route explain "<task>"` | Dry-run the routing decision for a task |
 | `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
 | `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, and focused tests |
-| `agentify analyze [--days N] [--scope current-repo\|global] [--format text\|json\|html] [--no-open]` | Privacy-first analysis of your local Claude Code/Codex session history: usage, tool patterns, evidence-backed Agentify opportunities, a 0–100 usage scorecard that grades model-vs-task matchups ("a gun at a fist fight" gets called out as a delegation candidate), and exactly one roast. Defaults to a local Agentify-themed HTML report and opens it in your browser; use `--no-open` for CI/headless runs. Metadata only, consent-gated (`--yes`), zero AI spend; `--dry-run` previews what would be read |
+| `agentify analyze [--days N] [--scope current-repo\|global] [--format text\|json\|html] [--no-open]` | Privacy-first analysis of your local Claude Code/Codex session history: usage, tool patterns, evidence-backed Agentify opportunities, a 0–100 usage scorecard that grades model-vs-task matchups ("a gun at a fist fight" gets called out as a delegation candidate), and exactly one roast. Metadata only, consent-gated (`--yes`), zero AI spend; `--dry-run` previews what would be read |
+
+</details>
+
+<details>
+<summary><strong>Evaluation</strong> — paired benchmarks + Harbor (2)</summary>
+
+| Command | What it does |
+| --- | --- |
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor (Terminal-Bench 2.0) adapter: token-free dataset validation, spend ceilings, and importing container-run results into the native report (`docs/harbor.md`) |
+
+</details>
+
+<details>
+<summary><strong>Structural index</strong> — scan, query, risk, test (6)</summary>
+
+| Command | What it does |
+| --- | --- |
 | `agentify scan` | Build the SQLite structural index |
-| `agentify query <owner|deps|changed|search|def|refs|callers|impacts>` | Structural queries over the index |
+| `agentify query <owner\|deps\|changed\|search\|def\|refs\|callers\|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
 | `agentify test [--since <ref>] [--run]` | Select (and run) only the tests affected by a change, via the structural index |
 | `agentify up` | scan -> check |
 | `agentify check` | Validate index freshness and generated artifacts |
-| `agentify serve` | MCP server over stdio — Agentify tools for any MCP-capable agent |
-| `agentify skill list|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
-| `agentify review [--diff <ref>] [--push]` | Cross-vendor review of a change (`--push` reviews outgoing commits) |
-| `agentify hooks install|remove|status` | Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review) |
-| `agentify doctor` | Toolchain and provider CLI readiness |
-| `agentify clean` | Prune stale generated artifacts |
-| `agentify completion zsh|bash|fish` | Shell completion |
 
-All commands accept `--json` for machine-readable output — which is how agents are expected to call them.
+</details>
+
+<details>
+<summary><strong>Workflows &amp; serve</strong> — MCP, skills, review, hooks (5)</summary>
+
+| Command | What it does |
+| --- | --- |
+| `agentify workflow list\|install` | Board-to-draft-PR workflow bundle for your platform |
+| `agentify serve` | MCP server over stdio — Agentify tools for any MCP-capable agent |
+| `agentify skill list\|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
+| `agentify review [--diff <ref>] [--push]` | Cross-vendor review of a change (`--push` reviews outgoing commits) |
+| `agentify hooks install\|remove\|status` | Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review) |
+
+</details>
 
 ## Beyond Claude Code and Codex: MCP
 
