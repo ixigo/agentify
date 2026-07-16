@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Analyze coding-agent usage locally</title>
-  <meta name="description" content="Install Agentify and turn local Claude Code and Codex session metadata into a private, evidence-based HTML report for one repo or your global history.">
+  <meta name="description" content="Run Agentify Analyze to turn local Claude Code and Codex session metadata into a private HTML report, open it automatically, or export text and JSON for automation.">
   <link rel="stylesheet" href="command-style.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
 
-  <header class="topbar">
+  <header class="topbar" aria-label="Site header">
     <div class="topbar-inner">
-      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
+      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.4</span></a>
       <nav class="topnav" aria-label="Primary navigation">
         <a href="../index.html">Home</a>
         <a href="analyze.html" aria-current="page">Analyze</a>
@@ -24,17 +24,18 @@
     </div>
   </header>
 
-  <header data-testid="analyze-page">
+  <header data-testid="analyze-page" aria-labelledby="analyze-title">
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">Analyze first</span>
-        <h1>Turn agent history into <span class="accent">local evidence.</span></h1>
-        <p class="lede">See how Claude Code and Codex are being used, where time and tokens go, and which Agentify changes are worth making. The report is a private HTML file generated on your machine.</p>
+        <h1 id="analyze-title">Turn agent history into <span class="accent">local evidence.</span></h1>
+        <p class="lede">See how Claude Code and Codex are being used, where time and tokens go, and which Agentify changes are worth making. The default command creates a private HTML report on your machine and opens it in your browser.</p>
         <div class="cta-row">
           <a class="cta cta-primary" href="#run">Generate a report</a>
           <a class="cta cta-secondary" href="#privacy">Review privacy</a>
         </div>
         <div class="hero-meta">
+          <span>HTML + browser by default</span>
           <span>metadata-only by default</span>
           <span>current repo or global</span>
           <span>no model required</span>
@@ -88,6 +89,18 @@ cd /path/to/your/repo
             <h3>Compare one harness at a time</h3>
             <p>Use the same report contract for Claude Code or Codex when you want a cleaner provider baseline.</p>
             <span class="cmd">agentify analyze --provider codex --scope current-repo --yes</span>
+          </article>
+          <article class="move">
+            <span class="tag">headless · CI</span>
+            <h3>Write without opening</h3>
+            <p>Keep the default HTML output but suppress the browser launch for agents, CI, SSH sessions, or your own scripts.</p>
+            <span class="cmd">agentify analyze --no-open --yes</span>
+          </article>
+          <article class="move">
+            <span class="tag">terminal · compact</span>
+            <h3>Print a text brief</h3>
+            <p>Use an explicit output format when you want the evidence in the terminal instead of a generated page.</p>
+            <span class="cmd">agentify analyze --format text --yes</span>
           </article>
         </div>
       </div>
@@ -157,6 +170,8 @@ cd /path/to/your/repo
           <pre tabindex="0"><code>agentify analyze --scope current-repo \
   --insights cli \
   --insights-provider both \
+  --max-insights-budget-usd 0.25 \
+  --insights-timeout 120 \
   --insights-dry-run \
   --yes</code></pre>
         </div>
@@ -203,11 +218,75 @@ cd /path/to/your/repo
         </div>
       </div>
     </section>
+
+    <section class="shell" id="reference">
+      <div class="container">
+        <span class="section-label">05 · current CLI</span>
+        <h2>Use the controls that match the job.</h2>
+        <p class="section-lede">These recipes reflect the current <code>agentify analyze</code> implementation. HTML is the default; text and JSON are explicit, and every deeper read remains opt-in.</p>
+
+        <div class="command-grid">
+          <article class="command-card">
+            <span class="tag">custom output · no browser</span>
+            <h3>Choose the report path</h3>
+            <p>Write the same self-contained HTML report somewhere else without opening a browser.</p>
+            <span class="cmd">agentify analyze --output ./reports/agentify.html --no-open --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">custom history stores</span>
+            <h3>Analyze fixtures or moved data</h3>
+            <p><code>--source-root</code> is repeatable and replaces the default root for that provider.</p>
+            <span class="cmd">agentify analyze --source-root claude=./fixtures/claude --source-root codex=./fixtures/codex --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">global display opt-in</span>
+            <h3>Reveal project identity</h3>
+            <p>Global reports use pseudonyms unless you explicitly display real project names or paths.</p>
+            <span class="cmd">agentify analyze --scope global --show-project-names --show-paths --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">paid CLI insight run</span>
+            <h3>Pin provider, model, and limits</h3>
+            <p>Send only the sanitized packet through the selected local CLI with an explicit budget and timeout.</p>
+            <span class="cmd">agentify analyze --insights cli --insights-provider claude --insights-model haiku --max-insights-budget-usd 0.25 --insights-timeout 120 --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">private debugging artifact</span>
+            <h3>Keep the sanitized packet</h3>
+            <p>Retain the exact counts-only insight packet under <code>.agentify/</code> when you need to audit the model input.</p>
+            <span class="cmd">agentify analyze --insights cli --keep-insights-packet --yes</span>
+          </article>
+          <article class="command-card">
+            <span class="tag">quiet fresh run</span>
+            <h3>Bypass cache and progress</h3>
+            <p>Force a complete re-parse while suppressing both the TTY progress line and browser launch.</p>
+            <span class="cmd">agentify analyze --no-cache --no-progress --no-open --yes</span>
+          </article>
+        </div>
+
+        <div class="panel stacked-grid">
+          <span class="tag">all analyze flags · v0.4</span>
+          <h3>Command shape</h3>
+          <pre tabindex="0"><code>agentify analyze \
+  [--provider claude|codex|all] \
+  [--scope current-repo|global] [--days N] \
+  [--format html|text|json] [--output PATH] [--no-open] \
+  [--yes] [--dry-run] [--no-cache] [--no-progress] \
+  [--source-root claude=PATH] [--source-root codex=PATH] \
+  [--content metadata-only|local-extractive] [--include-config] \
+  [--show-project-names] [--show-paths] \
+  [--insights deterministic|cli] \
+  [--insights-provider claude|codex|both] [--insights-model MODEL] \
+  [--max-insights-budget-usd USD] [--insights-timeout SECONDS] \
+  [--insights-dry-run] [--keep-insights-packet]</code></pre>
+        </div>
+      </div>
+    </section>
   </main>
 
   <section class="poster">
     <div class="container">
-      <div class="poster-kicker">agentify analyze --scope current-repo --yes</div>
+      <div class="poster-kicker">agentify analyze</div>
       <h2>Turn agent history into a decision.</h2>
       <a class="poster-cta" href="config.html">Configure Agentify <span class="mono">↗</span></a>
     </div>
