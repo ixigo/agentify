@@ -247,13 +247,23 @@ job of the separate epic child #318 — this suite is the measurement harness,
 and its verdict engine reports "not yet load-bearing" honestly when no cell
 qualifies rather than overclaiming.
 
-Read the frontier back with the grid report:
+Read the frontier back with the grid report. Mind the working directory: the
+`agentify` commands resolve the eval root (and `evals/harbor/dataset.json`)
+from the cwd, so they run from the **repo root**, while `harbor run` needs the
+`evals/harbor/` cwd (and `PYTHONPATH` — see "Running" for the pipx caveat):
 
 ```
-agentify eval harbor plan --suite downshift        # prints the 3-rung ladder + $56.70 ceiling
-harbor run -c suites/downshift.yaml                 # after confirming the ceiling
-agentify eval harbor import jobs/<job-dir>          # one run per (task, model)
-agentify eval grid --format md                      # model × difficulty frontier
+# from the repo root:
+agentify eval harbor plan --suite downshift            # prints the 3-rung ladder + $56.70 ceiling
+
+# from evals/harbor/, after confirming the ceiling:
+cd evals/harbor
+PYTHONPATH="$PWD" harbor run -c suites/downshift.yaml
+
+# back at the repo root:
+cd ../..
+agentify eval harbor import evals/harbor/jobs/<job-dir>  # one run per (task, model)
+agentify eval grid --format md                           # model × difficulty frontier
 ```
 
 `agentify eval grid` buckets the imported runs into `(model × difficulty)`
