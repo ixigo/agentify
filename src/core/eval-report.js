@@ -151,6 +151,7 @@ function armMetrics(records) {
   const providerDurations = [];
   const totalDurations = [];
   const turns = [];
+  const turnsToFirstEdit = [];
   const turnScopes = new Set();
   const changedCounts = [];
   const tokens = { fresh_input: 0, cache_read: 0, cache_write: 0, output: 0 };
@@ -173,6 +174,9 @@ function armMetrics(records) {
     if (typeof record.provider?.num_turns === "number") {
       turns.push(record.provider.num_turns);
       turnScopes.add(record.provider?.multisession === true ? "phase_b_recall" : "attempt");
+    }
+    if (typeof record.provider?.turns_to_first_edit === "number") {
+      turnsToFirstEdit.push(record.provider.turns_to_first_edit);
     }
     changedCounts.push((record.grade?.changed_paths || []).length);
     const usage = record.provider?.usage;
@@ -224,6 +228,12 @@ function armMetrics(records) {
       max: turns.length > 0 ? Math.max(...turns) : null,
       scope: turnScopes.size === 0 ? null : turnScopes.size === 1 ? [...turnScopes][0] : "mixed",
     },
+    turns_to_first_edit: {
+      mean: round(mean(turnsToFirstEdit), 2),
+      max: turnsToFirstEdit.length > 0 ? Math.max(...turnsToFirstEdit) : null,
+      reported_attempts: turnsToFirstEdit.length,
+      unreported_attempts: attempts - turnsToFirstEdit.length,
+    },
     changed_files: { mean: round(mean(changedCounts), 2), max: changedCounts.length > 0 ? Math.max(...changedCounts) : null },
     failure_breakdown: failureBreakdown,
     stop_reasons: stopReasons,
@@ -259,6 +269,10 @@ function recallTurns(record) {
   return finiteNumber(record.provider?.num_turns);
 }
 
+function recallTurnsToFirstEdit(record) {
+  return finiteNumber(record.provider?.turns_to_first_edit);
+}
+
 // A single-phase baseline made no phase-A investment, so zero is observed,
 // not imputed. A two-phase arm with missing seed cost stays unreported.
 function seedCost(record) {
@@ -278,6 +292,9 @@ function pairedTelemetry(pairs, agentifyValue, baselineValue) {
   const agentifyTotal = measured.reduce((sum, item) => sum + item.agentify, 0);
   const baselineTotal = measured.reduce((sum, item) => sum + item.baseline, 0);
   const avoided = baselineTotal - agentifyTotal;
+  const improvedPairs = measured.filter((item) => item.agentify < item.baseline).length;
+  const regressedPairs = measured.filter((item) => item.agentify > item.baseline).length;
+  const tiedPairs = measured.length - improvedPairs - regressedPairs;
   return {
     paired_attempts: pairs.length,
     measured_pairs: measured.length,
@@ -285,6 +302,10 @@ function pairedTelemetry(pairs, agentifyValue, baselineValue) {
     baseline_total: measured.length > 0 ? round(baselineTotal) : null,
     avoided: measured.length > 0 ? round(avoided) : null,
     avoided_per_attempt: measured.length > 0 ? round(avoided / measured.length) : null,
+    improved_pairs: improvedPairs,
+    regressed_pairs: regressedPairs,
+    tied_pairs: tiedPairs,
+    sign_test_p: signTestPValue(improvedPairs, regressedPairs),
   };
 }
 
@@ -358,6 +379,7 @@ function evalEconomics(byArm, task) {
       const baselineMetrics = armMetrics(pairs.map((pair) => pair.right));
       const tokens = pairedTelemetry(memoryPairs, recallTokens, recallTokens);
       const turns = pairedTelemetry(memoryPairs, recallTurns, recallTurns);
+      const turnsToFirstEdit = pairedTelemetry(memoryPairs, recallTurnsToFirstEdit, recallTurnsToFirstEdit);
       const recall = pairedTelemetry(memoryPairs, recallCost, recallCost);
       const seed = pairedTelemetry(memoryPairs, seedCost, seedCost);
       const incrementalSeed = seed.measured_pairs > 0
@@ -374,6 +396,7 @@ function evalEconomics(byArm, task) {
         phase_b: {
           tokens,
           turns,
+          turns_to_first_edit: turnsToFirstEdit,
           cost_usd: recall,
         },
         memory_investment: {
@@ -559,6 +582,7 @@ function attemptDrilldown(record) {
     failure_kind: classifyFailure(record),
     stop_reason: record.provider?.subtype ?? null,
     num_turns: record.provider?.num_turns ?? null,
+    turns_to_first_edit: record.provider?.turns_to_first_edit ?? null,
     provider_duration_ms: record.provider?.duration_ms ?? null,
     duration_ms: record.duration_ms ?? null,
     cost_usd: record.provider?.cost_usd ?? null,
@@ -579,6 +603,7 @@ function attemptDrilldown(record) {
     })),
     ...(record.error ? { error: redactSensitiveText(record.error) } : {}),
     artifacts: record.artifacts ?? null,
+    ...(record.swebench ? { swebench: record.swebench } : {}),
     agentify_version: record.agentify_version ?? null,
     claude_version: record.claude_version ?? null,
   };
@@ -637,6 +662,7 @@ export async function buildEvalReport(root, config, runIdInput) {
     // along so cross-harness comparisons are always labeled.
     harness: meta.harness ?? "native",
     ...(meta.harbor ? { harbor: meta.harbor } : {}),
+    ...(meta.swebench ? { swebench: meta.swebench } : {}),
     artifacts_root: path.relative(root, runDir),
     task: {
       id: task.id ?? null,
@@ -645,15 +671,24 @@ export async function buildEvalReport(root, config, runIdInput) {
       prompt_sha256: task.prompt ? createHash("sha256").update(String(task.prompt)).digest("hex") : null,
       // Fingerprint covers everything that defines task identity for a fair
       // comparison — a changed grader or setup is a different task even with
-      // the same prompt. Imported harbor runs have null prompt/grader, so
-      // their identity comes from the harness block: dataset name@version,
-      // harbor version, and task id. Native fingerprints are unchanged.
+      // the same prompt. Imported harness runs have null prompt/grader, so
+      // their identity comes from their pinned harness metadata. Native and
+      // pre-existing Harbor fingerprints remain unchanged.
       fingerprint_sha256: createHash("sha256").update(JSON.stringify({
         ...(meta.harness && meta.harness !== "native" ? {
           harness: meta.harness,
-          harbor_dataset: meta.harbor?.dataset ?? null,
-          harbor_version: meta.harbor?.harbor_version ?? null,
+        } : {}),
+        ...(meta.harbor ? {
+          harbor_dataset: meta.harbor.dataset ?? null,
+          harbor_version: meta.harbor.harbor_version ?? null,
           harbor_task: task.id ?? null,
+        } : {}),
+        ...(meta.swebench ? {
+          swebench_dataset: meta.swebench.dataset ?? null,
+          swebench_version: meta.swebench.harness_version ?? null,
+          swebench_suite: meta.swebench.suite ?? null,
+          swebench_sample_sha256: meta.swebench.sample_sha256 ?? null,
+          swebench_sample: meta.swebench.sample ?? null,
         } : {}),
         prompt: task.prompt ?? null,
         model: task.model ?? null,
@@ -683,6 +718,7 @@ export async function buildEvalReport(root, config, runIdInput) {
       agentify: meta.agentify_version ?? null,
       claude: meta.claude_version ?? null,
       ...(meta.harbor?.harbor_version ? { harbor: meta.harbor.harbor_version } : {}),
+      ...(meta.swebench?.harness_version ? { swebench: meta.swebench.harness_version } : {}),
     },
     completeness,
     arms,
@@ -968,22 +1004,27 @@ function formatAmortizedCost(receipt) {
 }
 
 export function renderEvalReportMarkdown(report) {
+  const harnessDetail = report.harbor
+    ? ` (job \`${report.harbor.job}\`, dataset ${report.harbor.dataset ? `${report.harbor.dataset.name}@${report.harbor.dataset.version}` : "n/a"})`
+    : report.swebench
+      ? ` (job \`${report.swebench.job}\`, dataset ${report.swebench.dataset ? `${report.swebench.dataset.name}@${String(report.swebench.dataset.revision || "").slice(0, 12)}` : "n/a"}, suite ${report.swebench.suite ?? "n/a"})`
+      : "";
   const lines = [
     `# Eval report — ${report.task.id} (${report.run_id})`,
     "",
     `- Model: \`${report.task.model}\` · profile \`${report.task.profile}\` · base \`${String(report.task.base_sha || "").slice(0, 12)}\``,
-    `- Harness: ${report.harness ?? "native"}${report.harbor ? ` (job \`${report.harbor.job}\`, dataset ${report.harbor.dataset ? `${report.harbor.dataset.name}@${report.harbor.dataset.version}` : "n/a"})` : ""}`,
-    `- Versions: agentify ${report.versions.agentify ?? "n/a"}, claude ${report.versions.claude ?? "n/a"}${report.versions.harbor ? `, harbor ${report.versions.harbor}` : ""}`,
+    `- Harness: ${report.harness ?? "native"}${harnessDetail}`,
+    `- Versions: agentify ${report.versions.agentify ?? "n/a"}, claude ${report.versions.claude ?? "n/a"}${report.versions.harbor ? `, harbor ${report.versions.harbor}` : ""}${report.versions.swebench ? `, swebench ${report.versions.swebench}` : ""}`,
     `- Attempts: ${report.completeness.completed_attempts}/${report.completeness.planned_attempts}${report.completeness.labels.length > 0 ? ` — **${report.completeness.labels.join(", ").toUpperCase()}**` : ""}`,
     `- Verdict: ${report.verdict.winner ? `**${report.verdict.winner}** — ${report.verdict.reason}` : report.verdict.reason}`,
     "",
     "## Arms",
     "",
-    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | mean turns (scope) | changed files | forbidden fails |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | mean turns (scope) | mean turns to first edit | changed files | forbidden fails |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const [arm, metrics] of Object.entries(report.arms)) {
-    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} (${formatTurnScope(metrics.turns.scope)}) | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
+    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} (${formatTurnScope(metrics.turns.scope)}) | ${metrics.turns_to_first_edit.mean ?? "n/a"} | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
   }
   if (Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall")) {
     lines.push("", "> Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.");
@@ -1005,6 +1046,7 @@ export function renderEvalReportMarkdown(report) {
       const rediscovery = [
         formatCount(comparison.phase_b.tokens.avoided, "tokens"),
         formatCount(comparison.phase_b.turns.avoided, "turns"),
+        `${formatCount(comparison.phase_b.turns_to_first_edit.avoided, "turns-to-first-edit")} (${comparison.phase_b.turns_to_first_edit.improved_pairs}/${comparison.phase_b.turns_to_first_edit.regressed_pairs} improved/regressed, p=${formatP(comparison.phase_b.turns_to_first_edit.sign_test_p)})`,
       ].join(" / ");
       const repeated = comparison.repeated_failure_cost_avoided;
       const repeatedReceipt = repeated.pairs > 0
@@ -1148,6 +1190,11 @@ function escapeHtml(value) {
 }
 
 export function renderEvalReportHtml(report) {
+  const harnessProvenance = report.harbor
+    ? ` · job <code>${escapeHtml(report.harbor.job)}</code>${report.harbor.dataset ? ` · dataset <code>${escapeHtml(`${report.harbor.dataset.name}@${report.harbor.dataset.version}`)}</code>` : ""}`
+    : report.swebench
+      ? ` · job <code>${escapeHtml(report.swebench.job)}</code>${report.swebench.dataset ? ` · dataset <code>${escapeHtml(`${report.swebench.dataset.name}@${String(report.swebench.dataset.revision || "").slice(0, 12)}`)}</code>` : ""} · suite <code>${escapeHtml(report.swebench.suite ?? "n/a")}</code>`
+      : "";
   const armRows = Object.entries(report.arms).map(([arm, metrics]) => `
     <tr>
       <th scope="row"><code>${escapeHtml(arm)}</code></th>
@@ -1158,6 +1205,7 @@ export function renderEvalReportHtml(report) {
       <td>${formatMs(metrics.latency.provider_p50_ms)}</td>
       <td>${formatMs(metrics.latency.provider_p95_ms)}</td>
       <td>${metrics.turns.mean ?? "n/a"} <small>${escapeHtml(formatTurnScope(metrics.turns.scope))}</small></td>
+      <td>${metrics.turns_to_first_edit.mean ?? "n/a"}</td>
       <td>${metrics.failure_breakdown.forbidden_change || 0}</td>
     </tr>`).join("");
 
@@ -1185,6 +1233,7 @@ export function renderEvalReportHtml(report) {
       <td>${comparison.multisession_pairs}</td>
       <td>${escapeHtml(formatCount(comparison.phase_b.tokens.avoided, "tokens"))}</td>
       <td>${escapeHtml(formatCount(comparison.phase_b.turns.avoided, "turns"))}</td>
+      <td>${escapeHtml(`${formatCount(comparison.phase_b.turns_to_first_edit.avoided, "turns-to-first-edit")} (${comparison.phase_b.turns_to_first_edit.improved_pairs}/${comparison.phase_b.turns_to_first_edit.regressed_pairs}, p=${formatP(comparison.phase_b.turns_to_first_edit.sign_test_p)})`)}</td>
       <td>${escapeHtml(formatBreakEven(comparison.break_even))}</td>
       <td>${escapeHtml(formatAmortizedCost(comparison.break_even))}</td>
       <td>${escapeHtml(repeatedReceipt)}</td>
@@ -1198,6 +1247,7 @@ export function renderEvalReportHtml(report) {
         <tr><th scope="row">status</th><td>${escapeHtml(attempt.status)}</td></tr>
         <tr><th scope="row">stop reason</th><td>${escapeHtml(attempt.stop_reason ?? "n/a")}</td></tr>
         <tr><th scope="row">turns</th><td>${escapeHtml(attempt.num_turns ?? "n/a")}</td></tr>
+        <tr><th scope="row">turns to first edit</th><td>${escapeHtml(attempt.turns_to_first_edit ?? "n/a")}</td></tr>
         <tr><th scope="row">changed paths</th><td>${attempt.changed_paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ") || "none"}</td></tr>
         <tr><th scope="row">forbidden</th><td>${attempt.forbidden_violations.map((v) => `<code>${escapeHtml(v.path)}</code>`).join(", ") || "none"}</td></tr>
         <tr><th scope="row">patch</th><td><code>${escapeHtml(attempt.artifacts?.patch ?? "n/a")}</code></td></tr>
@@ -1310,8 +1360,8 @@ export function renderEvalReportHtml(report) {
 <h2 id="run-title">Run identity</h2>
 <p class="lede">
   Model <code>${escapeHtml(report.task.model)}</code> · profile <code>${escapeHtml(report.task.profile)}</code> · base <code>${escapeHtml(String(report.task.base_sha || "").slice(0, 12))}</code><br>
-  Harness: <code>${escapeHtml(report.harness ?? "native")}</code>${report.harbor ? ` · job <code>${escapeHtml(report.harbor.job)}</code>${report.harbor.dataset ? ` · dataset <code>${escapeHtml(`${report.harbor.dataset.name}@${report.harbor.dataset.version}`)}</code>` : ""}` : ""}<br>
-  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")}${report.versions.harbor ? `, harbor ${escapeHtml(report.versions.harbor)}` : ""} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code>
+  Harness: <code>${escapeHtml(report.harness ?? "native")}</code>${harnessProvenance}<br>
+  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")}${report.versions.harbor ? `, harbor ${escapeHtml(report.versions.harbor)}` : ""}${report.versions.swebench ? `, swebench ${escapeHtml(report.versions.swebench)}` : ""} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code>
 </p>
 </section>
 <section aria-labelledby="arms-title">
@@ -1319,7 +1369,7 @@ export function renderEvalReportHtml(report) {
 <h2 id="arms-title">Arms</h2>
 <div class="table-wrap"><table>
   <caption>Per-arm quality, cost, latency, and turn totals</caption>
-  <thead><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">95% CI</th><th scope="col">cost/attempt</th><th scope="col">cost/pass</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">mean turns (scope)</th><th scope="col">forbidden fails</th></tr></thead>
+  <thead><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">95% CI</th><th scope="col">cost/attempt</th><th scope="col">cost/pass</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">mean turns (scope)</th><th scope="col">mean turns to first edit</th><th scope="col">forbidden fails</th></tr></thead>
   <tbody>${armRows}</tbody>
 </table></div>
 ${Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall") ? '<p class="formula">Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.</p>' : ""}
@@ -1330,7 +1380,7 @@ ${economicsRows ? `<section aria-labelledby="economics-title">
 <p class="lede">Cost belongs next to successful work. Rediscovery is the paired phase-B baseline total minus the Agentify total; missing telemetry stays unavailable rather than becoming zero.</p>
 <div class="table-wrap"><table>
   <caption>Amortized context economics from paired provider telemetry</caption>
-  <thead><tr><th scope="col">baseline</th><th scope="col">cost/pass agentify</th><th scope="col">cost/pass baseline</th><th scope="col">phase-B pairs</th><th scope="col">tokens avoided</th><th scope="col">turns avoided</th><th scope="col">break-even</th><th scope="col">amortized cost/recall at break-even</th><th scope="col">repeated failure avoided</th></tr></thead>
+  <thead><tr><th scope="col">baseline</th><th scope="col">cost/pass agentify</th><th scope="col">cost/pass baseline</th><th scope="col">phase-B pairs</th><th scope="col">tokens avoided</th><th scope="col">turns avoided</th><th scope="col">first-edit turns avoided</th><th scope="col">break-even</th><th scope="col">amortized cost/recall at break-even</th><th scope="col">repeated failure avoided</th></tr></thead>
   <tbody>${economicsRows}</tbody>
 </table></div>
 <p class="formula"><strong>Formula:</strong> ${escapeHtml(report.economics.formulas.break_even)}.</p>

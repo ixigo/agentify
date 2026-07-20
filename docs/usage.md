@@ -129,6 +129,22 @@ agentify eval harbor import evals/harbor/jobs/<job>   # trials become native run
 
 Imported runs are labeled `harness: harbor` in `eval report` (with dataset/Harbor/job provenance), cannot be resumed, and refuse `eval compare` against native runs without `--force`. Full prerequisites, cost math, the profile-matrix suite, and cleanup live in `docs/harbor.md`.
 
+For external validity, the optional SWE-bench Verified arm runs identical cold
+and Agentify-warm Claude Code sessions on a pinned, bounded sample, then defers
+patch grading to the official Docker harness. It remains outside the npm
+runtime and requires an explicit spend confirmation:
+
+```sh
+agentify eval swebench validate
+agentify eval swebench plan --suite smoke
+evals/swebench/run-swebench.sh smoke
+agentify eval swebench import evals/swebench/jobs/<job>
+```
+
+Imported receipts are labeled `harness: swebench` and report resolved %,
+cost/resolved, and turns-to-first-edit deltas. Protocol, contamination controls,
+host requirements, and claim boundaries are in `docs/swebench.md`.
+
 ## Failure memory
 
 **Why:** agents rediscover the same dead ends. A command that failed three sessions ago gets retried verbatim, fails the same way, and burns the same tokens.

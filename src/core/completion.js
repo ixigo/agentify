@@ -125,6 +125,11 @@ const COMMANDS = [
           flag("--suite", { valueKind: "text", description: "Suite for harbor plan (smoke, nightly, downshift, profiles, ...)" }),
         ],
       }),
+      subcommand("swebench", "SWE-bench Verified warm/cold adapter (validate, plan, import)", {
+        flags: [
+          flag("--suite", { valueKind: "text", description: "Suite for swebench plan (smoke, repo-stratified-6)" }),
+        ],
+      }),
     ],
   }),
   command("workflow", "Prebuilt platform workflows", {

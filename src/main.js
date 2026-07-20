@@ -60,6 +60,7 @@ import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
+import { importSwebenchJob, planSwebenchRun, validateSwebenchDataset } from "./core/swebench.js";
 import {
   COMPARE_EXIT_ERROR,
   EVAL_EXPORT_FORMATS,
@@ -881,7 +882,56 @@ export async function runCli(argv, _runtime = {}) {
           throw new Error("eval harbor requires a subcommand: validate, plan, or import (see docs/harbor.md)");
         }
 
-        throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, or harbor");
+        if (subcommand === "swebench") {
+          // The official Python/Docker harness remains external. These verbs
+          // validate pinned data, bound paid inference, and import its scored
+          // artifacts into the native report schema (#320).
+          const swebenchAction = args._[2];
+          if (swebenchAction === "validate") {
+            const result = await validateSwebenchDataset(root, config);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+            } else {
+              log(`SWE-bench ${bold(`${result.dataset.name}@${result.dataset.revision.slice(0, 12)}`)} — model ${result.model}, ${result.instances.length} pinned instance(s).`);
+              for (const problem of result.problems) log(bold(`problem: ${problem}`));
+              log("");
+              log(result.ok ? green("SWE-bench protocol is valid.") : `${result.problems.length} problem(s) found.`);
+            }
+            if (!result.ok) process.exitCode = 1;
+            return;
+          }
+          if (swebenchAction === "plan") {
+            const result = await planSwebenchRun(root, config, { suite: hasOwn(args, "suite") ? String(args.suite) : undefined });
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`SWE-bench suite ${bold(result.suite)} — ${result.instances.length} instance(s) across ${result.repos.length} repo(s), model ${result.model}.`);
+            log(`${result.scored_trials} scored session(s) capped at $${result.scored_ceiling_usd}; ${result.warmup_runs} per-repo warm-up(s) capped at $${result.warmup_ceiling_usd}.`);
+            log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)} (warm-up ceiling amortizes to $${result.warmup_ceiling_per_instance_usd}/instance).`);
+            log(dim(`Enforcement: ${result.enforcement}`));
+            log("");
+            log(`Run inference: ${dim(result.runner_command)}`);
+            log(`Grade officially: ${dim(result.grade_command)}`);
+            log(`Then import: ${dim(result.import_command)}`);
+            if (result.confirmation_required) log(dim("Paid run: confirm the maximum spend above before passing --yes."));
+            return;
+          }
+          if (swebenchAction === "import") {
+            const result = await importSwebenchJob(root, config, args._[3]);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`Imported ${bold(String(result.attempts_imported))} scored attempt(s) from SWE-bench job ${result.job}.`);
+            log(`- ${bold(result.run.run_id)} ${result.run.task_id} — arms ${result.run.arms.join(" vs ")} ${dim(`(${result.run.report_command})`)}`);
+            for (const entry of result.attempts_skipped) log(dim(`skipped ${entry.attempt}: ${entry.reason}`));
+            return;
+          }
+          throw new Error("eval swebench requires a subcommand: validate, plan, or import (see docs/swebench.md)");
+        }
+
+        throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, harbor, or swebench");
       }
 
       case "risk": {

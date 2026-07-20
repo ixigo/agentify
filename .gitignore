@@ -23,3 +23,5 @@ newdesign/
 evals/harbor/jobs/
 evals/harbor/agents/__pycache__/
 evals/harbor/jobs
+evals/swebench/jobs/
+evals/swebench/__pycache__/
