@@ -1,0 +1,42 @@
+# Harbor job config: multi-session (write -> recall) suite — the two-phase
+# tasks whose decisive context is PRODUCED by a seed session, not pre-baked.
+#
+# Arm 1 (agentify-claude) runs phase A (seed) then phase B (graded recall);
+# only .agentify/context/ bridges the two — the provider keeps no session.
+# Arm 2 is Harbor's plain claude-code: it has no memory layer, so it starts
+# the graded phase cold. That is the whole comparison — see docs/harbor.md,
+# "Multi-session tasks".
+#
+# Launch from evals/harbor/ with:  harbor run -c suites/multisession.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite multisession
+jobs_dir: jobs
+
+n_attempts: 3
+# Two concurrent trials: gentle on subscription rate limits, and each agentify
+# trial is two provider runs.
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-flaky-timezone
+
+agents:
+  # Arm 1: Agentify installed; two-phase run (seed -> reset -> graded recall).
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 12
+      # Phase A gets a smaller turn budget than the graded phase; 0 would mean
+      # "same as max_turns".
+      seed_max_turns: 8
+  # Arm 2: Harbor's built-in plain Claude Code baseline — same model, same
+  # image, same verifier, same in-flight budget cap. No memory layer, so it
+  # never runs the seed phase: a memoryless agent has no prior session to
+  # carry forward, which is exactly the difference under test.
+  - name: claude-code
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35

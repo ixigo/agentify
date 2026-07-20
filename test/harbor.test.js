@@ -132,6 +132,103 @@ test("validation fails a verifier that reads the fixtures path", async () => {
   assert.ok(result.problems.some((problem) => problem.includes("must not reference the Agentify fixtures path")));
 });
 
+// Turn one committed task into a two-phase (write -> recall) task on disk:
+// a seed instruction under environment/phases/seed/ and a Dockerfile that
+// bakes it into the image.
+async function makeTwoPhase(harborRoot, taskId, { seedText = "Seed: investigate the repo.\n", recallText = "Do the task.\n", copySeed = true, dockerfile = null } = {}) {
+  const taskDir = path.join(harborRoot, "tasks", taskId);
+  await fs.mkdir(path.join(taskDir, "environment", "phases", "seed"), { recursive: true });
+  await fs.writeFile(path.join(taskDir, "environment", "phases", "seed", "instruction.md"), seedText);
+  await fs.writeFile(path.join(taskDir, "instruction.md"), recallText);
+  await fs.writeFile(
+    path.join(taskDir, "environment", "Dockerfile"),
+    dockerfile !== null
+      ? dockerfile
+      : copySeed
+        ? "FROM node:20.18.1-bookworm-slim\nCOPY phases/seed/instruction.md /opt/agentify-seed/instruction.md\n"
+        : "FROM node:20.18.1-bookworm-slim\n",
+  );
+}
+
+function withTwoPhaseTask(overrides = {}) {
+  const manifest = manifestFixture(overrides);
+  manifest.tasks = manifest.tasks.map((task) => (task.id === "task-h" ? { ...task, phases: ["seed", "recall"] } : task));
+  return manifest;
+}
+
+test("validation accepts a well-formed two-phase (write->recall) task", async () => {
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, withTwoPhaseTask());
+  await makeTwoPhase(harborRoot, "task-h");
+  const result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, true, JSON.stringify(result.problems, null, 2));
+  const twoPhase = result.tasks.find((task) => task.id === "task-h");
+  assert.deepEqual(twoPhase.phases, ["seed", "recall"]);
+});
+
+test("validation ties the seed file and the phases declaration together", async () => {
+  // Seed file on disk but the manifest never declares phases.
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, manifestFixture());
+  await makeTwoPhase(harborRoot, "task-h");
+  let result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes('does not declare "phases"')));
+
+  // Declares phases but ships no seed instruction.
+  const root2 = await makeRoot();
+  await writeDataset(root2, withTwoPhaseTask());
+  result = await validateHarborDataset(root2, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes("has no environment")));
+});
+
+test("validation leak-checks both prompts and requires the seed baked into the image", async () => {
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, withTwoPhaseTask());
+  // Recall prompt leaks the answer; the Dockerfile never bakes the seed in.
+  await makeTwoPhase(harborRoot, "task-h", { recallText: "Return SOLUTION_MARKER now.\n", copySeed: false });
+  const result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes('instruction.md leaks answer pattern "SOLUTION_MARKER"')));
+  assert.ok(result.problems.some((problem) => problem.includes("must COPY")));
+
+  // A leak in the seed prompt is caught the same way.
+  const root2 = await makeRoot();
+  const harborRoot2 = await writeDataset(root2, withTwoPhaseTask());
+  await makeTwoPhase(harborRoot2, "task-h", { seedText: "Hint: SOLUTION_MARKER.\n" });
+  const seedLeak = await validateHarborDataset(root2, {});
+  assert.equal(seedLeak.ok, false);
+  assert.ok(seedLeak.problems.some((problem) => problem.includes("seed/instruction.md leaks answer pattern")));
+});
+
+test("validation requires a real COPY of the seed, not just a mention", async () => {
+  // A comment naming the seed path, and a COPY to some other target, both look
+  // valid to a substring check but leave /opt/agentify-seed/instruction.md
+  // absent — so the agent silently skips phase A. Both must fail.
+  for (const dockerfile of [
+    "FROM node:20.18.1-bookworm-slim\n# TODO: bake phases/seed/instruction.md into /opt/agentify-seed\n",
+    "FROM node:20.18.1-bookworm-slim\nCOPY phases/seed/instruction.md /opt/somewhere-else/instruction.md\n",
+    "FROM node:20.18.1-bookworm-slim\nCOPY phases/ /opt/\n",
+  ]) {
+    const root = await makeRoot();
+    const harborRoot = await writeDataset(root, withTwoPhaseTask());
+    await makeTwoPhase(harborRoot, "task-h", { dockerfile });
+    const result = await validateHarborDataset(root, {});
+    assert.equal(result.ok, false, `expected failure for:\n${dockerfile}`);
+    assert.ok(result.problems.some((problem) => problem.includes("must COPY")));
+  }
+
+  // A directory copy lands instruction.md inside the target dir — accepted.
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, withTwoPhaseTask());
+  await makeTwoPhase(harborRoot, "task-h", {
+    dockerfile: "FROM node:20.18.1-bookworm-slim\nCOPY --chown=node:node phases/seed/ /opt/agentify-seed/\n",
+  });
+  const ok = await validateHarborDataset(root, {});
+  assert.equal(ok.ok, true, JSON.stringify(ok.problems, null, 2));
+});
+
 test("validation flags missing files, undeclared dirs, and broken fixture JSONL", async () => {
   const root = await makeRoot();
   const harborRoot = await writeDataset(root, manifestFixture());
@@ -191,7 +288,7 @@ test("harbor agent names map onto native arm labels", () => {
 // Import -> native report
 // ---------------------------------------------------------------------------
 
-function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, profile = null, suffix = "" }) {
+function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, profile = null, suffix = "", metadata = null }) {
   return {
     trial_name: `${task}__${agent}${profile ? `-${profile}` : ""}${suffix}`,
     task_name: task,
@@ -203,7 +300,7 @@ function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cach
     // The nested rewards mapping and n_cache_tokens spelling match real
     // harbor 0.18.0 artifacts (verified against an actual oracle job).
     verifier_result: { rewards: { reward } },
-    agent_result: { cost_usd: cost, n_input_tokens: inputTokens, n_cache_tokens: cacheRead, n_output_tokens: outputTokens },
+    agent_result: { cost_usd: cost, n_input_tokens: inputTokens, n_cache_tokens: cacheRead, n_output_tokens: outputTokens, ...(metadata ? { metadata } : {}) },
     ...(exception ? { exception_info: { message: exception } } : {}),
   };
 }
@@ -263,6 +360,33 @@ test("import converts a paired Harbor job into native runs the report can read",
   // Renderers surface the harness so a Harbor report can never pass as native.
   assert.match(renderEvalReportMarkdown(report), /Harness: harbor/);
   assert.match(renderEvalReportHtml(report), /Harness: <code>harbor<\/code>/);
+});
+
+test("import folds the multisession seed cost into the arm's total, keeping the split", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+  const jobDir = await writeJob(root, "2026-07-10-multisession", [
+    trialResult({
+      task: "task-a", agent: "agentify-claude", reward: 1, cost: 0.04,
+      metadata: { multisession: true, seed_cost_usd: 0.03, seed_num_turns: 5, num_turns: 8 },
+    }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 1, cost: 0.05 }),
+  ]);
+
+  const { runs } = await importHarborJob(root, {}, jobDir);
+  const runA = runs.find((run) => run.task_id === "task-a");
+  const report = await buildEvalReport(root, {}, runA.run_id);
+  // Cost-per-pass must count the memory investment: recall 0.04 + seed 0.03.
+  assert.equal(report.arms.agentify.cost.reported_usd, 0.07);
+  // The baseline has no seed phase, so its cost is untouched.
+  assert.equal(report.arms["claude-code"].cost.reported_usd, 0.05);
+
+  // The two-phase split survives on the attempt record for amortized analysis.
+  const attempt = JSON.parse(await fs.readFile(path.join(root, ".agentify", "evals", "runs", runA.run_id, "attempts", "agentify-1", "result.json"), "utf8"));
+  assert.equal(attempt.provider.cost_usd, 0.07);
+  assert.equal(attempt.provider.multisession, true);
+  assert.equal(attempt.provider.recall_cost_usd, 0.04);
+  assert.equal(attempt.provider.seed_cost_usd, 0.03);
 });
 
 test("import maps profiles, partial rewards, exceptions, and skips broken trials", async () => {

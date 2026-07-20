@@ -1,0 +1,26 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "multi-session"]
+difficulty = "medium"
+description = "Recall a runtime date-handling gotcha discovered in a prior (seed) session. Phase A implements daily bucketing and hits a timezone flake; the graded recall phase adds monthly bucketing that must avoid the same class of bug — the lesson only survives via Agentify's durable context."
+
+# Two-phase (write -> recall) task. Phase A ("seed") is executed only by the
+# two-phase agentify agent, which persists .agentify/context/ across a session
+# reset; the graded phase ("recall") is instruction.md and is what every arm
+# runs and the verifier scores. See docs/harbor.md, "Multi-session tasks".
+[phases]
+seed = "environment/phases/seed/instruction.md"
+recall = "instruction.md"
+
+[agent]
+# Two phases share this budget of wall-clock; the seed run is the smaller half.
+timeout_sec = 600.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0
