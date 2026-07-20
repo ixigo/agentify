@@ -221,6 +221,32 @@ verifier. On import, each `(task, model)` becomes its own single-model run (so
 repeat indices never collide across rungs), and every run carries its
 `difficulty` rung.
 
+Know what each task can and cannot contribute to an agentify-favoring cell —
+some of the decisive information is partly inferable from the repo, so the
+signal concentrates on the weakest rungs:
+
+- `avoid-cache-regression` — **purely context-decisive**: the bounded-cache /
+  evict-oldest rule lives only in the INC-201 decision, not in the code, so the
+  natural unbounded memoization a plain agent writes fails the eviction check at
+  every rung. This is the reliable source of agentify-only wins.
+- `recall-error-envelope` — **partly inferable**: the repo's `getUser` already
+  demonstrates the `respondError` envelope, so a strong baseline can mimic it;
+  the win concentrates on the **weaker** rungs, where the baseline fails to
+  generalize the convention that context hands the agentify arm directly.
+- `reject-stale-config-path` — a **stale-context-rejection control**: the live
+  answer is repo reality (`settings.yaml`), so a plain agent that simply
+  ignores the stale note also passes. It is not expected to produce
+  agentify-only wins; it verifies the agentify arm is *not harmed* by the stale
+  note it recalls. Both arms passing here is the intended, honest outcome.
+
+So the acceptance target (≥5 discordant favoring agentify in one cell) is
+expected on the **weakest** model rung, where `avoid-cache-regression` plus a
+degraded `recall-error-envelope` baseline can clear it. Broadening the bank of
+purely-context-decisive tasks so more cells clear the bar on their own is the
+job of the separate epic child #318 — this suite is the measurement harness,
+and its verdict engine reports "not yet load-bearing" honestly when no cell
+qualifies rather than overclaiming.
+
 Read the frontier back with the grid report:
 
 ```
@@ -233,9 +259,10 @@ agentify eval grid --format md                      # model × difficulty fronti
 `agentify eval grid` buckets the imported runs into `(model × difficulty)`
 cells and, per cell, reports the agentify−baseline **pass-rate delta**, the
 **discordant-pair count** (agentify-only / baseline-only wins), the paired
-**sign-test p**, and **cost/pass**. Models are ordered weakest-first by baseline
-pass rate, so a delta that *grows down the rows* is context becoming
-load-bearing. A cell is flagged `[x]` when it meets the #317 acceptance target —
+**sign-test p**, and **cost/pass**. Models are ordered weakest-first (top row =
+weakest baseline), so context is load-bearing when the delta is *largest at the
+top* and shrinks downward toward the stronger models. A cell is flagged `[x]`
+when it meets the #317 acceptance target —
 ≥5 discordant pairs favoring agentify at p < 0.05 — and the grid names the
 largest such cell as the honest operating point. Pass explicit run ids
 (`agentify eval grid <run-id>…`) to grid a subset; with none, every imported

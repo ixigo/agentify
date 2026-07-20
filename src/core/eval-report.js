@@ -528,15 +528,23 @@ function difficultyRank(difficulty) {
 }
 
 // Load the runs the grid aggregates: the explicit ids, or (when none given)
-// every run carrying both a model and a difficulty — the two axes the grid
-// buckets on. Auto-discovered runs that lack an axis are dropped silently
-// (they are ordinary non-matrix runs); explicitly named ones are reported as
-// skipped so a bad id is never swallowed.
+// the runs of the single most-recent Harbor import job. Auto-discovery is
+// scoped to ONE job on purpose: every imported run now carries a difficulty
+// (defaulted to "easy"), so vacuuming all harbor runs would silently blend an
+// unrelated nightly/crossvendor import into the matrix. A down-shift suite is
+// one `harbor run` -> one import job, so "latest job" is exactly its runs.
+// Runs that lack a model/difficulty axis are dropped (silently in auto mode,
+// reported in explicit mode so a bad id is never swallowed). Duplicate
+// explicit ids are collapsed — counting the same run twice would inflate the
+// discordant tally and manufacture significance.
 async function loadGridRuns(root, config, runIds) {
   const { runsRoot } = resolveEvalPaths(root, config);
   const explicit = Array.isArray(runIds) && runIds.length > 0;
-  let ids = explicit ? runIds.map((id) => String(id).trim()).filter(Boolean) : [];
-  if (!explicit) {
+  let ids;
+  if (explicit) {
+    ids = [...new Set(runIds.map((id) => String(id).trim()).filter(Boolean))];
+  } else {
+    ids = [];
     const entries = (await exists(runsRoot)) ? (await fs.readdir(runsRoot)).sort() : [];
     for (const name of entries) {
       if (await exists(path.join(runsRoot, name, "run.json"))) ids.push(name);
@@ -559,9 +567,24 @@ async function loadGridRuns(root, config, runIds) {
       if (explicit) skipped.push({ run_id: id, reason: "run carries no model/difficulty axis (not a matrix run)" });
       continue;
     }
-    runs.push({ runId: loaded.runId, taskId: task.id ?? null, model, difficulty, attempts: loaded.attempts });
+    runs.push({
+      runId: loaded.runId,
+      job: loaded.meta.harbor?.job ?? null,
+      taskId: task.id ?? null,
+      model,
+      difficulty,
+      attempts: loaded.attempts,
+    });
   }
-  return { runs, skipped };
+  if (!explicit && runs.length > 0) {
+    // Keep only the most recent import job (run ids are timestamp-prefixed, so
+    // the max run id identifies it). Runs with no job label (hand-authored)
+    // are grouped under a null key and only kept if they are that latest group.
+    const latestRun = runs.reduce((max, run) => (run.runId > max.runId ? run : max), runs[0]);
+    const scoped = runs.filter((run) => run.job === latestRun.job);
+    return { runs: scoped, skipped, scoped_to_job: latestRun.job };
+  }
+  return { runs, skipped, scoped_to_job: null };
 }
 
 function isAgentifyArm(arm) {
@@ -569,7 +592,7 @@ function isAgentifyArm(arm) {
 }
 
 export async function buildEvalGrid(root, config, runIds) {
-  const { runs, skipped } = await loadGridRuns(root, config, runIds);
+  const { runs, skipped, scoped_to_job: scopedToJob } = await loadGridRuns(root, config, runIds);
   if (runs.length === 0) {
     throw new Error("No matrix runs to grid: need imported runs carrying a model and difficulty (see the downshift suite in docs/harbor.md).");
   }
@@ -598,21 +621,28 @@ export async function buildEvalGrid(root, config, runIds) {
 
   const cells = [];
   for (const cell of cellMap.values()) {
+    // Everything the cell reports is computed over the PAIRED subset only: for
+    // each run (one task), match the agentify and baseline attempts by
+    // repeat_index and keep only matched pairs. The report describes a paired
+    // comparison, so pass-rate delta, cost/pass, and the discordant tally must
+    // all come from the same matched attempts — an unpaired attempt (a run
+    // missing the baseline arm, or uneven attempt counts) would otherwise skew
+    // the delta and cost/pass while the discordant count stayed paired.
     const agentifyRecords = [];
     const baselineRecords = [];
     let leftOnly = 0;
     let rightOnly = 0;
     const tasks = new Set();
     for (const run of cell.runs) {
-      tasks.add(run.taskId);
       const ag = run.attempts.filter((record) => record.arm === "agentify");
       const bl = run.attempts.filter((record) => record.arm === baselineArm);
-      agentifyRecords.push(...ag);
-      baselineRecords.push(...bl);
-      // Pair ONLY within a run (one task): repeat_index pairs the same
-      // task/commit across arms. Summing per-run discordant counts keeps the
-      // pairing honest; pairing across different tasks would be meaningless.
-      const { leftOnly: l, rightOnly: r } = discordantPairs(ag, bl);
+      const { pairs, leftOnly: l, rightOnly: r } = discordantPairs(ag, bl);
+      if (pairs.length === 0) continue; // a run with no baseline counterpart contributes nothing
+      tasks.add(run.taskId);
+      for (const pair of pairs) {
+        agentifyRecords.push(pair.left);
+        baselineRecords.push(pair.right);
+      }
       leftOnly += l;
       rightOnly += r;
     }
@@ -652,9 +682,10 @@ export async function buildEvalGrid(root, config, runIds) {
     });
   }
 
-  // Order models weakest→strongest by their aggregate baseline pass rate (a
-  // capability proxy) so the table reads as a down-shift: the "context is
-  // load-bearing" story is the delta growing as you move up the rows.
+  // Order models weakest-first by their aggregate baseline pass rate (a
+  // capability proxy). The weakest model is the top row, so the "context is
+  // load-bearing" story is the delta being LARGEST at the top and shrinking as
+  // you move down toward the stronger models.
   const modelBaseline = new Map();
   for (const cell of cells) {
     const acc = modelBaseline.get(cell.model) || { passes: 0, attempts: 0 };
@@ -679,7 +710,7 @@ export async function buildEvalGrid(root, config, runIds) {
     schema: EVAL_GRID_SCHEMA_VERSION,
     command: "eval",
     action: "grid",
-    generated_from: { runs: runs.map((run) => run.runId), count: runs.length, skipped },
+    generated_from: { runs: runs.map((run) => run.runId), count: runs.length, scoped_to_job: scopedToJob, skipped },
     baseline_arm: baselineArm,
     models,
     difficulties,
@@ -812,7 +843,10 @@ export function renderEvalGridMarkdown(grid) {
   lines.push("# Model x difficulty grid");
   lines.push("");
   lines.push(`Aggregated from ${grid.generated_from.count} run(s). Baseline arm: \`${grid.baseline_arm ?? "n/a"}\`.`);
-  lines.push("Cells show the agentify-baseline pass-rate delta and the discordant-pair count (agentify-only / baseline-only). Models are ordered weakest-first by baseline pass rate, so a delta that grows down the rows is context becoming load-bearing.");
+  lines.push("Cells show the agentify-baseline pass-rate delta and the discordant-pair count (agentify-only / baseline-only). Models are ordered weakest-first (top row = weakest baseline), so context is load-bearing when the delta is largest at the top and shrinks downward toward the stronger models.");
+  if (grid.generated_from.scoped_to_job) {
+    lines.push(`Scoped to import job \`${grid.generated_from.scoped_to_job}\`.`);
+  }
   lines.push("");
 
   // Delta grid: rows = models (weakest -> strongest), cols = difficulties.

@@ -665,3 +665,47 @@ test("buildEvalGrid throws when no run carries a model/difficulty axis", async (
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("buildEvalGrid deduplicates repeated explicit run ids (no manufactured significance)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  try {
+    // One 3-pair, 3–0 run. Passing its id twice must NOT become 6–0.
+    const runId = await writeRunFixture(root, [
+      ...[1, 2, 3].map((i) => makeAttempt("agentify", i, { pass: true })),
+      ...[1, 2, 3].map((i) => makeAttempt("plain-safe", i, { pass: false })),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, [runId, runId]);
+    assert.equal(grid.generated_from.count, 1);
+    const cell = grid.cells[0];
+    assert.equal(cell.discordant.agentify_only_pass, 3); // not 6
+    assert.equal(cell.qualifies_acceptance, false); // 3 pairs cannot reach p<0.05
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildEvalGrid computes deltas over the paired subset only, ignoring unpaired attempts", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  try {
+    // Agentify has 3 attempts but the baseline only ran repeat_index 1: only
+    // one pair exists, so the reported metrics must be over that single pair,
+    // not the 3 unpaired agentify attempts.
+    const runId = await writeRunFixture(root, [
+      makeAttempt("agentify", 1, { pass: true }),
+      makeAttempt("agentify", 2, { pass: true }),
+      makeAttempt("agentify", 3, { pass: true }),
+      makeAttempt("plain-safe", 1, { pass: false }),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, [runId]);
+    const cell = grid.cells[0];
+    assert.equal(cell.agentify.attempts, 1); // paired subset, not 3
+    assert.equal(cell.baseline.attempts, 1);
+    assert.equal(cell.discordant.agentify_only_pass, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

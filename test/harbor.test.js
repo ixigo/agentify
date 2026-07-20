@@ -13,7 +13,7 @@ import {
   planHarborRun,
   validateHarborDataset,
 } from "../src/core/harbor.js";
-import { buildEvalReport, compareEvalReports, renderEvalReportHtml, renderEvalReportMarkdown } from "../src/core/eval-report.js";
+import { buildEvalGrid, buildEvalReport, compareEvalReports, renderEvalReportHtml, renderEvalReportMarkdown } from "../src/core/eval-report.js";
 import { runEval } from "../src/core/eval.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -633,6 +633,38 @@ test("import splits a two-model job into per-(task, model) runs and stamps diffi
   const attempt = JSON.parse(await fs.readFile(path.join(weakRunDir, "attempts", "agentify-1", "result.json"), "utf8"));
   assert.equal(attempt.difficulty, "hard");
   assert.equal(attempt.model, weak);
+});
+
+test("eval grid auto-discovery scopes to the latest import job, not a mix of suites (#317)", async () => {
+  const root = await makeRoot();
+  const manifest = manifestFixture();
+  manifest.tasks[0] = { ...manifest.tasks[0], difficulty: "hard" }; // task-a
+  await writeDataset(root, manifest);
+
+  // Older job: a single-model (nightly-style) import on the pinned model.
+  const olderJob = await writeJob(root, "2026-07-18-nightly", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1 }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 1 }),
+  ]);
+  await importHarborJob(root, {}, olderJob, { now: "2026-07-18T00:00:00.000Z" });
+
+  // Newer job: the downshift matrix on two other models.
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  const strong = "anthropic/claude-sonnet-4-5-20250929";
+  const newerJob = await writeJob(root, "2026-07-19-downshift", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, model: weak, suffix: "-weak" }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 0, model: weak, suffix: "-weak" }),
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, model: strong, suffix: "-strong" }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 1, model: strong, suffix: "-strong" }),
+  ]);
+  await importHarborJob(root, {}, newerJob, { now: "2026-07-19T00:00:00.000Z" });
+
+  const grid = await buildEvalGrid(root, {}, []);
+  // Only the newer job's two-model runs are aggregated; the older single-model
+  // nightly import (pinned haiku-4-5) is not blended in.
+  assert.equal(grid.generated_from.scoped_to_job, "2026-07-19-downshift");
+  assert.deepEqual([...grid.models].sort(), [weak, strong].sort());
+  assert.ok(!grid.models.includes("anthropic/claude-haiku-4-5-20251001"));
 });
 
 test("committed difficulty variants reuse the base verifier verbatim (#317)", async () => {
