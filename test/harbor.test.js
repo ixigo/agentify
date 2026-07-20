@@ -95,6 +95,17 @@ test("committed Harbor dataset validates cleanly (CI schema check, token-free)",
   assert.ok(result.suites.smoke);
 });
 
+test("committed crossvendor suite plans at its ceiling and ships its adapter (#316)", async () => {
+  const plan = await planHarborRun(REPO_ROOT, {}, { suite: "crossvendor" });
+  assert.equal(plan.trials, 12); // 2 tasks × 2 agents × 3 attempts
+  assert.equal(plan.max_spend_usd, 8.4); // 12 × $0.70
+  assert.equal(plan.agents_per_task, 2);
+  // The cross-vendor adapter the suite imports (Codex seed -> Claude recall)
+  // must exist alongside the base agent.
+  const adapter = path.join(REPO_ROOT, "evals", "harbor", "agents", "agentify_transfer.py");
+  assert.ok(await fs.access(adapter).then(() => true).catch(() => false), "agentify_transfer.py missing");
+});
+
 test("manifest validation rejects unpinned versions, thin datasets, and bad suites", async () => {
   const root = await makeRoot();
 
@@ -282,6 +293,11 @@ test("harbor agent names map onto native arm labels", () => {
   assert.equal(harborArmForAgent("Claude Code"), "claude-code");
   assert.equal(harborArmForAgent("oracle"), "oracle");
   assert.equal(harborArmForAgent(""), null);
+  // Cross-vendor arms (#316): the transfer agent maps to the agentify arm (so
+  // the paired verdict engine engages); the no-memory baseline keeps its own
+  // name (no "agentify" substring) so it never masquerades as the agentify arm.
+  assert.equal(harborArmForAgent("agentify-transfer"), "agentify");
+  assert.equal(harborArmForAgent("crossvendor-nomem"), "crossvendor-nomem");
 });
 
 // ---------------------------------------------------------------------------
@@ -387,6 +403,48 @@ test("import folds the multisession seed cost into the arm's total, keeping the 
   assert.equal(attempt.provider.multisession, true);
   assert.equal(attempt.provider.recall_cost_usd, 0.04);
   assert.equal(attempt.provider.seed_cost_usd, 0.03);
+});
+
+test("import handles a cross-vendor transfer job: agentify arm vs its own no-memory baseline (#316)", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+  // Codex seeds, Claude recalls: the transfer arm marks the trial two-phase but
+  // the Codex seed reports no cost (unreported, never zero), so there is nothing
+  // to fold — the graded recall cost stands alone.
+  const jobDir = await writeJob(root, "2026-07-10-crossvendor", [
+    trialResult({
+      task: "task-a", agent: "agentify-transfer", reward: 1, cost: 0.05,
+      metadata: {
+        multisession: true, seed_cost_usd: null, cross_vendor: true,
+        seed_provider: "codex", graded_provider: "claude", direction: "codex-to-claude",
+      },
+    }),
+    trialResult({ task: "task-a", agent: "crossvendor-nomem", reward: 0, cost: 0.05 }),
+  ]);
+
+  const { runs } = await importHarborJob(root, {}, jobDir);
+  const runA = runs.find((run) => run.task_id === "task-a");
+  // The transfer agent imports as the agentify arm; the no-memory baseline keeps
+  // its own arm label.
+  assert.deepEqual([...runA.arms].sort(), ["agentify", "crossvendor-nomem"]);
+
+  const report = await buildEvalReport(root, {}, runA.run_id);
+  assert.equal(report.arms.agentify.passes, 1);
+  assert.equal(report.arms["crossvendor-nomem"].passes, 0);
+  // No seed cost to fold: the recall cost is the reported total.
+  assert.equal(report.arms.agentify.cost.reported_usd, 0.05);
+  // The paired machinery engages against the no-memory baseline — a deterministic
+  // discordant pair, which is exactly what a single-vendor harness scores 0 on.
+  assert.equal(report.paired.length, 1);
+  assert.equal(report.paired[0].baseline, "crossvendor-nomem");
+  assert.equal(report.paired[0].discordant.agentify_only_pass, 1);
+
+  // The two-phase marker survives on the attempt record even with the Codex seed
+  // cost unreported, so amortized analysis still knows it was a two-phase trial.
+  const attempt = JSON.parse(await fs.readFile(path.join(root, ".agentify", "evals", "runs", runA.run_id, "attempts", "agentify-1", "result.json"), "utf8"));
+  assert.equal(attempt.provider.multisession, true);
+  assert.equal(attempt.provider.recall_cost_usd, 0.05);
+  assert.equal(attempt.provider.seed_cost_usd, null);
 });
 
 test("import maps profiles, partial rewards, exceptions, and skips broken trials", async () => {
