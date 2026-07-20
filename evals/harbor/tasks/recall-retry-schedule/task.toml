@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "retry-policy"]
+difficulty = "hard"
+description = "Implement a worker retry schedule whose exact delays and queue lane exist only in a recorded architecture decision."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

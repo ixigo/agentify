@@ -1,0 +1,2 @@
+{"ts":"2026-05-09T07:22:11.000Z","sid":"hook17b","note":"Security ADR-17: webhook v1 signs the decimal timestamp, then a colon, then the untouched request bytes with HMAC-SHA256. JSON must never be parsed or reserialized before verification."}
+{"ts":"2026-05-09T07:25:40.000Z","sid":"hook17b","note":"The provider sends the lowercase algorithm name followed by an equals sign and the hex digest. Compare the complete prefixed value with the shared constant-time helper."}

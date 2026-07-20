@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "idempotency"]
+difficulty = "hard"
+description = "Avoid a duplicate-settlement incident by applying a recorded at-least-once webhook contract unavailable in the task repo."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

@@ -1,0 +1,2 @@
+{"ts":"2026-05-22T06:58:51.000Z","sid":"inc507cc","note":"INC-507: the distributed limiter's active window is half-open at the old edge and closed at now. Count times strictly newer than now minus the window and no later than now."}
+{"ts":"2026-05-22T07:01:18.000Z","sid":"inc507cc","note":"Future timestamps can arrive during clock skew and must not consume capacity. The current request is allowed only when the count of active earlier requests is below the configured limit."}

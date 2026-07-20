@@ -1,0 +1,2 @@
+{"ts":"2026-05-20T13:31:25.000Z","sid":"mobile6d","note":"Mobile API ADR-26: feed cursors are the UTF-8 id of the final returned event encoded as unpadded URL-safe base64. A cursor is exclusive, so the next page begins after that event."}
+{"ts":"2026-05-20T13:34:12.000Z","sid":"mobile6d","note":"The deployed response key is next_cursor for compatibility with app versions before v9. Return null in that field when no later event exists; never expose numeric offsets."}

@@ -1,0 +1,2 @@
+{"ts":"2026-05-18T09:45:33.000Z","sid":"inc411ef","note":"INC-411: visually identical full-width email input created a second customer. Sign-in identity canonicalization is trim, Unicode compatibility normalization form KC, then lowercase with the fixed English locale."}
+{"ts":"2026-05-18T09:49:08.000Z","sid":"inc411ef","note":"Do not apply provider-specific mailbox rules: dots and plus tags remain significant. The canonicalizer only handles presentation differences and case."}

@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "pagination"]
+difficulty = "hard"
+description = "Implement an opaque paging cursor whose encoding and response field exist only in a recorded mobile API decision."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

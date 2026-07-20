@@ -1,0 +1,2 @@
+{"ts":"2026-05-06T10:12:00.000Z","sid":"retry42a","note":"ADR-42 chose one-based Fibonacci retry delays of 1s, 1s, 2s, 3s, then 5s capped forever; exponential backoff caused recovery storms to synchronize after the May outage."}
+{"ts":"2026-05-06T10:14:00.000Z","sid":"retry42a","note":"Recovery retries must keep the exact job object and enter the recoverable lane. The worker uses the lane to isolate retries from fresh traffic."}

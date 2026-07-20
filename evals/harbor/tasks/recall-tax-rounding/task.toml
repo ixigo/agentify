@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "money"]
+difficulty = "hard"
+description = "Implement ledger tax rounding where the half-to-even rule exists only in a recorded finance decision."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0
