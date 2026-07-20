@@ -190,6 +190,7 @@ All commands accept `--json` for machine-readable output — which is how agents
 | --- | --- |
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor (Terminal-Bench 2.0) adapter: token-free dataset validation, spend ceilings, and importing container-run results into the native report (`docs/harbor.md`) |
+| `agentify eval swebench validate\|plan\|import` | SWE-bench Verified warm/cold adapter: pinned sample validation, hard spend ceilings, and importing official-harness results (`docs/swebench.md`) |
 
 </details>
 
@@ -309,6 +310,16 @@ Every attempt runs in a disposable clone at the manifest's immutable `base_ref` 
 Turn a run into a decision with `agentify eval report [run-id] --format json|md|html`: per-arm pass rates with 95% confidence intervals, provider-reported vs unreported cost kept separate, cost per passing task, paired deltas with discordant-pair counts, and a cost-quality frontier with marginal dollars per additional pass. Underpowered, partial, or unpaired runs are labeled and never produce a confident winner. For CI, `agentify eval compare current.json baseline.json --fail-on 'pass_rate_drop>0.02' --fail-on 'cost_per_pass_increase>0.10' --fail-on 'p95_latency_increase>0.20'` exits 0 when gates pass, 1 on a violation (naming the exact gate), and 2 on invalid input. Teams on promptfoo can export a run into its results format with `--format promptfoo` (a dependency-free interchange file; the raw prompt stays out of it, identified by hash only).
 
 **Second harness (Harbor):** to make sure the signal isn't an artifact of Agentify's own runner, a portable 8-task benchmark dataset ships under `evals/harbor/` for [Harbor](https://www.harborframework.com) (Terminal-Bench 2.0): container-isolated tasks, an `agentify-claude` installed agent paired against Harbor's plain `claude-code` agent on the same image/model/verifier, plus an optimization-profile matrix suite. Harbor never becomes a runtime dependency — `agentify eval harbor validate` (schema + fixture answer-leak checks, token-free, runs in CI), `agentify eval harbor plan --suite smoke` (hard spend ceiling before launch), and `agentify eval harbor import <job-dir>` (Harbor trials become native runs, so `eval report`/`compare` work unchanged with provenance labeled). See `docs/harbor.md`.
+
+**External benchmark (SWE-bench Verified):** `evals/swebench/` adds an optional
+repo-warm-up experiment over a pinned, bounded SWE-bench Verified sample. The
+cold and Agentify-warm arms use the same fresh checkout, issue, Claude model,
+and limits; only the warm arm restores a repository-only context store. Gold
+and test data are barred from warm-up by an input allowlist plus a runtime leak
+scan, and the official SWE-bench Docker harness grades generated patches.
+`agentify eval swebench plan` prints the maximum spend before launch; imported
+reports label `harness: swebench` and add turns-to-first-edit telemetry. This is
+not an official leaderboard run. See `docs/swebench.md`.
 
 **First nightly results (2026-07-14** — 8 tasks × 2 arms × 3 attempts, `claude-haiku-4-5`, $2.10 actual spend against the $16.80 ceiling**):** the Agentify arm passed **24/24** attempts vs **21/24** for plain Claude Code on the same images, model, and verifiers. All three baseline failures landed on the prior-failure-avoidance task, where a production incident recorded in the context store is the only thing separating the arms — the seeded note turned 0/3 into 3/3. Both honesty controls held: the mechanical task (context adds nothing) and the misleading-context task (wrong-but-plausible notes must not cause damage) tied at 3/3 per arm, with zero flakes across 48 trials. The report still declares **no winner**, by design: 3 discordant pairs (all favoring Agentify) give an exact sign-test p = 0.25 and overlapping Wilson intervals, and the fail-closed winner rule requires CI separation *and* p < 0.05 — accumulating nightly runs (or more attempts on discordant tasks) is what gets there. On cost, the Agentify arm averaged $0.055/attempt vs $0.033 (+66%): persistent context is paid for in tokens, and on the one task with signal that ~$0.03 premium was the difference between failing and passing. This suite deliberately measures the **context layer only** — delegation (routing quick/mechanical work to cheaper models, reviews to the other vendor), which is designed to win that per-attempt premium back in real workflows, runs context-off by construction and can't function in single-vendor containers, so its economics are measured separately by `agentify stats`, `agentify value`, and the native eval profiles rather than claimed here.
 

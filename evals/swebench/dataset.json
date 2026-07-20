@@ -1,0 +1,82 @@
+{
+  "schema": "swebench-warm-v1",
+  "dataset": {
+    "name": "princeton-nlp/SWE-bench_Verified",
+    "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+    "split": "test"
+  },
+  "pins": {
+    "swebench": "4.1.0",
+    "claude_code": "2.1.215",
+    "agentify": "0.4.0",
+    "node": "22.22.0"
+  },
+  "model": "anthropic/claude-sonnet-4-5-20250929",
+  "limits": {
+    "scored_max_budget_usd": 2,
+    "scored_max_turns": 40,
+    "warmup_max_budget_usd": 0.5,
+    "warmup_max_turns": 12
+  },
+  "arms": [
+    "agentify",
+    "claude-code"
+  ],
+  "instances": [
+    {
+      "instance_id": "django__django-10097",
+      "repo": "django/django",
+      "base_commit": "b9cf764be62e77b4777b3a75ec256f6209a57671",
+      "difficulty": "<15 min fix"
+    },
+    {
+      "instance_id": "django__django-10880",
+      "repo": "django/django",
+      "base_commit": "838e432e3e5519c5383d12018e6c78f8ec7833c1",
+      "difficulty": "<15 min fix"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-13989",
+      "repo": "matplotlib/matplotlib",
+      "base_commit": "a3e2897bfaf9eaac1d6649da535c4e721c89fa69",
+      "difficulty": "<15 min fix"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-14623",
+      "repo": "matplotlib/matplotlib",
+      "base_commit": "d65c9ca20ddf81ef91199e6d819f9d3506ef477c",
+      "difficulty": "15 min - 1 hour"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-10051",
+      "repo": "pytest-dev/pytest",
+      "base_commit": "aa55975c7d3f6c9f6d7f68accc41bb7cadf0eb9a",
+      "difficulty": "15 min - 1 hour"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-10081",
+      "repo": "pytest-dev/pytest",
+      "base_commit": "da9a2b584eb7a6c7e924b2621ed0ddaeca0a7bea",
+      "difficulty": "<15 min fix"
+    }
+  ],
+  "suites": {
+    "smoke": {
+      "instances": [
+        "django__django-10097"
+      ],
+      "attempts": 1
+    },
+    "repo-stratified-6": {
+      "instances": [
+        "django__django-10097",
+        "django__django-10880",
+        "matplotlib__matplotlib-13989",
+        "matplotlib__matplotlib-14623",
+        "pytest-dev__pytest-10051",
+        "pytest-dev__pytest-10081"
+      ],
+      "attempts": 1
+    }
+  }
+}
