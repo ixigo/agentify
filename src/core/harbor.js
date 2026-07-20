@@ -56,6 +56,11 @@ const REQUIRED_TASK_FILES = [
 // neutral path (/opt/agentify-fixtures); only the agentify agent moves it
 // into the repo's .agentify/context, so both arms share one image.
 const FIXTURES_DIR = path.join("environment", "fixtures", "agentify-context");
+// Two-phase (write -> recall) tasks ship a phase-A seed instruction here,
+// inside environment/ so the task Dockerfile can COPY it into the image at a
+// neutral path (/opt/agentify-seed). Its presence marks a task as two-phase;
+// see docs/harbor.md, "Multi-session tasks".
+const SEED_INSTRUCTION_REL = path.join("environment", "phases", "seed", "instruction.md");
 
 export function resolveHarborPaths(root, config = {}) {
   const { tasksDir } = resolveEvalPaths(root, config);
@@ -155,7 +160,16 @@ export async function loadHarborManifest(root, config = {}) {
       || leakPatterns.some((pattern) => typeof pattern !== "string" || !pattern.trim())) {
       fail(`task "${id}" needs non-empty answer_leak_patterns for the fixture leak check`);
     }
-    return { id, category, max_cost_usd: maxCost, answer_leak_patterns: leakPatterns.map((pattern) => pattern.trim()) };
+    // Optional two-phase (write -> recall) declaration. Kept as-is so
+    // validation can cross-check it against the on-disk seed instruction.
+    const phases = Array.isArray(task?.phases) ? task.phases.map((phase) => String(phase)) : null;
+    return {
+      id,
+      category,
+      max_cost_usd: maxCost,
+      answer_leak_patterns: leakPatterns.map((pattern) => pattern.trim()),
+      ...(phases ? { phases } : {}),
+    };
   });
   const missingCategories = HARBOR_TASK_CATEGORIES.filter(
     (category) => !manifest.tasks.some((task) => task.category === category),
@@ -197,7 +211,10 @@ async function listTaskDirs(tasksRoot) {
     return [];
   }
   return (await fs.readdir(tasksRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
+    // Skip hidden dirs (e.g. a stray .agentify/ from running the CLI inside
+    // tasks/): a valid task id can never start with a dot, so these are never
+    // tasks and must not trip the "undeclared task directory" check.
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry) => entry.name)
     .sort();
 }
@@ -280,7 +297,49 @@ export async function validateHarborDataset(root, config = {}) {
       }
     }
 
-    checkedTasks.push({ id: task.id, category: task.category, ok: taskProblems.length === 0, problems: taskProblems });
+    // Two-phase (write -> recall) tasks: the decisive context is produced by a
+    // seed session, not pre-baked. Detect via the on-disk seed instruction and
+    // cross-check the manifest's `phases` declaration. When two-phase, the
+    // answer must not leak from EITHER prompt (the same guarantee the fixtures
+    // already carry), and the image must actually bake the seed instruction in
+    // or the seed phase silently no-ops.
+    const seedPath = path.join(taskDir, SEED_INSTRUCTION_REL);
+    const hasSeedFile = await exists(seedPath);
+    const declaresPhases = Array.isArray(task.phases) && task.phases.includes("seed");
+    if (hasSeedFile || declaresPhases) {
+      if (!hasSeedFile) {
+        taskProblems.push(`declares phases [${task.phases.join(", ")}] but has no ${SEED_INSTRUCTION_REL}`);
+      }
+      if (!declaresPhases) {
+        taskProblems.push(`ships ${SEED_INSTRUCTION_REL} but dataset.json does not declare "phases": ["seed", "recall"]`);
+      }
+      for (const rel of ["instruction.md", SEED_INSTRUCTION_REL]) {
+        const promptPath = path.join(taskDir, rel);
+        if (await exists(promptPath)) {
+          const content = await readText(promptPath);
+          for (const pattern of task.answer_leak_patterns) {
+            if (content.includes(pattern)) {
+              taskProblems.push(`${rel} leaks answer pattern "${pattern}"`);
+            }
+          }
+        }
+      }
+      const dockerfilePath = path.join(taskDir, "environment", "Dockerfile");
+      if (await exists(dockerfilePath)) {
+        const dockerfile = await readText(dockerfilePath);
+        if (!/agentify-seed/.test(dockerfile) && !/phases\/seed\/instruction\.md/.test(dockerfile)) {
+          taskProblems.push("two-phase task: environment/Dockerfile must COPY the seed instruction to /opt/agentify-seed");
+        }
+      }
+    }
+
+    checkedTasks.push({
+      id: task.id,
+      category: task.category,
+      ok: taskProblems.length === 0,
+      problems: taskProblems,
+      ...(hasSeedFile ? { phases: task.phases || ["seed", "recall"] } : {}),
+    });
     problems.push(...taskProblems.map((problem) => `${task.id}: ${problem}`));
   }
 

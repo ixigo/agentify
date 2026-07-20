@@ -38,17 +38,46 @@ FIXTURES_PATH = "/opt/agentify-fixtures"
 # populate_context_post_run can read it from self.logs_dir without an
 # explicit download step.
 TRAJECTORY_PATH = "/logs/agent/trajectory.json"
+# Two-phase (write -> recall) tasks bake a phase-A "seed" instruction here; the
+# task Dockerfile COPYs it to this neutral path. Only this two-phase agent runs
+# it — a memoryless baseline has no prior session to carry forward, which is
+# exactly the difference under test. Single-phase tasks ship no seed file, so
+# the seed phase is skipped and the arm behaves identically to before.
+SEED_INSTRUCTION_PATH = "/opt/agentify-seed/instruction.md"
+SEED_TRAJECTORY_PATH = "/logs/agent/seed-trajectory.json"
+
+
+def _load_result_envelope(path):
+    """Best-effort parse of a Claude `--output-format json` result envelope.
+
+    Returns the result dict or None; a missing/garbled trajectory must never
+    fail a graded trial, it just leaves that phase's cost unreported.
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, list):
+        data = next(
+            (entry for entry in reversed(data)
+             if isinstance(entry, dict) and entry.get("type") == "result"),
+            None,
+        )
+    return data if isinstance(data, dict) else None
 
 
 class AgentifyClaudeAgent(BaseInstalledAgent):
     """Claude Code + Agentify, seeded with the task's context fixtures."""
 
     def __init__(self, *args, profile: str = "balanced", max_budget_usd: float = 0.35,
-                 max_turns: int = 12, **kwargs):
+                 max_turns: int = 12, seed_max_turns: int = 0, **kwargs):
         super().__init__(*args, **kwargs)
         self._profile = profile
         self._max_budget_usd = max_budget_usd
         self._max_turns = max_turns
+        # Phase-A budget in turns; 0 (default) means "same as the graded phase".
+        # A suite can shrink the seed phase without touching the graded one.
+        self._seed_max_turns = seed_max_turns or max_turns
 
     @staticmethod
     def name() -> str:
@@ -105,12 +134,37 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
         )
 
     async def run(self, instruction: str, environment, context) -> None:
-        env = {
-            **self._auth_env(),
+        auth = self._auth_env()
+
+        # Phase A (seed) — two-phase write->recall tasks only. It runs under its
+        # own session id so the graded phase sees it as a PRIOR session to
+        # recall, not a continuation; the only thing that bridges the two is
+        # Agentify's on-disk .agentify/context store (the provider keeps no
+        # session — --no-session-persistence). Guarded by the file check so
+        # single-phase tasks skip it, and `|| true` so a seed failure never
+        # fails the graded trial: the arm is measured by what survives into
+        # phase B, not by phase A's own success.
+        seed_command = (
+            "mkdir -p /logs/agent && cd /app"
+            " && if [ -f {seed} ]; then"
+            " claude -p \"$(cat {seed})\" --output-format json"
+            " --model {model} --max-budget-usd {budget} --max-turns {turns}"
+            " --no-session-persistence --permission-mode acceptEdits"
+            " > {trajectory} 2>/dev/null || true; fi"
+        ).format(
+            seed=SEED_INSTRUCTION_PATH,
+            model=shlex.quote(self._claude_model),
+            budget=self._max_budget_usd,
+            turns=self._seed_max_turns,
+            trajectory=SEED_TRAJECTORY_PATH,
+        )
+        await self.exec_as_agent(environment, seed_command, env={
+            **auth,
             "AGENTIFY_PROFILE": self._profile,
-            # Attempt telemetry must describe this trial only.
-            "AGENTIFY_CTX_SESSION": "harbor-trial",
-        }
+            "AGENTIFY_CTX_SESSION": "harbor-seed",
+        })
+
+        # Phase B (graded recall) — every arm runs this; the verifier scores it.
         command = (
             "mkdir -p /logs/agent && cd /app"
             " && claude -p {instruction} --output-format json"
@@ -124,25 +178,20 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             turns=self._max_turns,
             trajectory=TRAJECTORY_PATH,
         )
-        await self.exec_as_agent(environment, command, env=env)
+        await self.exec_as_agent(environment, command, env={
+            **auth,
+            "AGENTIFY_PROFILE": self._profile,
+            # Attempt telemetry must describe this graded trial only.
+            "AGENTIFY_CTX_SESSION": "harbor-trial",
+        })
 
     def populate_context_post_run(self, context) -> None:
         # Parse the Claude JSON result envelope for cost/token provenance.
         # Every field is best-effort: a missing trajectory must never fail a
         # graded trial, it just leaves cost unreported (the Agentify import
         # treats that as "unreported", never as zero).
-        trajectory_path = self.logs_dir / "trajectory.json"
-        try:
-            envelope = json.loads(trajectory_path.read_text())
-        except (OSError, ValueError):
-            return
-        if isinstance(envelope, list):
-            envelope = next(
-                (entry for entry in reversed(envelope)
-                 if isinstance(entry, dict) and entry.get("type") == "result"),
-                {},
-            )
-        if not isinstance(envelope, dict):
+        envelope = _load_result_envelope(self.logs_dir / "trajectory.json")
+        if envelope is None:
             return
         usage = envelope.get("usage") or {}
 
@@ -166,8 +215,21 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
         cost = envelope.get("total_cost_usd")
         if isinstance(cost, (int, float)):
             context.cost_usd = float(cost)
+        # Phase-A (seed) cost is the memory "investment": recorded in metadata,
+        # separate from the graded phase-B cost above, so the amortized-cost
+        # analysis (#319) can weigh it against the rediscovery it saves. Absent
+        # on single-phase tasks, where multisession is False.
+        seed_envelope = _load_result_envelope(self.logs_dir / "seed-trajectory.json")
+        seed_cost = None
+        if seed_envelope is not None:
+            seed_cost_value = seed_envelope.get("total_cost_usd")
+            if isinstance(seed_cost_value, (int, float)):
+                seed_cost = float(seed_cost_value)
         context.metadata = {
             "agentify_profile": self._profile,
             "num_turns": envelope.get("num_turns"),
             "stop_subtype": envelope.get("subtype"),
+            "multisession": seed_envelope is not None,
+            "seed_cost_usd": seed_cost,
+            "seed_num_turns": seed_envelope.get("num_turns") if seed_envelope else None,
         }

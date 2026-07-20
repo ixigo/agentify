@@ -91,6 +91,17 @@
         "getUTCFullYear",
         "toISOString().slice(0, 10)"
       ]
+    },
+    {
+      "id": "recall-flaky-timezone",
+      "category": "prior-failure-avoidance",
+      "max_cost_usd": 0.7,
+      "phases": ["seed", "recall"],
+      "answer_leak_patterns": [
+        "getUTCMonth",
+        "getUTCFullYear",
+        "toISOString().slice(0, 7)"
+      ]
     }
   ],
   "suites": {
@@ -126,6 +137,12 @@
       ],
       "attempts": 3,
       "agents": 4
+    },
+    "multisession": {
+      "tasks": [
+        "recall-flaky-timezone"
+      ],
+      "attempts": 3
     }
   }
 }

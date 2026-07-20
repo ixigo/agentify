@@ -132,6 +132,74 @@ test("validation fails a verifier that reads the fixtures path", async () => {
   assert.ok(result.problems.some((problem) => problem.includes("must not reference the Agentify fixtures path")));
 });
 
+// Turn one committed task into a two-phase (write -> recall) task on disk:
+// a seed instruction under environment/phases/seed/ and a Dockerfile that
+// bakes it into the image.
+async function makeTwoPhase(harborRoot, taskId, { seedText = "Seed: investigate the repo.\n", recallText = "Do the task.\n", copySeed = true } = {}) {
+  const taskDir = path.join(harborRoot, "tasks", taskId);
+  await fs.mkdir(path.join(taskDir, "environment", "phases", "seed"), { recursive: true });
+  await fs.writeFile(path.join(taskDir, "environment", "phases", "seed", "instruction.md"), seedText);
+  await fs.writeFile(path.join(taskDir, "instruction.md"), recallText);
+  await fs.writeFile(
+    path.join(taskDir, "environment", "Dockerfile"),
+    copySeed
+      ? "FROM node:20.18.1-bookworm-slim\nCOPY phases/seed/instruction.md /opt/agentify-seed/instruction.md\n"
+      : "FROM node:20.18.1-bookworm-slim\n",
+  );
+}
+
+function withTwoPhaseTask(overrides = {}) {
+  const manifest = manifestFixture(overrides);
+  manifest.tasks = manifest.tasks.map((task) => (task.id === "task-h" ? { ...task, phases: ["seed", "recall"] } : task));
+  return manifest;
+}
+
+test("validation accepts a well-formed two-phase (write->recall) task", async () => {
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, withTwoPhaseTask());
+  await makeTwoPhase(harborRoot, "task-h");
+  const result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, true, JSON.stringify(result.problems, null, 2));
+  const twoPhase = result.tasks.find((task) => task.id === "task-h");
+  assert.deepEqual(twoPhase.phases, ["seed", "recall"]);
+});
+
+test("validation ties the seed file and the phases declaration together", async () => {
+  // Seed file on disk but the manifest never declares phases.
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, manifestFixture());
+  await makeTwoPhase(harborRoot, "task-h");
+  let result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes('does not declare "phases"')));
+
+  // Declares phases but ships no seed instruction.
+  const root2 = await makeRoot();
+  await writeDataset(root2, withTwoPhaseTask());
+  result = await validateHarborDataset(root2, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes("has no environment")));
+});
+
+test("validation leak-checks both prompts and requires the seed baked into the image", async () => {
+  const root = await makeRoot();
+  const harborRoot = await writeDataset(root, withTwoPhaseTask());
+  // Recall prompt leaks the answer; the Dockerfile never bakes the seed in.
+  await makeTwoPhase(harborRoot, "task-h", { recallText: "Return SOLUTION_MARKER now.\n", copySeed: false });
+  const result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes('instruction.md leaks answer pattern "SOLUTION_MARKER"')));
+  assert.ok(result.problems.some((problem) => problem.includes("must COPY the seed instruction")));
+
+  // A leak in the seed prompt is caught the same way.
+  const root2 = await makeRoot();
+  const harborRoot2 = await writeDataset(root2, withTwoPhaseTask());
+  await makeTwoPhase(harborRoot2, "task-h", { seedText: "Hint: SOLUTION_MARKER.\n" });
+  const seedLeak = await validateHarborDataset(root2, {});
+  assert.equal(seedLeak.ok, false);
+  assert.ok(seedLeak.problems.some((problem) => problem.includes("seed/instruction.md leaks answer pattern")));
+});
+
 test("validation flags missing files, undeclared dirs, and broken fixture JSONL", async () => {
   const root = await makeRoot();
   const harborRoot = await writeDataset(root, manifestFixture());

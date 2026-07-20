@@ -26,7 +26,7 @@ evals/harbor/
   dataset.json          # versioned manifest: tasks, categories, pins, suites, spend caps
   agents/
     agentify_claude.py  # Harbor BaseInstalledAgent: Claude Code + Agentify + seeded fixtures
-  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (8 tasks)
+  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (9 tasks; 1 multi-session)
     task.toml
     instruction.md
     environment/
@@ -61,9 +61,50 @@ Fixtures are history, never answers: each task in `dataset.json` declares
 if any fixture file contains one of them. Verifiers are forbidden from
 reading the fixtures path, so seeding can never be graded as work.
 
+## Multi-session tasks (write -> recall)
+
+Single-session tasks can only measure whether an agent reads *pre-seeded*
+context. Agentify's real edge is durable memory the agent **produces itself**
+and recalls in a later session — the thing a memoryless harness cannot carry
+forward at all. Two-phase tasks measure exactly that (issue #315).
+
+A two-phase task ships a phase-A **seed** instruction at
+`environment/phases/seed/instruction.md` (baked into the image at
+`/opt/agentify-seed/instruction.md` by the task Dockerfile) and declares
+`"phases": ["seed", "recall"]` in `dataset.json`. The graded phase-B
+**recall** instruction is the ordinary `instruction.md`, and the verifier
+scores phase B exactly as for any other task.
+
+- **`agentify-claude`** runs phase A, then phase B. The two run under
+  different session ids (`harbor-seed`, `harbor-trial`) and the provider keeps
+  no session (`--no-session-persistence`), so the **only** thing that bridges
+  them is Agentify's on-disk `.agentify/context/` store — written by the hooks
+  during phase A, injected by the SessionStart digest in phase B. That is the
+  barrier: repo tree and `.agentify/context/` cross it; provider conversation
+  state never does (the same "hidden provider state is never replayed"
+  invariant the whole dataset holds to).
+- **`claude-code`** (baseline) has no memory layer, so it never runs the seed
+  phase — a memoryless agent has no prior session to carry forward. It starts
+  the graded phase cold. That gap *is* the comparison.
+
+**Fairness and cost.** The `agentify-claude` arm spends phase-A tokens the
+baseline does not; that is the memory *investment*. The adapter records it
+separately (`seed_cost_usd`, `seed_num_turns` in trial metadata) so it is
+never hidden, and the amortized cost-per-recall analysis (#319) weighs it
+against the rediscovery it saves across future sessions. Because the arm runs
+two provider passes, a two-phase task's `max_cost_usd` in `dataset.json` is
+set to cover both (worst-case ceiling; the baseline spends at most half).
+
+Validation (`agentify eval harbor validate`) enforces the format: the seed
+file and the `phases` declaration must agree, **neither** prompt may contain
+an `answer_leak_pattern`, and the Dockerfile must actually bake the seed
+instruction in (or the seed phase would silently no-op). Run the suite with
+`harbor run -c suites/multisession.yaml` — and always `agentify eval harbor
+plan --suite multisession` first for the spend ceiling.
+
 ## Dataset categories
 
-The 8 tasks cover the roadmap's context-value claims plus the two controls
+The tasks cover the roadmap's context-value claims plus the two controls
 that keep us honest:
 
 | Category | Task | What it measures |
@@ -71,6 +112,7 @@ that keep us honest:
 | decision-recall | `recall-error-envelope` | Conventions recorded in a past session are honored |
 | prior-failure-avoidance | `avoid-cache-regression` | A recorded production incident prevents a repeat |
 | prior-failure-avoidance | `timezone-flake-gotcha` | A recorded flake gotcha steers to the real fix |
+| prior-failure-avoidance (multi-session) | `recall-flaky-timezone` | A gotcha the agent *hit and recorded* in a seed session is recalled in the next |
 | stale-context-rejection | `reject-stale-config-path` | Outdated notes are rejected in favor of repo reality |
 | repo-intelligence | `rename-shipping-rate-refs` | refs/impact answers find every call site |
 | affected-test-selection | `select-affected-tests` | Scoped test runs avoid a quarantined red herring |
