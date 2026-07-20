@@ -697,6 +697,30 @@ test("eval grid auto-discovery scopes to the latest import job, not a mix of sui
   assert.ok(!grid.models.includes("anthropic/claude-haiku-4-5-20251001"));
 });
 
+test("eval grid auto-discovery keeps only the latest import batch, not a re-import of the same job (#317)", async () => {
+  const root = await makeRoot();
+  const manifest = manifestFixture();
+  manifest.tasks[0] = { ...manifest.tasks[0], difficulty: "hard" }; // task-a
+  await writeDataset(root, manifest);
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+
+  const jobDir = await writeJob(root, "2026-07-19-downshift", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, model: weak }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 0, model: weak }),
+  ]);
+  // Import the SAME job directory twice — same job basename, different
+  // imported_at. The grid must not double-count the trials.
+  await importHarborJob(root, {}, jobDir, { now: "2026-07-19T00:00:00.000Z" });
+  await importHarborJob(root, {}, jobDir, { now: "2026-07-19T06:00:00.000Z" });
+
+  const grid = await buildEvalGrid(root, {}, []);
+  // Only one batch's run is aggregated, so the single discordant pair stays 1.
+  assert.equal(grid.generated_from.count, 1);
+  const cell = grid.cells.find((c) => c.model === weak);
+  assert.equal(cell.discordant.agentify_only_pass, 1); // not 2
+  assert.equal(grid.generated_from.scoped_to_import, "2026-07-19T06:00:00.000Z");
+});
+
 test("committed difficulty variants reuse the base verifier verbatim (#317)", async () => {
   const tasksRoot = path.join(REPO_ROOT, "evals", "harbor", "tasks");
   const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path"];

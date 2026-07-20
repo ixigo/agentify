@@ -570,6 +570,10 @@ async function loadGridRuns(root, config, runIds) {
     runs.push({
       runId: loaded.runId,
       job: loaded.meta.harbor?.job ?? null,
+      // A re-import of the same job directory produces runs with the SAME job
+      // basename but a fresh imported_at, so imported_at (not job name) is what
+      // identifies a single import batch.
+      importedAt: loaded.meta.harbor?.imported_at ?? null,
       taskId: task.id ?? null,
       model,
       difficulty,
@@ -577,14 +581,18 @@ async function loadGridRuns(root, config, runIds) {
     });
   }
   if (!explicit && runs.length > 0) {
-    // Keep only the most recent import job (run ids are timestamp-prefixed, so
-    // the max run id identifies it). Runs with no job label (hand-authored)
-    // are grouped under a null key and only kept if they are that latest group.
+    // Keep only the single most recent import BATCH (run ids are
+    // timestamp-prefixed, so the max run id identifies the latest batch). Scope
+    // by imported_at, falling back to job name only when a run carries no
+    // import timestamp (hand-authored runs) — scoping by job name alone would
+    // keep stale earlier imports of the same job dir and double-count trials.
     const latestRun = runs.reduce((max, run) => (run.runId > max.runId ? run : max), runs[0]);
-    const scoped = runs.filter((run) => run.job === latestRun.job);
-    return { runs: scoped, skipped, scoped_to_job: latestRun.job };
+    const batchKey = (run) => run.importedAt ?? run.job ?? null;
+    const scopeKey = batchKey(latestRun);
+    const scoped = runs.filter((run) => batchKey(run) === scopeKey);
+    return { runs: scoped, skipped, scoped_to_job: latestRun.job, scoped_to_import: latestRun.importedAt };
   }
-  return { runs, skipped, scoped_to_job: null };
+  return { runs, skipped, scoped_to_job: null, scoped_to_import: null };
 }
 
 function isAgentifyArm(arm) {
@@ -592,7 +600,7 @@ function isAgentifyArm(arm) {
 }
 
 export async function buildEvalGrid(root, config, runIds) {
-  const { runs, skipped, scoped_to_job: scopedToJob } = await loadGridRuns(root, config, runIds);
+  const { runs, skipped, scoped_to_job: scopedToJob, scoped_to_import: scopedToImport } = await loadGridRuns(root, config, runIds);
   if (runs.length === 0) {
     throw new Error("No matrix runs to grid: need imported runs carrying a model and difficulty (see the downshift suite in docs/harbor.md).");
   }
@@ -710,7 +718,7 @@ export async function buildEvalGrid(root, config, runIds) {
     schema: EVAL_GRID_SCHEMA_VERSION,
     command: "eval",
     action: "grid",
-    generated_from: { runs: runs.map((run) => run.runId), count: runs.length, scoped_to_job: scopedToJob, skipped },
+    generated_from: { runs: runs.map((run) => run.runId), count: runs.length, scoped_to_job: scopedToJob, scoped_to_import: scopedToImport, skipped },
     baseline_arm: baselineArm,
     models,
     difficulties,
@@ -844,8 +852,9 @@ export function renderEvalGridMarkdown(grid) {
   lines.push("");
   lines.push(`Aggregated from ${grid.generated_from.count} run(s). Baseline arm: \`${grid.baseline_arm ?? "n/a"}\`.`);
   lines.push("Cells show the agentify-baseline pass-rate delta and the discordant-pair count (agentify-only / baseline-only). Models are ordered weakest-first (top row = weakest baseline), so context is load-bearing when the delta is largest at the top and shrinks downward toward the stronger models.");
-  if (grid.generated_from.scoped_to_job) {
-    lines.push(`Scoped to import job \`${grid.generated_from.scoped_to_job}\`.`);
+  if (grid.generated_from.scoped_to_job || grid.generated_from.scoped_to_import) {
+    const at = grid.generated_from.scoped_to_import ? ` imported ${grid.generated_from.scoped_to_import}` : "";
+    lines.push(`Scoped to the latest import batch (job \`${grid.generated_from.scoped_to_job ?? "n/a"}\`${at}). Pass explicit run ids to aggregate across batches.`);
   }
   lines.push("");
 

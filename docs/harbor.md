@@ -264,9 +264,12 @@ weakest baseline), so context is load-bearing when the delta is *largest at the
 top* and shrinks downward toward the stronger models. A cell is flagged `[x]`
 when it meets the #317 acceptance target —
 ≥5 discordant pairs favoring agentify at p < 0.05 — and the grid names the
-largest such cell as the honest operating point. Pass explicit run ids
-(`agentify eval grid <run-id>…`) to grid a subset; with none, every imported
-matrix run is aggregated.
+largest such cell as the honest operating point. With no arguments it scopes to
+the **single most recent import batch** (by each run's `imported_at`), so a
+later nightly/cross-vendor import can never blend into the matrix and a
+re-import of the same job is never double-counted. To grid a specific subset or
+to aggregate runs across several imports, pass explicit run ids
+(`agentify eval grid <run-id>…`).
 
 ## Dataset categories
 

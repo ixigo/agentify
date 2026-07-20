@@ -727,7 +727,10 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
     byCell.get(key).trials.push(trial);
   }
 
-  const importedAt = new Date().toISOString();
+  // imported_at derives from the same clock as the run ids (options.now when
+  // supplied) so a single import batch is identified deterministically — the
+  // grid scopes no-arg discovery to the latest imported_at.
+  const importedAt = (options.now ? new Date(options.now) : new Date()).toISOString();
   // Provenance comes from the job's own artifacts; the local manifest is
   // never a fallback for the harbor version, and its dataset identity is
   // only stamped onto tasks it actually declares — an external job (e.g. a
