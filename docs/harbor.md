@@ -391,8 +391,10 @@ the same schema. Mapping:
   the arm (`claude-code`).
 - Reward 1.0 = pass; anything less (or a missing reward) = fail. The raw
   reward is preserved under each attempt's `harbor` block.
-- Cost/token fields are imported when the trial reports them and marked
-  `unreported` otherwise — never estimated.
+- Cost/token/turn fields are imported when the trial reports them and marked
+  `unreported` otherwise — never estimated. Two-phase attempts keep the
+  phase-B recall usage plus the phase-A cost/turn split used by the economics
+  receipt.
 - `run.json` carries `harness: "harbor"` plus job, dataset name/version,
   Harbor version, and agent identities. Imported runs cannot be resumed, and
   `eval compare` refuses to gate a native run against a Harbor run without
@@ -402,12 +404,33 @@ the same schema. Mapping:
 
 First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
 × 3 attempts, `claude-haiku-4-5`, `max_turns` 16, $2.10 spent of the $16.80
-ceiling, 48/48 trials, zero flakes):
+ceiling, 48/48 trials, zero flakes). Lead with successful-work economics; the
+per-attempt figure is context, not the headline:
 
-| arm | passes | pooled Wilson 95% CI | cost/attempt |
-| --- | --- | --- | --- |
-| agentify | 24/24 (100%) | 86.2–100% | $0.055 |
-| claude-code | 21/24 (87.5%) | 69.0–95.7% | $0.033 |
+| arm | cost/passing task | passes | pooled Wilson 95% CI | total reported cost | cost/attempt |
+| --- | --- | --- | --- | --- | --- |
+| agentify | ~$0.055 | 24/24 (100%) | 86.2–100% | ~$1.32 | $0.055 |
+| claude-code | ~$0.038 | 21/24 (87.5%) | 69.0–95.7% | ~$0.79 | $0.033 |
+
+This nightly was single-session, so it cannot honestly produce an amortized
+cost/recall or rediscovery-avoided number. Those fields remain `n/a` rather
+than borrowing the +66% per-attempt delta as a proxy. Imported `multisession`
+runs now render the measured receipt in `agentify eval report --format html`
+and roll it into `agentify value`:
+
+- **Rediscovery avoided** = paired baseline phase-B total − Agentify phase-B
+  total, separately for provider-reported tokens, turns, and cost. A pair only
+  contributes to a metric when both arms reported that metric.
+- **Break-even ≤ N recall sessions**, where
+  `N = ceil(incremental phase-A seed cost per pair / phase-B cost avoided per
+  recall session)`. The report also shows the Agentify amortized cost/recall at
+  N beside the baseline rediscovery cost/recall. If phase-B cost savings are
+  zero/negative, break-even is `not reached`; incomplete cost coverage is
+  `unreported`.
+- **Repeated-failure cost avoided** = the baseline's full phase-B spend and
+  turns on paired `prior-failure-avoidance` trials where Agentify passed and
+  the baseline failed. That quantifies the `avoid-cache-regression` story
+  without assigning a dollar value to an unreported attempt.
 
 - All three baseline failures were on `avoid-cache-regression`
   (prior-failure-avoidance): the recorded incident note is the only difference
@@ -437,10 +460,11 @@ Scope caveat when quoting these numbers: this *nightly* suite measures the
 Claude. Cross-vendor **transfer** (Codex writes -> Claude reads) is measured
 separately by the `crossvendor` suite above, not by these numbers. Cross-vendor
 **delegation/review** remains out of scope by construction — `agentify
-delegate` launches children with `AGENTIFY_CTX=off` — so the +66% per-attempt
-cost above is the price of context alone, not a statement about whole-workflow
-economics (that is what `agentify stats` / `agentify value` and the native eval
-profiles measure).
+delegate` launches children with `AGENTIFY_CTX=off`. The +66% figure is the
+single-session per-attempt premium, not the outcome metric and not a statement
+about whole-workflow economics. Cost/passing task above and the paired
+amortized receipt from `agentify eval report` / `agentify value` are the honest
+surfaces to quote.
 
 ## External benchmarks (optional validity check)
 

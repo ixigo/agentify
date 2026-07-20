@@ -164,6 +164,95 @@ test("buildValueReport joins context, guardrail, delegation, tests, and eval evi
   assert.match(renderValueHtml(longWindow), /Most recent 14 of 30 days/);
 });
 
+test("value report carries the paired memory-economics receipt from eval reports (#319)", async () => {
+  const root = await makeRoot("agentify-value-economics-");
+  const now = new Date("2026-07-20T12:00:00.000Z");
+  const runId = "20260720-110000-abcdef";
+  const runRoot = path.join(root, ".agentify", "evals", "runs", runId);
+  const attempts = [
+    { arm: "agentify", repeat: 1, pass: true, totalCost: 0.05, recallCost: 0.02, seedCost: 0.03, turns: 2, tokens: [200, 100, 100] },
+    { arm: "agentify", repeat: 2, pass: true, totalCost: 0.05, recallCost: 0.02, seedCost: 0.03, turns: 2, tokens: [200, 100, 100] },
+    { arm: "plain-safe", repeat: 1, pass: false, totalCost: 0.06, recallCost: null, seedCost: null, turns: 5, tokens: [800, 100, 300] },
+    { arm: "plain-safe", repeat: 2, pass: true, totalCost: 0.06, recallCost: null, seedCost: null, turns: 5, tokens: [800, 100, 300] },
+  ];
+  const order = attempts.map((attempt) => ({
+    attempt_id: `${attempt.arm}-${attempt.repeat}`,
+    arm: attempt.arm,
+    repeat_index: attempt.repeat,
+  }));
+  await writeJson(path.join(runRoot, "run.json"), {
+    schema: "eval-run-v1",
+    run_id: runId,
+    ts: "2026-07-20T11:00:00.000Z",
+    plan: {
+      task: {
+        id: "recall-known-failure",
+        prompt: "do the task",
+        model: "claude-haiku-4-5-20251001",
+        category: "prior-failure-avoidance",
+        phases: ["seed", "recall"],
+        arms: ["agentify", "plain-safe"],
+        repeat: 2,
+      },
+      base_sha: "a".repeat(40),
+      arms: ["agentify", "plain-safe"],
+      repeat: 2,
+      order,
+    },
+  });
+  for (const attempt of attempts) {
+    const attemptId = `${attempt.arm}-${attempt.repeat}`;
+    await writeJson(path.join(runRoot, "attempts", attemptId, "result.json"), {
+      schema: "eval-attempt-v1",
+      attempt_id: attemptId,
+      arm: attempt.arm,
+      repeat_index: attempt.repeat,
+      status: "ok",
+      pass: attempt.pass,
+      duration_ms: 1000,
+      provider: {
+        cost_usd: attempt.totalCost,
+        num_turns: attempt.turns,
+        ...(attempt.arm === "agentify" ? {
+          multisession: true,
+          recall_cost_usd: attempt.recallCost,
+          seed_cost_usd: attempt.seedCost,
+          seed_num_turns: 3,
+        } : {}),
+        usage: {
+          fresh_input_tokens: attempt.tokens[0],
+          cache_read_tokens: attempt.tokens[1],
+          cache_write_tokens: 0,
+          output_tokens: attempt.tokens[2],
+        },
+      },
+      grade: { pass: attempt.pass, forbidden_violations: [], checks: [], changed_paths: [] },
+    });
+  }
+
+  const report = await buildValueReport(root, { days: 7, now });
+  const memory = report.cost_per_passing_task.memory_economics;
+  assert.equal(report.cost_per_passing_task.cost_per_passing_task_usd, 0.05);
+  assert.equal(memory.paired_recalls, 2);
+  assert.equal(memory.rediscovery_avoided.tokens, 1600);
+  assert.equal(memory.rediscovery_avoided.turns, 6);
+  assert.equal(memory.break_even.sessions, 1);
+  assert.equal(memory.break_even.agentify_amortized_cost_per_session_usd, 0.05);
+  assert.equal(memory.break_even.baseline_rediscovery_cost_per_session_usd, 0.06);
+  assert.equal(memory.repeated_failure_cost_avoided.cost_usd, 0.06);
+  assert.equal(memory.repeated_failure_cost_avoided.turns, 5);
+
+  const text = renderValueReport(report);
+  assert.match(text, /Memory economics:/);
+  assert.match(text, /break-even: by recall session 1/);
+
+  const html = renderValueHtml(report);
+  assert.match(html, /<h2>Memory economics<\/h2>/);
+  assert.match(html, /Amortized and rediscovery-avoided eval economics/);
+  assert.match(html, /≤ 1 recall session/);
+  assert.match(html, /\$0\.0500 vs \$0\.0600/);
+});
+
 test("value CLI writes a self-contained HTML artifact and validates options", async () => {
   const root = await makeRoot("agentify-value-cli-");
   await runCli(["value", "--days", "7", "--format", "html", "--root", root]);

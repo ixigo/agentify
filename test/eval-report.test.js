@@ -334,6 +334,110 @@ test("markdown and html renderers carry the same headline metrics, redacted and 
   }
 });
 
+test("two-phase reports measure amortized economics from paired phase-B telemetry (#319)", async () => {
+  const root = await makeRoot();
+  try {
+    const agentify = [1, 2].map((index) => makeAttempt("agentify", index, {
+      pass: true,
+      cost: 0.05,
+      turns: 2,
+      usage: { fresh_input_tokens: 200, cache_read_tokens: 100, cache_write_tokens: 0, output_tokens: 100 },
+    }));
+    for (const attempt of agentify) {
+      Object.assign(attempt.provider, {
+        multisession: true,
+        recall_cost_usd: 0.02,
+        seed_cost_usd: 0.03,
+        seed_num_turns: 3,
+      });
+    }
+    const baseline = [
+      makeAttempt("plain-safe", 1, {
+        pass: false,
+        cost: 0.06,
+        turns: 5,
+        usage: { fresh_input_tokens: 800, cache_read_tokens: 100, cache_write_tokens: 0, output_tokens: 300 },
+      }),
+      makeAttempt("plain-safe", 2, {
+        pass: true,
+        cost: 0.06,
+        turns: 5,
+        usage: { fresh_input_tokens: 800, cache_read_tokens: 100, cache_write_tokens: 0, output_tokens: 300 },
+      }),
+    ];
+    const runId = await writeRunFixture(root, [...agentify, ...baseline], {
+      task: fixtureTask({
+        repeat: 2,
+        category: "prior-failure-avoidance",
+        phases: ["seed", "recall"],
+      }),
+    });
+
+    const report = await buildEvalReport(root, {}, runId);
+    const [economics] = report.economics.comparisons;
+    assert.equal(report.task.category, "prior-failure-avoidance");
+    assert.equal(economics.baseline, "plain-safe");
+    assert.equal(economics.multisession_pairs, 2);
+    assert.deepEqual(economics.cost_per_pass, { agentify_usd: 0.05, baseline_usd: 0.12 });
+    assert.equal(economics.phase_b.tokens.avoided, 1600);
+    assert.equal(economics.phase_b.tokens.measured_pairs, 2);
+    assert.equal(economics.phase_b.turns.avoided, 6);
+    assert.equal(economics.phase_b.cost_usd.avoided, 0.08);
+    assert.equal(economics.memory_investment.incremental_seed_cost_usd, 0.06);
+    assert.equal(economics.break_even.status, "reached");
+    assert.equal(economics.break_even.sessions, 1);
+    assert.equal(economics.break_even.agentify_amortized_cost_per_session_usd, 0.05);
+    assert.equal(economics.break_even.baseline_rediscovery_cost_per_session_usd, 0.06);
+    assert.deepEqual(economics.repeated_failure_cost_avoided, {
+      pairs: 1,
+      costed_pairs: 1,
+      turns_reported_pairs: 1,
+      cost_avoided_usd: 0.06,
+      reported_cost_usd: 0.06,
+      turns_avoided: 5,
+      reported_turns: 5,
+    });
+
+    const markdown = renderEvalReportMarkdown(report);
+    assert.match(markdown, /## Memory economics/);
+    assert.match(markdown, /≤ 1 recall session/);
+    assert.match(markdown, /1,600 tokens/);
+
+    const html = renderEvalReportHtml(report);
+    assert.match(html, /data-testid="agentify-eval-report"/);
+    assert.match(html, /<h2 id="economics-title">Memory economics<\/h2>/);
+    assert.match(html, /Amortized context economics from paired provider telemetry/);
+    assert.match(html, /≤ 1 recall session/);
+    assert.match(html, /\$0\.0500 vs \$0\.0600/);
+    assert.doesNotMatch(html, /https?:\/\//, "eval HTML stays self-contained like the value receipt");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("memory economics withholds break-even when paired phase telemetry is incomplete", async () => {
+  const root = await makeRoot();
+  try {
+    const agentify = makeAttempt("agentify", 1, { cost: 0.05, usage: null });
+    Object.assign(agentify.provider, {
+      multisession: true,
+      recall_cost_usd: null,
+      seed_cost_usd: 0.03,
+    });
+    const baseline = makeAttempt("plain-safe", 1, { cost: 0.06, usage: null });
+    const runId = await writeRunFixture(root, [agentify, baseline], {
+      task: fixtureTask({ repeat: 1, category: "prior-failure-avoidance", phases: ["seed", "recall"] }),
+    });
+    const [economics] = (await buildEvalReport(root, {}, runId)).economics.comparisons;
+    assert.equal(economics.phase_b.tokens.measured_pairs, 0);
+    assert.equal(economics.phase_b.tokens.avoided, null);
+    assert.equal(economics.break_even.status, "unreported");
+    assert.equal(economics.break_even.sessions, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("promptfoo export maps attempts to results without leaking the raw prompt", async () => {
   const root = await makeRoot();
   try {
