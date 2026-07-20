@@ -151,6 +151,7 @@ function armMetrics(records) {
   const providerDurations = [];
   const totalDurations = [];
   const turns = [];
+  const turnScopes = new Set();
   const changedCounts = [];
   const tokens = { fresh_input: 0, cache_read: 0, cache_write: 0, output: 0 };
   let usageAttempts = 0;
@@ -171,6 +172,7 @@ function armMetrics(records) {
     }
     if (typeof record.provider?.num_turns === "number") {
       turns.push(record.provider.num_turns);
+      turnScopes.add(record.provider?.multisession === true ? "phase_b_recall" : "attempt");
     }
     changedCounts.push((record.grade?.changed_paths || []).length);
     const usage = record.provider?.usage;
@@ -217,10 +219,186 @@ function armMetrics(records) {
       provider_mean_ms: round(mean(providerDurations), 0),
       total_mean_ms: round(mean(totalDurations), 0),
     },
-    turns: { mean: round(mean(turns), 2), max: turns.length > 0 ? Math.max(...turns) : null },
+    turns: {
+      mean: round(mean(turns), 2),
+      max: turns.length > 0 ? Math.max(...turns) : null,
+      scope: turnScopes.size === 0 ? null : turnScopes.size === 1 ? [...turnScopes][0] : "mixed",
+    },
     changed_files: { mean: round(mean(changedCounts), 2), max: changedCounts.length > 0 ? Math.max(...changedCounts) : null },
     failure_breakdown: failureBreakdown,
     stop_reasons: stopReasons,
+  };
+}
+
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// Harbor's imported usage describes the graded phase-B recall only. Count all
+// provider tokens because rediscovery may show up as extra prompt/cache reads,
+// extra generated exploration, or both. Missing usage remains null; it is never
+// converted to a zero-token attempt.
+function recallTokens(record) {
+  const usage = record.provider?.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const fields = ["fresh_input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens"];
+  const values = fields.map((field) => finiteNumber(usage[field]));
+  if (values.every((value) => value === null)) return null;
+  return values.reduce((total, value) => total + (value ?? 0), 0);
+}
+
+function recallCost(record) {
+  // A multi-session provider.cost_usd includes seed + recall after Harbor
+  // import. Falling back to it would count the seed twice in break-even.
+  return record.provider?.multisession === true
+    ? finiteNumber(record.provider?.recall_cost_usd)
+    : finiteNumber(record.provider?.cost_usd);
+}
+
+function recallTurns(record) {
+  return finiteNumber(record.provider?.num_turns);
+}
+
+// A single-phase baseline made no phase-A investment, so zero is observed,
+// not imputed. A two-phase arm with missing seed cost stays unreported.
+function seedCost(record) {
+  if (record.provider?.multisession !== true) return 0;
+  return finiteNumber(record.provider?.seed_cost_usd);
+}
+
+function pairedTelemetry(pairs, agentifyValue, baselineValue) {
+  const measured = [];
+  for (const pair of pairs) {
+    const agentify = agentifyValue(pair.left);
+    const baseline = baselineValue(pair.right);
+    if (agentify !== null && baseline !== null) {
+      measured.push({ agentify, baseline });
+    }
+  }
+  const agentifyTotal = measured.reduce((sum, item) => sum + item.agentify, 0);
+  const baselineTotal = measured.reduce((sum, item) => sum + item.baseline, 0);
+  const avoided = baselineTotal - agentifyTotal;
+  return {
+    paired_attempts: pairs.length,
+    measured_pairs: measured.length,
+    agentify_total: measured.length > 0 ? round(agentifyTotal) : null,
+    baseline_total: measured.length > 0 ? round(baselineTotal) : null,
+    avoided: measured.length > 0 ? round(avoided) : null,
+    avoided_per_attempt: measured.length > 0 ? round(avoided / measured.length) : null,
+  };
+}
+
+function repeatedFailureReceipt(pairs, category) {
+  const failures = category === "prior-failure-avoidance"
+    ? pairs.filter((pair) => pair.left.pass === true && pair.right.pass !== true)
+    : [];
+  const costs = failures.map((pair) => recallCost(pair.right)).filter((value) => value !== null);
+  const turns = failures.map((pair) => recallTurns(pair.right)).filter((value) => value !== null);
+  return {
+    pairs: failures.length,
+    costed_pairs: costs.length,
+    turns_reported_pairs: turns.length,
+    // Only call the full failed-attempt spend "avoided" with complete
+    // coverage. Partial subtotals are still exposed as reported_* evidence.
+    cost_avoided_usd: failures.length > 0 && costs.length === failures.length
+      ? round(costs.reduce((sum, value) => sum + value, 0))
+      : failures.length === 0 ? 0 : null,
+    reported_cost_usd: round(costs.reduce((sum, value) => sum + value, 0)),
+    turns_avoided: failures.length > 0 && turns.length === failures.length
+      ? turns.reduce((sum, value) => sum + value, 0)
+      : failures.length === 0 ? 0 : null,
+    reported_turns: turns.reduce((sum, value) => sum + value, 0),
+  };
+}
+
+function breakEvenReceipt(memoryPairs, seed, recall) {
+  if (memoryPairs.length === 0) {
+    return { status: "not_applicable", sessions: null, reason: "no paired two-phase attempts" };
+  }
+  if (seed.measured_pairs !== memoryPairs.length || recall.measured_pairs !== memoryPairs.length) {
+    return { status: "unreported", sessions: null, reason: "seed or phase-B recall cost coverage is incomplete" };
+  }
+  const pairCount = memoryPairs.length;
+  const incrementalSeedPerPair = ((seed.agentify_total ?? 0) - (seed.baseline_total ?? 0)) / pairCount;
+  const recallSavingsPerSession = (recall.avoided ?? 0) / pairCount;
+  if (recallSavingsPerSession <= 0) {
+    return {
+      status: "not_reached",
+      sessions: null,
+      reason: "phase-B recall has no measured per-session cost saving",
+      incremental_seed_cost_usd: round(incrementalSeedPerPair),
+      recall_savings_per_session_usd: round(recallSavingsPerSession),
+    };
+  }
+  // S is the first recall session where:
+  // seed investment + S * agentify recall <= S * baseline rediscovery.
+  const sessions = Math.max(1, Math.ceil(Math.max(0, incrementalSeedPerPair) / recallSavingsPerSession));
+  const agentifyRecallPerSession = (recall.agentify_total ?? 0) / pairCount;
+  const baselineRecallPerSession = (recall.baseline_total ?? 0) / pairCount;
+  return {
+    status: "reached",
+    sessions,
+    reason: `memory investment is recovered by recall session ${sessions}`,
+    incremental_seed_cost_usd: round(incrementalSeedPerPair),
+    recall_savings_per_session_usd: round(recallSavingsPerSession),
+    agentify_amortized_cost_per_session_usd: round((Math.max(0, incrementalSeedPerPair) + sessions * agentifyRecallPerSession) / sessions),
+    baseline_rediscovery_cost_per_session_usd: round(baselineRecallPerSession),
+  };
+}
+
+function evalEconomics(byArm, task) {
+  const agentifyRecords = byArm.get("agentify") || [];
+  const comparisons = [];
+  if (agentifyRecords.length > 0) {
+    for (const [baseline, baselineRecords] of [...byArm.entries()].sort()) {
+      if (isAgentifyArm(baseline)) continue;
+      const { pairs } = discordantPairs(agentifyRecords, baselineRecords);
+      const memoryPairs = pairs.filter((pair) => pair.left.provider?.multisession === true);
+      const agentifyMetrics = armMetrics(pairs.map((pair) => pair.left));
+      const baselineMetrics = armMetrics(pairs.map((pair) => pair.right));
+      const tokens = pairedTelemetry(memoryPairs, recallTokens, recallTokens);
+      const turns = pairedTelemetry(memoryPairs, recallTurns, recallTurns);
+      const recall = pairedTelemetry(memoryPairs, recallCost, recallCost);
+      const seed = pairedTelemetry(memoryPairs, seedCost, seedCost);
+      const incrementalSeed = seed.measured_pairs > 0
+        ? round((seed.agentify_total ?? 0) - (seed.baseline_total ?? 0))
+        : null;
+      comparisons.push({
+        baseline,
+        paired_attempts: pairs.length,
+        multisession_pairs: memoryPairs.length,
+        cost_per_pass: {
+          agentify_usd: agentifyMetrics.cost.per_pass_usd,
+          baseline_usd: baselineMetrics.cost.per_pass_usd,
+        },
+        phase_b: {
+          tokens,
+          turns,
+          cost_usd: recall,
+        },
+        memory_investment: {
+          paired_attempts: seed.paired_attempts,
+          measured_pairs: seed.measured_pairs,
+          agentify_seed_cost_usd: seed.agentify_total,
+          baseline_seed_cost_usd: seed.baseline_total,
+          incremental_seed_cost_usd: incrementalSeed,
+          incremental_seed_cost_per_attempt_usd: seed.measured_pairs > 0
+            ? round((incrementalSeed ?? 0) / seed.measured_pairs)
+            : null,
+        },
+        break_even: breakEvenReceipt(memoryPairs, seed, recall),
+        repeated_failure_cost_avoided: repeatedFailureReceipt(pairs, task.category),
+      });
+    }
+  }
+  return {
+    source: "paired provider telemetry; phase B is the graded recall session",
+    formulas: {
+      rediscovery_avoided: "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      break_even: "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      repeated_failure_cost_avoided: "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task",
+    },
+    comparisons,
   };
 }
 
@@ -385,6 +563,10 @@ function attemptDrilldown(record) {
     duration_ms: record.duration_ms ?? null,
     cost_usd: record.provider?.cost_usd ?? null,
     cost_source: typeof record.provider?.cost_usd === "number" ? "provider" : "unreported",
+    multisession: record.provider?.multisession === true,
+    recall_cost_usd: record.provider?.recall_cost_usd ?? null,
+    seed_cost_usd: record.provider?.seed_cost_usd ?? null,
+    seed_num_turns: record.provider?.seed_num_turns ?? null,
     usage: record.provider?.usage ?? null,
     changed_paths: record.grade?.changed_paths ?? [],
     forbidden_violations: record.grade?.forbidden_violations ?? [],
@@ -488,6 +670,8 @@ export async function buildEvalReport(root, config, runIdInput) {
       model: task.model ?? null,
       effort: task.effort ?? null,
       profile: task.profile ?? null,
+      category: task.category ?? null,
+      phases: task.phases ?? null,
       max_budget_usd: task.max_budget_usd ?? null,
       max_turns: task.max_turns ?? null,
       timeout_seconds: task.timeout_seconds ?? null,
@@ -503,6 +687,7 @@ export async function buildEvalReport(root, config, runIdInput) {
     completeness,
     arms,
     paired,
+    economics: evalEconomics(byArm, task),
     frontier: costQualityFrontier(arms),
     verdict: buildVerdict(arms, completeness, byArm),
     context_metrics: contextMetricsByArm(byArm, attempts),
@@ -761,6 +946,27 @@ function formatCi(ci) {
   return ci ? `${formatRate(ci.low)}–${formatRate(ci.high)}` : "n/a";
 }
 
+function formatCount(value, unit) {
+  if (value === null || value === undefined) return "n/a";
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)} ${unit}`;
+}
+
+function formatTurnScope(scope) {
+  if (scope === "phase_b_recall") return "phase-B recall";
+  if (scope === "attempt") return "whole attempt";
+  return scope ?? "n/a";
+}
+
+function formatBreakEven(receipt) {
+  return receipt?.status === "reached" ? `≤ ${receipt.sessions} recall session(s)` : receipt?.reason ?? "n/a";
+}
+
+function formatAmortizedCost(receipt) {
+  return receipt?.status === "reached"
+    ? `${formatUsd(receipt.agentify_amortized_cost_per_session_usd)} vs ${formatUsd(receipt.baseline_rediscovery_cost_per_session_usd)}`
+    : "n/a";
+}
+
 export function renderEvalReportMarkdown(report) {
   const lines = [
     `# Eval report — ${report.task.id} (${report.run_id})`,
@@ -773,11 +979,14 @@ export function renderEvalReportMarkdown(report) {
     "",
     "## Arms",
     "",
-    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | turns | changed files | forbidden fails |",
+    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | mean turns (scope) | changed files | forbidden fails |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const [arm, metrics] of Object.entries(report.arms)) {
-    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
+    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} (${formatTurnScope(metrics.turns.scope)}) | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
+  }
+  if (Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall")) {
+    lines.push("", "> Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.");
   }
   for (const [arm, metrics] of Object.entries(report.arms)) {
     if (metrics.cost.unreported_attempts > 0) {
@@ -786,6 +995,27 @@ export function renderEvalReportMarkdown(report) {
     if (metrics.tokens.usage_missing_attempts > 0) {
       lines.push("", `> ${arm}: ${metrics.tokens.usage_missing_attempts} attempt(s) reported no token usage.`);
     }
+  }
+
+  if (report.economics.comparisons.length > 0) {
+    lines.push("", "## Memory economics", "");
+    lines.push("| baseline | cost/pass agentify | cost/pass baseline | paired phase-B recalls | rediscovery avoided | break-even | amortized cost/recall at break-even (agentify vs baseline) | repeated-failure cost avoided |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+    for (const comparison of report.economics.comparisons) {
+      const rediscovery = [
+        formatCount(comparison.phase_b.tokens.avoided, "tokens"),
+        formatCount(comparison.phase_b.turns.avoided, "turns"),
+      ].join(" / ");
+      const repeated = comparison.repeated_failure_cost_avoided;
+      const repeatedReceipt = repeated.pairs > 0
+        ? `${formatUsd(repeated.cost_avoided_usd)} / ${formatCount(repeated.turns_avoided, "turns")} (${repeated.pairs} pair(s))`
+        : "none observed";
+      lines.push(`| ${comparison.baseline} | ${formatUsd(comparison.cost_per_pass.agentify_usd)} | ${formatUsd(comparison.cost_per_pass.baseline_usd)} | ${comparison.multisession_pairs} | ${rediscovery} | ${formatBreakEven(comparison.break_even)} | ${formatAmortizedCost(comparison.break_even)} | ${repeatedReceipt} |`);
+    }
+    lines.push(
+      "",
+      `> Rediscovery avoided: ${report.economics.formulas.rediscovery_avoided}. Break-even: ${report.economics.formulas.break_even}. Missing phase telemetry is shown as n/a, never zero.`,
+    );
   }
 
   if (report.paired.length > 0) {
@@ -920,20 +1150,20 @@ function escapeHtml(value) {
 export function renderEvalReportHtml(report) {
   const armRows = Object.entries(report.arms).map(([arm, metrics]) => `
     <tr>
-      <td><code>${escapeHtml(arm)}</code></td>
+      <th scope="row"><code>${escapeHtml(arm)}</code></th>
       <td>${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)})</td>
       <td>${formatCi(metrics.pass_rate_ci95)}</td>
       <td>${formatUsd(metrics.cost.per_attempt_usd)}</td>
       <td>${formatUsd(metrics.cost.per_pass_usd)}</td>
       <td>${formatMs(metrics.latency.provider_p50_ms)}</td>
       <td>${formatMs(metrics.latency.provider_p95_ms)}</td>
-      <td>${metrics.turns.mean ?? "n/a"}</td>
+      <td>${metrics.turns.mean ?? "n/a"} <small>${escapeHtml(formatTurnScope(metrics.turns.scope))}</small></td>
       <td>${metrics.failure_breakdown.forbidden_change || 0}</td>
     </tr>`).join("");
 
   const pairedRows = report.paired.map((pair) => `
     <tr>
-      <td><code>${escapeHtml(pair.baseline)}</code></td>
+      <th scope="row"><code>${escapeHtml(pair.baseline)}</code></th>
       <td>${pair.pairs}</td>
       <td>${escapeHtml(pair.paired_sample_ids.join(", ") || "none")}</td>
       <td>${pair.pass_rate_delta ?? "n/a"}</td>
@@ -942,16 +1172,35 @@ export function renderEvalReportHtml(report) {
       <td>${pair.provider_p95_delta_ms ?? "n/a"}</td>
     </tr>`).join("");
 
+  const economicsRows = report.economics.comparisons.map((comparison) => {
+    const repeated = comparison.repeated_failure_cost_avoided;
+    const repeatedReceipt = repeated.pairs > 0
+      ? `${formatUsd(repeated.cost_avoided_usd)} / ${formatCount(repeated.turns_avoided, "turns")} (${repeated.pairs} pair(s))`
+      : "none observed";
+    return `
+    <tr>
+      <th scope="row"><code>${escapeHtml(comparison.baseline)}</code></th>
+      <td>${escapeHtml(formatUsd(comparison.cost_per_pass.agentify_usd))}</td>
+      <td>${escapeHtml(formatUsd(comparison.cost_per_pass.baseline_usd))}</td>
+      <td>${comparison.multisession_pairs}</td>
+      <td>${escapeHtml(formatCount(comparison.phase_b.tokens.avoided, "tokens"))}</td>
+      <td>${escapeHtml(formatCount(comparison.phase_b.turns.avoided, "turns"))}</td>
+      <td>${escapeHtml(formatBreakEven(comparison.break_even))}</td>
+      <td>${escapeHtml(formatAmortizedCost(comparison.break_even))}</td>
+      <td>${escapeHtml(repeatedReceipt)}</td>
+    </tr>`;
+  }).join("");
+
   const attemptBlocks = report.attempts.map((attempt) => `
     <details>
       <summary><code>${escapeHtml(attempt.attempt_id)}</code> — ${attempt.pass ? "PASS" : `FAIL (${escapeHtml(attempt.failure_kind ?? "")})`} · ${escapeHtml(formatUsd(attempt.cost_usd))} · ${escapeHtml(formatMs(attempt.provider_duration_ms))}</summary>
       <table>
-        <tr><th>status</th><td>${escapeHtml(attempt.status)}</td></tr>
-        <tr><th>stop reason</th><td>${escapeHtml(attempt.stop_reason ?? "n/a")}</td></tr>
-        <tr><th>turns</th><td>${escapeHtml(attempt.num_turns ?? "n/a")}</td></tr>
-        <tr><th>changed paths</th><td>${attempt.changed_paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ") || "none"}</td></tr>
-        <tr><th>forbidden</th><td>${attempt.forbidden_violations.map((v) => `<code>${escapeHtml(v.path)}</code>`).join(", ") || "none"}</td></tr>
-        <tr><th>patch</th><td><code>${escapeHtml(attempt.artifacts?.patch ?? "n/a")}</code></td></tr>
+        <tr><th scope="row">status</th><td>${escapeHtml(attempt.status)}</td></tr>
+        <tr><th scope="row">stop reason</th><td>${escapeHtml(attempt.stop_reason ?? "n/a")}</td></tr>
+        <tr><th scope="row">turns</th><td>${escapeHtml(attempt.num_turns ?? "n/a")}</td></tr>
+        <tr><th scope="row">changed paths</th><td>${attempt.changed_paths.map((p) => `<code>${escapeHtml(p)}</code>`).join(", ") || "none"}</td></tr>
+        <tr><th scope="row">forbidden</th><td>${attempt.forbidden_violations.map((v) => `<code>${escapeHtml(v.path)}</code>`).join(", ") || "none"}</td></tr>
+        <tr><th scope="row">patch</th><td><code>${escapeHtml(attempt.artifacts?.patch ?? "n/a")}</code></td></tr>
       </table>
       ${attempt.checks.map((check) => `
         <p><code>${escapeHtml(check.command)}</code> — ${check.passed ? "passed" : `exit ${escapeHtml(check.exit_code)}${check.timed_out ? " (timed out)" : ""}`}</p>
@@ -970,65 +1219,136 @@ export function renderEvalReportHtml(report) {
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="Agentify eval report">
 <title>Eval report — ${escapeHtml(report.task.id)} (${escapeHtml(report.run_id)})</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap');
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
   :root {
-    color-scheme: dark;
-    --color-bg: #0d1117;
-    --color-surface: #161b22;
-    --color-text: #e6edf3;
-    --color-accent: #58a6ff;
-    --color-accent-2: #7ee787;
-    --color-divider: #30363d;
-    --color-neutral-600: #8b949e;
-    --color-neutral-700: #b1bac4;
-    --color-accent-700: #7ee787;
+    color-scheme: dark light;
+    --bg: #0d1117;
+    --surface: #161b22;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --good: #7ee787;
+    --amber: #d29922;
+    --border: #30363d;
     --term-bg: #010409;
-    --font-heading: "Archivo", system-ui, sans-serif;
-    --font-body: "Archivo", system-ui, sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
-  body { font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; background: var(--color-bg); color: var(--color-text); }
-  h1, h2, h3 { font-family: var(--font-heading); font-weight: 800; line-height: 1.12; letter-spacing: -0.015em; }
-  ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
-  a { color: var(--color-accent); }
-  table { border-collapse: collapse; margin: 0.75rem 0; width: 100%; }
-  th, td { border-bottom: 1px solid var(--color-divider); padding: 0.3rem 0.6rem; text-align: left; }
-  thead th, tr:first-child th { border-bottom: 2px solid var(--color-divider); color: var(--color-neutral-700); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
-  tbody tr:hover td, tbody tr:hover th { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
-  code { font-family: var(--mono); font-size: 0.85em; background: var(--color-surface); padding: 1px 6px; }
-  pre { font-family: var(--mono); background: var(--term-bg); color: #f3f2f2; border: 2px solid var(--color-text); border-radius: 0; padding: 0.75rem; overflow-x: auto; }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --text: #1f2328;
+      --text-dim: #59636e;
+      --accent: #0969da;
+      --good: #1a7f37;
+      --amber: #9a6700;
+      --border: #d0d7de;
+      --term-bg: #f6f8fa;
+    }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; }
+  header.hero { max-width: 70rem; margin-inline: auto; padding: 3.5rem 1.5rem 1rem; text-align: center; }
+  main { max-width: 70rem; margin-inline: auto; padding: 0 1.5rem 4rem; }
+  section { margin-block-start: 3.5rem; }
+  h1, h2 { line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; }
+  h1 { margin: 0 0 0.75rem; font-size: clamp(1.8rem, 1.4rem + 2vw, 2.8rem); }
+  h2 { margin-block-end: 0.4rem; font-size: 1.35rem; }
+  p { max-width: 80ch; text-wrap: pretty; }
+  .hero p { margin-inline: auto; }
+  .tagline, .lede, .formula { color: var(--text-dim); }
+  .eyebrow { margin-block-end: 0.25rem; color: var(--good); font-family: var(--mono); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+  .meta { border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem; padding: 0.2rem 0.75rem; }
+  .card { border: 1px solid var(--border); border-radius: 0.65rem; background: var(--surface); padding: 1rem 1.25rem; }
+  .verdict { margin: 1.5rem auto 0; border-inline-start: 0.25rem solid var(--amber); text-align: start; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  caption { padding-block: 0 0.5rem; color: var(--text-dim); text-align: start; font-size: 0.8rem; }
+  th, td { border-block-end: 1px solid var(--border); padding: 0.55rem 0.65rem; text-align: start; vertical-align: top; }
+  thead th { color: var(--text-dim); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; text-wrap: balance; }
+  tbody tr:last-child > :is(th, td) { border-block-end: 0; }
+  code { border: 1px solid var(--border); border-radius: 0.3rem; background: var(--surface); font-family: var(--mono); font-size: 0.86em; padding: 0.05rem 0.35rem; overflow-wrap: anywhere; }
+  pre { border: 1px solid var(--border); border-radius: 0.4rem; background: var(--term-bg); color: var(--text); font-family: var(--mono); padding: 0.75rem; overflow-x: auto; }
   pre code { background: transparent; color: inherit; padding: 0; }
-  .labels { color: var(--color-accent-700); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-  details { margin: 0.5rem 0; border: 1px solid var(--color-divider); border-radius: 0; padding: 0.4rem 0.6rem; }
-  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .labels { color: var(--good); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  details { margin-block: 0.6rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.55rem 0.75rem; }
+  summary { min-block-size: 1.5rem; cursor: pointer; }
+  footer { border-block-start: 1px solid var(--border); padding: 1.5rem; color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem; text-align: center; }
+  .skip-link { position: fixed; inset-block-start: 0.75rem; inset-inline-start: 0.75rem; z-index: 10; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--surface); color: var(--text); padding: 0.5rem 0.75rem; transform: translateY(-250%); }
+  .skip-link:focus { transform: translateY(0); }
+  :focus-visible { outline: 0.15rem solid var(--accent); outline-offset: 0.15rem; }
+  @media (max-width: 35rem) {
+    header.hero { padding-block-start: 2.5rem; }
+    main { padding-inline: 1rem; }
+  }
+  @media print {
+    :root { color-scheme: light; --bg: #fff; --surface: #fff; --text: #111; --text-dim: #555; --border: #ccc; }
+    details, section { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
-<h1>Eval report — ${escapeHtml(report.task.id)}</h1>
-<p>
-  Run <code>${escapeHtml(report.run_id)}</code> · model <code>${escapeHtml(report.task.model)}</code> · profile <code>${escapeHtml(report.task.profile)}</code> · base <code>${escapeHtml(String(report.task.base_sha || "").slice(0, 12))}</code><br>
+<a class="skip-link" href="#content">Skip to eval report</a>
+<header class="hero">
+  <p class="eyebrow">Agentify eval receipt</p>
+  <h1>Eval report — ${escapeHtml(report.task.id)}</h1>
+  <p class="tagline">Paired quality, cost, and memory economics from one reproducible run.</p>
+  <div class="meta-row">
+    <span class="meta">run ${escapeHtml(report.run_id)}</span>
+    <span class="meta">${escapeHtml(report.harness ?? "native")} harness</span>
+    <span class="meta">${report.completeness.completed_attempts}/${report.completeness.planned_attempts} attempts</span>
+    ${report.completeness.labels.length > 0 ? `<span class="meta labels">${escapeHtml(report.completeness.labels.join(", ").toUpperCase())}</span>` : ""}
+  </div>
+  <p class="card verdict"><strong>Verdict:</strong> ${escapeHtml(report.verdict.winner ? `${report.verdict.winner} — ${report.verdict.reason}` : report.verdict.reason)}</p>
+</header>
+<main id="content" tabindex="-1" data-testid="agentify-eval-report">
+<section aria-labelledby="run-title">
+<p class="eyebrow">Provenance</p>
+<h2 id="run-title">Run identity</h2>
+<p class="lede">
+  Model <code>${escapeHtml(report.task.model)}</code> · profile <code>${escapeHtml(report.task.profile)}</code> · base <code>${escapeHtml(String(report.task.base_sha || "").slice(0, 12))}</code><br>
   Harness: <code>${escapeHtml(report.harness ?? "native")}</code>${report.harbor ? ` · job <code>${escapeHtml(report.harbor.job)}</code>${report.harbor.dataset ? ` · dataset <code>${escapeHtml(`${report.harbor.dataset.name}@${report.harbor.dataset.version}`)}</code>` : ""}` : ""}<br>
-  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")}${report.versions.harbor ? `, harbor ${escapeHtml(report.versions.harbor)}` : ""} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code><br>
-  Attempts ${report.completeness.completed_attempts}/${report.completeness.planned_attempts}
-  ${report.completeness.labels.length > 0 ? `<span class="labels">— ${escapeHtml(report.completeness.labels.join(", ").toUpperCase())}</span>` : ""}
+  Versions: agentify ${escapeHtml(report.versions.agentify ?? "n/a")}, claude ${escapeHtml(report.versions.claude ?? "n/a")}${report.versions.harbor ? `, harbor ${escapeHtml(report.versions.harbor)}` : ""} · prompt sha256 <code>${escapeHtml(String(report.task.prompt_sha256 || "").slice(0, 16))}</code>
 </p>
-<p><strong>Verdict:</strong> ${escapeHtml(report.verdict.winner ? `${report.verdict.winner} — ${report.verdict.reason}` : report.verdict.reason)}</p>
-<h2>Arms</h2>
-<table>
-  <tr><th>arm</th><th>pass rate</th><th>95% CI</th><th>cost/attempt</th><th>cost/pass</th><th>P50</th><th>P95</th><th>turns</th><th>forbidden fails</th></tr>
-  ${armRows}
-</table>
-${pairedRows ? `<h2>Paired deltas (agentify − baseline)</h2>
-<table>
-  <tr><th>baseline</th><th>pairs</th><th>paired samples</th><th>Δ pass rate</th><th>discordant (agentify / baseline)</th><th>Δ cost/pass</th><th>Δ P95 (ms)</th></tr>
-  ${pairedRows}
-</table>` : ""}
-${frontierItems ? `<h2>Cost-quality frontier</h2><ul>${frontierItems}${marginalItems}</ul>` : ""}
-<h2>Attempts</h2>
+</section>
+<section aria-labelledby="arms-title">
+<p class="eyebrow">Outcome and spend</p>
+<h2 id="arms-title">Arms</h2>
+<div class="table-wrap"><table>
+  <caption>Per-arm quality, cost, latency, and turn totals</caption>
+  <thead><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">95% CI</th><th scope="col">cost/attempt</th><th scope="col">cost/pass</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">mean turns (scope)</th><th scope="col">forbidden fails</th></tr></thead>
+  <tbody>${armRows}</tbody>
+</table></div>
+${Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall") ? '<p class="formula">Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.</p>' : ""}
+</section>
+${economicsRows ? `<section aria-labelledby="economics-title">
+<p class="eyebrow">Value receipt</p>
+<h2 id="economics-title">Memory economics</h2>
+<p class="lede">Cost belongs next to successful work. Rediscovery is the paired phase-B baseline total minus the Agentify total; missing telemetry stays unavailable rather than becoming zero.</p>
+<div class="table-wrap"><table>
+  <caption>Amortized context economics from paired provider telemetry</caption>
+  <thead><tr><th scope="col">baseline</th><th scope="col">cost/pass agentify</th><th scope="col">cost/pass baseline</th><th scope="col">phase-B pairs</th><th scope="col">tokens avoided</th><th scope="col">turns avoided</th><th scope="col">break-even</th><th scope="col">amortized cost/recall at break-even</th><th scope="col">repeated failure avoided</th></tr></thead>
+  <tbody>${economicsRows}</tbody>
+</table></div>
+<p class="formula"><strong>Formula:</strong> ${escapeHtml(report.economics.formulas.break_even)}.</p>
+</section>` : ""}
+${pairedRows ? `<section aria-labelledby="paired-title"><h2 id="paired-title">Paired deltas (agentify − baseline)</h2>
+<div class="table-wrap"><table>
+  <caption>Matched repeat indices only</caption>
+  <thead><tr><th scope="col">baseline</th><th scope="col">pairs</th><th scope="col">paired samples</th><th scope="col">Δ pass rate</th><th scope="col">discordant (agentify / baseline)</th><th scope="col">Δ cost/pass</th><th scope="col">Δ P95 (ms)</th></tr></thead>
+  <tbody>${pairedRows}</tbody>
+</table></div></section>` : ""}
+${frontierItems ? `<section aria-labelledby="frontier-title"><h2 id="frontier-title">Cost-quality frontier</h2><ul>${frontierItems}${marginalItems}</ul></section>` : ""}
+<section aria-labelledby="attempts-title">
+<p class="eyebrow">Drill-down</p>
+<h2 id="attempts-title">Attempts</h2>
 ${attemptBlocks}
+</section>
+</main>
+<footer>Generated locally by Agentify · provider costs are reported, never guessed</footer>
 </body>
 </html>
 `;

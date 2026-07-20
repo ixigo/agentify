@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { listEvals } from "./eval.js";
+import { buildEvalReport } from "./eval-report.js";
 import { buildStatsReport } from "./stats.js";
 import { readValueEvents } from "./value-telemetry.js";
 
@@ -76,7 +77,85 @@ function focusedTestTotals(events) {
   };
 }
 
-function evalEconomics(runs, cutoff) {
+function aggregateMemoryEconomics(reports) {
+  // A report with multiple baseline arms reuses the same Agentify recalls in
+  // every comparison. Summing those comparisons would count the treatment
+  // sessions (and seed investment) once per baseline. The aggregate receipt
+  // therefore accepts only reports with one unambiguous multisession baseline;
+  // per-baseline detail remains available in the individual eval report.
+  const comparisonsByReport = reports.map((report) => (report.economics?.comparisons || [])
+    .filter((comparison) => comparison.multisession_pairs > 0));
+  const excludedMultiBaselineReports = comparisonsByReport.filter((comparisons) => comparisons.length > 1).length;
+  const multisession = comparisonsByReport.flatMap((comparisons) => (comparisons.length === 1 ? comparisons : []));
+  const pairedRecalls = multisession.reduce((sum, comparison) => sum + comparison.multisession_pairs, 0);
+  const sumMetric = (pick) => multisession.reduce((sum, comparison) => sum + finite(pick(comparison)), 0);
+  const tokensMeasuredPairs = sumMetric((comparison) => comparison.phase_b.tokens.measured_pairs);
+  const turnsMeasuredPairs = sumMetric((comparison) => comparison.phase_b.turns.measured_pairs);
+  const costMeasuredPairs = sumMetric((comparison) => comparison.phase_b.cost_usd.measured_pairs);
+  const seedMeasuredPairs = sumMetric((comparison) => comparison.memory_investment.measured_pairs);
+  const rediscoveryTokens = tokensMeasuredPairs > 0 ? rounded(sumMetric((comparison) => comparison.phase_b.tokens.avoided), 2) : null;
+  const rediscoveryTurns = turnsMeasuredPairs > 0 ? rounded(sumMetric((comparison) => comparison.phase_b.turns.avoided), 2) : null;
+
+  let breakEvenSessions = null;
+  let breakEvenStatus = pairedRecalls === 0 ? "not_applicable" : "unreported";
+  let agentifyAmortizedCost = null;
+  let baselineRediscoveryCost = null;
+  if (pairedRecalls > 0 && seedMeasuredPairs === pairedRecalls && costMeasuredPairs === pairedRecalls) {
+    const incrementalSeed = sumMetric((comparison) => comparison.memory_investment.incremental_seed_cost_usd);
+    const recallSavings = sumMetric((comparison) => comparison.phase_b.cost_usd.avoided);
+    const savingsPerRecall = recallSavings / pairedRecalls;
+    if (savingsPerRecall > 0) {
+      breakEvenSessions = Math.max(1, Math.ceil(Math.max(0, incrementalSeed / pairedRecalls) / savingsPerRecall));
+      breakEvenStatus = "reached";
+      const agentifyRecall = sumMetric((comparison) => comparison.phase_b.cost_usd.agentify_total) / pairedRecalls;
+      baselineRediscoveryCost = rounded(sumMetric((comparison) => comparison.phase_b.cost_usd.baseline_total) / pairedRecalls);
+      agentifyAmortizedCost = rounded((Math.max(0, incrementalSeed / pairedRecalls) + breakEvenSessions * agentifyRecall) / breakEvenSessions);
+    } else {
+      breakEvenStatus = "not_reached";
+    }
+  }
+
+  const repeated = multisession.map((comparison) => comparison.repeated_failure_cost_avoided);
+  const repeatedPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.pairs), 0);
+  const repeatedCostedPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.costed_pairs), 0);
+  const repeatedTurnsPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.turns_reported_pairs), 0);
+  const reportedRepeatedCost = rounded(repeated.reduce((sum, receipt) => sum + finite(receipt?.reported_cost_usd), 0));
+  const reportedRepeatedTurns = repeated.reduce((sum, receipt) => sum + finite(receipt?.reported_turns), 0);
+
+  return {
+    source: "paired two-phase eval phase-B telemetry",
+    eval_reports: reports.length,
+    eligible_eval_reports: multisession.length,
+    excluded_multi_baseline_reports: excludedMultiBaselineReports,
+    comparisons: multisession.length,
+    paired_recalls: pairedRecalls,
+    rediscovery_avoided: {
+      tokens: rediscoveryTokens,
+      token_pairs: tokensMeasuredPairs,
+      turns: rediscoveryTurns,
+      turn_pairs: turnsMeasuredPairs,
+    },
+    break_even: {
+      status: breakEvenStatus,
+      sessions: breakEvenSessions,
+      cost_pairs: costMeasuredPairs,
+      seed_cost_pairs: seedMeasuredPairs,
+      agentify_amortized_cost_per_session_usd: agentifyAmortizedCost,
+      baseline_rediscovery_cost_per_session_usd: baselineRediscoveryCost,
+    },
+    repeated_failure_cost_avoided: {
+      pairs: repeatedPairs,
+      costed_pairs: repeatedCostedPairs,
+      turns_reported_pairs: repeatedTurnsPairs,
+      cost_usd: repeatedPairs > 0 && repeatedCostedPairs === repeatedPairs ? reportedRepeatedCost : repeatedPairs === 0 ? 0 : null,
+      reported_cost_usd: reportedRepeatedCost,
+      turns: repeatedPairs > 0 && repeatedTurnsPairs === repeatedPairs ? reportedRepeatedTurns : repeatedPairs === 0 ? 0 : null,
+      reported_turns: reportedRepeatedTurns,
+    },
+  };
+}
+
+async function evalEconomics(root, config, runs, cutoff) {
   const cutoffMs = Date.parse(cutoff);
   const recent = runs.filter((run) => {
     const timestampMs = Date.parse(String(run.ts || ""));
@@ -97,6 +176,13 @@ function evalEconomics(runs, cutoff) {
     costedAttempts += finite(bucket.costed_attempts);
   }
   const completeCostCoverage = attempts > 0 && costedAttempts === attempts;
+  const reports = (await Promise.all(recent.map(async (run) => {
+    try {
+      return await buildEvalReport(root, config, run.run_id);
+    } catch {
+      return null;
+    }
+  }))).filter(Boolean);
   return {
     source: "deterministic Agentify eval arm",
     runs: matchedRuns,
@@ -106,6 +192,7 @@ function evalEconomics(runs, cutoff) {
     costed_attempts: costedAttempts,
     cost_coverage_ratio: attempts > 0 ? costedAttempts / attempts : null,
     cost_per_passing_task_usd: completeCostCoverage && passes > 0 ? rounded(costUsd / passes) : null,
+    memory_economics: aggregateMemoryEconomics(reports),
   };
 }
 
@@ -160,7 +247,7 @@ export async function buildValueReport(root, options = {}) {
     output_tokens: totals.output_tokens,
     by_kind: stats.delegations.by_kind,
   };
-  const costPerPassingTask = evalEconomics(evals.runs, cutoff);
+  const costPerPassingTask = await evalEconomics(root, options.config || {}, evals.runs, cutoff);
   const observableAssists = context.decisions_reused
     + context.stale_context_rejected
     + context.failed_command_repeats_intercepted
@@ -178,6 +265,8 @@ export async function buildValueReport(root, options = {}) {
       focused_test_files_avoided: tests.full_suite_files_avoided,
       delegation_cost_usd: delegations.cost_usd,
       cost_per_passing_task_usd: costPerPassingTask.cost_per_passing_task_usd,
+      rediscovery_avoided_tokens: costPerPassingTask.memory_economics.rediscovery_avoided.tokens,
+      break_even_sessions: costPerPassingTask.memory_economics.break_even.sessions,
     },
     context,
     delegations,
@@ -192,6 +281,8 @@ export async function buildValueReport(root, options = {}) {
         "Injected context tokens are estimated at roughly four characters per token.",
         "Dollar totals include provider-reported cost only; missing costs are not imputed.",
         "Focused-test savings count indexed test files omitted from an executed focused run, not wall-clock time saved.",
+        "Rediscovery avoided is the paired baseline minus Agentify phase-B token/turn total; only attempts with telemetry on both arms are counted.",
+        "Break-even is the first recall session where incremental phase-A seed cost is no greater than cumulative measured phase-B cost savings.",
       ],
     },
   };
@@ -202,6 +293,17 @@ export function renderValueReport(report) {
   const delegations = report.delegations;
   const tests = report.tests;
   const economics = report.cost_per_passing_task;
+  const memory = economics.memory_economics;
+  const rediscovery = memory.paired_recalls > 0
+    ? `${memory.rediscovery_avoided.tokens ?? "not reported"} token(s), ${memory.rediscovery_avoided.turns ?? "not reported"} turn(s)`
+    : "no paired two-phase recalls in this window";
+  const breakEven = memory.break_even.status === "reached"
+    ? `by recall session ${memory.break_even.sessions}`
+    : memory.break_even.status.replaceAll("_", " ");
+  const amortized = memory.break_even.status === "reached"
+    ? `${formatCost(memory.break_even.agentify_amortized_cost_per_session_usd)} Agentify vs ${formatCost(memory.break_even.baseline_rediscovery_cost_per_session_usd)} baseline per recall`
+    : "not reported";
+  const repeated = memory.repeated_failure_cost_avoided;
   const lines = [
     `Agentify value — last ${report.window_days} day(s)`,
     `${report.headline.observable_assists} observable assist(s), ${formatNumber(context.estimated_tokens)} estimated context token(s) injected`,
@@ -223,6 +325,13 @@ export function renderValueReport(report) {
     "",
     "Cost per passing task:",
     `- ${formatCost(economics.cost_per_passing_task_usd)} (${economics.passes} deterministic pass(es), ${economics.costed_attempts}/${economics.attempts} attempt cost(s) reported)`,
+    "",
+    "Memory economics:",
+    `- rediscovery avoided: ${rediscovery}`,
+    `- break-even: ${breakEven}`,
+    `- amortized cost at break-even: ${amortized}`,
+    `- repeated-failure cost avoided: ${formatCost(repeated.cost_usd)} across ${repeated.pairs} paired failure(s); ${repeated.turns ?? "not reported"} turn(s)`,
+    `- coverage: ${memory.eligible_eval_reports}/${memory.eval_reports} eval report(s) with one multisession baseline; ${memory.excluded_multi_baseline_reports} multi-baseline report(s) excluded`,
     "",
     "Evidence notes:",
     ...report.evidence.limitations.map((item) => `- ${item}`),
@@ -311,7 +420,17 @@ export function renderValueHtml(report, options = {}) {
     ? `Value-event tracking began ${String(report.tracking_started_at).slice(0, 10)}.`
     : "No context or focused-test value events have been recorded yet.";
   const economics = report.cost_per_passing_task;
+  const memory = economics.memory_economics;
   const costPerPass = economics.cost_per_passing_task_usd === null ? "—" : formatCost(economics.cost_per_passing_task_usd);
+  const rediscoveryTokens = memory.rediscovery_avoided.tokens === null ? "—" : formatNumber(memory.rediscovery_avoided.tokens);
+  const rediscoveryTurns = memory.rediscovery_avoided.turns === null ? "—" : formatNumber(memory.rediscovery_avoided.turns);
+  const breakEven = memory.break_even.status === "reached" ? `≤ ${memory.break_even.sessions} recall session(s)` : "—";
+  const amortizedCost = memory.break_even.status === "reached"
+    ? `${formatCost(memory.break_even.agentify_amortized_cost_per_session_usd)} vs ${formatCost(memory.break_even.baseline_rediscovery_cost_per_session_usd)}`
+    : "—";
+  const repeatedFailure = memory.repeated_failure_cost_avoided;
+  const repeatedFailureCost = repeatedFailure.cost_usd === null ? "—" : formatCost(repeatedFailure.cost_usd);
+  const repeatedFailureTurns = repeatedFailure.turns === null ? "—" : formatNumber(repeatedFailure.turns);
   const delegations = report.delegations;
   const tests = report.tests;
   const costCoverage = delegations.runs > 0 ? `${delegations.costed_runs}/${delegations.runs} run(s) reported cost` : "no runs in window";
@@ -513,6 +632,20 @@ export function renderValueHtml(report, options = {}) {
             <tr><th scope="row">Deterministic passes</th><td class="number">${formatNumber(economics.passes)}</td></tr>
             <tr><th scope="row">Cost coverage</th><td class="number">${escapeHtml(evalCoverage)}</td></tr>
             <tr><th scope="row">Cost per passing task</th><td class="number">${escapeHtml(costPerPass)}</td></tr>
+          </tbody></table></div>
+        </article>
+        <article class="card panel">
+          <h2>Memory economics</h2>
+          <p class="panel-copy">A value receipt from paired phase-B telemetry: baseline total minus Agentify total. Break-even is the first recall session where measured savings repay the incremental seed cost.</p>
+          <div class="table-wrap"><table><caption>Amortized and rediscovery-avoided eval economics</caption><tbody>
+            <tr><th scope="row">Paired recall sessions</th><td class="number">${formatNumber(memory.paired_recalls)}</td></tr>
+            <tr><th scope="row">Eligible eval reports</th><td class="number">${formatNumber(memory.eligible_eval_reports)}/${formatNumber(memory.eval_reports)} <small>(${formatNumber(memory.excluded_multi_baseline_reports)} multi-baseline excluded)</small></td></tr>
+            <tr><th scope="row">Rediscovery tokens avoided</th><td class="number">${escapeHtml(rediscoveryTokens)} <small>(${memory.rediscovery_avoided.token_pairs}/${memory.paired_recalls} pairs)</small></td></tr>
+            <tr><th scope="row">Rediscovery turns avoided</th><td class="number">${escapeHtml(rediscoveryTurns)} <small>(${memory.rediscovery_avoided.turn_pairs}/${memory.paired_recalls} pairs)</small></td></tr>
+            <tr><th scope="row">Break-even</th><td class="number">${escapeHtml(breakEven)}</td></tr>
+            <tr><th scope="row">Amortized cost/recall at break-even</th><td class="number">${escapeHtml(amortizedCost)} <small>(Agentify vs baseline)</small></td></tr>
+            <tr><th scope="row">Repeated-failure cost avoided</th><td class="number">${escapeHtml(repeatedFailureCost)}</td></tr>
+            <tr><th scope="row">Repeated-failure turns avoided</th><td class="number">${escapeHtml(repeatedFailureTurns)} <small>(${repeatedFailure.pairs} pair(s))</small></td></tr>
           </tbody></table></div>
         </article>
       </div>

@@ -608,6 +608,8 @@ async function readTrial(trialDir) {
   const metadata = agentResult?.metadata ?? result?.metadata ?? {};
   const recallCostUsd = firstFinite(agentResult?.cost, agentResult?.cost_usd, result?.cost_usd, result?.cost);
   const seedCostUsd = firstFinite(metadata?.seed_cost_usd);
+  const recallNumTurns = firstFinite(metadata?.num_turns, agentResult?.num_turns, result?.num_turns);
+  const seedNumTurns = firstFinite(metadata?.seed_num_turns);
   const multisession = metadata?.multisession === true;
   const costUsd = recallCostUsd === null
     ? null
@@ -645,6 +647,8 @@ async function readTrial(trialDir) {
     costUsd,
     recallCostUsd,
     seedCostUsd,
+    recallNumTurns,
+    seedNumTurns,
     multisession,
     usage: inputTokens !== null || outputTokens !== null
       ? {
@@ -790,6 +794,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
           reward: trial.reward,
           harbor_version: harborVersion ?? null,
           dataset: datasetInfo,
+          category: datasetTask?.category ?? null,
         },
         agentify_version: VERSION,
         claude_version: null,
@@ -805,13 +810,18 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
           timed_out: false,
           duration_ms: trial.agentMs,
           subtype: null,
-          num_turns: null,
+          num_turns: trial.recallNumTurns,
           resolved_model: model,
           // cost_usd is the full memory investment (recall + seed) so downstream
           // cost analyses don't undercount; the two-phase split is kept beside it.
           cost_usd: trial.costUsd,
           ...(trial.multisession
-            ? { multisession: true, recall_cost_usd: trial.recallCostUsd, seed_cost_usd: trial.seedCostUsd }
+            ? {
+              multisession: true,
+              recall_cost_usd: trial.recallCostUsd,
+              seed_cost_usd: trial.seedCostUsd,
+              seed_num_turns: trial.seedNumTurns,
+            }
             : {}),
           usage: trial.usage,
         },
@@ -864,6 +874,8 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
           id: taskId,
           model,
           difficulty,
+          category: datasetTask?.category ?? null,
+          phases: datasetTask?.phases ?? null,
           profile: null,
           max_budget_usd: datasetTask?.max_cost_usd ?? null,
           forbidden_paths: [],
