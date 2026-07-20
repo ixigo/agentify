@@ -63,9 +63,12 @@ import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/ha
 import {
   COMPARE_EXIT_ERROR,
   EVAL_EXPORT_FORMATS,
+  EVAL_GRID_FORMATS,
+  buildEvalGrid,
   buildEvalReport,
   buildPromptfooExport,
   compareEvalReports,
+  renderEvalGridMarkdown,
   renderEvalReportHtml,
   renderEvalReportMarkdown,
 } from "./core/eval-report.js";
@@ -719,6 +722,28 @@ export async function runCli(argv, _runtime = {}) {
           return;
         }
 
+        if (subcommand === "grid") {
+          // Model x difficulty frontier across many imported (task, model)
+          // runs (#317). Positional args after "grid" are explicit run ids;
+          // with none, every matrix run (a run carrying both a model and a
+          // difficulty) is aggregated.
+          const format = config.json ? "json" : String(args.format || "json").trim().toLowerCase();
+          if (!EVAL_GRID_FORMATS.includes(format)) {
+            throw new Error(`eval grid --format must be one of ${EVAL_GRID_FORMATS.join(", ")}, got "${args.format}"`);
+          }
+          const runIds = args._.slice(2).map((value) => String(value));
+          const grid = await buildEvalGrid(root, config, runIds);
+          const output = format === "md" ? renderEvalGridMarkdown(grid) : JSON.stringify(grid, null, 2);
+          if (args.out && args.out !== true) {
+            const outPath = path.resolve(root, String(args.out));
+            await fs.writeFile(outPath, output, "utf8");
+            log(`Grid written to ${outPath}`);
+          } else {
+            console.log(output);
+          }
+          return;
+        }
+
         if (subcommand === "compare") {
           // Documented exit codes for CI: 0 gates passed, 1 gate violated,
           // 2 invalid input — so a pipeline can distinguish "regression"
@@ -821,8 +846,13 @@ export async function runCli(argv, _runtime = {}) {
               console.log(JSON.stringify(result, null, 2));
               return;
             }
+            const multiModel = result.models_per_task > 1;
             log(`Harbor suite ${bold(result.suite)} — dataset ${result.dataset.name}@${result.dataset.version}, model ${result.model}.`);
-            log(`Agents: ${result.agents.join(", ")}${result.agents_per_task > result.agents.length ? ` (${result.agents_per_task} agent variants per task)` : ""} · ${result.tasks.length} task(s) × ${result.agents_per_task} agent(s) × ${result.attempts_per_agent} attempt(s) = ${result.trials} trial(s).`);
+            if (multiModel) {
+              log(`Model ladder (${result.models_per_task} rungs): ${result.models.join(" → ")}.`);
+            }
+            const modelFactor = multiModel ? ` × ${result.models_per_task} model(s)` : "";
+            log(`Agents: ${result.agents.join(", ")}${result.agents_per_task > result.agents.length ? ` (${result.agents_per_task} agent variants per task)` : ""} · ${result.tasks.length} task(s) × ${result.agents_per_task} agent(s) × ${result.attempts_per_agent} attempt(s)${modelFactor} = ${result.trials} trial(s).`);
             log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)} (every trial capped by its task's max_cost_usd).`);
             log(dim(`Enforcement: ${result.enforcement}`));
             log("");
@@ -851,7 +881,7 @@ export async function runCli(argv, _runtime = {}) {
           throw new Error("eval harbor requires a subcommand: validate, plan, or import (see docs/harbor.md)");
         }
 
-        throw new Error("eval requires a subcommand: init, run, report, compare, list, or harbor");
+        throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, or harbor");
       }
 
       case "risk": {

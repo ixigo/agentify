@@ -304,12 +304,12 @@ test("harbor agent names map onto native arm labels", () => {
 // Import -> native report
 // ---------------------------------------------------------------------------
 
-function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, profile = null, suffix = "", metadata = null }) {
+function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, profile = null, suffix = "", metadata = null, model = "anthropic/claude-haiku-4-5-20251001" }) {
   return {
     trial_name: `${task}__${agent}${profile ? `-${profile}` : ""}${suffix}`,
     task_name: task,
     agent_name: agent,
-    agent_info: { name: agent, version: "1.2.3", model_name: "anthropic/claude-haiku-4-5-20251001", ...(profile ? { kwargs: { profile } } : {}) },
+    agent_info: { name: agent, version: "1.2.3", model_name: model, ...(profile ? { kwargs: { profile } } : {}) },
     started_at: "2026-07-10T01:00:00.000Z",
     finished_at: "2026-07-10T01:04:00.000Z",
     agent_execution: { started_at: "2026-07-10T01:01:00.000Z", finished_at: "2026-07-10T01:03:30.000Z" },
@@ -536,4 +536,120 @@ test("import rejects empty or missing job directories", async () => {
   const emptyDir = path.join(root, "empty-job");
   await fs.mkdir(emptyDir, { recursive: true });
   await assert.rejects(importHarborJob(root, {}, emptyDir), /No importable Harbor trials/);
+});
+
+// ---------------------------------------------------------------------------
+// Model down-shift × difficulty matrix (#317)
+// ---------------------------------------------------------------------------
+
+test("committed downshift suite plans the model×difficulty matrix and bounds its ceiling (#317)", async () => {
+  const plan = await planHarborRun(REPO_ROOT, {}, { suite: "downshift" });
+  // 9 tasks × 2 arms × 3 attempts × 3 model rungs.
+  assert.equal(plan.models_per_task, 3);
+  assert.equal(plan.trials, 162);
+  assert.equal(plan.max_spend_usd, 56.7); // 162 × $0.35
+  assert.equal(plan.models.length, 3);
+  assert.ok(plan.models.includes("anthropic/claude-haiku-4-5-20251001"));
+  // Every planned task carries a difficulty rung for the grid.
+  assert.ok(plan.tasks.every((task) => ["easy", "medium", "hard"].includes(task.difficulty)));
+
+  // Single-model suites are unchanged: the ladder is just the manifest pin.
+  const nightly = await planHarborRun(REPO_ROOT, {}, { suite: "nightly" });
+  assert.equal(nightly.models_per_task, 1);
+  assert.deepEqual(nightly.models, ["anthropic/claude-haiku-4-5-20251001"]);
+  assert.equal(nightly.trials, 48); // unchanged: 8 × 2 × 3 × 1
+});
+
+test("plan multiplies the spend ceiling by the suite's model ladder length (#317)", async () => {
+  const root = await makeRoot();
+  const manifest = manifestFixture();
+  manifest.suites.matrix = { tasks: ["task-a", "task-b"], attempts: 2, agents: 2, models: ["anthropic/claude-a-1", "anthropic/claude-b-2", "anthropic/claude-c-3"] };
+  await writeDataset(root, manifest);
+  const plan = await planHarborRun(root, {}, { suite: "matrix" });
+  // 2 tasks × 2 agents × 2 attempts × 3 models.
+  assert.equal(plan.trials, 24);
+  assert.equal(plan.models_per_task, 3);
+  assert.equal(plan.max_spend_usd, Number((2 * 2 * 2 * 3 * 0.25).toFixed(6)));
+});
+
+test("manifest validation covers difficulty rungs and pinned model ladders (#317)", async () => {
+  const root = await makeRoot();
+
+  // A bad difficulty on a task is rejected — a typo would split a grid column.
+  const badDifficulty = manifestFixture();
+  badDifficulty.tasks[0] = { ...badDifficulty.tasks[0], difficulty: "trivial" };
+  await writeDataset(root, badDifficulty);
+  await assert.rejects(loadHarborManifest(root), /unknown difficulty "trivial"/);
+
+  // An unpinned model rung in a suite ladder is rejected — the ceiling must be
+  // reproducible.
+  const unpinned = manifestFixture();
+  unpinned.suites.matrix = { tasks: ["task-a"], attempts: 1, agents: 2, models: ["anthropic/claude-latest"] };
+  await writeDataset(root, unpinned);
+  await assert.rejects(loadHarborManifest(root), /models\[\] must be pinned/);
+
+  // A valid ladder + difficulty load cleanly and default difficulty is "easy".
+  const good = manifestFixture();
+  good.tasks[1] = { ...good.tasks[1], difficulty: "hard" };
+  good.suites.matrix = { tasks: ["task-a", "task-b"], attempts: 2, agents: 2, models: ["anthropic/claude-x-1", "anthropic/claude-y-2"] };
+  await writeDataset(root, good);
+  const { manifest } = await loadHarborManifest(root);
+  assert.equal(manifest.tasks[0].difficulty, "easy"); // defaulted
+  assert.equal(manifest.tasks[1].difficulty, "hard");
+  assert.equal(manifest.suites.matrix.models.length, 2);
+});
+
+test("import splits a two-model job into per-(task, model) runs and stamps difficulty (#317)", async () => {
+  const root = await makeRoot();
+  const manifest = manifestFixture();
+  manifest.tasks[0] = { ...manifest.tasks[0], difficulty: "hard" }; // task-a
+  await writeDataset(root, manifest);
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  const strong = "anthropic/claude-sonnet-4-5-20250929";
+  const jobDir = await writeJob(root, "2026-07-19-downshift", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, model: weak, suffix: "-weak" }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 0, model: weak, suffix: "-weak" }),
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, model: strong, suffix: "-strong" }),
+    trialResult({ task: "task-a", agent: "claude-code", reward: 1, model: strong, suffix: "-strong" }),
+  ]);
+
+  const { runs } = await importHarborJob(root, {}, jobDir);
+  // Same task, two models => two single-model runs, not one mixed run.
+  assert.equal(runs.length, 2);
+  const byModel = new Map(runs.map((run) => [run.model, run]));
+  assert.ok(byModel.has(weak) && byModel.has(strong));
+  for (const run of runs) {
+    assert.equal(run.task_id, "task-a");
+    assert.equal(run.difficulty, "hard");
+    assert.deepEqual([...run.arms].sort(), ["agentify", "claude-code"]);
+    assert.equal(run.attempts, 2); // one per arm — repeat indices did not collide
+  }
+
+  // The difficulty axis reaches both the run meta and the attempt records.
+  const weakRunDir = path.join(root, ".agentify", "evals", "runs", byModel.get(weak).run_id);
+  const runMeta = JSON.parse(await fs.readFile(path.join(weakRunDir, "run.json"), "utf8"));
+  assert.equal(runMeta.plan.task.difficulty, "hard");
+  assert.equal(runMeta.plan.task.model, weak);
+  const attempt = JSON.parse(await fs.readFile(path.join(weakRunDir, "attempts", "agentify-1", "result.json"), "utf8"));
+  assert.equal(attempt.difficulty, "hard");
+  assert.equal(attempt.model, weak);
+});
+
+test("committed difficulty variants reuse the base verifier verbatim (#317)", async () => {
+  const tasksRoot = path.join(REPO_ROOT, "evals", "harbor", "tasks");
+  const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path"];
+  for (const base of bases) {
+    const baseVerifier = await fs.readFile(path.join(tasksRoot, base, "tests", "test.sh"), "utf8");
+    for (const level of ["medium", "hard"]) {
+      const dir = path.join(tasksRoot, `${base}-${level}`);
+      const toml = await fs.readFile(path.join(dir, "task.toml"), "utf8");
+      assert.match(toml, new RegExp(`difficulty = "${level}"`), `${base}-${level} must declare difficulty ${level}`);
+      // The instruction must exist and be non-empty (the harder prompt).
+      const instruction = await fs.readFile(path.join(dir, "instruction.md"), "utf8");
+      assert.ok(instruction.trim().length > 0, `${base}-${level} needs an instruction`);
+      // Verifier intent must be unchanged: the fair-comparison contract.
+      const variantVerifier = await fs.readFile(path.join(dir, "tests", "test.sh"), "utf8");
+      assert.equal(variantVerifier, baseVerifier, `${base}-${level} verifier must match its base verbatim`);
+    }
+  }
 });

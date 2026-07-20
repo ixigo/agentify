@@ -1,0 +1,5 @@
+# netclient runtime configuration. Single source of truth, loaded by
+# src/config.js. Flat snake_case keys only.
+retry_limit: 3
+timeout_ms: 2000
+base_url: https://api.example.test

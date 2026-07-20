@@ -1,0 +1,89 @@
+# Harbor job config: model down-shift × difficulty matrix (#317).
+#
+# The nightly suite runs on one model (claude-haiku-4-5) at difficulty "easy",
+# where both arms pass without needing context — so the pairs tie and no arm
+# separates. This suite makes context *load-bearing* by holding the tasks,
+# image, budget, and verifier fixed while varying two axes:
+#
+#   • difficulty — the same three context-decisive tasks at easy / medium /
+#     hard. The harder variants strip the hint that leaks the convention from
+#     the instruction, so the answer survives only in the seeded Agentify
+#     decision the agentify arm recalls (see tasks/*-medium, tasks/*-hard).
+#   • model capability — a ladder from a small/older model up to a stronger
+#     one. As baseline capability drops, the durable context should hold the
+#     agentify arm's pass rate up while the plain arm degrades, widening the
+#     gap into a significant, discordant win.
+#
+# Each (model × difficulty) cell runs both arms (agentify-claude + plain
+# claude-code) at the same budget cap and verifier. `agentify eval grid` reads
+# the imported runs back as a model×difficulty frontier: pass-rate delta,
+# discordant-pair count, and cost/pass per cell, so we can pick the operating
+# point where the signal is largest and honest.
+#
+# This multiplies trials (9 tasks × 2 arms × 3 attempts × 3 model rungs = 162),
+# so ALWAYS print and confirm the ceiling before launching:
+#   agentify eval harbor plan --suite downshift
+# Launch from evals/harbor/ with:  harbor run -c suites/downshift.yaml
+# Then import + grid:
+#   agentify eval harbor import jobs/<job-dir>
+#   agentify eval grid --format md
+jobs_dir: jobs
+
+n_attempts: 3
+# The matrix is large; two concurrent trials keeps it gentle on subscription
+# rate limits without stretching wall-clock unreasonably.
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      # easy rung (the existing originals)
+      - recall-error-envelope
+      - avoid-cache-regression
+      - reject-stale-config-path
+      # medium rung
+      - recall-error-envelope-medium
+      - avoid-cache-regression-medium
+      - reject-stale-config-path-medium
+      # hard rung
+      - recall-error-envelope-hard
+      - avoid-cache-regression-hard
+      - reject-stale-config-path-hard
+
+# Six agent entries: one agentify arm and one plain baseline per model rung.
+# Same profile, budget, and turns across every rung — only model_name moves, so
+# the model axis is the sole difference within an arm.
+agents:
+  # --- rung 1: small/older model (weakest capability) ---
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-3-5-haiku-20241022
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 16
+  - name: claude-code
+    model_name: anthropic/claude-3-5-haiku-20241022
+    kwargs:
+      max_budget_usd: 0.35
+  # --- rung 2: the nightly pin (mid capability) ---
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 16
+  - name: claude-code
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35
+  # --- rung 3: stronger model (highest capability) ---
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-sonnet-4-5-20250929
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 16
+  - name: claude-code
+    model_name: anthropic/claude-sonnet-4-5-20250929
+    kwargs:
+      max_budget_usd: 0.35

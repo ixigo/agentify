@@ -39,6 +39,7 @@ evals/harbor/
     smoke.yaml          # 1 task × 2 agents × 1 attempt
     nightly.yaml        # 8 tasks × 2 agents × 3 attempts
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
+    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 3 model rungs
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -192,6 +193,54 @@ Launch with `harbor run -c suites/crossvendor.yaml`; always `agentify eval
 harbor plan --suite crossvendor` first (ceiling `2 tasks × 2 agents × 3
 attempts × $0.70 = $8.40`).
 
+## Model down-shift × difficulty matrix (#317)
+
+On `claude-haiku-4-5` at `difficulty = "easy"` the baseline is strong enough to
+pass the context-decisive tasks *without* the recalled context, so both arms
+tie and no arm separates — a tie is not evidence that context is worthless, only
+that the task was too easy to need it. The `downshift` suite makes context
+**load-bearing** by holding tasks, image, budget, and verifier fixed while
+varying two axes:
+
+- **difficulty** — the three context-decisive tasks (`recall-error-envelope`,
+  `avoid-cache-regression`, `reject-stale-config-path`) at `easy` (the
+  originals) plus committed `-medium` and `-hard` variants. The harder variants
+  strip the hint that leaks the convention from `instruction.md`, so the answer
+  survives only in the seeded Agentify decision the agentify arm recalls. The
+  `environment/`, `tests/test.sh`, and `solution/` are copied **verbatim** from
+  the base task — only the prompt gets harder, so the verifier intent (the
+  fair-comparison contract) never moves.
+- **model capability** — a ladder from a small/older model up to a stronger one
+  (`claude-3-5-haiku` → `claude-haiku-4-5` → `claude-sonnet-4-5`). As baseline
+  capability drops, durable context should hold the agentify arm's pass rate up
+  while the plain arm degrades, widening the gap into a significant, discordant
+  win.
+
+Each `(model × difficulty)` cell runs both arms at the same budget cap and
+verifier. On import, each `(task, model)` becomes its own single-model run (so
+repeat indices never collide across rungs), and every run carries its
+`difficulty` rung.
+
+Read the frontier back with the grid report:
+
+```
+agentify eval harbor plan --suite downshift        # prints the 3-rung ladder + $56.70 ceiling
+harbor run -c suites/downshift.yaml                 # after confirming the ceiling
+agentify eval harbor import jobs/<job-dir>          # one run per (task, model)
+agentify eval grid --format md                      # model × difficulty frontier
+```
+
+`agentify eval grid` buckets the imported runs into `(model × difficulty)`
+cells and, per cell, reports the agentify−baseline **pass-rate delta**, the
+**discordant-pair count** (agentify-only / baseline-only wins), the paired
+**sign-test p**, and **cost/pass**. Models are ordered weakest-first by baseline
+pass rate, so a delta that *grows down the rows* is context becoming
+load-bearing. A cell is flagged `[x]` when it meets the #317 acceptance target —
+≥5 discordant pairs favoring agentify at p < 0.05 — and the grid names the
+largest such cell as the honest operating point. Pass explicit run ids
+(`agentify eval grid <run-id>…`) to grid a subset; with none, every imported
+matrix run is aggregated.
+
 ## Dataset categories
 
 The tasks cover the roadmap's context-value claims plus the two controls
@@ -230,7 +279,8 @@ that keep us honest:
 
 Every trial is capped by its task's `max_cost_usd` (enforced by the agents
 via `--max-budget-usd`). The suite ceiling is always
-`tasks × agents × attempts × cap`:
+`tasks × agents × attempts × model-rungs × cap` (single-model suites have one
+rung, so it reduces to `tasks × agents × attempts × cap`):
 
 ```
 agentify eval harbor plan --suite smoke        # $0.70 ceiling (1×2×1×$0.35)
@@ -238,7 +288,11 @@ agentify eval harbor plan --suite nightly      # 8 tasks × 2 × 3 × cap = $16.
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
+agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 3 models × cap = $56.70
 ```
+
+The `downshift` matrix multiplies by its model ladder, so its plan prints the
+rungs and the multiplied trial count before any spend — see the section below.
 
 Cross-vendor trials additionally require **both** vendors' credentials in the
 trial container (`OPENAI_API_KEY` for Codex on top of the Claude auth above) —
@@ -326,6 +380,13 @@ ceiling, 48/48 trials, zero flakes):
   an exact two-sided sign-test p = 0.25 with overlapping CIs; the fail-closed
   winner rule needs CI separation and p < 0.05 (≥5 discordant pairs).
   Accumulate nightly runs, or raise attempts on discordant tasks.
+- **Why the model axis is next.** Six of eight tasks tied 3/3–3/3 because
+  `claude-haiku-4-5` at `easy` aces them without the recalled context — you
+  cannot separate arms on a task the baseline already passes. The `downshift`
+  suite (above) adds the model-capability and difficulty axes precisely to push
+  the baseline below the point where recall is the difference-maker; run it and
+  read `agentify eval grid` to find the `(model × difficulty)` cell where the
+  agentify win is largest and honest.
 - `eval compare --fail-on "pass_rate_drop>0.02"` against the same-day
   1-attempt baseline passed all 8 task gates (exit 0).
 - The turns bump from 12 to 16 worked: one cap-hit in 48 trials (verifier
@@ -378,5 +439,7 @@ docker system prune                    # reclaim task images when done
 - Every PR: `pnpm test` runs the schema/leak validation (`test/harbor.test.js`
   exercises `agentify eval harbor validate` on the committed dataset) — no
   tokens, no containers.
-- Paid smoke/nightly/profile suites are opt-in or scheduled, never implicit
-  on PRs, and always behind the plan's printed ceiling.
+- Paid smoke/nightly/profile/downshift suites are opt-in or scheduled, never
+  implicit on PRs, and always behind the plan's printed ceiling (the
+  `downshift` matrix multiplies by its model ladder, so its ceiling is the
+  largest — confirm it before launching).

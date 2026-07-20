@@ -41,6 +41,13 @@ export const HARBOR_TASK_CATEGORIES = [
   "misleading-context",
 ];
 
+// Task difficulty rungs (#317). The model×difficulty grid buckets runs by this
+// axis, and the down-shift suite pairs harder variants (medium/hard) with the
+// easy originals to find the operating point where recalled context is
+// load-bearing. Defaults to "easy" when a task omits it so pre-#317 datasets
+// stay valid.
+export const HARBOR_DIFFICULTIES = ["easy", "medium", "hard"];
+
 // Files every Harbor task directory must ship. `fixtures/agentify-context` is
 // Agentify-specific: it is baked into the shared image at a neutral path and
 // only the agentify agent moves it into place, so both arms run the exact
@@ -192,6 +199,13 @@ export async function loadHarborManifest(root, config = {}) {
     if (!Number.isFinite(maxCost) || maxCost <= 0) {
       fail(`task "${id}" needs a positive max_cost_usd spend ceiling`);
     }
+    // Difficulty rung for the model×difficulty grid (#317). Optional; absent
+    // means "easy" so pre-#317 datasets stay valid. When present it must be a
+    // known rung — a typo here would silently split a grid column.
+    const difficulty = task?.difficulty === undefined ? "easy" : String(task.difficulty);
+    if (!HARBOR_DIFFICULTIES.includes(difficulty)) {
+      fail(`task "${id}" has unknown difficulty "${difficulty}" (known: ${HARBOR_DIFFICULTIES.join(", ")})`);
+    }
     // Machine-checkable "fixtures never leak the answer": each task names the
     // strings that constitute its expected solution, and validation greps the
     // fixtures for them. An empty list would make the leak check vacuous.
@@ -206,6 +220,7 @@ export async function loadHarborManifest(root, config = {}) {
     return {
       id,
       category,
+      difficulty,
       max_cost_usd: maxCost,
       answer_leak_patterns: leakPatterns.map((pattern) => pattern.trim()),
       ...(phases ? { phases } : {}),
@@ -237,7 +252,19 @@ export async function loadHarborManifest(root, config = {}) {
     if (!Number.isInteger(agents) || agents < 2) {
       fail(`suite "${name}" agents must be an integer >= 2 (a single arm is not a paired run)`);
     }
-    suites[name] = { tasks: [...tasks], attempts, agents };
+    // Optional model ladder (#317). A down-shift matrix reruns the same tasks
+    // across a capability ladder, so its spend plan multiplies by the number of
+    // rungs. Default is the manifest's single pinned model. Every rung must be a
+    // pinned id (no floating aliases) so the ceiling is reproducible.
+    let models;
+    if (suite?.models === undefined) {
+      models = [manifest.model];
+    } else if (!Array.isArray(suite.models) || suite.models.length === 0) {
+      fail(`suite "${name}" models must be a non-empty list of pinned model ids`);
+    } else {
+      models = suite.models.map((model) => requirePinned(model, `suite "${name}" models[]`));
+    }
+    suites[name] = { tasks: [...tasks], attempts, agents, models };
   }
   if (!suites.smoke) {
     fail('suites must include a low-cost "smoke" suite');
@@ -412,7 +439,10 @@ export async function validateHarborDataset(root, config = {}) {
 
 // Worst-case spend for a suite before anything launches: every trial is
 // bounded by its task's max_cost_usd ceiling (enforced inside the agents via
-// --max-budget-usd), so the suite ceiling is tasks × agents × attempts × cap.
+// --max-budget-usd), so the suite ceiling is
+// tasks × agents × attempts × model-rungs × cap. A single-model suite has one
+// rung, so this reduces to the original tasks × agents × attempts × cap; a
+// down-shift matrix (#317) multiplies by its model ladder length.
 export async function planHarborRun(root, config = {}, options = {}) {
   const { manifest, paths } = await loadHarborManifest(root, config);
   const suiteName = String(options.suite || "smoke").trim();
@@ -421,7 +451,8 @@ export async function planHarborRun(root, config = {}, options = {}) {
     throw new Error(`Unknown Harbor suite "${suiteName}" (available: ${Object.keys(manifest.suites).join(", ")})`);
   }
   const tasks = manifest.tasks.filter((task) => suite.tasks.includes(task.id));
-  const trialsPerTask = suite.agents * suite.attempts;
+  const models = suite.models ?? [manifest.model];
+  const trialsPerTask = suite.agents * suite.attempts * models.length;
   const maxSpend = tasks.reduce((sum, task) => sum + task.max_cost_usd * trialsPerTask, 0);
   const suitePath = path.join(paths.suitesDir, `${suiteName}.yaml`);
   return {
@@ -430,10 +461,14 @@ export async function planHarborRun(root, config = {}, options = {}) {
     suite: suiteName,
     dataset: { name: manifest.name, version: manifest.version },
     model: manifest.model,
+    // The capability ladder this suite reruns the tasks across. A single-model
+    // suite lists just the manifest pin; the down-shift matrix lists its rungs.
+    models,
     pins: manifest.pins,
     agents: manifest.agents.map((agent) => agent.name),
     agents_per_task: suite.agents,
-    tasks: tasks.map((task) => ({ id: task.id, category: task.category, max_cost_usd: task.max_cost_usd })),
+    models_per_task: models.length,
+    tasks: tasks.map((task) => ({ id: task.id, category: task.category, difficulty: task.difficulty, max_cost_usd: task.max_cost_usd })),
     attempts_per_agent: suite.attempts,
     trials: tasks.length * trialsPerTask,
     max_spend_usd: Number(maxSpend.toFixed(6)),
@@ -628,10 +663,18 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
   }
 
   const { runsRoot } = resolveEvalPaths(root, config);
-  const byTask = new Map();
+  // One imported run per (task, model). A multi-model job — e.g. the #317
+  // down-shift matrix, which reruns the same task across a capability ladder —
+  // would otherwise fold every rung into a single run, colliding repeat indices
+  // and cross-pairing arms that ran on different models. Keying on task+model
+  // keeps each run single-model so the pairing contract holds; a single-model
+  // job has one model per task, so this still yields exactly one run per task.
+  const byCell = new Map();
   for (const trial of trials) {
-    if (!byTask.has(trial.task)) byTask.set(trial.task, []);
-    byTask.get(trial.task).push(trial);
+    const model = trial.model ?? "";
+    const key = `${trial.task}::${model}`;
+    if (!byCell.has(key)) byCell.set(key, { task: trial.task, model: trial.model ?? null, trials: [] });
+    byCell.get(key).trials.push(trial);
   }
 
   const importedAt = new Date().toISOString();
@@ -645,13 +688,18 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
     : null;
   const harborVersion = firstString(jobConfig?.harbor_version, jobResult?.harbor_version, jobLock?.harbor?.version);
   const runs = [];
-  for (const [taskId, taskTrials] of [...byTask.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [, cell] of [...byCell.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const taskId = cell.task;
+    const taskTrials = cell.trials;
     const runId = importRunId(options.now ? new Date(options.now) : new Date());
     const runDir = path.join(runsRoot, runId);
     await ensureDir(path.join(runDir, "attempts"));
 
-    const model = firstString(...taskTrials.map((trial) => trial.model), manifest?.model) ?? "unknown";
+    const model = firstString(cell.model, ...taskTrials.map((trial) => trial.model), manifest?.model) ?? "unknown";
     const datasetTask = manifest?.tasks?.find((task) => task.id === taskId) ?? null;
+    // Difficulty rung for the model×difficulty grid (#317); comes from the
+    // dataset task metadata, null for an external/unknown task.
+    const difficulty = datasetTask?.difficulty ?? null;
     const datasetInfo = datasetTask && manifest ? { name: manifest.name, version: manifest.version } : null;
     const repeatCounters = new Map();
     const order = [];
@@ -678,6 +726,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
         context_ablation: null,
         repeat_index: repeatIndex,
         task_id: taskId,
+        difficulty,
         base_sha: null,
         harness: "harbor",
         harbor: {
@@ -761,6 +810,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
         task: {
           id: taskId,
           model,
+          difficulty,
           profile: null,
           max_budget_usd: datasetTask?.max_cost_usd ?? null,
           forbidden_paths: [],
@@ -776,6 +826,8 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
     runs.push({
       run_id: runId,
       task_id: taskId,
+      model,
+      difficulty,
       arms: [...new Set(order.map((entry) => entry.arm))],
       attempts: order.length,
       report_command: `agentify eval report ${runId}`,
@@ -790,7 +842,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
     // Summary-level dataset identity only when every imported task belongs to
     // the local manifest; a mixed or external job stays unlabeled here (the
     // per-run provenance already carries per-task truth).
-    dataset: manifest && [...byTask.keys()].every((id) => manifest.tasks.some((task) => task.id === id))
+    dataset: manifest && [...new Set([...byCell.values()].map((cell) => cell.task))].every((id) => manifest.tasks.some((task) => task.id === id))
       ? { name: manifest.name, version: manifest.version }
       : null,
     trials_imported: trials.length - skipped.filter((entry) => entry.reason.includes("arm label")).length,

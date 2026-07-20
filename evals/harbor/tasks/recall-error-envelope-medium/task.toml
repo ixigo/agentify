@@ -1,0 +1,21 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of recall-error-envelope: same environment and verifier,
+# a harder instruction that drops the "consistent with how this project handles
+# errors elsewhere" hint so the envelope convention is recoverable only from
+# the recalled Agentify decision (#317).
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "difficulty-variant"]
+difficulty = "medium"
+description = "Add an order-lookup handler with a proper failure response; the instruction no longer points at the repo's error convention, so the {error:{code,message}} envelope must come from the recalled Agentify decision."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

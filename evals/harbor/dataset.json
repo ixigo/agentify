@@ -23,6 +23,29 @@
     {
       "id": "recall-error-envelope",
       "category": "decision-recall",
+      "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "order_not_found",
+        "getOrder",
+        "orders/"
+      ]
+    },
+    {
+      "id": "recall-error-envelope-medium",
+      "category": "decision-recall",
+      "difficulty": "medium",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "order_not_found",
+        "getOrder",
+        "orders/"
+      ]
+    },
+    {
+      "id": "recall-error-envelope-hard",
+      "category": "decision-recall",
+      "difficulty": "hard",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "order_not_found",
@@ -33,6 +56,29 @@
     {
       "id": "avoid-cache-regression",
       "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
+    },
+    {
+      "id": "avoid-cache-regression-medium",
+      "category": "prior-failure-avoidance",
+      "difficulty": "medium",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
+    },
+    {
+      "id": "avoid-cache-regression-hard",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "maxEntries",
@@ -43,6 +89,27 @@
     {
       "id": "reject-stale-config-path",
       "category": "stale-context-rejection",
+      "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "retry_limit: 5",
+        "retryLimit: 5"
+      ]
+    },
+    {
+      "id": "reject-stale-config-path-medium",
+      "category": "stale-context-rejection",
+      "difficulty": "medium",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "retry_limit: 5",
+        "retryLimit: 5"
+      ]
+    },
+    {
+      "id": "reject-stale-config-path-hard",
+      "category": "stale-context-rejection",
+      "difficulty": "hard",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "retry_limit: 5",
@@ -52,6 +119,7 @@
     {
       "id": "rename-shipping-rate-refs",
       "category": "repo-intelligence",
+      "difficulty": "easy",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "quoteShippingRate"
@@ -60,6 +128,7 @@
     {
       "id": "select-affected-tests",
       "category": "affected-test-selection",
+      "difficulty": "medium",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "Math.round((subtotal",
@@ -69,6 +138,7 @@
     {
       "id": "mechanical-header-bump",
       "category": "mechanical-control",
+      "difficulty": "easy",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "Copyright 2026"
@@ -77,6 +147,7 @@
     {
       "id": "misleading-note-paginate",
       "category": "misleading-context",
+      "difficulty": "medium",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "(page - 1) * pageSize",
@@ -86,6 +157,7 @@
     {
       "id": "timezone-flake-gotcha",
       "category": "prior-failure-avoidance",
+      "difficulty": "medium",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "getUTCFullYear",
@@ -95,6 +167,7 @@
     {
       "id": "recall-flaky-timezone",
       "category": "prior-failure-avoidance",
+      "difficulty": "medium",
       "max_cost_usd": 0.7,
       "phases": ["seed", "recall"],
       "answer_leak_patterns": [
@@ -106,6 +179,7 @@
     {
       "id": "recall-utc-quarter",
       "category": "prior-failure-avoidance",
+      "difficulty": "medium",
       "max_cost_usd": 0.7,
       "phases": ["seed", "recall"],
       "answer_leak_patterns": [
@@ -148,6 +222,26 @@
       ],
       "attempts": 3,
       "agents": 4
+    },
+    "downshift": {
+      "tasks": [
+        "recall-error-envelope",
+        "avoid-cache-regression",
+        "reject-stale-config-path",
+        "recall-error-envelope-medium",
+        "avoid-cache-regression-medium",
+        "reject-stale-config-path-medium",
+        "recall-error-envelope-hard",
+        "avoid-cache-regression-hard",
+        "reject-stale-config-path-hard"
+      ],
+      "attempts": 3,
+      "agents": 2,
+      "models": [
+        "anthropic/claude-3-5-haiku-20241022",
+        "anthropic/claude-haiku-4-5-20251001",
+        "anthropic/claude-sonnet-4-5-20250929"
+      ]
     },
     "multisession": {
       "tasks": [

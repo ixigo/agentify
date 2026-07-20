@@ -109,6 +109,12 @@ const COMMANDS = [
           flag("--out", { valueKind: "path", description: "Write the report to a file" }),
         ],
       }),
+      subcommand("grid", "Model x difficulty frontier across matrix runs", {
+        flags: [
+          flag("--format", { values: ["json", "md"], description: "Grid output format" }),
+          flag("--out", { valueKind: "path", description: "Write the grid to a file" }),
+        ],
+      }),
       subcommand("compare", "Regression gates between two JSON reports", {
         flags: [
           flag("--fail-on", { valueKind: "text", description: "Gate expression, e.g. pass_rate_drop>0.02 (repeatable)" }),
@@ -116,7 +122,7 @@ const COMMANDS = [
       }),
       subcommand("harbor", "Harbor container-benchmark adapter (validate, plan, import)", {
         flags: [
-          flag("--suite", { valueKind: "text", description: "Suite for harbor plan (smoke, nightly)" }),
+          flag("--suite", { valueKind: "text", description: "Suite for harbor plan (smoke, nightly, downshift, profiles, ...)" }),
         ],
       }),
     ],

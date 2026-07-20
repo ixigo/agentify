@@ -1,0 +1,22 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of recall-error-envelope: same environment and verifier,
+# the hardest instruction — it neither names the error convention nor spells
+# out the failure-response shape, so the exported handler passes only if the
+# recalled Agentify decision (single respondError envelope, resource-scoped
+# snake_case code, 404) drives the implementation (#317).
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "difficulty-variant"]
+difficulty = "hard"
+description = "Add and export an order lookup handler that also handles a missing id; nothing in the instruction reveals the error-envelope convention, so a passing solution must reconstruct it from the recalled Agentify decision alone."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0
