@@ -150,6 +150,21 @@ writes its own `/logs/agent/*-trajectory` file). No provider transcript ever
 crosses — the same "hidden provider state is never replayed" invariant the
 whole dataset holds to, here made *vendor-neutral*.
 
+**Between-phase working-tree reset.** Because both arms run the Codex seed in
+the same `/app` worktree, the seed phase's *code* edits (e.g. `src/monthly.js`
+and its boundary test) would otherwise be readable by the graded phase — a
+memoryless arm could infer the gotcha straight from the seed's artifacts, with
+no context store involved. So the adapter commits the post-install state as a
+baseline and, between phases, rewinds the worktree to it (`git reset --hard` +
+`git clean`): install artifacts (CLAUDE.md, AGENTS.md, hooks) and the fixtures
+survive, seed code edits do not. The `agentify-transfer` arm keeps
+`.agentify/context/` across the reset (the recorded note is the intended
+bridge); the `crossvendor-nomem` arm resets the store back to install-time
+fixtures too, so the seed's finding is not on disk to inject *or* to
+`agentify ctx load` manually (`AGENTIFY_CTX=off` only suppresses hook-time
+injection, not a manual CLI read — the emptied store is what actually
+guarantees nothing crosses for the baseline).
+
 **Credential-isolation reality.** Harbor's installed-agent model is one trial =
 one container, so the committed suite runs both providers **in a single
 container that carries both vendors' credentials** — a deliberate relaxation of

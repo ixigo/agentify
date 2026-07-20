@@ -226,13 +226,55 @@ class AgentifyTransferAgent(AgentifyClaudeAgent):
             " && agentify install --provider codex"
             f" && if [ -d {FIXTURES_PATH} ]; then"
             " mkdir -p .agentify/context"
-            f" && cp -R {FIXTURES_PATH}/. .agentify/context/; fi",
+            f" && cp -R {FIXTURES_PATH}/. .agentify/context/; fi"
+            # Commit the post-install state (repo code + CLAUDE.md/AGENTS.md +
+            # hooks + fixtures) as the pre-seed baseline. The between-phase reset
+            # rewinds to exactly this, so install artifacts survive while seed
+            # code edits do not. safe.directory covers the root-owned /app COPY.
+            " && git config --global --add safe.directory /app"
+            " && git add -A && git commit -q -m agentify-installed-baseline || true",
         )
 
+    async def _reset_repo_after_seed(self, environment) -> None:
+        # Between phases, rewind the /app working tree to the post-install
+        # baseline so NONE of the seed's code edits (e.g. src/monthly.js and its
+        # boundary test) leak into the graded phase. Without this a memoryless arm
+        # could read the seed's artifacts and infer the gotcha with no context
+        # store at all, and the store would no longer be the *only* thing crossing
+        # the barrier. Guarded by the seed file so single-phase tasks are
+        # untouched.
+        if self._preserve_context_across_barrier():
+            # Transfer arm: keep ONLY .agentify (the recorded note is the intended
+            # bridge); discard every seed code edit.
+            reset = (
+                "rm -rf /tmp/agentify-store && mv .agentify /tmp/agentify-store"
+                " && git reset -q --hard HEAD && git clean -qfd"
+                " && rm -rf .agentify && mv /tmp/agentify-store .agentify"
+            )
+        else:
+            # No-memory baseline: reset the store too, back to install-time
+            # fixtures — so there is literally no seed finding to inject OR to
+            # `agentify ctx load` manually. (AGENTIFY_CTX=off suppresses hook-time
+            # injection but not a manual CLI read, so the empty store is what
+            # actually guarantees nothing crosses.)
+            reset = "git reset -q --hard HEAD && git clean -qfd"
+        command = (
+            "cd /app && if [ -f " + SEED_INSTRUCTION_PATH + " ]; then"
+            " git config --global --add safe.directory /app && " + reset + "; fi"
+        )
+        await self.exec_as_agent(environment, command)
+
+    def _preserve_context_across_barrier(self) -> bool:
+        # Transfer arm keeps the context store across the barrier; the no-memory
+        # baseline overrides this to False so nothing crosses.
+        return True
+
     async def run(self, instruction: str, environment, context) -> None:
-        # Phase A (seed) then phase B (graded recall). Providers are chosen by
-        # direction; the store is the only thing that bridges them.
+        # Phase A (seed) -> reset working tree -> phase B (graded recall). After
+        # the reset the ONLY thing that can cross the barrier is
+        # .agentify/context (transfer arm) or nothing (no-memory baseline).
         await self._seed(environment)
+        await self._reset_repo_after_seed(environment)
         await self._graded(instruction, environment)
 
     def populate_context_post_run(self, context) -> None:
@@ -261,18 +303,27 @@ class AgentifyTransferAgent(AgentifyClaudeAgent):
 
 
 class CrossVendorNoMemoryAgent(AgentifyTransferAgent):
-    """No-memory baseline: the identical Codex->Claude flow with the context
-    layer switched off. ``AGENTIFY_CTX=off`` makes ``isContextPaused`` true, so
-    the SessionStart digest injects nothing in the graded phase — Claude never
-    sees Codex's finding. Same providers, same order, same budget: the ONLY
-    difference is the memory layer, which is exactly what a single-vendor harness
-    lacks. Its name carries no "agentify" substring, so it imports as its own
-    baseline arm (not the agentify arm).
+    """No-memory baseline: the identical Codex->Claude flow with **nothing**
+    crossing the barrier. Two independent guarantees make it memoryless:
+
+    * the between-phase reset rewinds the store to install-time fixtures, so the
+      seed's finding is not on disk to inject *or* to ``agentify ctx load``
+      manually (``AGENTIFY_CTX=off`` alone only stops hook-time injection, not a
+      manual CLI read — so the emptied store is what actually enforces it); and
+    * ``AGENTIFY_CTX=off`` additionally suppresses hook-time injection/tracking.
+
+    Same providers, same order, same budget — the ONLY difference from the
+    transfer arm is that the memory layer carries nothing, which is exactly what
+    a single-vendor harness lacks. Its name carries no "agentify" substring, so
+    it imports as its own baseline arm (not the agentify arm).
     """
 
     @staticmethod
     def name() -> str:
         return "crossvendor-nomem"
+
+    def _preserve_context_across_barrier(self) -> bool:
+        return False
 
     def _extra_run_env(self) -> dict:
         return {"AGENTIFY_CTX": "off"}
