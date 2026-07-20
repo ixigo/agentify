@@ -7,10 +7,12 @@ import path from "node:path";
 import {
   COMPARE_EXIT_PASS,
   COMPARE_EXIT_VIOLATION,
+  buildEvalGrid,
   buildEvalReport,
   buildPromptfooExport,
   compareEvalReports,
   parseFailOnExpressions,
+  renderEvalGridMarkdown,
   renderEvalReportHtml,
   renderEvalReportMarkdown,
   signTestPValue,
@@ -603,6 +605,106 @@ test("runs without context metrics keep context_metrics null", async () => {
     const report = await buildEvalReport(root, {}, runId);
     assert.equal(report.context_metrics, null);
     assert.ok(!renderEvalReportMarkdown(report).includes("## Context injection"));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildEvalGrid aggregates runs into a model x difficulty frontier (#317)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  const strong = "anthropic/claude-sonnet-4-5-20250929";
+  const pass3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: true }));
+  const fail3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: false }));
+  try {
+    // Weak model, hard difficulty: agentify holds, baseline degrades. Two
+    // tasks × 3 attempts => 6 discordant pairs favoring agentify in one cell.
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-b", model: weak, difficulty: "hard" }) });
+    // Strong model, hard difficulty: both arms pass — concordant, no signal.
+    await writeRunFixture(root, [...pass3("agentify"), ...pass3("plain-safe")], { task: fixtureTask({ id: "task-a", model: strong, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, []);
+    assert.equal(grid.baseline_arm, "plain-safe");
+    assert.deepEqual(grid.difficulties, ["hard"]);
+    // Models are ordered weakest-first by baseline pass rate.
+    assert.deepEqual(grid.models, [weak, strong]);
+
+    const weakCell = grid.cells.find((cell) => cell.model === weak);
+    assert.equal(weakCell.difficulty, "hard");
+    assert.equal(weakCell.discordant.agentify_only_pass, 6);
+    assert.equal(weakCell.discordant.baseline_only_pass, 0);
+    assert.equal(weakCell.pass_rate_delta, 1);
+    assert.ok(weakCell.sign_test_p < 0.05, `expected significant p, got ${weakCell.sign_test_p}`);
+    assert.equal(weakCell.qualifies_acceptance, true);
+
+    const strongCell = grid.cells.find((cell) => cell.model === strong);
+    assert.equal(strongCell.pass_rate_delta, 0);
+    assert.equal(strongCell.qualifies_acceptance, false);
+
+    // The frontier picks the weak/hard operating point as the largest honest win.
+    assert.equal(grid.best_cell.model, weak);
+    assert.equal(grid.best_cell.difficulty, "hard");
+    assert.equal(grid.verdict.acceptance_met, true);
+
+    const md = renderEvalGridMarkdown(grid);
+    assert.match(md, /Model x difficulty grid/);
+    assert.match(md, /\[x\]/); // acceptance marker on the decisive cell
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildEvalGrid throws when no run carries a model/difficulty axis", async () => {
+  const root = await makeRoot();
+  try {
+    // A plain run (fixtureTask has no difficulty) is not a matrix run.
+    await writeRunFixture(root, [makeAttempt("agentify", 1), makeAttempt("plain-safe", 1)]);
+    await assert.rejects(buildEvalGrid(root, {}, []), /No matrix runs to grid/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildEvalGrid deduplicates repeated explicit run ids (no manufactured significance)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  try {
+    // One 3-pair, 3–0 run. Passing its id twice must NOT become 6–0.
+    const runId = await writeRunFixture(root, [
+      ...[1, 2, 3].map((i) => makeAttempt("agentify", i, { pass: true })),
+      ...[1, 2, 3].map((i) => makeAttempt("plain-safe", i, { pass: false })),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, [runId, runId]);
+    assert.equal(grid.generated_from.count, 1);
+    const cell = grid.cells[0];
+    assert.equal(cell.discordant.agentify_only_pass, 3); // not 6
+    assert.equal(cell.qualifies_acceptance, false); // 3 pairs cannot reach p<0.05
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildEvalGrid computes deltas over the paired subset only, ignoring unpaired attempts", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-3-5-haiku-20241022";
+  try {
+    // Agentify has 3 attempts but the baseline only ran repeat_index 1: only
+    // one pair exists, so the reported metrics must be over that single pair,
+    // not the 3 unpaired agentify attempts.
+    const runId = await writeRunFixture(root, [
+      makeAttempt("agentify", 1, { pass: true }),
+      makeAttempt("agentify", 2, { pass: true }),
+      makeAttempt("agentify", 3, { pass: true }),
+      makeAttempt("plain-safe", 1, { pass: false }),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, [runId]);
+    const cell = grid.cells[0];
+    assert.equal(cell.agentify.attempts, 1); // paired subset, not 3
+    assert.equal(cell.baseline.attempts, 1);
+    assert.equal(cell.discordant.agentify_only_pass, 1);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

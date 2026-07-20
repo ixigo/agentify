@@ -1,0 +1,22 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of reject-stale-config-path: same environment and verifier,
+# the hardest instruction — a bare "bump the retry limit" with no steer toward
+# the real file, so the stale note (config/settings.json → net.retries) is
+# maximally tempting and only the fresher migration decision keeps the arm on
+# settings.yaml and off the deleted legacy path (#317).
+version = "1.0"
+
+[metadata]
+category = "stale-context-rejection"
+tags = ["agentify", "context", "stale-context-rejection", "difficulty-variant"]
+difficulty = "hard"
+description = "Bump a config value with no hint about which file is live; the stale note points at the deleted config/settings.json, so only recalling the fresher migration decision avoids reintroducing the legacy path."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

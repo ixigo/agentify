@@ -19,6 +19,10 @@ import { exists, readJson } from "./fs.js";
 import { redactSensitiveText } from "./redact.js";
 
 export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v1";
+export const EVAL_GRID_SCHEMA_VERSION = "eval-grid-v1";
+// The grid renders as JSON or markdown only — it is a cross-run aggregate, so
+// the single-run HTML/promptfoo adapters don't apply.
+export const EVAL_GRID_FORMATS = ["json", "md"];
 export const EVAL_REPORT_FORMATS = ["json", "md", "html"];
 // "promptfoo" is an export adapter for teams using promptfoo's UI/assertion
 // ecosystem, not a report format: it carries per-attempt results, not the
@@ -507,6 +511,237 @@ export async function buildEvalReport(root, config, runIdInput) {
 }
 
 // ---------------------------------------------------------------------------
+// Model × difficulty grid (#317)
+// ---------------------------------------------------------------------------
+//
+// The paired report answers "did the agentify arm win on THIS run"; the grid
+// answers "at which (model × difficulty) operating point is the win largest and
+// honest". It aggregates many imported single-(task,model) runs into cells and,
+// per cell, reports the agentify−baseline pass-rate delta, discordant-pair
+// count, and cost/pass — the frontier #317 needs to pick where context is most
+// load-bearing.
+
+const DIFFICULTY_ORDER = { easy: 0, medium: 1, hard: 2 };
+
+function difficultyRank(difficulty) {
+  return DIFFICULTY_ORDER[difficulty] ?? 99;
+}
+
+// Load the runs the grid aggregates: the explicit ids, or (when none given)
+// the runs of the single most-recent Harbor import job. Auto-discovery is
+// scoped to ONE job on purpose: every imported run now carries a difficulty
+// (defaulted to "easy"), so vacuuming all harbor runs would silently blend an
+// unrelated nightly/crossvendor import into the matrix. A down-shift suite is
+// one `harbor run` -> one import job, so "latest job" is exactly its runs.
+// Runs that lack a model/difficulty axis are dropped (silently in auto mode,
+// reported in explicit mode so a bad id is never swallowed). Duplicate
+// explicit ids are collapsed — counting the same run twice would inflate the
+// discordant tally and manufacture significance.
+async function loadGridRuns(root, config, runIds) {
+  const { runsRoot } = resolveEvalPaths(root, config);
+  const explicit = Array.isArray(runIds) && runIds.length > 0;
+  let ids;
+  if (explicit) {
+    ids = [...new Set(runIds.map((id) => String(id).trim()).filter(Boolean))];
+  } else {
+    ids = [];
+    const entries = (await exists(runsRoot)) ? (await fs.readdir(runsRoot)).sort() : [];
+    for (const name of entries) {
+      if (await exists(path.join(runsRoot, name, "run.json"))) ids.push(name);
+    }
+  }
+  const runs = [];
+  const skipped = [];
+  for (const id of ids) {
+    let loaded;
+    try {
+      loaded = await loadRun(root, config, id);
+    } catch (error) {
+      if (explicit) skipped.push({ run_id: id, reason: String(error.message || error) });
+      continue;
+    }
+    const task = loaded.meta.plan?.task || {};
+    const model = task.model || null;
+    const difficulty = task.difficulty || null;
+    if (!model || !difficulty) {
+      if (explicit) skipped.push({ run_id: id, reason: "run carries no model/difficulty axis (not a matrix run)" });
+      continue;
+    }
+    runs.push({
+      runId: loaded.runId,
+      job: loaded.meta.harbor?.job ?? null,
+      // A re-import of the same job directory produces runs with the SAME job
+      // basename but a fresh imported_at, so imported_at (not job name) is what
+      // identifies a single import batch.
+      importedAt: loaded.meta.harbor?.imported_at ?? null,
+      taskId: task.id ?? null,
+      model,
+      difficulty,
+      attempts: loaded.attempts,
+    });
+  }
+  if (!explicit && runs.length > 0) {
+    // Keep only the single most recent import BATCH (run ids are
+    // timestamp-prefixed, so the max run id identifies the latest batch). Scope
+    // by imported_at, falling back to job name only when a run carries no
+    // import timestamp (hand-authored runs) — scoping by job name alone would
+    // keep stale earlier imports of the same job dir and double-count trials.
+    const latestRun = runs.reduce((max, run) => (run.runId > max.runId ? run : max), runs[0]);
+    const batchKey = (run) => run.importedAt ?? run.job ?? null;
+    const scopeKey = batchKey(latestRun);
+    const scoped = runs.filter((run) => batchKey(run) === scopeKey);
+    return { runs: scoped, skipped, scoped_to_job: latestRun.job, scoped_to_import: latestRun.importedAt };
+  }
+  return { runs, skipped, scoped_to_job: null, scoped_to_import: null };
+}
+
+function isAgentifyArm(arm) {
+  return arm === "agentify" || (typeof arm === "string" && arm.startsWith("agentify"));
+}
+
+export async function buildEvalGrid(root, config, runIds) {
+  const { runs, skipped, scoped_to_job: scopedToJob, scoped_to_import: scopedToImport } = await loadGridRuns(root, config, runIds);
+  if (runs.length === 0) {
+    throw new Error("No matrix runs to grid: need imported runs carrying a model and difficulty (see the downshift suite in docs/harbor.md).");
+  }
+
+  // One baseline arm across the whole grid keeps every cell comparable. Pick
+  // the most common non-agentify arm among the loaded attempts (the down-shift
+  // suite's baseline is plain claude-code). Only the balanced "agentify" arm is
+  // the treatment; profile variants (agentify-cost, …) are not part of the
+  // capability-vs-context frontier and are excluded from both arms here.
+  const baselineCounts = new Map();
+  for (const run of runs) {
+    for (const record of run.attempts) {
+      if (record.arm && !isAgentifyArm(record.arm)) {
+        baselineCounts.set(record.arm, (baselineCounts.get(record.arm) || 0) + 1);
+      }
+    }
+  }
+  const baselineArm = [...baselineCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  const cellMap = new Map();
+  for (const run of runs) {
+    const key = `${run.model}::${run.difficulty}`;
+    if (!cellMap.has(key)) cellMap.set(key, { model: run.model, difficulty: run.difficulty, runs: [] });
+    cellMap.get(key).runs.push(run);
+  }
+
+  const cells = [];
+  for (const cell of cellMap.values()) {
+    // Everything the cell reports is computed over the PAIRED subset only: for
+    // each run (one task), match the agentify and baseline attempts by
+    // repeat_index and keep only matched pairs. The report describes a paired
+    // comparison, so pass-rate delta, cost/pass, and the discordant tally must
+    // all come from the same matched attempts — an unpaired attempt (a run
+    // missing the baseline arm, or uneven attempt counts) would otherwise skew
+    // the delta and cost/pass while the discordant count stayed paired.
+    const agentifyRecords = [];
+    const baselineRecords = [];
+    let leftOnly = 0;
+    let rightOnly = 0;
+    const tasks = new Set();
+    for (const run of cell.runs) {
+      const ag = run.attempts.filter((record) => record.arm === "agentify");
+      const bl = run.attempts.filter((record) => record.arm === baselineArm);
+      const { pairs, leftOnly: l, rightOnly: r } = discordantPairs(ag, bl);
+      if (pairs.length === 0) continue; // a run with no baseline counterpart contributes nothing
+      tasks.add(run.taskId);
+      for (const pair of pairs) {
+        agentifyRecords.push(pair.left);
+        baselineRecords.push(pair.right);
+      }
+      leftOnly += l;
+      rightOnly += r;
+    }
+    const agentify = armMetrics(agentifyRecords);
+    const baseline = armMetrics(baselineRecords);
+    const delta = agentify.pass_rate === null || baseline.pass_rate === null
+      ? null
+      : round(agentify.pass_rate - baseline.pass_rate);
+    const signP = signTestPValue(leftOnly, rightOnly);
+    const favorsAgentify = leftOnly > rightOnly;
+    const significant = signP !== null && signP < 0.05 && favorsAgentify;
+    // #317 acceptance target: >=5 discordant pairs favoring agentify at p<0.05.
+    const qualifiesAcceptance = significant && leftOnly >= 5;
+    cells.push({
+      model: cell.model,
+      difficulty: cell.difficulty,
+      tasks: [...tasks].filter(Boolean).sort(),
+      agentify: {
+        arm: "agentify",
+        attempts: agentify.attempts,
+        passes: agentify.passes,
+        pass_rate: agentify.pass_rate,
+        cost_per_pass_usd: agentify.cost.per_pass_usd,
+      },
+      baseline: {
+        arm: baselineArm,
+        attempts: baseline.attempts,
+        passes: baseline.passes,
+        pass_rate: baseline.pass_rate,
+        cost_per_pass_usd: baseline.cost.per_pass_usd,
+      },
+      pass_rate_delta: delta,
+      discordant: { agentify_only_pass: leftOnly, baseline_only_pass: rightOnly },
+      sign_test_p: signP,
+      significant,
+      qualifies_acceptance: qualifiesAcceptance,
+    });
+  }
+
+  // Order models weakest-first by their aggregate baseline pass rate (a
+  // capability proxy). The weakest model is the top row, so the "context is
+  // load-bearing" story is the delta being LARGEST at the top and shrinking as
+  // you move down toward the stronger models.
+  const modelBaseline = new Map();
+  for (const cell of cells) {
+    const acc = modelBaseline.get(cell.model) || { passes: 0, attempts: 0 };
+    acc.passes += cell.baseline.passes;
+    acc.attempts += cell.baseline.attempts;
+    modelBaseline.set(cell.model, acc);
+  }
+  const rate = (model) => {
+    const acc = modelBaseline.get(model);
+    return acc && acc.attempts ? acc.passes / acc.attempts : 0;
+  };
+  const models = [...new Set(cells.map((cell) => cell.model))].sort((a, b) => rate(a) - rate(b) || a.localeCompare(b));
+  const difficulties = [...new Set(cells.map((cell) => cell.difficulty))].sort((a, b) => difficultyRank(a) - difficultyRank(b));
+  cells.sort((a, b) => models.indexOf(a.model) - models.indexOf(b.model)
+    || difficultyRank(a.difficulty) - difficultyRank(b.difficulty));
+
+  const qualifying = cells.filter((cell) => cell.qualifies_acceptance)
+    .sort((a, b) => (b.pass_rate_delta ?? -Infinity) - (a.pass_rate_delta ?? -Infinity));
+  const best = qualifying[0] ?? null;
+
+  return {
+    schema: EVAL_GRID_SCHEMA_VERSION,
+    command: "eval",
+    action: "grid",
+    generated_from: { runs: runs.map((run) => run.runId), count: runs.length, scoped_to_job: scopedToJob, scoped_to_import: scopedToImport, skipped },
+    baseline_arm: baselineArm,
+    models,
+    difficulties,
+    cells,
+    best_cell: best
+      ? {
+        model: best.model,
+        difficulty: best.difficulty,
+        pass_rate_delta: best.pass_rate_delta,
+        discordant: best.discordant,
+        sign_test_p: best.sign_test_p,
+      }
+      : null,
+    verdict: {
+      acceptance_met: Boolean(best),
+      reason: best
+        ? `cell (model ${best.model}, difficulty ${best.difficulty}) is a significant agentify win: ${best.discordant.agentify_only_pass} discordant pairs favor agentify vs ${best.discordant.baseline_only_pass} for baseline, sign-test p=${best.sign_test_p}`
+        : "no cell reached >=5 discordant pairs favoring agentify at p<0.05 — context is not yet decisively load-bearing in this grid",
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Renderers
 // ---------------------------------------------------------------------------
 
@@ -598,6 +833,81 @@ export function renderEvalReportMarkdown(report) {
     lines.push(`- **${attempt.attempt_id}** — ${bits.join(" · ")}${attempt.artifacts?.patch ? ` — patch: \`${attempt.artifacts.patch}\`` : ""}`);
   }
   lines.push("");
+  return lines.join("\n");
+}
+
+function formatDeltaPp(value) {
+  if (value === null || value === undefined) return "n/a";
+  const pp = Math.round(value * 100);
+  return `${pp >= 0 ? "+" : ""}${pp}pp`;
+}
+
+function formatP(value) {
+  return value === null || value === undefined ? "n/a" : value.toFixed(4);
+}
+
+export function renderEvalGridMarkdown(grid) {
+  const lines = [];
+  lines.push("# Model x difficulty grid");
+  lines.push("");
+  lines.push(`Aggregated from ${grid.generated_from.count} run(s). Baseline arm: \`${grid.baseline_arm ?? "n/a"}\`.`);
+  lines.push("Cells show the agentify-baseline pass-rate delta and the discordant-pair count (agentify-only / baseline-only). Models are ordered weakest-first (top row = weakest baseline), so context is load-bearing when the delta is largest at the top and shrinks downward toward the stronger models.");
+  if (grid.generated_from.scoped_to_job || grid.generated_from.scoped_to_import) {
+    const at = grid.generated_from.scoped_to_import ? ` imported ${grid.generated_from.scoped_to_import}` : "";
+    lines.push(`Scoped to the latest import batch (job \`${grid.generated_from.scoped_to_job ?? "n/a"}\`${at}). Pass explicit run ids to aggregate across batches.`);
+  }
+  lines.push("");
+
+  // Delta grid: rows = models (weakest -> strongest), cols = difficulties.
+  const cellAt = (model, difficulty) => grid.cells.find((cell) => cell.model === model && cell.difficulty === difficulty);
+  const header = ["model \\ difficulty", ...grid.difficulties];
+  lines.push(`| ${header.join(" | ")} |`);
+  lines.push(`| ${header.map(() => "---").join(" | ")} |`);
+  for (const model of grid.models) {
+    const row = [model];
+    for (const difficulty of grid.difficulties) {
+      const cell = cellAt(model, difficulty);
+      if (!cell) {
+        row.push("-");
+        continue;
+      }
+      const marker = cell.qualifies_acceptance ? " [x]" : cell.significant ? " *" : "";
+      row.push(`${formatDeltaPp(cell.pass_rate_delta)} (${cell.discordant.agentify_only_pass}/${cell.discordant.baseline_only_pass})${marker}`);
+    }
+    lines.push(`| ${row.join(" | ")} |`);
+  }
+  lines.push("");
+  lines.push("`[x]` = >=5 discordant pairs favoring agentify at p<0.05 (the #317 acceptance target); `*` = significant but fewer than 5 discordant.");
+  lines.push("");
+
+  // Per-cell detail.
+  lines.push("## Cells");
+  lines.push("");
+  lines.push("| model | difficulty | agentify | baseline | delta | discordant (a/b) | sign p | cost/pass a | cost/pass b |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+  for (const cell of grid.cells) {
+    lines.push([
+      "",
+      cell.model,
+      cell.difficulty,
+      `${cell.agentify.passes}/${cell.agentify.attempts} (${formatRate(cell.agentify.pass_rate)})`,
+      `${cell.baseline.passes}/${cell.baseline.attempts} (${formatRate(cell.baseline.pass_rate)})`,
+      formatDeltaPp(cell.pass_rate_delta),
+      `${cell.discordant.agentify_only_pass}/${cell.discordant.baseline_only_pass}`,
+      formatP(cell.sign_test_p),
+      formatUsd(cell.agentify.cost_per_pass_usd),
+      formatUsd(cell.baseline.cost_per_pass_usd),
+      "",
+    ].join(" | ").trim());
+  }
+  lines.push("");
+  lines.push("## Verdict");
+  lines.push("");
+  lines.push(grid.verdict.acceptance_met ? `PASS: ${grid.verdict.reason}` : `NOT MET: ${grid.verdict.reason}`);
+  if (grid.generated_from.skipped.length > 0) {
+    lines.push("");
+    lines.push(`Skipped ${grid.generated_from.skipped.length} run(s): ${grid.generated_from.skipped.map((entry) => `${entry.run_id} (${entry.reason})`).join("; ")}`);
+  }
   return lines.join("\n");
 }
 

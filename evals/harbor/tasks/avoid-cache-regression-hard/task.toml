@@ -1,0 +1,22 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of avoid-cache-regression: same environment and verifier,
+# the hardest instruction — it asks only to cache the hot function and gives no
+# memory framing at all, so an unbounded memo (the natural default) fails the
+# eviction check unless the recalled INC-201 decision forces a bounded,
+# oldest-first cache (#317).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "difficulty-variant"]
+difficulty = "hard"
+description = "Cache a hot haversine function; nothing in the instruction hints at memory limits or bounding, so only the recalled INC-201 decision (bounded, evict oldest) keeps the cache from growing without limit."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

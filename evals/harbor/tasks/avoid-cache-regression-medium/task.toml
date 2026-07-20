@@ -1,0 +1,21 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of avoid-cache-regression: same environment and verifier,
+# a harder instruction that drops the "memory-constrained pods, keep production
+# memory behavior in mind" hint so the bounded-cache rule is recoverable only
+# from the recalled INC-201 Agentify decision (#317).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "difficulty-variant"]
+difficulty = "medium"
+description = "Memoize a hot haversine function; the instruction no longer mentions memory pressure, so keeping the cache bounded (and evicting oldest) must come from the recalled INC-201 decision rather than the prompt."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

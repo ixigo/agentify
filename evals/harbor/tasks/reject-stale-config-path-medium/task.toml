@@ -1,0 +1,21 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+# Difficulty variant of reject-stale-config-path: same environment and verifier,
+# a harder instruction that drops the "make sure it's the file the code actually
+# reads" steer, so the arm must lean on the fresher migration decision (not the
+# stale note pointing at config/settings.json) on its own (#317).
+version = "1.0"
+
+[metadata]
+category = "stale-context-rejection"
+tags = ["agentify", "context", "stale-context-rejection", "difficulty-variant"]
+difficulty = "medium"
+description = "Bump a config value; the instruction no longer tells the arm to change the file the code actually reads, so it must reconcile the stale note against the fresher migration decision itself."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

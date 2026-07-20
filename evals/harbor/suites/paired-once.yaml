@@ -9,7 +9,19 @@ n_attempts: 1
 n_concurrent_trials: 2
 
 datasets:
+  # Pin the 8-task set explicitly; an unfiltered `path: tasks` would also run
+  # the two-phase multisession/cross-vendor tasks and the #317 difficulty
+  # variants, contaminating this single-pass sweep and under-reporting spend.
   - path: tasks
+    task_names:
+      - recall-error-envelope
+      - avoid-cache-regression
+      - reject-stale-config-path
+      - rename-shipping-rate-refs
+      - select-affected-tests
+      - mechanical-header-bump
+      - misleading-note-paginate
+      - timezone-flake-gotcha
 
 agents:
   - import_path: agents.agentify_claude:AgentifyClaudeAgent
