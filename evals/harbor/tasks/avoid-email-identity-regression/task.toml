@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "identity"]
+difficulty = "hard"
+description = "Avoid a duplicate-account regression by recalling the sign-in service's Unicode email identity contract."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

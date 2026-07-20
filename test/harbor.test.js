@@ -587,7 +587,7 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
   const nightly = await planHarborRun(REPO_ROOT, {}, { suite: "nightly" });
   assert.equal(nightly.models_per_task, 1);
   assert.deepEqual(nightly.models, ["anthropic/claude-haiku-4-5-20251001"]);
-  assert.equal(nightly.trials, 48); // unchanged: 8 × 2 × 3 × 1
+  assert.equal(nightly.trials, 90); // 15 × 2 × 3 × 1
 });
 
 test("plan multiplies the spend ceiling by the suite's model ladder length (#317)", async () => {

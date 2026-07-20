@@ -1,15 +1,11 @@
-# Harbor job config: full paired suite — all 15 baseline tasks × 2 agents × 3 attempts.
-# Launch from evals/harbor/ with:  harbor run -c suites/nightly.yaml
-# Always check the ceiling first:  agentify eval harbor plan --suite nightly
+# Harbor job config: complete context-decisive task bank.
+# Launch from evals/harbor/ with: harbor run -c suites/full.yaml
 jobs_dir: jobs
 
 n_attempts: 3
+n_concurrent_trials: 2
 
 datasets:
-  # The task root also holds the two-phase multisession/cross-vendor tasks and
-  # the #317 difficulty variants; without an explicit include filter Harbor
-  # would run every directory under tasks/, contaminating this suite and
-  # under-reporting the plan ceiling. Pin exactly the manifest's nightly set.
   - path: tasks
     task_names:
       - recall-error-envelope

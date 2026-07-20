@@ -1,0 +1,2 @@
+{"ts":"2026-05-12T16:18:02.000Z","sid":"inc302aa","note":"INC-302: billing retries settlement webhooks at least once. A repeated event id must return the first receipt without capturing again; duplicate delivery is normal, not an error."}
+{"ts":"2026-05-12T16:21:44.000Z","sid":"inc302aa","note":"If an event id is replayed with a different invoice or amount, fail with the stable settlement event conflict error and never call the gateway. Keep the original event fields with its receipt so the mismatch can be detected."}

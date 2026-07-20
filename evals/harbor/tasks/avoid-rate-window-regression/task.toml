@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "rate-limit"]
+difficulty = "hard"
+description = "Avoid a limiter boundary regression by applying the recorded half-open time-window and clock-skew contract."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

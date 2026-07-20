@@ -187,6 +187,55 @@
         "getUTCFullYear",
         "getUTCMonth() / 3"
       ]
+    },
+    {
+      "id": "avoid-double-settlement",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["settlement_event_conflict", "settledByEvent"]
+    },
+    {
+      "id": "avoid-email-identity-regression",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["NFKC", "toLocaleLowerCase(\"en-US\")"]
+    },
+    {
+      "id": "avoid-rate-window-regression",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["timestamp > cutoff", "timestamp <= nowMs"]
+    },
+    {
+      "id": "recall-cursor-contract",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["cursorIndex", "base64url"]
+    },
+    {
+      "id": "recall-retry-schedule",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["RETRY_SECONDS", "Math.trunc(attempt)"]
+    },
+    {
+      "id": "recall-tax-rounding",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["roundHalfEven", "rateBasisPoints"]
+    },
+    {
+      "id": "recall-webhook-signature",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": ["sha256=", "timestamp}:${rawBody"]
     }
   ],
   "suites": {
@@ -205,7 +254,14 @@
         "select-affected-tests",
         "mechanical-header-bump",
         "misleading-note-paginate",
-        "timezone-flake-gotcha"
+        "timezone-flake-gotcha",
+        "avoid-double-settlement",
+        "avoid-email-identity-regression",
+        "avoid-rate-window-regression",
+        "recall-cursor-contract",
+        "recall-retry-schedule",
+        "recall-tax-rounding",
+        "recall-webhook-signature"
       ],
       "attempts": 3
     },
@@ -253,6 +309,27 @@
       "tasks": [
         "recall-flaky-timezone",
         "recall-utc-quarter"
+      ],
+      "attempts": 3,
+      "agents": 2
+    },
+    "full": {
+      "tasks": [
+        "recall-error-envelope",
+        "avoid-cache-regression",
+        "reject-stale-config-path",
+        "rename-shipping-rate-refs",
+        "select-affected-tests",
+        "mechanical-header-bump",
+        "misleading-note-paginate",
+        "timezone-flake-gotcha",
+        "avoid-double-settlement",
+        "avoid-email-identity-regression",
+        "avoid-rate-window-regression",
+        "recall-cursor-contract",
+        "recall-retry-schedule",
+        "recall-tax-rounding",
+        "recall-webhook-signature"
       ],
       "attempts": 3,
       "agents": 2

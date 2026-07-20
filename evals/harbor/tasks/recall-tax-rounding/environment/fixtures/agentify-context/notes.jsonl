@@ -1,0 +1,2 @@
+{"ts":"2026-05-15T11:04:19.000Z","sid":"ledger9c","note":"Finance ADR-9 chose round-half-to-even for every fractional cent posted to the checkout ledger. Half-up created a positive bias across millions of tax lines."}
+{"ts":"2026-05-15T11:06:05.000Z","sid":"ledger9c","note":"Tax inputs are non-negative integer cents and integer basis points. Divide their product by ten thousand; below half stays down, above half goes up, and an exact half lands on the even cent."}
