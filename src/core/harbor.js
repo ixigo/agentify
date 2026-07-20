@@ -61,6 +61,46 @@ const FIXTURES_DIR = path.join("environment", "fixtures", "agentify-context");
 // neutral path (/opt/agentify-seed). Its presence marks a task as two-phase;
 // see docs/harbor.md, "Multi-session tasks".
 const SEED_INSTRUCTION_REL = path.join("environment", "phases", "seed", "instruction.md");
+// The agent (evals/harbor/agents/agentify_claude.py) runs phase A only when it
+// finds the seed instruction at this exact in-image path; the source it must be
+// copied from lives at these repo-relative paths. Validation checks that the
+// Dockerfile performs a COPY that actually lands the file here — a substring
+// mention (a comment, or a COPY to some other target) would validate a task
+// that then silently skips phase A.
+const SEED_IMAGE_FILE = "/opt/agentify-seed/instruction.md";
+const SEED_IMAGE_DIR = "/opt/agentify-seed";
+const SEED_SRC_FILE = "phases/seed/instruction.md";
+const SEED_SRC_DIR = "phases/seed";
+
+// True only if the Dockerfile has a real COPY/ADD that places the seed
+// instruction at SEED_IMAGE_FILE — either the file copied directly, or the
+// phases/seed directory copied onto /opt/agentify-seed (which lands
+// instruction.md inside it). Comments and copies to any other target are
+// ignored, matching what the agent will actually read at runtime.
+function dockerfileBakesSeed(dockerfile) {
+  const stripQuotes = (token) => token.replace(/^[["',\s]+|[\]"',\s]+$/g, "");
+  const normalize = (p) => stripQuotes(p).replace(/^\.\//, "").replace(/\/+$/, "");
+  for (const rawLine of dockerfile.split("\n")) {
+    const line = rawLine.trim();
+    if (line.startsWith("#")) continue;
+    const match = /^(?:COPY|ADD)\s+(.+)$/i.exec(line);
+    if (!match) continue;
+    // Drop --flags (--chown, --from, …); the remaining tokens are src… dest.
+    const tokens = match[1].split(/\s+/).filter((token) => token && !token.startsWith("--"));
+    if (tokens.length < 2) continue;
+    const dest = normalize(tokens[tokens.length - 1]);
+    const sources = tokens.slice(0, -1).map(normalize);
+    // Direct file copy: <…>/phases/seed/instruction.md -> /opt/agentify-seed/instruction.md
+    if (dest === SEED_IMAGE_FILE && sources.some((src) => src === SEED_SRC_FILE)) {
+      return true;
+    }
+    // Directory copy: <…>/phases/seed -> /opt/agentify-seed (instruction.md lands inside)
+    if (dest === SEED_IMAGE_DIR && sources.some((src) => src === SEED_SRC_DIR)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function resolveHarborPaths(root, config = {}) {
   const { tasksDir } = resolveEvalPaths(root, config);
@@ -327,8 +367,8 @@ export async function validateHarborDataset(root, config = {}) {
       const dockerfilePath = path.join(taskDir, "environment", "Dockerfile");
       if (await exists(dockerfilePath)) {
         const dockerfile = await readText(dockerfilePath);
-        if (!/agentify-seed/.test(dockerfile) && !/phases\/seed\/instruction\.md/.test(dockerfile)) {
-          taskProblems.push("two-phase task: environment/Dockerfile must COPY the seed instruction to /opt/agentify-seed");
+        if (!dockerfileBakesSeed(dockerfile)) {
+          taskProblems.push(`two-phase task: environment/Dockerfile must COPY ${SEED_SRC_FILE} to ${SEED_IMAGE_FILE}`);
         }
       }
     }
@@ -473,6 +513,23 @@ async function readTrial(trialDir) {
   const outputTokens = firstFinite(usageSource?.n_output_tokens, usageSource?.output_tokens, usageSource?.completion_tokens);
   const cacheReadTokens = firstFinite(usageSource?.n_cache_tokens, usageSource?.n_cache_read_tokens, usageSource?.cache_read_tokens, usageSource?.cached_tokens);
 
+  // Two-phase (write -> recall) trials carry the phase-A "seed" spend in the
+  // agent context metadata (see agentify_claude.py). The graded reward reflects
+  // only the recall phase, but the memory the arm relied on cost real money to
+  // produce; folding the seed cost into the imported total keeps cost-per-pass
+  // and frontier analyses from undercounting the Agentify arm. The raw seed
+  // cost is preserved separately so the amortized-cost analysis (#319) can
+  // still weigh the investment against the rediscovery it saves.
+  const metadata = agentResult?.metadata ?? result?.metadata ?? {};
+  const recallCostUsd = firstFinite(agentResult?.cost, agentResult?.cost_usd, result?.cost_usd, result?.cost);
+  const seedCostUsd = firstFinite(metadata?.seed_cost_usd);
+  const multisession = metadata?.multisession === true;
+  const costUsd = recallCostUsd === null
+    ? null
+    : (multisession && seedCostUsd !== null
+      ? Number((recallCostUsd + seedCostUsd).toFixed(6))
+      : recallCostUsd);
+
   const exception = result?.exception_info ?? result?.exception ?? null;
   return {
     name: firstString(result?.trial_name, result?.name, path.basename(trialDir)),
@@ -500,7 +557,10 @@ async function readTrial(trialDir) {
       firstString(result?.agent_execution?.started_at, result?.agent_setup?.started_at),
       firstString(result?.agent_execution?.finished_at),
     ) ?? durationMs(firstString(result?.started_at), firstString(result?.finished_at)),
-    costUsd: firstFinite(agentResult?.cost, agentResult?.cost_usd, result?.cost_usd, result?.cost),
+    costUsd,
+    recallCostUsd,
+    seedCostUsd,
+    multisession,
     usage: inputTokens !== null || outputTokens !== null
       ? {
         fresh_input_tokens: Math.max(0, (inputTokens ?? 0) - (cacheReadTokens ?? 0)),
@@ -645,7 +705,12 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
           subtype: null,
           num_turns: null,
           resolved_model: model,
+          // cost_usd is the full memory investment (recall + seed) so downstream
+          // cost analyses don't undercount; the two-phase split is kept beside it.
           cost_usd: trial.costUsd,
+          ...(trial.multisession
+            ? { multisession: true, recall_cost_usd: trial.recallCostUsd, seed_cost_usd: trial.seedCostUsd }
+            : {}),
           usage: trial.usage,
         },
         grade: {

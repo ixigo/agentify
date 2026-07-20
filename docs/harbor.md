@@ -88,12 +88,16 @@ scores phase B exactly as for any other task.
   the graded phase cold. That gap *is* the comparison.
 
 **Fairness and cost.** The `agentify-claude` arm spends phase-A tokens the
-baseline does not; that is the memory *investment*. The adapter records it
-separately (`seed_cost_usd`, `seed_num_turns` in trial metadata) so it is
-never hidden, and the amortized cost-per-recall analysis (#319) weighs it
-against the rediscovery it saves across future sessions. Because the arm runs
-two provider passes, a two-phase task's `max_cost_usd` in `dataset.json` is
-set to cover both (worst-case ceiling; the baseline spends at most half).
+baseline does not; that is the memory *investment*. The adapter records it in
+trial metadata (`seed_cost_usd`, `seed_num_turns`) so it is never hidden. On
+import, the seed cost is folded into the arm's total `cost_usd` — so
+cost-per-pass and frontier analyses charge the Agentify arm for the full
+investment, not just the graded recall phase — while the split
+(`recall_cost_usd`, `seed_cost_usd`) is preserved beside it for the amortized
+cost-per-recall analysis (#319), which weighs the investment against the
+rediscovery it saves across future sessions. Because the arm runs two provider
+passes, a two-phase task's `max_cost_usd` in `dataset.json` is set to cover
+both (worst-case ceiling; the baseline spends at most half).
 
 Validation (`agentify eval harbor validate`) enforces the format: the seed
 file and the `phases` declaration must agree, **neither** prompt may contain
