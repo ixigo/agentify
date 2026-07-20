@@ -6,7 +6,20 @@ jobs_dir: jobs
 n_attempts: 3
 
 datasets:
+  # The task root also holds the two-phase multisession/cross-vendor tasks and
+  # the #317 difficulty variants; without an explicit include filter Harbor
+  # would run every directory under tasks/, contaminating this suite and
+  # under-reporting the plan ceiling. Pin exactly the manifest's nightly set.
   - path: tasks
+    task_names:
+      - recall-error-envelope
+      - avoid-cache-regression
+      - reject-stale-config-path
+      - rename-shipping-rate-refs
+      - select-affected-tests
+      - mechanical-header-bump
+      - misleading-note-paginate
+      - timezone-flake-gotcha
 
 agents:
   - import_path: agents.agentify_claude:AgentifyClaudeAgent

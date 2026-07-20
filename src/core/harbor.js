@@ -20,6 +20,8 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { parse as parseYaml } from "yaml";
+
 import { EVAL_ATTEMPT_SCHEMA_VERSION, EVAL_RUN_SCHEMA_VERSION, resolveEvalPaths } from "./eval.js";
 import { ensureDir, exists, readJson, readText, walkFiles, writeJson } from "./fs.js";
 import { redactSensitiveText } from "./redact.js";
@@ -419,10 +421,58 @@ export async function validateHarborDataset(root, config = {}) {
       }
     }
   }
-  for (const suiteName of Object.keys(manifest.suites)) {
-    const suitePath = path.join(paths.suitesDir, `${suiteName}.yaml`);
-    if (!(await exists(suitePath))) {
-      problems.push(`suite "${suiteName}" has no job config at ${path.relative(root, suitePath)}`);
+  // The shared task root (tasks/) holds every task — including two-phase
+  // multisession/cross-vendor tasks and the #317 difficulty variants — so a
+  // suite job config that lists `path: tasks` without a `task_names` include
+  // filter silently runs ALL of them. That contaminates the suite and makes
+  // `plan`'s ceiling (computed from the manifest's declared task set) an
+  // under-count. Every committed suite yaml must therefore pin its task set,
+  // and for suites the manifest also declares, the pinned set must match.
+  const manifestSuiteNames = new Set(Object.keys(manifest.suites));
+  const suiteFiles = (await exists(paths.suitesDir))
+    ? (await fs.readdir(paths.suitesDir)).filter((name) => /\.ya?ml$/i.test(name)).sort()
+    : [];
+  for (const suiteName of manifestSuiteNames) {
+    if (!suiteFiles.includes(`${suiteName}.yaml`) && !suiteFiles.includes(`${suiteName}.yml`)) {
+      problems.push(`suite "${suiteName}" has no job config at ${path.relative(root, path.join(paths.suitesDir, `${suiteName}.yaml`))}`);
+    }
+  }
+  for (const file of suiteFiles) {
+    const suiteName = file.replace(/\.ya?ml$/i, "");
+    const suitePath = path.join(paths.suitesDir, file);
+    let parsed;
+    try {
+      parsed = parseYaml(await readText(suitePath));
+    } catch (error) {
+      problems.push(`suite "${suiteName}" job config is not valid YAML: ${error.message}`);
+      continue;
+    }
+    const datasets = Array.isArray(parsed?.datasets) ? parsed.datasets : [];
+    // A dataset entry rooted at the shared task tree with no include filter
+    // runs every task directory — never correct here.
+    const unfiltered = datasets.some((entry) => entry && entry.path === "tasks"
+      && !(Array.isArray(entry.task_names) && entry.task_names.length > 0));
+    if (datasets.length === 0 || unfiltered) {
+      problems.push(`suite "${suiteName}" job config must pin a task_names filter on the tasks/ dataset (an unfiltered path: tasks runs every task, contaminating the suite and under-reporting the plan ceiling)`);
+      continue;
+    }
+    const yamlTasks = new Set(datasets.flatMap((entry) => (Array.isArray(entry.task_names) ? entry.task_names.map(String) : [])));
+    const knownTaskIds = new Set(manifest.tasks.map((task) => task.id));
+    // Its filter may only name real tasks.
+    for (const id of yamlTasks) {
+      if (!knownTaskIds.has(id)) {
+        problems.push(`suite "${suiteName}" job config filters an unknown task "${id}"`);
+      }
+    }
+    // For a manifest-declared suite, the yaml's set must equal the manifest's
+    // so the run and the printed ceiling describe the same trials.
+    if (manifestSuiteNames.has(suiteName)) {
+      const manifestTasks = new Set(manifest.suites[suiteName].tasks);
+      const missing = [...manifestTasks].filter((id) => !yamlTasks.has(id));
+      const extra = [...yamlTasks].filter((id) => !manifestTasks.has(id));
+      if (missing.length > 0 || extra.length > 0) {
+        problems.push(`suite "${suiteName}" job config task_names disagree with the manifest suite${missing.length ? ` (missing: ${missing.join(", ")})` : ""}${extra.length ? ` (extra: ${extra.join(", ")})` : ""}`);
+      }
     }
   }
 

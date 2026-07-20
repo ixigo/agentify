@@ -10,7 +10,20 @@ jobs_dir: jobs
 n_attempts: 3
 
 datasets:
+  # Pin the manifest's task set explicitly: the task root also holds the
+  # two-phase multisession/cross-vendor tasks and the #317 difficulty variants,
+  # and an unfiltered `path: tasks` would sweep them all in, contaminating the
+  # profile matrix and under-reporting the plan ceiling.
   - path: tasks
+    task_names:
+      - recall-error-envelope
+      - avoid-cache-regression
+      - reject-stale-config-path
+      - rename-shipping-rate-refs
+      - select-affected-tests
+      - mechanical-header-bump
+      - misleading-note-paginate
+      - timezone-flake-gotcha
 
 agents:
   - import_path: agents.agentify_claude:AgentifyClaudeAgent

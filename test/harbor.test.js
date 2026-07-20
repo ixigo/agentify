@@ -60,8 +60,14 @@ async function writeDataset(root, manifest, { fixtureNote = "history only", test
   await fs.writeFile(path.join(harborRoot, "dataset.json"), JSON.stringify(manifest, null, 2));
   await fs.writeFile(path.join(harborRoot, "agents", "agentify_claude.py"), "# stub\n");
   await fs.mkdir(path.join(harborRoot, "suites"), { recursive: true });
-  for (const suite of Object.keys(manifest.suites || {})) {
-    await fs.writeFile(path.join(harborRoot, "suites", `${suite}.yaml`), "jobs_dir: jobs\n");
+  for (const [suite, def] of Object.entries(manifest.suites || {})) {
+    // Every committed suite job config must pin an explicit task_names filter
+    // (validateHarborDataset enforces this), so the fixtures do too.
+    const names = (def.tasks || []).map((id) => `      - ${id}`).join("\n");
+    await fs.writeFile(
+      path.join(harborRoot, "suites", `${suite}.yaml`),
+      `jobs_dir: jobs\ndatasets:\n  - path: tasks\n    task_names:\n${names}\n`,
+    );
   }
   for (const task of manifest.tasks || []) {
     const taskDir = path.join(harborRoot, "tasks", task.id);
@@ -125,6 +131,30 @@ test("manifest validation rejects unpinned versions, thin datasets, and bad suit
 
   await writeDataset(root, manifestFixture({ suites: { smoke: { tasks: ["nope"], attempts: 1 } } }));
   await assert.rejects(loadHarborManifest(root), /known task ids/);
+});
+
+test("validation flags suite configs that don't pin their task set (#317 contamination guard)", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+
+  // An unfiltered `path: tasks` runs every task dir — contaminating the suite.
+  await fs.writeFile(
+    path.join(root, "evals", "harbor", "suites", "nightly.yaml"),
+    "jobs_dir: jobs\ndatasets:\n  - path: tasks\n",
+  );
+  let result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes("must pin a task_names filter")));
+
+  // A filter that disagrees with the manifest suite (runs fewer/more trials
+  // than `plan` budgets) is also flagged.
+  await fs.writeFile(
+    path.join(root, "evals", "harbor", "suites", "nightly.yaml"),
+    "jobs_dir: jobs\ndatasets:\n  - path: tasks\n    task_names:\n      - task-a\n",
+  );
+  result = await validateHarborDataset(root, {});
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some((problem) => problem.includes("disagree with the manifest suite")));
 });
 
 test("validation fails a fixture that leaks an answer pattern", async () => {
