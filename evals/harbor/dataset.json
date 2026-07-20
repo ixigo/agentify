@@ -102,6 +102,17 @@
         "getUTCFullYear",
         "toISOString().slice(0, 7)"
       ]
+    },
+    {
+      "id": "recall-utc-quarter",
+      "category": "prior-failure-avoidance",
+      "max_cost_usd": 0.7,
+      "phases": ["seed", "recall"],
+      "answer_leak_patterns": [
+        "getUTCMonth",
+        "getUTCFullYear",
+        "getUTCMonth() / 3"
+      ]
     }
   ],
   "suites": {
@@ -143,6 +154,14 @@
         "recall-flaky-timezone"
       ],
       "attempts": 3
+    },
+    "crossvendor": {
+      "tasks": [
+        "recall-flaky-timezone",
+        "recall-utc-quarter"
+      ],
+      "attempts": 3,
+      "agents": 2
     }
   }
 }

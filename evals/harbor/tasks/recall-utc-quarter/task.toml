@@ -1,0 +1,29 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance", "multi-session", "cross-vendor"]
+difficulty = "medium"
+description = "Recall a runtime date-handling gotcha discovered in a prior (seed) session. Phase A implements monthly bucketing and hits a timezone flake; the graded recall phase adds quarterly bucketing that must avoid the same class of bug — the lesson only survives via Agentify's durable context. Used by the cross-vendor suite (Codex seeds, Claude recalls)."
+
+# Two-phase (write -> recall) task. Phase A ("seed") is executed only by a
+# two-phase agent, which persists .agentify/context/ across a session reset;
+# the graded phase ("recall") is instruction.md and is what every arm runs and
+# the verifier scores. In the cross-vendor suite the seed phase is executed by
+# Codex and the recall phase by Claude — the only thing that bridges them is
+# the on-disk Agentify context store. See docs/harbor.md, "Cross-vendor
+# transfer tasks".
+[phases]
+seed = "environment/phases/seed/instruction.md"
+recall = "instruction.md"
+
+[agent]
+# Two phases share this budget of wall-clock; the seed run is the smaller half.
+timeout_sec = 600.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

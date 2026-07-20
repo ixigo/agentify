@@ -1,0 +1,3 @@
+{"ts":"2026-02-03T10:15:00.000Z","sid":"seed0101","note":"billing records store money as integer minor units (paise); never introduce floats for amounts"}
+{"ts":"2026-02-10T13:05:22.140Z","sid":"seed0101","note":"the reporting service is read-only; it never writes back to the ledger, so every aggregation helper must be pure with no side effects"}
+{"ts":"2026-02-18T16:47:31.902Z","sid":"seed0102","note":"CI runs node --test on node 22; do not use test-runner APIs added after 22.x"}

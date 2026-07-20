@@ -1,0 +1,69 @@
+# Harbor job config: cross-vendor transfer (Codex writes -> Claude reads) —
+# the arm no single-vendor harness can tie (#316).
+#
+# Both arms run the SAME two-phase task, the SAME model per provider, the SAME
+# image and verifier: phase A (seed) is executed by Codex, phase B (graded
+# recall) by Claude Code. The only thing that can bridge the two providers is
+# Agentify's on-disk .agentify/context/ store — no provider transcript ever
+# crosses (Codex keeps its session in CODEX_HOME; Claude runs
+# --no-session-persistence). See docs/harbor.md, "Cross-vendor transfer tasks".
+#
+# Arm 1 (agentify-transfer): Codex records the runtime gotcha via
+#   `agentify ctx note`; Claude recalls it through the SessionStart digest and
+#   avoids the bug. Expected: pass.
+# Arm 2 (crossvendor-nomem): the identical Codex->Claude flow with
+#   AGENTIFY_CTX=off, so nothing is recalled across the barrier — Claude never
+#   sees Codex's finding. Expected: fail. That gap is the whole comparison, and
+#   it is exactly what a plain single-vendor harness (Claude-only or
+#   Codex-only) scores 0 on by construction.
+#
+# Requires BOTH vendors' credentials co-resident in the trial container:
+#   OPENAI_API_KEY (or CODEX_AUTH_JSON_PATH) for Codex, and
+#   ANTHROPIC_API_KEY (or CLAUDE_FORCE_OAUTH=1 + CLAUDE_CODE_OAUTH_TOKEN) for
+#   Claude. See docs/harbor.md for the two-container-relay fallback when creds
+#   cannot be co-located.
+#
+# Launch from evals/harbor/ with:  harbor run -c suites/crossvendor.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite crossvendor
+jobs_dir: jobs
+
+n_attempts: 3
+# Two concurrent trials: gentle on subscription rate limits, and each trial is
+# two provider runs across two different vendors.
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-flaky-timezone
+      - recall-utc-quarter
+
+agents:
+  # Arm 1: cross-vendor transfer. Codex seeds, Claude recalls; the Agentify
+  # context store is the only bridge.
+  - import_path: agents.agentify_transfer:AgentifyTransferAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      direction: codex-to-claude
+      # Phase-A (Codex seed) provider + model. Harbor's model_name drives the
+      # graded (Claude) phase; the seed provider is configured on the agent.
+      codex_model: gpt-5.6-terra
+      max_budget_usd: 0.35
+      max_turns: 12
+      # Phase A gets a smaller turn budget than the graded phase; 0 would mean
+      # "same as max_turns".
+      seed_max_turns: 8
+  # Arm 2: no-memory baseline — the identical Codex->Claude flow with the
+  # context layer switched off (AGENTIFY_CTX=off in both phases), so the store
+  # never bridges the barrier. Same providers, same order, same budget: the
+  # ONLY difference is the memory layer.
+  - import_path: agents.agentify_transfer:CrossVendorNoMemoryAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      direction: codex-to-claude
+      codex_model: gpt-5.6-terra
+      max_budget_usd: 0.35
+      max_turns: 12
+      seed_max_turns: 8

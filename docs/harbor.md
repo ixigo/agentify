@@ -106,6 +106,77 @@ instruction in (or the seed phase would silently no-op). Run the suite with
 `harbor run -c suites/multisession.yaml` — and always `agentify eval harbor
 plan --suite multisession` first for the spend ceiling.
 
+## Cross-vendor transfer tasks (Codex writes -> Claude reads)
+
+Multi-session tasks above still run Claude against Claude. Agentify's single
+most defensible claim — **"switch agents, keep the repo's working memory"** —
+is only exercised when the two phases are run by **different vendors**. That is
+the arm no single-vendor harness can tie: a plain Claude-only *or* Codex-only
+harness has **zero** cross-vendor state transfer by construction — a finding
+produced by one vendor is structurally invisible to the other, so it scores 0
+here no matter how good the underlying agent is. The pass is only possible
+because Agentify's store is vendor-neutral.
+
+The `crossvendor` suite runs a two-phase task where **phase A (seed) is
+executed by Codex** and **phase B (graded recall) by Claude Code**, against the
+same repo and the same `.agentify/context/` store. Codex records the runtime
+gotcha it discovers via the installed `AGENTS.md` guidance
+(`agentify ctx note`); Claude recalls it through the SessionStart digest and
+avoids the same bug. Only phase B is scored. Adapter:
+`agents/agentify_transfer.py`.
+
+Two arms:
+
+- **`agentify-transfer`** (`AgentifyTransferAgent`) — Codex(seed) ->
+  Claude(recall), store shared. Imports as the `agentify` arm. Expected: pass.
+- **`crossvendor-nomem`** (`CrossVendorNoMemoryAgent`) — the *identical*
+  Codex -> Claude flow with `AGENTIFY_CTX=off` in both phases, so the digest
+  injects nothing and Claude never sees Codex's finding. Same providers, same
+  order, same budget — the **only** difference is the memory layer (it reuses
+  the exact switch `agentify delegate` uses to keep children memoryless).
+  Expected: fail. That gap is the whole comparison, and it is what a
+  single-vendor harness scores 0 on.
+
+An optional reverse direction (Claude seed -> Codex recall) is supported via
+the adapter's `direction: claude-to-codex` kwarg but is **not** wired into the
+committed suite: Codex has no SessionStart hook, so its recall depends on the
+`AGENTS.md` guidance running `agentify ctx load`, which is less deterministic
+than Claude's hook-driven injection.
+
+**Privacy invariant preserved.** The *only* thing that crosses the barrier is
+`.agentify/context/`. Codex keeps its session under `CODEX_HOME`; Claude runs
+`--no-session-persistence`; neither provider reads the other's trajectory (each
+writes its own `/logs/agent/*-trajectory` file). No provider transcript ever
+crosses — the same "hidden provider state is never replayed" invariant the
+whole dataset holds to, here made *vendor-neutral*.
+
+**Credential-isolation reality.** Harbor's installed-agent model is one trial =
+one container, so the committed suite runs both providers **in a single
+container that carries both vendors' credentials** — a deliberate relaxation of
+the single-vendor-cred norm noted below. Provide both:
+
+- Codex (phase A): `OPENAI_API_KEY`, or an in-container `auth.json` (from
+  `codex login`) pointed at by `CODEX_AUTH_JSON_SRC` for subscription auth.
+- Claude (phase B): the same contract as `agentify-claude` — `ANTHROPIC_API_KEY`,
+  or `CLAUDE_FORCE_OAUTH=1` + `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+
+The Codex CLI version is pinned in the adapter via `AGENTIFY_EVAL_CODEX_SPEC`
+(default `@openai/codex@0.144.6`); Codex reports no `total_cost_usd`, so a Codex
+seed's cost imports as *unreported* (never zero), consistent with the rest of
+the import path.
+
+For environments that truly cannot co-locate two vendors' credentials in one
+container, the equivalent is a **two-container relay**: run phase A in a
+Codex-cred container, snapshot `.agentify/context/`, and mount it read-only into
+a Claude-cred container for phase B. It preserves the same privacy invariant
+(only the store crosses) but needs orchestration outside Harbor's
+single-container installed-agent model, so the committed suite uses the
+single-container form.
+
+Launch with `harbor run -c suites/crossvendor.yaml`; always `agentify eval
+harbor plan --suite crossvendor` first (ceiling `2 tasks × 2 agents × 3
+attempts × $0.70 = $8.40`).
+
 ## Dataset categories
 
 The tasks cover the roadmap's context-value claims plus the two controls
@@ -117,6 +188,7 @@ that keep us honest:
 | prior-failure-avoidance | `avoid-cache-regression` | A recorded production incident prevents a repeat |
 | prior-failure-avoidance | `timezone-flake-gotcha` | A recorded flake gotcha steers to the real fix |
 | prior-failure-avoidance (multi-session) | `recall-flaky-timezone` | A gotcha the agent *hit and recorded* in a seed session is recalled in the next |
+| prior-failure-avoidance (cross-vendor) | `recall-utc-quarter` | A gotcha **Codex** hit and recorded in a seed session is recalled by **Claude** in the next |
 | stale-context-rejection | `reject-stale-config-path` | Outdated notes are rejected in favor of repo reality |
 | repo-intelligence | `rename-shipping-rate-refs` | refs/impact answers find every call site |
 | affected-test-selection | `select-affected-tests` | Scoped test runs avoid a quarantined red herring |
@@ -146,10 +218,16 @@ via `--max-budget-usd`). The suite ceiling is always
 `tasks × agents × attempts × cap`:
 
 ```
-agentify eval harbor plan --suite smoke     # $0.70 ceiling (1×2×1×$0.35)
-agentify eval harbor plan --suite nightly   # 8 tasks × 2 × 3 × cap = $16.80
-agentify eval harbor plan --suite profiles  # 8 tasks × 4 × 3 × cap = $33.60
+agentify eval harbor plan --suite smoke        # $0.70 ceiling (1×2×1×$0.35)
+agentify eval harbor plan --suite nightly      # 8 tasks × 2 × 3 × cap = $16.80
+agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
+agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
+agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
 ```
+
+Cross-vendor trials additionally require **both** vendors' credentials in the
+trial container (`OPENAI_API_KEY` for Codex on top of the Claude auth above) —
+see "Cross-vendor transfer tasks".
 
 The agentify agent enforces the cap in-flight (`--max-budget-usd` per trial).
 Whether Harbor's built-in `claude-code` agent exposes an equivalent budget
@@ -238,14 +316,15 @@ ceiling, 48/48 trials, zero flakes):
 - The turns bump from 12 to 16 worked: one cap-hit in 48 trials (verifier
   still passed it), down from four in 16 trials at cap 12.
 
-Scope caveat when quoting these numbers: the suite measures the **context
-layer only** (hooks, seeded notes, repo intelligence). Delegation and
-cross-vendor review are out of scope by construction — `agentify delegate`
-launches children with `AGENTIFY_CTX=off`, and trial containers carry a
-single vendor's credentials — so the +66% per-attempt cost above is the price
-of context alone, not a statement about whole-workflow economics (that is
-what `agentify stats` / `agentify value` and the native eval profiles
-measure).
+Scope caveat when quoting these numbers: this *nightly* suite measures the
+**context layer only** (hooks, seeded notes, repo intelligence), Claude against
+Claude. Cross-vendor **transfer** (Codex writes -> Claude reads) is measured
+separately by the `crossvendor` suite above, not by these numbers. Cross-vendor
+**delegation/review** remains out of scope by construction — `agentify
+delegate` launches children with `AGENTIFY_CTX=off` — so the +66% per-attempt
+cost above is the price of context alone, not a statement about whole-workflow
+economics (that is what `agentify stats` / `agentify value` and the native eval
+profiles measure).
 
 ## External benchmarks (optional validity check)
 

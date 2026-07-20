@@ -4,7 +4,8 @@
 # and imports the job into the native eval report.
 #
 # Prerequisites (see docs/harbor.md): Docker running, `harbor` installed at
-# the pinned version, ANTHROPIC_API_KEY exported, agentify on PATH.
+# the pinned version, ANTHROPIC_API_KEY exported, agentify on PATH. The
+# crossvendor suite additionally needs OPENAI_API_KEY (Codex seed phase).
 set -eu
 cd "$(dirname "$0")"
 
