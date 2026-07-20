@@ -425,6 +425,8 @@ test("import folds the multisession seed cost into the arm's total, keeping the 
   // Cost-per-pass must count the memory investment: recall 0.04 + seed 0.03.
   assert.equal(report.arms.agentify.cost.reported_usd, 0.07);
   assert.equal(report.arms.agentify.turns.mean, 8);
+  assert.equal(report.arms.agentify.turns.scope, "phase_b_recall");
+  assert.equal(report.arms["claude-code"].turns.scope, null);
   assert.equal(report.task.category, "decision-recall");
   // The baseline has no seed phase, so its cost is untouched.
   assert.equal(report.arms["claude-code"].cost.reported_usd, 0.05);
@@ -437,6 +439,8 @@ test("import folds the multisession seed cost into the arm's total, keeping the 
   assert.equal(attempt.provider.seed_cost_usd, 0.03);
   assert.equal(attempt.provider.num_turns, 8);
   assert.equal(attempt.provider.seed_num_turns, 5);
+  assert.match(renderEvalReportMarkdown(report), /phase-B recall only/);
+  assert.match(renderEvalReportHtml(report), /phase-B recall only/);
 });
 
 test("import handles a cross-vendor transfer job: agentify arm vs its own no-memory baseline (#316)", async () => {

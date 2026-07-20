@@ -78,8 +78,15 @@ function focusedTestTotals(events) {
 }
 
 function aggregateMemoryEconomics(reports) {
-  const comparisons = reports.flatMap((report) => report.economics?.comparisons || []);
-  const multisession = comparisons.filter((comparison) => comparison.multisession_pairs > 0);
+  // A report with multiple baseline arms reuses the same Agentify recalls in
+  // every comparison. Summing those comparisons would count the treatment
+  // sessions (and seed investment) once per baseline. The aggregate receipt
+  // therefore accepts only reports with one unambiguous multisession baseline;
+  // per-baseline detail remains available in the individual eval report.
+  const comparisonsByReport = reports.map((report) => (report.economics?.comparisons || [])
+    .filter((comparison) => comparison.multisession_pairs > 0));
+  const excludedMultiBaselineReports = comparisonsByReport.filter((comparisons) => comparisons.length > 1).length;
+  const multisession = comparisonsByReport.flatMap((comparisons) => (comparisons.length === 1 ? comparisons : []));
   const pairedRecalls = multisession.reduce((sum, comparison) => sum + comparison.multisession_pairs, 0);
   const sumMetric = (pick) => multisession.reduce((sum, comparison) => sum + finite(pick(comparison)), 0);
   const tokensMeasuredPairs = sumMetric((comparison) => comparison.phase_b.tokens.measured_pairs);
@@ -108,7 +115,7 @@ function aggregateMemoryEconomics(reports) {
     }
   }
 
-  const repeated = comparisons.map((comparison) => comparison.repeated_failure_cost_avoided);
+  const repeated = multisession.map((comparison) => comparison.repeated_failure_cost_avoided);
   const repeatedPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.pairs), 0);
   const repeatedCostedPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.costed_pairs), 0);
   const repeatedTurnsPairs = repeated.reduce((sum, receipt) => sum + finite(receipt?.turns_reported_pairs), 0);
@@ -118,6 +125,8 @@ function aggregateMemoryEconomics(reports) {
   return {
     source: "paired two-phase eval phase-B telemetry",
     eval_reports: reports.length,
+    eligible_eval_reports: multisession.length,
+    excluded_multi_baseline_reports: excludedMultiBaselineReports,
     comparisons: multisession.length,
     paired_recalls: pairedRecalls,
     rediscovery_avoided: {
@@ -322,6 +331,7 @@ export function renderValueReport(report) {
     `- break-even: ${breakEven}`,
     `- amortized cost at break-even: ${amortized}`,
     `- repeated-failure cost avoided: ${formatCost(repeated.cost_usd)} across ${repeated.pairs} paired failure(s); ${repeated.turns ?? "not reported"} turn(s)`,
+    `- coverage: ${memory.eligible_eval_reports}/${memory.eval_reports} eval report(s) with one multisession baseline; ${memory.excluded_multi_baseline_reports} multi-baseline report(s) excluded`,
     "",
     "Evidence notes:",
     ...report.evidence.limitations.map((item) => `- ${item}`),
@@ -629,6 +639,7 @@ export function renderValueHtml(report, options = {}) {
           <p class="panel-copy">A value receipt from paired phase-B telemetry: baseline total minus Agentify total. Break-even is the first recall session where measured savings repay the incremental seed cost.</p>
           <div class="table-wrap"><table><caption>Amortized and rediscovery-avoided eval economics</caption><tbody>
             <tr><th scope="row">Paired recall sessions</th><td class="number">${formatNumber(memory.paired_recalls)}</td></tr>
+            <tr><th scope="row">Eligible eval reports</th><td class="number">${formatNumber(memory.eligible_eval_reports)}/${formatNumber(memory.eval_reports)} <small>(${formatNumber(memory.excluded_multi_baseline_reports)} multi-baseline excluded)</small></td></tr>
             <tr><th scope="row">Rediscovery tokens avoided</th><td class="number">${escapeHtml(rediscoveryTokens)} <small>(${memory.rediscovery_avoided.token_pairs}/${memory.paired_recalls} pairs)</small></td></tr>
             <tr><th scope="row">Rediscovery turns avoided</th><td class="number">${escapeHtml(rediscoveryTurns)} <small>(${memory.rediscovery_avoided.turn_pairs}/${memory.paired_recalls} pairs)</small></td></tr>
             <tr><th scope="row">Break-even</th><td class="number">${escapeHtml(breakEven)}</td></tr>

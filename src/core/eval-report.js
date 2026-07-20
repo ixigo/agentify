@@ -151,6 +151,7 @@ function armMetrics(records) {
   const providerDurations = [];
   const totalDurations = [];
   const turns = [];
+  const turnScopes = new Set();
   const changedCounts = [];
   const tokens = { fresh_input: 0, cache_read: 0, cache_write: 0, output: 0 };
   let usageAttempts = 0;
@@ -171,6 +172,7 @@ function armMetrics(records) {
     }
     if (typeof record.provider?.num_turns === "number") {
       turns.push(record.provider.num_turns);
+      turnScopes.add(record.provider?.multisession === true ? "phase_b_recall" : "attempt");
     }
     changedCounts.push((record.grade?.changed_paths || []).length);
     const usage = record.provider?.usage;
@@ -217,7 +219,11 @@ function armMetrics(records) {
       provider_mean_ms: round(mean(providerDurations), 0),
       total_mean_ms: round(mean(totalDurations), 0),
     },
-    turns: { mean: round(mean(turns), 2), max: turns.length > 0 ? Math.max(...turns) : null },
+    turns: {
+      mean: round(mean(turns), 2),
+      max: turns.length > 0 ? Math.max(...turns) : null,
+      scope: turnScopes.size === 0 ? null : turnScopes.size === 1 ? [...turnScopes][0] : "mixed",
+    },
     changed_files: { mean: round(mean(changedCounts), 2), max: changedCounts.length > 0 ? Math.max(...changedCounts) : null },
     failure_breakdown: failureBreakdown,
     stop_reasons: stopReasons,
@@ -945,6 +951,12 @@ function formatCount(value, unit) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)} ${unit}`;
 }
 
+function formatTurnScope(scope) {
+  if (scope === "phase_b_recall") return "phase-B recall";
+  if (scope === "attempt") return "whole attempt";
+  return scope ?? "n/a";
+}
+
 function formatBreakEven(receipt) {
   return receipt?.status === "reached" ? `≤ ${receipt.sessions} recall session(s)` : receipt?.reason ?? "n/a";
 }
@@ -967,11 +979,14 @@ export function renderEvalReportMarkdown(report) {
     "",
     "## Arms",
     "",
-    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | turns | changed files | forbidden fails |",
+    "| arm | pass rate | 95% CI | cost/attempt | cost/pass | P50 | P95 | mean turns (scope) | changed files | forbidden fails |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const [arm, metrics] of Object.entries(report.arms)) {
-    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
+    lines.push(`| ${arm} | ${metrics.passes}/${metrics.attempts} (${formatRate(metrics.pass_rate)}) | ${formatCi(metrics.pass_rate_ci95)} | ${formatUsd(metrics.cost.per_attempt_usd)} | ${formatUsd(metrics.cost.per_pass_usd)} | ${formatMs(metrics.latency.provider_p50_ms)} | ${formatMs(metrics.latency.provider_p95_ms)} | ${metrics.turns.mean ?? "n/a"} (${formatTurnScope(metrics.turns.scope)}) | ${metrics.changed_files.mean ?? "n/a"} | ${metrics.failure_breakdown.forbidden_change || 0} |`);
+  }
+  if (Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall")) {
+    lines.push("", "> Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.");
   }
   for (const [arm, metrics] of Object.entries(report.arms)) {
     if (metrics.cost.unreported_attempts > 0) {
@@ -1142,7 +1157,7 @@ export function renderEvalReportHtml(report) {
       <td>${formatUsd(metrics.cost.per_pass_usd)}</td>
       <td>${formatMs(metrics.latency.provider_p50_ms)}</td>
       <td>${formatMs(metrics.latency.provider_p95_ms)}</td>
-      <td>${metrics.turns.mean ?? "n/a"}</td>
+      <td>${metrics.turns.mean ?? "n/a"} <small>${escapeHtml(formatTurnScope(metrics.turns.scope))}</small></td>
       <td>${metrics.failure_breakdown.forbidden_change || 0}</td>
     </tr>`).join("");
 
@@ -1304,9 +1319,10 @@ export function renderEvalReportHtml(report) {
 <h2 id="arms-title">Arms</h2>
 <div class="table-wrap"><table>
   <caption>Per-arm quality, cost, latency, and turn totals</caption>
-  <thead><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">95% CI</th><th scope="col">cost/attempt</th><th scope="col">cost/pass</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">turns</th><th scope="col">forbidden fails</th></tr></thead>
+  <thead><tr><th scope="col">arm</th><th scope="col">pass rate</th><th scope="col">95% CI</th><th scope="col">cost/attempt</th><th scope="col">cost/pass</th><th scope="col">P50</th><th scope="col">P95</th><th scope="col">mean turns (scope)</th><th scope="col">forbidden fails</th></tr></thead>
   <tbody>${armRows}</tbody>
 </table></div>
+${Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall") ? '<p class="formula">Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.</p>' : ""}
 </section>
 ${economicsRows ? `<section aria-labelledby="economics-title">
 <p class="eyebrow">Value receipt</p>

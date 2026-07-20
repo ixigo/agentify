@@ -251,6 +251,52 @@ test("value report carries the paired memory-economics receipt from eval reports
   assert.match(html, /Amortized and rediscovery-avoided eval economics/);
   assert.match(html, /≤ 1 recall session/);
   assert.match(html, /\$0\.0500 vs \$0\.0600/);
+
+  // A second baseline would reuse the same Agentify recalls. The value-level
+  // aggregate excludes that report rather than counting the treatment twice;
+  // individual eval reports still retain both per-baseline comparisons.
+  const extraAttempts = [1, 2].map((repeat) => ({
+    arm: "plain-other",
+    repeat,
+    pass: false,
+    totalCost: 0.07,
+    turns: 6,
+    tokens: [900, 100, 300],
+  }));
+  const runMeta = JSON.parse(await fs.readFile(path.join(runRoot, "run.json"), "utf8"));
+  runMeta.plan.order.push(...extraAttempts.map((attempt) => ({
+    attempt_id: `${attempt.arm}-${attempt.repeat}`,
+    arm: attempt.arm,
+    repeat_index: attempt.repeat,
+  })));
+  await writeJson(path.join(runRoot, "run.json"), runMeta);
+  for (const attempt of extraAttempts) {
+    const attemptId = `${attempt.arm}-${attempt.repeat}`;
+    await writeJson(path.join(runRoot, "attempts", attemptId, "result.json"), {
+      schema: "eval-attempt-v1",
+      attempt_id: attemptId,
+      arm: attempt.arm,
+      repeat_index: attempt.repeat,
+      status: "ok",
+      pass: attempt.pass,
+      duration_ms: 1000,
+      provider: {
+        cost_usd: attempt.totalCost,
+        num_turns: attempt.turns,
+        usage: {
+          fresh_input_tokens: attempt.tokens[0],
+          cache_read_tokens: attempt.tokens[1],
+          cache_write_tokens: 0,
+          output_tokens: attempt.tokens[2],
+        },
+      },
+      grade: { pass: attempt.pass, forbidden_violations: [], checks: [], changed_paths: [] },
+    });
+  }
+  const ambiguous = await buildValueReport(root, { days: 7, now });
+  assert.equal(ambiguous.cost_per_passing_task.memory_economics.paired_recalls, 0);
+  assert.equal(ambiguous.cost_per_passing_task.memory_economics.eligible_eval_reports, 0);
+  assert.equal(ambiguous.cost_per_passing_task.memory_economics.excluded_multi_baseline_reports, 1);
 });
 
 test("value CLI writes a self-contained HTML artifact and validates options", async () => {
