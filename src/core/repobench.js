@@ -495,6 +495,19 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       skipped.push({ attempt: attempt.task_id, reason: "completion score is missing or out of range" });
     } else if (typeof attempt.context?.answer_in_context !== "boolean") {
       skipped.push({ attempt: attempt.task_id, reason: "attempt lacks its answer-in-context receipt" });
+    } else if (arm === "claude-code"
+      && (attempt.context.snippets !== 0 || attempt.context.chars !== 0 || (attempt.context.files || []).length !== 0)) {
+      // The paired claim is "the only difference is index-supplied context";
+      // a baseline that received context is a different experiment.
+      skipped.push({ attempt: attempt.task_id, reason: "baseline attempt received cross-file context" });
+    } else if (arm === "agentify" && (
+      !Number.isInteger(attempt.context.snippets) || attempt.context.snippets < 0
+      || attempt.context.snippets > (job.limits?.context_snippets ?? 0)
+      || !Number.isInteger(attempt.context.chars) || attempt.context.chars < 0
+      || attempt.context.chars > (job.limits?.context_max_chars ?? 0)
+      || !Array.isArray(attempt.context.files)
+      || typeof attempt.context.gold_in_context !== "boolean")) {
+      skipped.push({ attempt: attempt.task_id, reason: "agentify context exceeds the declared bounds or lacks receipts" });
     } else if (arm === "agentify" && (!attempt.retrieval || typeof attempt.retrieval.def_hit !== "boolean")) {
       skipped.push({ attempt: attempt.task_id, reason: "agentify attempt lacks its retrieval receipt" });
     } else if (arm === "agentify" && (() => {

@@ -679,13 +679,12 @@ def parse_stream(path: Path) -> dict[str, Any]:
 
 
 def parse_completion(output: str) -> str:
-    """The instruction asks for one fenced block holding the single next line."""
+    """The instruction asks for one fenced block holding the single next
+    line. The complete fenced content is the prediction — discarding extra
+    lines would grade a contract-violating multi-line answer as a pass."""
     fenced = re.search(r"```[a-zA-Z]*\n(.*?)```", output, re.DOTALL)
     body = fenced.group(1) if fenced else output
-    for line in body.split("\n"):
-        if line.strip():
-            return line.rstrip()
-    return ""
+    return body.strip("\n").rstrip()
 
 
 def run_claude_completion(
@@ -749,25 +748,33 @@ def indel_distance(left: str, right: str) -> int:
     return previous[-1]
 
 
-def edit_similarity(prediction: str, target: str) -> float:
+def edit_similarity(prediction: str, target: str) -> int:
     """`fuzz.ratio` equivalent on the unmodified strings, as in the official
-    evaluator: 100 * (lensum - indel distance) / lensum. Indentation errors
+    evaluator: an integer percent from the indel distance. Indentation errors
     count against the score."""
     lensum = len(prediction) + len(target)
     if lensum == 0:
-        return 100.0
-    return round((lensum - indel_distance(prediction, target)) / lensum * 100, 2)
+        return 100
+    return int(round((lensum - indel_distance(prediction, target)) / lensum * 100))
 
 
 def identifiers(text: str) -> set[str]:
-    return {token for token in re.findall(r"[A-Za-z_]\w*", text) if token not in PYTHON_KEYWORDS}
+    """CrossCodeEval-style identifier extraction (regex approximation):
+    string literals and trailing comments are removed first so words inside
+    them do not count as identifiers."""
+    without_strings = re.sub(
+        r"('''.*?'''|\"\"\".*?\"\"\"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")",
+        "", text, flags=re.DOTALL,
+    )
+    without_comments = re.sub(r"#.*$", "", without_strings, flags=re.MULTILINE)
+    return {token for token in re.findall(r"[A-Za-z_]\w*", without_comments) if token not in PYTHON_KEYWORDS}
 
 
 def identifier_f1(prediction: str, target: str) -> float:
     predicted = identifiers(prediction)
     expected = identifiers(target)
-    if not predicted and not expected:
-        return 1.0
+    # An empty denominator scores zero, matching the official CrossCodeEval
+    # evaluator; identifier overlap is meaningless without identifiers.
     if not predicted or not expected:
         return 0.0
     overlap = len(predicted & expected)

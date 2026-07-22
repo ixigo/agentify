@@ -87,12 +87,15 @@ cross-file context block:
   attributes to the index. The 6,000-character budget bounds the serialized
   block as injected (path headers and comment prefixes included).
 
-Predictions are scored locally with the official RepoBench evaluator's
-definitions: exact match is whitespace-token equality
-(`prediction.split() == target.split()`) and edit similarity is `fuzz.ratio`
-(indel-costed Levenshtein, implemented dependency-free). Identifier F1 is
-reported as a supplementary CrossCodeEval-style diagnostic, not a RepoBench
-headline metric. There is no Docker grader; scoring is deterministic text
+Predictions are the complete fenced model output (a multi-line answer is
+graded whole, never truncated to its first line) and are scored locally with
+the official RepoBench evaluator's definitions: exact match is
+whitespace-token equality (`prediction.split() == target.split()`) and edit
+similarity is `fuzz.ratio` (indel-costed Levenshtein, integer percent,
+implemented dependency-free). Identifier F1 is a supplementary
+CrossCodeEval-style diagnostic — a regex approximation that strips string
+literals and comments and scores zero on an empty denominator — not a
+RepoBench headline metric. There is no Docker grader; scoring is deterministic text
 comparison, so the job is `graded` as soon as inference finishes.
 
 ## Answer isolation

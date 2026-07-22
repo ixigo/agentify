@@ -148,10 +148,21 @@ class RunnerTests(unittest.TestCase):
         self.assertGreater(near["edit_similarity"], 90)
         self.assertLess(near["identifier_f1"], 1.0)
         # Official RepoBench definitions: exact match is whitespace-token
-        # equality; edit similarity is fuzz.ratio (indel-costed Levenshtein).
+        # equality; edit similarity is fuzz.ratio (indel-costed Levenshtein,
+        # integer percent).
         whitespace_only = runner.score_completion("return  x", "return x")
         self.assertTrue(whitespace_only["exact_match"])
-        self.assertEqual(runner.edit_similarity("abcd", "bcde"), 75.0)
+        self.assertEqual(runner.edit_similarity("abcd", "bcde"), 75)
+        self.assertEqual(runner.edit_similarity("a", "ab"), 67)
+        # A multi-line answer is graded whole, not silently truncated to its
+        # first line.
+        multi = runner.parse_completion("```python\nexpected()\nunwanted()\n```")
+        self.assertEqual(multi, "expected()\nunwanted()")
+        self.assertFalse(runner.score_completion(multi, "expected()")["exact_match"])
+        # CrossCodeEval-style identifiers: string literals and comments do
+        # not count, and an empty denominator scores zero.
+        self.assertEqual(runner.identifier_f1('return "retry_count"', 'return "other"'), 0.0)
+        self.assertEqual(runner.identifier_f1("x = 1  # note total", "x = 1"), 1.0)
 
     def test_answer_leak_receipt_flags_context_that_quotes_the_answer(self):
         self.assertTrue(runner.answer_leak_receipt("# return compute_total(policy)", "    return compute_total(policy)"))

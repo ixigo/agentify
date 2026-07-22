@@ -317,7 +317,21 @@ test("import refuses incomplete jobs, missing retrieval receipts, tool use, and 
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /not verifiably tool-free/);
   record.provider.tool_calls = 0;
+  record.context.snippets = 99;
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /exceeds the declared bounds/);
+  record.context.snippets = 2;
+  await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
+
+  // A baseline that received any cross-file context is a different
+  // experiment and must not import.
+  const baselinePath = path.join(jobDir, "attempts", "claude-code", "cross_file_first-0", "1", "result.json");
+  const baseline = JSON.parse(await fs.readFile(baselinePath, "utf8"));
+  baseline.context.snippets = 1;
+  await fs.writeFile(baselinePath, JSON.stringify(baseline));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /baseline attempt received cross-file context/);
+  baseline.context.snippets = 0;
+  await fs.writeFile(baselinePath, JSON.stringify(baseline));
 
   // A summary copied from a different suite or produced by a different
   // agentify version is not evidence for this job.
