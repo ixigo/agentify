@@ -108,15 +108,40 @@ def task_slug(task_id: str) -> str:
 # Pinned dataset rows
 # ---------------------------------------------------------------------------
 
+def require_pinned_dataset_head(dataset: dict[str, Any]) -> None:
+    """The datasets-server row API always serves the default branch HEAD and
+    accepts no revision parameter, so serving is only reproducible while HEAD
+    still equals the committed pin. Fail closed the moment upstream moves."""
+    url = f"https://huggingface.co/api/datasets/{dataset['name']}"
+    request = urllib.request.Request(url, headers={"User-Agent": "agentify-repobench"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as error:  # noqa: BLE001 - surfaced as one adapter error
+        raise AdapterError(f"failed to resolve dataset HEAD for {dataset['name']}: {error}") from error
+    head = str(payload.get("sha") or "")
+    if head != dataset["revision"]:
+        raise AdapterError(
+            f"dataset {dataset['name']} HEAD is {head or 'unknown'}, but the committed pin is "
+            f"{dataset['revision']}. Either update the pin deliberately, or materialize the pinned "
+            "rows with the `datasets` library at the pinned revision into --rows-cache (row-<index>.json) "
+            "and rerun; cached rows are still verified against the committed sha256 receipts."
+        )
+
+
 def fetch_rows(manifest: dict[str, Any], row_indices: list[int], cache_dir: Path | None) -> dict[int, dict[str, Any]]:
     """Fetch dataset rows by index from the datasets-server row API."""
     dataset = manifest["dataset"]
     rows: dict[int, dict[str, Any]] = {}
+    pinned_head_checked = False
     for index in sorted(set(row_indices)):
         cache_path = (cache_dir / f"row-{index}.json") if cache_dir else None
         if cache_path and cache_path.is_file():
             rows[index] = read_json(cache_path)
             continue
+        if not pinned_head_checked:
+            require_pinned_dataset_head(dataset)
+            pinned_head_checked = True
         query = urllib.parse.urlencode({
             "dataset": dataset["name"],
             "config": "default",
@@ -469,9 +494,10 @@ def build_context_block(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Extract definition-anchored snippets from candidate files, in query
     order, bounded by count and total characters."""
-    used = 0
     entries: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
+    block_parts: list[str] = []
+    block_length = 0
     for definition in queries["definitions"]:
         if len(entries) >= max_snippets:
             break
@@ -490,21 +516,26 @@ def build_context_block(
         end_line = definition.get("end_line") if isinstance(definition.get("end_line"), int) else start_line
         snippet_lines = lines[max(0, start_line - 1):min(len(lines), max(end_line, start_line + 19))]
         snippet = "\n".join(snippet_lines).rstrip()
-        if not snippet or used + len(snippet) > max_chars:
+        if not snippet:
             continue
-        used += len(snippet)
+        # The budget bounds the serialized block the model actually receives,
+        # including path headers, comment prefixes, and separators.
+        serialized = "\n".join([
+            f"# Path: {file_path}",
+            *(f"# {line}" for line in snippet.split("\n")),
+            "#",
+        ])
+        if block_length + len(serialized) + (1 if block_parts else 0) > max_chars:
+            continue
+        block_length += len(serialized) + (1 if block_parts else 0)
+        block_parts.append(serialized)
         entries.append({
             "file_path": file_path,
             "symbol": definition["symbol"],
             "start_line": start_line,
             "snippet": snippet,
         })
-    block_lines: list[str] = []
-    for entry in entries:
-        block_lines.append(f"# Path: {entry['file_path']}")
-        block_lines.extend(f"# {line}" for line in entry["snippet"].split("\n"))
-        block_lines.append("#")
-    return "\n".join(block_lines), entries
+    return "\n".join(block_parts), entries
 
 
 def load_prompt_template(path: Path = DEFAULT_PROMPT) -> str:
@@ -557,20 +588,34 @@ def claude_command(manifest: dict[str, Any], prompt: str) -> list[str]:
         "--no-session-persistence",
         "--permission-mode",
         "plan",
+        # A completion is a pure text task: disallow every standard tool so a
+        # session cannot browse the web or a filesystem for benchmark
+        # content. parse_stream additionally counts tool_use blocks and any
+        # non-zero count invalidates the trial (belt and suspenders).
         "--disallowedTools",
-        "Edit,Write,MultiEdit,NotebookEdit",
+        "Task,Bash,BashOutput,KillBash,Glob,Grep,LS,Read,Edit,Write,MultiEdit,"
+        "NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite,ExitPlanMode",
     ]
 
 
 def parse_stream(path: Path) -> dict[str, Any]:
     result: dict[str, Any] | None = None
+    tool_calls = 0
     for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(raw_line)
         except json.JSONDecodeError:
             continue
-        if isinstance(event, dict) and event.get("type") == "result":
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "result":
             result = event
+            continue
+        if event.get("type") == "assistant" and isinstance(event.get("message"), dict):
+            content = event["message"].get("content")
+            for block in content if isinstance(content, list) else []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_calls += 1
     result = result or {}
     usage = result.get("usage") if isinstance(result.get("usage"), dict) else None
     normalized_usage = None
@@ -584,6 +629,7 @@ def parse_stream(path: Path) -> dict[str, Any]:
     return {
         "subtype": result.get("subtype"),
         "num_turns": result.get("num_turns"),
+        "tool_calls": tool_calls,
         "cost_usd": result.get("total_cost_usd") if isinstance(result.get("total_cost_usd"), (int, float)) else None,
         "usage": normalized_usage,
         "final_output": result.get("result") if isinstance(result.get("result"), str) else None,
@@ -621,7 +667,7 @@ def run_claude_completion(
         exit_code = 124
         stderr = str(error)
     telemetry = parse_stream(trajectory) if trajectory.exists() else {
-        "subtype": None, "num_turns": None, "cost_usd": None, "usage": None, "final_output": None,
+        "subtype": None, "num_turns": None, "tool_calls": None, "cost_usd": None, "usage": None, "final_output": None,
     }
     telemetry.update(
         {
@@ -639,7 +685,9 @@ def run_claude_completion(
 # Scoring (RepoBench / CrossCodeEval conventions, stdlib only)
 # ---------------------------------------------------------------------------
 
-def levenshtein(left: str, right: str) -> int:
+def indel_distance(left: str, right: str) -> int:
+    """Levenshtein with substitutions costed 2 (one delete + one insert), the
+    distance underlying `fuzz.ratio` in the official RepoBench evaluator."""
     if left == right:
         return 0
     if not left:
@@ -653,19 +701,20 @@ def levenshtein(left: str, right: str) -> int:
             current.append(min(
                 previous[column_index] + 1,
                 current[column_index - 1] + 1,
-                previous[column_index - 1] + (0 if left_char == right_char else 1),
+                previous[column_index - 1] + (0 if left_char == right_char else 2),
             ))
         previous = current
     return previous[-1]
 
 
 def edit_similarity(prediction: str, target: str) -> float:
+    """`fuzz.ratio` equivalent: 100 * (lensum - indel distance) / lensum."""
     left = prediction.strip()
     right = target.strip()
-    longest = max(len(left), len(right))
-    if longest == 0:
+    lensum = len(left) + len(right)
+    if lensum == 0:
         return 100.0
-    return round((1 - levenshtein(left, right) / longest) * 100, 2)
+    return round((lensum - indel_distance(left, right)) / lensum * 100, 2)
 
 
 def identifiers(text: str) -> set[str]:
@@ -689,8 +738,12 @@ def identifier_f1(prediction: str, target: str) -> float:
 
 def score_completion(prediction: str, target: str) -> dict[str, Any]:
     return {
-        "exact_match": prediction.strip() == target.strip(),
+        # Whitespace-token equality, matching the official RepoBench
+        # evaluator's exact-match definition (`pred.split() == gt.split()`).
+        "exact_match": prediction.split() == target.split(),
         "edit_similarity": edit_similarity(prediction, target),
+        # Supplementary CrossCodeEval-style diagnostic, not a RepoBench
+        # headline metric.
         "identifier_f1": identifier_f1(prediction, target),
     }
 
@@ -803,7 +856,8 @@ def run_attempt(
         session=f"repobench-{arm}-{task_slug(task['task_id'])}-{attempt_number}",
     )
     final_output = str(provider.pop("final_output", "") or "")
-    prediction = parse_completion(final_output) if provider["exit_code"] == 0 else ""
+    clean_session = provider["exit_code"] == 0 and provider.get("tool_calls") == 0
+    prediction = parse_completion(final_output) if clean_session else ""
     record = {
         "schema": ATTEMPT_SCHEMA,
         "task_id": task["task_id"],
@@ -829,13 +883,18 @@ def run_attempt(
         "retrieval": {key: retrieval[key] for key in ("def_hit", "gold_rank", "ref_edge_hit", "impact_hit")}
             if arm == "agentify" else None,
         "trajectory_path": str(trajectory.relative_to(job_dir)),
-        "score": score_completion(prediction, next_line) if provider["exit_code"] == 0 else None,
+        "score": score_completion(prediction, next_line) if clean_session else None,
     }
     write_json(result_dir / "result.json", record)
     if provider["exit_code"] != 0:
         raise AdapterError(
             f"completion provider failed for {task['task_id']} arm {arm} "
             f"attempt {attempt_number} with exit {provider['exit_code']}"
+        )
+    if provider.get("tool_calls") != 0:
+        raise AdapterError(
+            f"completion session for {task['task_id']} arm {arm} attempt {attempt_number} "
+            f"used {provider.get('tool_calls')} tool call(s); tool-free completion is required"
         )
     return record
 
@@ -988,6 +1047,9 @@ def select_sample(args: argparse.Namespace) -> None:
     content-verified row per distinct repository, in dataset order."""
     manifest = load_manifest(args.manifest)
     dataset = manifest["dataset"]
+    # Receipts must be generated from the exact revision the manifest labels;
+    # a selection run against a moved HEAD would silently relabel the sample.
+    require_pinned_dataset_head(dataset)
     tasks: list[dict[str, Any]] = []
     seen_repos: set[str] = set()
     offset = 0

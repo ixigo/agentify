@@ -136,6 +136,11 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(near["exact_match"])
         self.assertGreater(near["edit_similarity"], 90)
         self.assertLess(near["identifier_f1"], 1.0)
+        # Official RepoBench definitions: exact match is whitespace-token
+        # equality; edit similarity is fuzz.ratio (indel-costed Levenshtein).
+        whitespace_only = runner.score_completion("return  x", "return x")
+        self.assertTrue(whitespace_only["exact_match"])
+        self.assertEqual(runner.edit_similarity("abcd", "bcde"), 75.0)
 
     def test_answer_leak_receipt_flags_context_that_quotes_the_answer(self):
         self.assertTrue(runner.answer_leak_receipt("# return compute_total(policy)", "    return compute_total(policy)"))
@@ -169,9 +174,9 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(plan["completion_trials"], 2)
         self.assertEqual(plan["retrieval_cost_usd"], 0)
 
-    def test_stream_parser_reads_result_event(self):
+    def test_stream_parser_reads_result_event_and_counts_tool_calls(self):
         events = [
-            {"type": "assistant", "message": {"id": "one", "content": []}},
+            {"type": "assistant", "message": {"id": "one", "content": [{"type": "text", "text": "ok"}]}},
             {"type": "result", "subtype": "success", "num_turns": 1,
              "total_cost_usd": 0.01, "result": "```python\nx = 1\n```",
              "usage": {"input_tokens": 5, "output_tokens": 3}},
@@ -180,9 +185,18 @@ class RunnerTests(unittest.TestCase):
             path = Path(directory) / "trajectory.jsonl"
             path.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
             parsed = runner.parse_stream(path)
+            self.assertEqual(parsed["tool_calls"], 0)
+            events.insert(1, {"type": "assistant", "message": {"id": "two", "content": [
+                {"type": "tool_use", "name": "WebSearch", "input": {}},
+            ]}})
+            path.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+            tainted = runner.parse_stream(path)
         self.assertEqual(parsed["num_turns"], 1)
         self.assertEqual(parsed["cost_usd"], 0.01)
         self.assertEqual(runner.parse_completion(parsed["final_output"]), "x = 1")
+        # Any tool call marks the session as not tool-free; run_attempt
+        # invalidates the trial and the importer refuses it.
+        self.assertEqual(tainted["tool_calls"], 1)
 
 
 if __name__ == "__main__":

@@ -156,6 +156,7 @@ async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cos
       timed_out: false,
       duration_ms: 900,
       num_turns: 1,
+      tool_calls: 0,
       cost_usd: cost,
       usage: { fresh_input_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 5 },
     },
@@ -259,12 +260,17 @@ test("import produces an aggregate paired RepoBench report with completion quali
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /provider execution did not complete successfully/);
 });
 
-test("import refuses incomplete jobs, missing retrieval receipts, and pin drift", async () => {
+test("import refuses incomplete jobs, missing retrieval receipts, tool use, and pin drift", async () => {
   const root = await makeRoot();
   const manifest = fixtureManifest();
   await writeFixture(root, manifest);
   const jobDir = await writeJob(root, manifest, { withRetrieval: false });
   await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
+  // The token-free retrieval summary is required evidence, not an optional
+  // attachment.
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /missing its retrieval summary/);
+
+  await writeJob(root, manifest);
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /incomplete: expected 4 scored attempts, found 1/);
 
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 10, f1: 0, cost: 0.02 });
@@ -276,6 +282,13 @@ test("import refuses incomplete jobs, missing retrieval receipts, and pin drift"
   record.retrieval = null;
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /lacks its retrieval receipt/);
+
+  record.retrieval = { def_hit: true, gold_rank: 1, ref_edge_hit: true, impact_hit: true };
+  record.provider.tool_calls = 2;
+  await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /not verifiably tool-free/);
+  record.provider.tool_calls = 0;
+  await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
 
   const job = JSON.parse(await fs.readFile(path.join(jobDir, "job.json"), "utf8"));
   job.pins.agentify = "0.3.9";

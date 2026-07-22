@@ -70,19 +70,28 @@ freely.
 ### Paired completion (paid, bounded)
 
 `runner.py run` runs both arms through identical fresh Claude Code sessions
-in an empty scratch directory (plan mode, edit tools disallowed, isolated
-empty home): same instruction, same import statement, same in-file context,
-same model and caps. The **only** difference is the cross-file context block:
+in an empty scratch directory (plan mode, every standard tool disallowed,
+isolated empty home): same instruction, same import statement, same in-file
+context, same model and caps. Tool-freedom is enforced twice — the tool list
+is disallowed up front, and the runner counts `tool_use` blocks in each
+trajectory: any tool call invalidates the trial, and
+`agentify eval repobench import` refuses an attempt whose `tool_calls`
+receipt is not exactly zero. The **only** difference between arms is the
+cross-file context block:
 
 - `claude-code` (baseline): in-file context only;
-- `agentify`: plus up to 5 definition-anchored snippets (bounded to 6,000
-  characters) selected mechanically by the same index queries — no model
-  chooses the context, so any uplift attributes to the index.
+- `agentify`: plus up to 5 definition-anchored snippets selected mechanically
+  by the same index queries — no model chooses the context, so any uplift
+  attributes to the index. The 6,000-character budget bounds the serialized
+  block as injected (path headers and comment prefixes included).
 
-Predictions are scored locally with RepoBench's standard metrics: exact
-match, edit similarity (Levenshtein), and identifier F1. There is no Docker
-grader; scoring is deterministic text comparison, so the job is `graded` as
-soon as inference finishes.
+Predictions are scored locally with the official RepoBench evaluator's
+definitions: exact match is whitespace-token equality
+(`prediction.split() == target.split()`) and edit similarity is `fuzz.ratio`
+(indel-costed Levenshtein, implemented dependency-free). Identifier F1 is
+reported as a supplementary CrossCodeEval-style diagnostic, not a RepoBench
+headline metric. There is no Docker grader; scoring is deterministic text
+comparison, so the job is `graded` as soon as inference finishes.
 
 ## Answer isolation
 
@@ -109,6 +118,14 @@ soon as inference finishes.
 - Python 3.10+ (stdlib only — rows come from the Hugging Face
   datasets-server REST API, hash-verified against the committed receipts);
 - network access to Hugging Face and the pinned GitHub repositories.
+
+The datasets-server row API serves only the dataset's default-branch HEAD,
+so the runner first resolves HEAD and refuses to fetch when it no longer
+equals the committed revision. If upstream ever advances, either update the
+pin deliberately or materialize the pinned rows once with the `datasets`
+library at the pinned revision into `--rows-cache` (`row-<index>.json`
+files); cached rows are still verified against the committed sha256
+receipts, so a wrong or tampered cache fails closed.
 
 ## Validate, price, run, and report
 
@@ -150,8 +167,12 @@ them private unless deliberately reviewed.
 
 ## Metrics and claim rules
 
-The imported aggregate report uses one paired repeat index per task/attempt
-and exposes:
+Import requires a fully scored job: the complete task × attempt × arm
+cross-product, a `tool_calls: 0` receipt on every attempt, a retrieval
+receipt on every agentify attempt, and a valid retrieval summary covering
+every suite task — a job missing its token-free retrieval evidence does not
+import. The imported aggregate report uses one paired repeat index per
+task/attempt and exposes:
 
 - exact match as per-arm `pass_rate` with a Wilson 95% interval, plus the
   paired discordance and McNemar evidence receipt;

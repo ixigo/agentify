@@ -325,11 +325,26 @@ async function readRepobenchAttempts(jobDir) {
   return attempts;
 }
 
-async function readRetrievalSummary(jobDir) {
+// The retrieval summary is the benchmark's central evidence for the index;
+// a job without a valid one must not import as complete.
+async function requireRetrievalSummary(jobDir, root, expectedTasks) {
   const summaryPath = path.join(jobDir, "retrieval", "summary.json");
-  if (!(await exists(summaryPath))) return null;
+  if (!(await exists(summaryPath))) {
+    throw new Error(`RepoBench job is missing its retrieval summary at ${path.relative(root, summaryPath)}`);
+  }
   const summary = await readJson(summaryPath).catch(() => null);
-  if (summary?.schema !== REPOBENCH_RETRIEVAL_SCHEMA_VERSION) return null;
+  if (summary?.schema !== REPOBENCH_RETRIEVAL_SCHEMA_VERSION) {
+    throw new Error(`RepoBench retrieval summary schema must be "${REPOBENCH_RETRIEVAL_SCHEMA_VERSION}", got "${summary?.schema}"`);
+  }
+  if (summary.tasks !== expectedTasks) {
+    throw new Error(`RepoBench retrieval summary covers ${summary.tasks} task(s), expected ${expectedTasks}`);
+  }
+  for (const rate of ["def_hit_rate", "hit_at_1", "hit_at_5", "snippet_hit_rate", "ref_edge_hit_rate", "impact_hit_rate", "mrr", "macro_precision"]) {
+    const value = summary[rate];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error(`RepoBench retrieval summary metric ${rate} must be a rate in [0, 1], got "${value}"`);
+    }
+  }
   return summary;
 }
 
@@ -387,6 +402,7 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
     };
   });
   const sampleSha256 = createHash("sha256").update(JSON.stringify(sample)).digest("hex");
+  const retrievalSummary = await requireRetrievalSummary(jobDir, root, suite.tasks.length);
 
   const rawAttempts = await readRepobenchAttempts(jobDir);
   const skipped = [];
@@ -406,6 +422,8 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       skipped.push({ attempt: attempt.task_id, reason: "attempt index is outside the committed suite" });
     } else if (attempt.provider?.exit_code !== 0 || attempt.provider?.timed_out === true) {
       skipped.push({ attempt: attempt.task_id, reason: "provider execution did not complete successfully" });
+    } else if (attempt.provider?.tool_calls !== 0) {
+      skipped.push({ attempt: attempt.task_id, reason: "completion session was not verifiably tool-free" });
     } else if (typeof attempt.score?.exact_match !== "boolean" || finiteNumber(attempt.score?.edit_similarity) === null) {
       skipped.push({ attempt: attempt.task_id, reason: "completion score is missing" });
     } else if (arm === "agentify" && (!attempt.retrieval || typeof attempt.retrieval.def_hit !== "boolean")) {
@@ -433,7 +451,6 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
     Array.from({ length: suite.attempts }, (_, index) => `${taskId}::${index + 1}`)
   ));
   const pairIndex = new Map(pairKeys.map((key, index) => [key, index + 1]));
-  const retrievalSummary = await readRetrievalSummary(jobDir);
   const runId = importRunId(options.now ? new Date(options.now) : new Date());
   const importedAt = (options.now ? new Date(options.now) : new Date()).toISOString();
   const { runsRoot } = resolveEvalPaths(root, config);
