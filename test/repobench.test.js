@@ -176,6 +176,7 @@ async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cos
       usage: { fresh_input_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 5 },
     },
     prediction: exactMatch ? FIXTURE_TARGET : "return compute_total(policy2)",
+    target: FIXTURE_TARGET,
     context: {
       snippets: arm === "agentify" ? 2 : 0,
       chars: arm === "agentify" ? 300 : 0,
@@ -199,6 +200,7 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
     model: manifest.model,
     limits: manifest.limits,
     selection_rule: manifest.selection_rule,
+    build: { agentify_commit: "9".repeat(40), agentify_worktree_dirty: false },
     max_spend_usd: 0.5,
     status: "graded",
     started_at: "2026-07-22T00:00:00Z",
@@ -253,7 +255,7 @@ test("import produces an aggregate paired RepoBench report with completion quali
   await writeFixture(root, manifest);
   const jobDir = await writeJob(root, manifest);
   await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
-  await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 61.5, f1: 0.5, cost: 0.02 });
+  await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 92, f1: 0.5, cost: 0.02 });
   await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02, retrieval: { gold_rank: 2, impact_hit: false } });
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
 
@@ -276,7 +278,7 @@ test("import produces an aggregate paired RepoBench report with completion quali
   assert.equal(report.arms.agentify.pass_rate, 1);
   assert.equal(report.arms["claude-code"].pass_rate, 0.5);
   assert.equal(report.arms.agentify.repobench.exact_match_rate, 1);
-  assert.equal(report.arms["claude-code"].repobench.mean_edit_similarity, 80.75);
+  assert.equal(report.arms["claude-code"].repobench.mean_edit_similarity, 96);
   assert.equal(report.arms.agentify.repobench.mean_identifier_f1, 1);
 
   const markdown = renderEvalReportMarkdown(report);
@@ -312,7 +314,7 @@ test("import refuses incomplete jobs, missing retrieval receipts, tool use, and 
   await writeJob(root, manifest);
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /incomplete: expected 4 scored attempts, found 1/);
 
-  await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 10, f1: 0, cost: 0.02 });
+  await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 92, f1: 0.5, cost: 0.02 });
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
   const agentifyPath = path.join(jobDir, "attempts", "agentify", "cross_file_first-1", "1");
   await fs.mkdir(agentifyPath, { recursive: true });

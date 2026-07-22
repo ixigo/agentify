@@ -359,13 +359,23 @@ def ensure_tools(manifest: dict[str, Any], *, paid: bool) -> None:
 def build_receipt() -> dict[str, Any]:
     """Semver alone cannot distinguish two builds reporting the same version.
     Record the benchmark checkout's commit (the runner ships inside the
-    Agentify source tree) and whether that tree was dirty."""
+    Agentify source tree); a dirty tree additionally records a diff hash so
+    two different uncommitted implementations never share a receipt."""
     commit = run_command(["git", "rev-parse", "HEAD"], cwd=ROOT)
+    resolved = commit.stdout.strip().lower()
+    if commit.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", resolved):
+        raise AdapterError("cannot resolve the Agentify checkout commit for the build receipt")
     status = run_command(["git", "status", "--porcelain=v1"], cwd=ROOT)
-    return {
-        "agentify_commit": commit.stdout.strip() if commit.returncode == 0 else None,
-        "agentify_worktree_dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
-    }
+    diff = run_command(["git", "diff", "HEAD"], cwd=ROOT)
+    if status.returncode != 0 or diff.returncode != 0:
+        raise AdapterError("cannot resolve the Agentify worktree state for the build receipt")
+    dirty = bool(status.stdout.strip())
+    receipt: dict[str, Any] = {"agentify_commit": resolved, "agentify_worktree_dirty": dirty}
+    if dirty:
+        receipt["agentify_worktree_sha256"] = hashlib.sha256(
+            (diff.stdout + status.stdout).encode("utf-8")
+        ).hexdigest()
+    return receipt
 
 
 def install_index(workspace: Path) -> None:
@@ -992,6 +1002,10 @@ def run_attempt(
         "duration_ms": provider["duration_ms"],
         "provider": provider,
         "prediction": prediction,
+        # The target stays inside the private, gitignored job artifact so the
+        # importer can hash-verify it against the committed receipt and
+        # recompute every score from prediction + target.
+        "target": next_line,
         "context": {
             "snippets": len(context_entries) if arm == "agentify" else 0,
             "chars": len(block),

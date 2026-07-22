@@ -1,16 +1,18 @@
 #!/usr/bin/env sh
 # Token-free retrieval scoring plus optional paid paired completion. Nothing
-# calls a provider until the printed ceiling is confirmed.
+# calls a provider until the printed ceiling is confirmed. All Agentify
+# invocations use this checkout's own CLI, never a global install.
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SUITE="${1:-smoke}"
-JOB_ID="$(date -u +%Y%m%d-%H%M%S)-$SUITE"
+JOB_ID="$(date -u +%Y%m%d-%H%M%S)-$$-$SUITE"
 JOB_DIR="evals/repobench/jobs/$JOB_ID"
+AGENTIFY="node $REPO_ROOT/src/cli.js"
 
 cd "$REPO_ROOT"
-agentify eval repobench validate
-agentify eval repobench plan --suite "$SUITE"
+$AGENTIFY eval repobench validate
+$AGENTIFY eval repobench plan --suite "$SUITE"
 
 python3 evals/repobench/runner.py retrieval --suite "$SUITE" --output "$JOB_DIR"
 
@@ -27,6 +29,6 @@ fi
 # (pinned inputs make it deterministic), so nothing orphaned is left behind
 # and the imported evidence is the evidence of this job.
 python3 evals/repobench/runner.py run --suite "$SUITE" --output "$JOB_DIR" --yes
-agentify eval repobench import "$JOB_DIR"
+$AGENTIFY eval repobench import "$JOB_DIR"
 
 echo "Done. Render the printed run id with: agentify eval report <run-id> --format html --out report.html"

@@ -306,6 +306,65 @@ function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+// Ports of the runner's scoring functions (official RepoBench definitions),
+// used to re-derive every imported score from prediction + target so a
+// hand-edited result.json cannot survive import.
+const PYTHON_KEYWORDS = new Set([
+  "False", "None", "True", "and", "as", "assert", "async", "await", "break",
+  "class", "continue", "def", "del", "elif", "else", "except", "finally",
+  "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+  "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+]);
+
+function indelDistance(left, right) {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      current.push(Math.min(
+        previous[column] + 1,
+        current[column - 1] + 1,
+        previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 2),
+      ));
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+function repobenchEditSimilarity(prediction, target) {
+  const lensum = prediction.length + target.length;
+  if (lensum === 0) return 100;
+  return Math.round(((lensum - indelDistance(prediction, target)) / lensum) * 100);
+}
+
+function repobenchIdentifiers(text) {
+  const withoutStrings = text.replace(
+    /('''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")/g,
+    "",
+  );
+  const withoutComments = withoutStrings.replace(/#.*$/gm, "");
+  return new Set((withoutComments.match(/[A-Za-z_]\w*/g) || []).filter((token) => !PYTHON_KEYWORDS.has(token)));
+}
+
+function repobenchIdentifierF1(prediction, target) {
+  const predicted = repobenchIdentifiers(prediction);
+  const expected = repobenchIdentifiers(target);
+  if (predicted.size === 0 || expected.size === 0) return 0;
+  const overlap = [...predicted].filter((token) => expected.has(token)).length;
+  if (overlap === 0) return 0;
+  const precision = overlap / predicted.size;
+  const recall = overlap / expected.size;
+  return Number((2 * precision * recall / (precision + recall)).toFixed(4));
+}
+
+function tokensEqual(prediction, target) {
+  return prediction.split(/\s+/).filter(Boolean).join(" ") === target.split(/\s+/).filter(Boolean).join(" ");
+}
+
 function importRunId(now = new Date()) {
   const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
   return `${stamp}-${randomBytes(3).toString("hex")}`;
@@ -436,6 +495,10 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
   if (job.status !== "graded") {
     throw new Error(`RepoBench job must be fully scored before import, got status "${job.status}"`);
   }
+  if (!/^[0-9a-f]{40}$/.test(String(job.build?.agentify_commit || ""))
+    || (job.build.agentify_worktree_dirty === true && !/^[0-9a-f]{64}$/.test(String(job.build?.agentify_worktree_sha256 || "")))) {
+    throw new Error("RepoBench job is missing a usable build receipt (checkout commit, plus a worktree hash when dirty)");
+  }
   const { manifest: localManifest } = await loadRepobenchManifest(root, config);
   if (job.dataset?.name !== localManifest.dataset.name
     || job.dataset?.revision !== localManifest.dataset.revision
@@ -510,19 +573,19 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       || finiteNumber(attempt.score?.identifier_f1) === null
       || attempt.score.identifier_f1 < 0 || attempt.score.identifier_f1 > 1) {
       skipped.push({ attempt: attempt.task_id, reason: "completion score is missing or out of range" });
-    } else if (typeof attempt.prediction !== "string") {
-      skipped.push({ attempt: attempt.task_id, reason: "attempt prediction is missing" });
+    } else if (typeof attempt.prediction !== "string" || typeof attempt.target !== "string") {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt prediction or target is missing" });
+    } else if (expected
+      && createHash("sha256").update(attempt.target).digest("hex") !== expected.verification.next_line_sha256) {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt target disagrees with the committed answer hash" });
     } else if (expected && (
-      // Exact match is re-derived from the committed answer receipts: the
-      // whitespace-token hash decides EM, and a raw-identical prediction
-      // must also have scored a perfect edit similarity. A hand-edited
-      // score cannot survive import.
-      attempt.score.exact_match !== (
-        createHash("sha256").update(attempt.prediction.split(/\s+/).filter(Boolean).join(" ")).digest("hex")
-          === expected.verification.next_line_token_sha256)
-      || (createHash("sha256").update(attempt.prediction).digest("hex") === expected.verification.next_line_sha256
-        && attempt.score.edit_similarity !== 100))) {
-      skipped.push({ attempt: attempt.task_id, reason: "completion score disagrees with the committed answer receipt" });
+      // Every score is re-derived from the hash-verified target: exact
+      // match exactly, edit similarity within ±1 to absorb the rounding-tie
+      // difference between Python's round() and Math.round.
+      attempt.score.exact_match !== tokensEqual(attempt.prediction, attempt.target)
+      || Math.abs(attempt.score.edit_similarity - repobenchEditSimilarity(attempt.prediction, attempt.target)) > 1
+      || Math.abs(attempt.score.identifier_f1 - repobenchIdentifierF1(attempt.prediction, attempt.target)) > 0.0005)) {
+      skipped.push({ attempt: attempt.task_id, reason: "completion score disagrees with recomputation from the recorded prediction" });
     } else if (typeof attempt.context?.answer_in_context !== "boolean") {
       skipped.push({ attempt: attempt.task_id, reason: "attempt lacks its answer-in-context receipt" });
     } else if (arm === "claude-code"
