@@ -39,7 +39,7 @@ function fixtureVerification() {
     import_statement_sha256: "c".repeat(64),
     next_line_sha256: sha256(FIXTURE_TARGET),
     next_line_token_sha256: sha256(FIXTURE_TARGET.split(/\s+/).filter(Boolean).join(" ")),
-    gold_path_sha256: "e".repeat(64),
+    gold_path_sha256: sha256("pkg/helpers.py"),
     gold_snippet_sha256: "f".repeat(64),
   };
 }

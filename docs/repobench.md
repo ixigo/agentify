@@ -132,7 +132,9 @@ comparison, so the job is `graded` as soon as inference finishes.
   `agentify eval repobench …` must run from the repository root. The job
   records the checkout's commit and dirty state as a build receipt, since a
   semver pin alone cannot distinguish two builds reporting the same version;
-- `git`, Node, and the local Agentify CLI on `PATH` (retrieval phase);
+- `git` and Node on `PATH`; scan and query invocations use the checkout's
+  own CLI (`node src/cli.js`), never a globally installed `agentify`, so the
+  build receipt describes the code that actually built the index;
 - Claude Code `2.1.215` with `ANTHROPIC_API_KEY` or a
   `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (completion phase only);
 - Python 3.10+ (stdlib only — rows come from the Hugging Face

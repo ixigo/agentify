@@ -44,6 +44,10 @@ JOB_SCHEMA = "repobench-job-v1"
 ATTEMPT_SCHEMA = "repobench-attempt-v1"
 RETRIEVAL_SCHEMA = "repobench-retrieval-v1"
 ROOT = Path(__file__).resolve().parents[2]
+# The benchmarked CLI is this checkout's own entry point, never whatever
+# `agentify` happens to be first on PATH — the recorded build commit must
+# describe the code that actually built the index.
+AGENTIFY_CLI = ["node", str(ROOT / "src" / "cli.js")]
 DEFAULT_MANIFEST = Path(__file__).with_name("dataset.json")
 DEFAULT_PROMPT = Path(__file__).with_name("prompts") / "completion.md"
 ROWS_ENDPOINT = "https://datasets-server.huggingface.co/rows"
@@ -321,10 +325,12 @@ def command_env(session: str, home_dir: Path) -> dict[str, str]:
 
 
 def ensure_tools(manifest: dict[str, Any], *, paid: bool) -> None:
-    required = ["git", "agentify"] + (["claude"] if paid else [])
+    required = ["git", "node"] + (["claude"] if paid else [])
     missing = [tool for tool in required if shutil.which(tool) is None]
     if missing:
         raise AdapterError(f"missing required executable(s): {', '.join(missing)}")
+    if not (ROOT / "src" / "cli.js").is_file():
+        raise AdapterError("the RepoBench adapter must run from an Agentify source checkout (src/cli.js not found)")
     if paid:
         oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
         force_oauth = os.environ.get("CLAUDE_FORCE_OAUTH", "").strip().lower() not in ("", "0", "false")
@@ -336,7 +342,7 @@ def ensure_tools(manifest: dict[str, Any], *, paid: bool) -> None:
             )
     version_commands = {
         "node": (["node", "--version"], manifest["pins"]["node"]),
-        "agentify": (["agentify", "--version"], manifest["pins"]["agentify"]),
+        "agentify": ([*AGENTIFY_CLI, "--version"], manifest["pins"]["agentify"]),
     }
     if paid:
         version_commands["claude-code"] = (["claude", "--version"], manifest["pins"]["claude_code"])
@@ -363,13 +369,13 @@ def build_receipt() -> dict[str, Any]:
 
 
 def install_index(workspace: Path) -> None:
-    completed = run_command(["agentify", "scan", "--root", str(workspace)], cwd=workspace)
+    completed = run_command([*AGENTIFY_CLI, "scan", "--root", str(workspace)], cwd=workspace)
     if completed.returncode != 0:
         raise AdapterError(f"agentify scan failed: {completed.stderr[-1000:]}")
 
 
 def agentify_query(workspace: Path, verb: str, flag: str, value: str) -> dict[str, Any]:
-    completed = run_command(["agentify", "query", verb, flag, value], cwd=workspace)
+    completed = run_command([*AGENTIFY_CLI, "query", verb, flag, value], cwd=workspace)
     if completed.returncode != 0:
         raise AdapterError(f"agentify query {verb} failed for {value!r}: {completed.stderr[-1000:]}")
     try:
@@ -871,11 +877,18 @@ def prepare_task_workspace(
 def retrieval_phase(args: argparse.Namespace) -> None:
     manifest = load_manifest(args.manifest)
     ensure_tools(manifest, paid=False)
+    output = Path(args.output)
+    # Never desynchronize existing evidence: a graded job's retrieval
+    # receipts belong to its paid attempts, and a finished retrieval run
+    # should not be silently replaced.
+    if (output / "job.json").exists():
+        raise AdapterError(f"{output} already holds a completion job; choose a fresh output directory")
+    if (output / "retrieval" / "summary.json").exists():
+        raise AdapterError(f"{output} already holds retrieval results; choose a fresh output directory")
     tasks = selected_tasks(manifest, args.suite)
     cache_dir = Path(args.rows_cache) if args.rows_cache else None
     rows = fetch_rows(manifest, [task["row_index"] for task in tasks], cache_dir)
     work_root = Path(args.work_root) if args.work_root else Path(tempfile.mkdtemp(prefix="agentify-repobench-"))
-    output = Path(args.output)
     results = []
     try:
         for task in tasks:
@@ -1224,6 +1237,7 @@ def select_sample(args: argparse.Namespace) -> None:
                 "level": str(row["level"]),
                 "verification": {
                     **{receipt: sha256_text(str(row[field])) for field, receipt in HASHED_FIELDS.items()},
+                    "next_line_token_sha256": sha256_text(" ".join(str(row["next_line"]).split())),
                     "gold_path_sha256": sha256_text(gold["path"]),
                     "gold_snippet_sha256": sha256_text(gold["snippet"]),
                 },

@@ -384,7 +384,11 @@ async function requireRetrievalSummary(jobDir, root, job, suiteTasks, localManif
       // non-gold candidate, is internally inconsistent.
       || (receipt.gold_rank !== null && (receipt.gold_rank > receipt.candidate_count
         || receipt.candidates[receipt.gold_rank - 1] !== receipt.gold_path))
-      || (!receipt.def_hit && (receipt.snippet_hit || receipt.ref_edge_hit || receipt.impact_hit))) {
+      || (!receipt.def_hit && (receipt.snippet_hit || receipt.ref_edge_hit || receipt.impact_hit))
+      // The receipt's gold label must be the committed one — otherwise any
+      // retrieved candidate could be relabeled as gold.
+      || typeof receipt.gold_path !== "string"
+      || createHash("sha256").update(receipt.gold_path).digest("hex") !== task.verification.gold_path_sha256) {
       throw new Error(`RepoBench retrieval receipt for ${task.task_id} is missing or disagrees with the committed pin`);
     }
     receipts.set(task.task_id, receipt);
