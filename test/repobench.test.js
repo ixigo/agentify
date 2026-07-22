@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,12 +24,21 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// The fixture's pinned answer line; import re-derives exact match from these
+// hashes, so the fixture attempts must use predictions consistent with it.
+const FIXTURE_TARGET = "    return compute_total(policy)";
+
+function sha256(text) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 function fixtureVerification() {
   return {
     all_code_sha256: "a".repeat(64),
     cropped_code_sha256: "b".repeat(64),
     import_statement_sha256: "c".repeat(64),
-    next_line_sha256: "d".repeat(64),
+    next_line_sha256: sha256(FIXTURE_TARGET),
+    next_line_token_sha256: sha256(FIXTURE_TARGET.split(/\s+/).filter(Boolean).join(" ")),
     gold_path_sha256: "e".repeat(64),
     gold_snippet_sha256: "f".repeat(64),
   };
@@ -165,7 +175,7 @@ async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cos
       cost_usd: cost,
       usage: { fresh_input_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 5 },
     },
-    prediction: "    return compute_total(policy)",
+    prediction: exactMatch ? FIXTURE_TARGET : "return compute_total(policy2)",
     context: {
       snippets: arm === "agentify" ? 2 : 0,
       chars: arm === "agentify" ? 300 : 0,

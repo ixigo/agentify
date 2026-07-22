@@ -39,6 +39,7 @@ const REQUIRED_VERIFICATION_RECEIPTS = [
   "cropped_code_sha256",
   "import_statement_sha256",
   "next_line_sha256",
+  "next_line_token_sha256",
   "gold_path_sha256",
   "gold_snippet_sha256",
 ];
@@ -505,6 +506,19 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       || finiteNumber(attempt.score?.identifier_f1) === null
       || attempt.score.identifier_f1 < 0 || attempt.score.identifier_f1 > 1) {
       skipped.push({ attempt: attempt.task_id, reason: "completion score is missing or out of range" });
+    } else if (typeof attempt.prediction !== "string") {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt prediction is missing" });
+    } else if (expected && (
+      // Exact match is re-derived from the committed answer receipts: the
+      // whitespace-token hash decides EM, and a raw-identical prediction
+      // must also have scored a perfect edit similarity. A hand-edited
+      // score cannot survive import.
+      attempt.score.exact_match !== (
+        createHash("sha256").update(attempt.prediction.split(/\s+/).filter(Boolean).join(" ")).digest("hex")
+          === expected.verification.next_line_token_sha256)
+      || (createHash("sha256").update(attempt.prediction).digest("hex") === expected.verification.next_line_sha256
+        && attempt.score.edit_similarity !== 100))) {
+      skipped.push({ attempt: attempt.task_id, reason: "completion score disagrees with the committed answer receipt" });
     } else if (typeof attempt.context?.answer_in_context !== "boolean") {
       skipped.push({ attempt: attempt.task_id, reason: "attempt lacks its answer-in-context receipt" });
     } else if (arm === "claude-code"
@@ -660,7 +674,8 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       dataset: job.dataset,
       suite: job.suite ?? null,
       selection_rule: job.selection_rule ?? localManifest.selection_rule,
-      tasks: pairKeys.length,
+      tasks: suite.tasks.length,
+      attempts_per_arm: suite.attempts,
       repos: [...new Set(scored.map((attempt) => attempt.repo))],
       sample,
       sample_sha256: sampleSha256,
@@ -670,6 +685,7 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       // same version — quote results with the Agentify commit.
       limits: job.limits ?? null,
       pins: job.pins ?? null,
+      build: job.build ?? null,
       retrieval: retrievalSummary,
     },
     agentify_version: job.pins?.agentify ?? VERSION,

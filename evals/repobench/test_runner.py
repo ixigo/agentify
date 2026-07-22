@@ -70,6 +70,7 @@ class RunnerTests(unittest.TestCase):
             "file_path": row["file_path"],
             "verification": {
                 **{receipt: runner.sha256_text(str(row[field])) for field, receipt in runner.HASHED_FIELDS.items()},
+                "next_line_token_sha256": runner.sha256_text(" ".join(row["next_line"].split())),
                 "gold_path_sha256": runner.sha256_text(gold["path"]),
                 "gold_snippet_sha256": runner.sha256_text(gold["snippet"]),
             },
@@ -205,7 +206,7 @@ class RunnerTests(unittest.TestCase):
             for field in ("next_line", "gold_path", "gold_snippet", "context", "all_code",
                           "cropped_code", "import_statement", "snippet"):
                 self.assertNotIn(field, task)
-            self.assertEqual(len(task["verification"]), 6)
+            self.assertEqual(len(task["verification"]), 7)
         plan = runner.cost_plan(manifest, "smoke")
         self.assertEqual(plan["completion_trials"], 2)
         self.assertEqual(plan["retrieval_cost_usd"], 0)

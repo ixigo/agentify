@@ -127,6 +127,11 @@ comparison, so the job is `graded` as soon as inference finishes.
 
 ## Prerequisites
 
+- an Agentify **source checkout**: like the Harbor and SWE-bench adapters,
+  the benchmark assets under `evals/` are not shipped in the npm package, so
+  `agentify eval repobench …` must run from the repository root. The job
+  records the checkout's commit and dirty state as a build receipt, since a
+  semver pin alone cannot distinguish two builds reporting the same version;
 - `git`, Node, and the local Agentify CLI on `PATH` (retrieval phase);
 - Claude Code `2.1.215` with `ANTHROPIC_API_KEY` or a
   `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (completion phase only);
@@ -183,7 +188,9 @@ them private unless deliberately reviewed.
 ## Metrics and claim rules
 
 Import requires a fully scored job: the complete task × attempt × arm
-cross-product, a `tool_calls: 0` receipt on every attempt, a retrieval
+cross-product, every exact-match verdict re-derived from the committed
+answer-token hash against the attempt's recorded prediction (a hand-edited
+score cannot survive import), a `tool_calls: 0` receipt on every attempt, a retrieval
 receipt on every agentify attempt, and a valid retrieval summary bound to
 this job's suite, dataset revision, and pinned Agentify version. Every suite
 task must carry a per-task receipt matching its committed repo/commit pin,

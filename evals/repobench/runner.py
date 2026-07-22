@@ -180,6 +180,9 @@ def verify_row(task: dict[str, Any], row: dict[str, Any]) -> dict[str, str]:
         observed = sha256_text(str(row.get(field) or ""))
         if observed != receipts[receipt]:
             raise AdapterError(f"dataset drift for {task['task_id']}: {field} does not match its committed sha256")
+    tokenized = " ".join(str(row.get("next_line") or "").split())
+    if sha256_text(tokenized) != receipts["next_line_token_sha256"]:
+        raise AdapterError(f"dataset drift for {task['task_id']}: next_line token hash does not match its committed sha256")
     if str(row.get("repo_name")) != task["repo"] or str(row.get("file_path")) != task["file_path"]:
         raise AdapterError(f"dataset drift for {task['task_id']}: repo or file path changed")
     gold = gold_reference(row)
@@ -345,6 +348,18 @@ def ensure_tools(manifest: dict[str, Any], *, paid: bool) -> None:
         tokens = re.findall(r"\d+\.\d+\.[0-9A-Za-z.-]+", observed)
         if completed.returncode != 0 or expected not in tokens:
             raise AdapterError(f"{name} must be pinned at {expected}; observed {observed.strip() or 'unavailable'}")
+
+
+def build_receipt() -> dict[str, Any]:
+    """Semver alone cannot distinguish two builds reporting the same version.
+    Record the benchmark checkout's commit (the runner ships inside the
+    Agentify source tree) and whether that tree was dirty."""
+    commit = run_command(["git", "rev-parse", "HEAD"], cwd=ROOT)
+    status = run_command(["git", "status", "--porcelain=v1"], cwd=ROOT)
+    return {
+        "agentify_commit": commit.stdout.strip() if commit.returncode == 0 else None,
+        "agentify_worktree_dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
+    }
 
 
 def install_index(workspace: Path) -> None:
@@ -835,8 +850,9 @@ def prepare_task_workspace(
         raise AdapterError(f"{task['task_id']}: git status failed in the workspace")
     dirty = [
         line for line in status.stdout.splitlines()
-        # The Agentify index itself lives untracked inside the checkout.
-        if line.strip() and not line[3:].startswith(".agentify")
+        # Only the Agentify index directory itself is expected untracked;
+        # a `.agentify.yaml` or similar could alter scan behavior.
+        if line.strip() and line[3:] != ".agentify" and not line[3:].startswith(".agentify/")
     ]
     if dirty:
         raise AdapterError(f"{task['task_id']}: workspace has local modifications; refusing to score it")
@@ -925,8 +941,11 @@ def run_attempt(
     work_root: Path, job_dir: Path,
 ) -> dict[str, Any]:
     # Unique per invocation: a reused --work-root must never resurrect an
-    # earlier session's Claude home (settings, hooks, scratch state).
-    scratch = work_root / "sessions" / f"{arm}-{task_slug(task['task_id'])}-{attempt_number}-{secrets.token_hex(4)}"
+    # earlier session's Claude home (settings, hooks, scratch state). The
+    # name is opaque — an arm-labeled path or session id would leak the
+    # treatment to the model through its working-directory context.
+    session_token = secrets.token_hex(6)
+    scratch = work_root / "sessions" / f"s-{session_token}"
     scratch.mkdir(parents=True)
     block = context_block if arm == "agentify" else ""
     prompt = build_prompt(template, row, context_block=block)
@@ -938,7 +957,7 @@ def run_attempt(
         provider = run_claude_completion(
             manifest, prompt, scratch=scratch,
             trajectory=trajectory,
-            session=f"repobench-{arm}-{task_slug(task['task_id'])}-{attempt_number}",
+            session=f"rb-{session_token}",
         )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -1018,6 +1037,7 @@ def run_suite(args: argparse.Namespace) -> None:
         "model": manifest["model"],
         "limits": manifest["limits"],
         "selection_rule": manifest.get("selection_rule"),
+        "build": build_receipt(),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "max_spend_usd": plan["max_spend_usd"],
         "order": randomized_trial_order(tasks, list(manifest["arms"]), attempts),
