@@ -23,7 +23,10 @@ if [ "${CI:-}" != "true" ]; then
   esac
 fi
 
-python3 evals/repobench/runner.py run --suite "$SUITE" --output "$JOB_DIR-completion" --yes
-agentify eval repobench import "$JOB_DIR-completion"
+# Same job directory: the paid run regenerates retrieval evidence in place
+# (pinned inputs make it deterministic), so nothing orphaned is left behind
+# and the imported evidence is the evidence of this job.
+python3 evals/repobench/runner.py run --suite "$SUITE" --output "$JOB_DIR" --yes
+agentify eval repobench import "$JOB_DIR"
 
 echo "Done. Render the printed run id with: agentify eval report <run-id> --format html --out report.html"

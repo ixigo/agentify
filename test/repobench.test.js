@@ -221,7 +221,11 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
           repo: task.repo,
           commit: task.commit,
           def_hit: true,
+          gold_path: "pkg/helpers.py",
           gold_rank: index === 0 ? 1 : 2,
+          candidates: index === 0
+            ? ["pkg/helpers.py", "pkg/policy.py"]
+            : ["pkg/a.py", "pkg/helpers.py", "pkg/b.py", "pkg/c.py", "pkg/d.py"],
           candidate_count: index === 0 ? 2 : 5,
           snippet_hit: true,
           ref_edge_hit: true,

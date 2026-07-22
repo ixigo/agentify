@@ -449,11 +449,15 @@ def score_retrieval(
 
     # The reverse direction: does the index know the task file depends on the
     # gold file? refs lists importers of each defining file; impacts walks the
-    # same edges as blast radius from the gold file.
+    # same edges as blast radius. Impacts runs only when the gold file was
+    # already retrieved by the answer-free def queries — its input is then a
+    # retrieved candidate, never the gold label itself.
     edge = f"{task['file_path']} -> {gold['path']}"
     edge_hit = edge in queries["reference_edges"]
-    impacts = agentify_query(workspace, "impacts", "--file", gold["path"])
-    impact_hit = any(item.get("file_path") == task["file_path"] for item in impacts.get("impacts") or [])
+    impact_hit = False
+    if gold_rank is not None:
+        impacts = agentify_query(workspace, "impacts", "--file", gold["path"])
+        impact_hit = any(item.get("file_path") == task["file_path"] for item in impacts.get("impacts") or [])
 
     return {
         "schema": RETRIEVAL_SCHEMA,

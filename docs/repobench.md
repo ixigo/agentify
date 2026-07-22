@@ -64,8 +64,10 @@ angles:
   (`snippet_hit`)?
 - `refs` reverse edges: does the index list the task file as an importer of
   the gold defining file (`ref_edge_hit`)?
-- `impacts` blast radius from the gold file: does it reach the task file
-  (`impact_hit`)?
+- `impacts` blast radius: does it reach the task file (`impact_hit`)? This
+  query runs only when the def queries already retrieved the gold file, so
+  its input is a retrieved candidate — the gold label itself never feeds any
+  query.
 
 `callers` shares its edge source with `refs` and is exercised through it.
 This phase makes no provider call, so retrieval quality can be re-measured

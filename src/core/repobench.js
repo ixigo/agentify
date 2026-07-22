@@ -375,7 +375,15 @@ async function requireRetrievalSummary(jobDir, root, job, suiteTasks, localManif
       || typeof receipt.impact_hit !== "boolean"
       || !goldRankValid
       || receipt.def_hit !== (receipt.gold_rank !== null)
-      || !Number.isInteger(receipt.candidate_count) || receipt.candidate_count < 0) {
+      || !Array.isArray(receipt.candidates)
+      || !Number.isInteger(receipt.candidate_count) || receipt.candidate_count < 0
+      || receipt.candidate_count !== receipt.candidates.length
+      // Sub-metrics presuppose the gold file was retrieved; a receipt
+      // claiming them without a def hit, or a gold_rank pointing at a
+      // non-gold candidate, is internally inconsistent.
+      || (receipt.gold_rank !== null && (receipt.gold_rank > receipt.candidate_count
+        || receipt.candidates[receipt.gold_rank - 1] !== receipt.gold_path))
+      || (!receipt.def_hit && (receipt.snippet_hit || receipt.ref_edge_hit || receipt.impact_hit))) {
       throw new Error(`RepoBench retrieval receipt for ${task.task_id} is missing or disagrees with the committed pin`);
     }
     receipts.set(task.task_id, receipt);
@@ -395,10 +403,12 @@ async function requireRetrievalSummary(jobDir, root, job, suiteTasks, localManif
     macro_precision: Number((all.reduce((sum, receipt) => (
       sum + (receipt.def_hit && receipt.candidate_count > 0 ? 1 / receipt.candidate_count : 0)
     ), 0) / all.length).toFixed(4)),
+    mean_candidates: Number((all.reduce((sum, receipt) => sum + receipt.candidate_count, 0) / all.length).toFixed(2)),
   };
   for (const [metric, value] of Object.entries(recomputed)) {
     const claimed = summary[metric];
-    if (typeof claimed !== "number" || !Number.isFinite(claimed) || Math.abs(claimed - value) > 0.001) {
+    const tolerance = metric === "mean_candidates" ? 0.01 : 0.001;
+    if (typeof claimed !== "number" || !Number.isFinite(claimed) || Math.abs(claimed - value) > tolerance) {
       throw new Error(`RepoBench retrieval summary metric ${metric} is "${claimed}" but its own receipts recompute to ${value}`);
     }
   }
