@@ -46,6 +46,12 @@ class RunnerTests(unittest.TestCase):
             "from pkg import " + ", ".join(f"name{i}" for i in range(30))
         )
         self.assertEqual(len(capped), runner.MAX_QUERY_SYMBOLS)
+        # Comma-separated plain imports and parenthesized multiline
+        # from-imports must all contribute query symbols.
+        spread = runner.query_symbols(
+            "import alpha, beta.gamma as bg\nfrom pkg.helpers import (\n    Foo,\n    Bar as Baz,\n)"
+        )
+        self.assertEqual(spread, ["Foo", "Bar", "alpha", "gamma"])
 
     def test_checkout_verification_tolerates_stripped_import_lines(self):
         row = fixture_row()

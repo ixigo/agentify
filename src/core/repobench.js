@@ -325,9 +325,11 @@ async function readRepobenchAttempts(jobDir) {
   return attempts;
 }
 
-// The retrieval summary is the benchmark's central evidence for the index;
-// a job without a valid one must not import as complete.
-async function requireRetrievalSummary(jobDir, root, expectedTasks) {
+// The retrieval summary is the benchmark's central evidence for the index; a
+// job without a valid one must not import as complete, and a copied summary
+// from another job must not pass as evidence for this one. Identity fields
+// and the per-task receipts are all bound to the committed suite.
+async function requireRetrievalSummary(jobDir, root, job, suiteTasks, localManifest) {
   const summaryPath = path.join(jobDir, "retrieval", "summary.json");
   if (!(await exists(summaryPath))) {
     throw new Error(`RepoBench job is missing its retrieval summary at ${path.relative(root, summaryPath)}`);
@@ -336,13 +338,35 @@ async function requireRetrievalSummary(jobDir, root, expectedTasks) {
   if (summary?.schema !== REPOBENCH_RETRIEVAL_SCHEMA_VERSION) {
     throw new Error(`RepoBench retrieval summary schema must be "${REPOBENCH_RETRIEVAL_SCHEMA_VERSION}", got "${summary?.schema}"`);
   }
-  if (summary.tasks !== expectedTasks) {
-    throw new Error(`RepoBench retrieval summary covers ${summary.tasks} task(s), expected ${expectedTasks}`);
+  if (summary.suite !== job.suite) {
+    throw new Error(`RepoBench retrieval summary names suite "${summary.suite}", expected "${job.suite}"`);
+  }
+  if (summary.dataset?.name !== localManifest.dataset.name
+    || summary.dataset?.revision !== localManifest.dataset.revision
+    || summary.dataset?.split !== localManifest.dataset.split) {
+    throw new Error("RepoBench retrieval summary dataset identity does not match the committed manifest");
+  }
+  if (summary.agentify !== localManifest.pins.agentify) {
+    throw new Error(`RepoBench retrieval summary was produced by agentify "${summary.agentify}", expected pinned "${localManifest.pins.agentify}"`);
+  }
+  if (summary.tasks !== suiteTasks.length) {
+    throw new Error(`RepoBench retrieval summary covers ${summary.tasks} task(s), expected ${suiteTasks.length}`);
   }
   for (const rate of ["def_hit_rate", "hit_at_1", "hit_at_5", "snippet_hit_rate", "ref_edge_hit_rate", "impact_hit_rate", "mrr", "macro_precision"]) {
     const value = summary[rate];
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
       throw new Error(`RepoBench retrieval summary metric ${rate} must be a rate in [0, 1], got "${value}"`);
+    }
+  }
+  for (const task of suiteTasks) {
+    const receiptPath = path.join(jobDir, "retrieval", "tasks", `${taskSlug(task.task_id)}.json`);
+    const receipt = (await exists(receiptPath)) ? await readJson(receiptPath).catch(() => null) : null;
+    if (receipt?.schema !== REPOBENCH_RETRIEVAL_SCHEMA_VERSION
+      || receipt.task_id !== task.task_id
+      || receipt.repo !== task.repo
+      || receipt.commit !== task.commit
+      || typeof receipt.def_hit !== "boolean") {
+      throw new Error(`RepoBench retrieval receipt for ${task.task_id} is missing or disagrees with the committed pin`);
     }
   }
   return summary;
@@ -402,7 +426,9 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
     };
   });
   const sampleSha256 = createHash("sha256").update(JSON.stringify(sample)).digest("hex");
-  const retrievalSummary = await requireRetrievalSummary(jobDir, root, suite.tasks.length);
+  const retrievalSummary = await requireRetrievalSummary(
+    jobDir, root, job, suite.tasks.map((id) => expectedTasks.get(id)), localManifest,
+  );
 
   const rawAttempts = await readRepobenchAttempts(jobDir);
   const skipped = [];

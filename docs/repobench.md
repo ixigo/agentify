@@ -169,9 +169,11 @@ them private unless deliberately reviewed.
 
 Import requires a fully scored job: the complete task × attempt × arm
 cross-product, a `tool_calls: 0` receipt on every attempt, a retrieval
-receipt on every agentify attempt, and a valid retrieval summary covering
-every suite task — a job missing its token-free retrieval evidence does not
-import. The imported aggregate report uses one paired repeat index per
+receipt on every agentify attempt, and a valid retrieval summary bound to
+this job's suite, dataset revision, and pinned Agentify version, with a
+per-task receipt matching every committed repo/commit pin — a job missing
+its token-free retrieval evidence, or carrying evidence copied from another
+job, does not import. The imported aggregate report uses one paired repeat index per
 task/attempt and exposes:
 
 - exact match as per-arm `pass_rate` with a Wilson 95% interval, plus the

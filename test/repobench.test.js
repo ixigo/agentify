@@ -189,9 +189,12 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
     started_at: "2026-07-22T00:00:00Z",
   }));
   if (withRetrieval) {
-    await fs.mkdir(path.join(jobDir, "retrieval"), { recursive: true });
+    await fs.mkdir(path.join(jobDir, "retrieval", "tasks"), { recursive: true });
     await fs.writeFile(path.join(jobDir, "retrieval", "summary.json"), JSON.stringify({
       schema: REPOBENCH_RETRIEVAL_SCHEMA_VERSION,
+      suite: "smoke",
+      dataset: manifest.dataset,
+      agentify: manifest.pins.agentify,
       tasks: 2,
       def_hit_rate: 1,
       hit_at_1: 0.5,
@@ -204,6 +207,21 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
       mean_candidates: 3.5,
       cost_usd: 0,
     }));
+    for (const task of manifest.tasks) {
+      await fs.writeFile(
+        path.join(jobDir, "retrieval", "tasks", `${task.task_id.replace(/\//g, "-")}.json`),
+        JSON.stringify({
+          schema: REPOBENCH_RETRIEVAL_SCHEMA_VERSION,
+          task_id: task.task_id,
+          repo: task.repo,
+          commit: task.commit,
+          def_hit: true,
+          gold_rank: 1,
+          ref_edge_hit: true,
+          impact_hit: true,
+        }),
+      );
+    }
   }
   return jobDir;
 }
@@ -289,6 +307,27 @@ test("import refuses incomplete jobs, missing retrieval receipts, tool use, and 
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /not verifiably tool-free/);
   record.provider.tool_calls = 0;
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
+
+  // A summary copied from a different suite or produced by a different
+  // agentify version is not evidence for this job.
+  const summaryPath = path.join(jobDir, "retrieval", "summary.json");
+  const summary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
+  summary.suite = "repo-8";
+  await fs.writeFile(summaryPath, JSON.stringify(summary));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /names suite "repo-8"/);
+  summary.suite = "smoke";
+  summary.agentify = "0.3.0";
+  await fs.writeFile(summaryPath, JSON.stringify(summary));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /produced by agentify "0.3.0"/);
+  summary.agentify = manifest.pins.agentify;
+  await fs.writeFile(summaryPath, JSON.stringify(summary));
+  const receiptPath = path.join(jobDir, "retrieval", "tasks", "cross_file_first-1.json");
+  const receipt = JSON.parse(await fs.readFile(receiptPath, "utf8"));
+  receipt.commit = "9".repeat(40);
+  await fs.writeFile(receiptPath, JSON.stringify(receipt));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /retrieval receipt for cross_file_first\/1/);
+  receipt.commit = "2".repeat(40);
+  await fs.writeFile(receiptPath, JSON.stringify(receipt));
 
   const job = JSON.parse(await fs.readFile(path.join(jobDir, "job.json"), "utf8"));
   job.pins.agentify = "0.3.9";

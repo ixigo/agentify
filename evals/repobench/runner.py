@@ -225,15 +225,19 @@ def verify_checkout_content(content: str, row: dict[str, Any]) -> bool:
     return str(row["next_line"]).rstrip() in lines[end:]
 
 
-def snippet_start_line(content: str, snippet: str) -> int | None:
-    """1-based line where the gold snippet begins in the gold file."""
+def snippet_span(content: str, snippet: str) -> tuple[int, int] | None:
+    """Inclusive 1-based line span of the gold snippet in the gold file. The
+    snippet must appear as a contiguous run of lines — a subsequence match
+    would let unrelated definitions between snippet lines count as hits."""
     lines = [line.rstrip() for line in content.replace("\r\n", "\n").split("\n")]
-    needles = nonempty_lines(snippet)
+    needles = [line.rstrip() for line in snippet.split("\n")]
+    while needles and not needles[-1]:
+        needles.pop()
     if not needles:
         return None
-    for index, line in enumerate(lines):
-        if line == needles[0] and ordered_subsequence_end(lines[index:], needles) is not None:
-            return index + 1
+    for index in range(len(lines) - len(needles) + 1):
+        if lines[index:index + len(needles)] == needles:
+            return index + 1, index + len(needles)
     return None
 
 
@@ -372,12 +376,19 @@ def query_symbols(import_statement: str, cap: int = MAX_QUERY_SYMBOLS) -> list[s
         if candidate not in symbols:
             symbols.append(candidate)
 
-    for match in re.finditer(r"^\s*from\s+[.\w]+\s+import\s+(.+)$", import_statement, re.MULTILINE):
-        clause = match.group(1).replace("(", " ").replace(")", " ")
+    def push_clause(clause: str) -> None:
         for part in clause.split(","):
-            push(re.sub(r"\s+as\s+\w+\s*$", "", part))
-    for match in re.finditer(r"^\s*import\s+([.\w]+)", import_statement, re.MULTILINE):
-        push(match.group(1).split(".")[-1])
+            push(re.sub(r"\s+as\s+\w+\s*$", "", part.strip()))
+
+    # Parenthesized from-imports span lines; match them before the
+    # single-line form so neither shadows the other.
+    for match in re.finditer(r"^\s*from\s+[.\w]+\s+import\s+\(([^)]*)\)", import_statement, re.MULTILINE | re.DOTALL):
+        push_clause(match.group(1))
+    for match in re.finditer(r"^\s*from\s+[.\w]+\s+import\s+([^(\n][^\n]*)$", import_statement, re.MULTILINE):
+        push_clause(match.group(1))
+    for match in re.finditer(r"^\s*import\s+([^\n]+)$", import_statement, re.MULTILINE):
+        for module in match.group(1).split(","):
+            push(re.sub(r"\s+as\s+\w+\s*$", "", module.strip()).split(".")[-1])
     return symbols[:cap]
 
 
@@ -421,14 +432,13 @@ def score_retrieval(
     if gold_rank is not None:
         gold_file = workspace / gold["path"]
         gold_content = gold_file.read_text(encoding="utf-8", errors="replace") if gold_file.is_file() else ""
-        start = snippet_start_line(gold_content, gold["snippet"])
-        if start is not None:
-            snippet_span = (start, start + len(gold["snippet"].split("\n")))
+        span = snippet_span(gold_content, gold["snippet"])
+        if span is not None:
             for definition in queries["definitions"]:
                 if definition.get("file_path") != gold["path"]:
                     continue
                 def_line = definition.get("start_line")
-                if isinstance(def_line, int) and snippet_span[0] <= def_line <= snippet_span[1]:
+                if isinstance(def_line, int) and span[0] <= def_line <= span[1]:
                     snippet_hit = True
                     break
 
@@ -708,13 +718,13 @@ def indel_distance(left: str, right: str) -> int:
 
 
 def edit_similarity(prediction: str, target: str) -> float:
-    """`fuzz.ratio` equivalent: 100 * (lensum - indel distance) / lensum."""
-    left = prediction.strip()
-    right = target.strip()
-    lensum = len(left) + len(right)
+    """`fuzz.ratio` equivalent on the unmodified strings, as in the official
+    evaluator: 100 * (lensum - indel distance) / lensum. Indentation errors
+    count against the score."""
+    lensum = len(prediction) + len(target)
     if lensum == 0:
         return 100.0
-    return round((lensum - indel_distance(left, right)) / lensum * 100, 2)
+    return round((lensum - indel_distance(prediction, target)) / lensum * 100, 2)
 
 
 def identifiers(text: str) -> set[str]:
@@ -1069,9 +1079,11 @@ def select_sample(args: argparse.Namespace) -> None:
                 break
             row = entry["row"]
             repo = str(row["repo_name"])
+            # A repository is consumed only once a row for it verifies; an
+            # earlier unverifiable row must not disqualify the repository, or
+            # the rule would silently become "first row per repository".
             if repo in seen_repos:
                 continue
-            seen_repos.add(repo)
             try:
                 gold = gold_reference(row)
             except AdapterError:
@@ -1082,6 +1094,7 @@ def select_sample(args: argparse.Namespace) -> None:
             if not commit:
                 print(f"skip {entry['row_idx']} {repo}: no content-verified commit", file=sys.stderr)
                 continue
+            seen_repos.add(repo)
             tasks.append({
                 "task_id": f"{dataset['split']}/{entry['row_idx']}",
                 "row_index": entry["row_idx"],
