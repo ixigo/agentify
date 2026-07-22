@@ -191,6 +191,7 @@ All commands accept `--json` for machine-readable output — which is how agents
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading, cost-performance reports, and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor (Terminal-Bench 2.0) adapter: token-free dataset validation, spend ceilings, and importing container-run results into the native report (`docs/harbor.md`) |
 | `agentify eval swebench validate\|plan\|import` | SWE-bench Verified warm/cold adapter: pinned sample validation, hard spend ceilings, and importing official-harness results (`docs/swebench.md`) |
+| `agentify eval repobench validate\|plan\|import` | RepoBench repo-context adapter: token-free index-retrieval scoring against gold cross-file labels plus a bounded paired completion arm (`docs/repobench.md`) |
 
 </details>
 
@@ -320,6 +321,18 @@ scan, and the official SWE-bench Docker harness grades generated patches.
 `agentify eval swebench plan` prints the maximum spend before launch; imported
 reports label `harness: swebench` and add turns-to-first-edit telemetry. This is
 not an official leaderboard run. See `docs/swebench.md`.
+
+**External benchmark (RepoBench):** `evals/repobench/` validates the
+repo-intelligence layer against RepoBench's labeled gold cross-file
+dependencies over a pinned, content-verified 8-repository Python sample. A
+token-free retrieval harness scores `agentify query def|refs|impacts` directly
+against each task's gold defining file and dependency edge ($0 to re-run), and
+a bounded paired arm measures line-completion uplift when the index — not a
+model — selects the injected cross-file context. Queries derive from the
+task's import statement only; the answer line never reaches queries, prompts,
+or context selection. Imported reports label `harness: repobench` and carry
+exact-match/edit-similarity/identifier-F1 per arm plus the retrieval
+precision/recall summary. Not a leaderboard run. See `docs/repobench.md`.
 
 **First nightly results (2026-07-14** — 8 tasks × 2 arms × 3 attempts, `claude-haiku-4-5`, $2.10 actual spend against the $16.80 ceiling**):** the Agentify arm passed **24/24** attempts vs **21/24** for plain Claude Code on the same images, model, and verifiers. All three baseline failures landed on the prior-failure-avoidance task, where a production incident recorded in the context store is the only thing separating the arms — the seeded note turned 0/3 into 3/3. Both honesty controls held: the mechanical task (context adds nothing) and the misleading-context task (wrong-but-plausible notes must not cause damage) tied at 3/3 per arm, with zero flakes across 48 trials. The report still declares **no winner**, by design: 3 discordant pairs (all favoring Agentify) give an exact sign-test p = 0.25 and overlapping Wilson intervals, and the fail-closed winner rule requires CI separation *and* p < 0.05 — accumulating nightly runs (or more attempts on discordant tasks) is what gets there. On cost, the Agentify arm averaged $0.055/attempt vs $0.033 (+66%): persistent context is paid for in tokens, and on the one task with signal that ~$0.03 premium was the difference between failing and passing. This suite deliberately measures the **context layer only** — delegation (routing quick/mechanical work to cheaper models, reviews to the other vendor), which is designed to win that per-attempt premium back in real workflows, runs context-off by construction and can't function in single-vendor containers, so its economics are measured separately by `agentify stats`, `agentify value`, and the native eval profiles rather than claimed here.
 

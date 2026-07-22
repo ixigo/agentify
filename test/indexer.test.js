@@ -80,6 +80,25 @@ const entrypointCases = [
   },
 ];
 
+test("generic symbol collectors anchor start_line to the declaration, not a preceding blank line", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+    await fs.writeFile(
+      path.join(dir, "mod.py"),
+      '"""doc"""\n\nimport os\n\n\nclass Thing:\n    pass\n\n\ndef helper():\n    return 1\n',
+      "utf8",
+    );
+  });
+  const index = await buildRepositoryIndex(root, { languages: "auto", moduleStrategy: "auto" });
+  const symbols = Object.fromEntries(
+    index.symbols.filter((symbol) => symbol.file_path === "mod.py").map((symbol) => [symbol.name, symbol]),
+  );
+  // The `^\s*`-anchored patterns used to start matching on the blank lines
+  // above a declaration, misreporting Thing at line 4 and helper at line 8.
+  assert.equal(symbols.Thing.start_line, 6);
+  assert.equal(symbols.helper.start_line, 10);
+});
+
 for (const item of entrypointCases) {
   test(`buildRepositoryIndex marks ${item.name} entrypoints`, async () => {
     const root = await withTempDir(item.setup);

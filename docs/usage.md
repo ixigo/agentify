@@ -145,6 +145,24 @@ Imported receipts are labeled `harness: swebench` and report resolved %,
 cost/resolved, and turns-to-first-edit deltas. Protocol, contamination controls,
 host requirements, and claim boundaries are in `docs/swebench.md`.
 
+The optional RepoBench arm targets the repo-intelligence layer specifically:
+a token-free harness scores whether `agentify query def|refs|impacts`
+retrieves each task's labeled gold cross-file dependency, and a bounded paid
+arm measures line-completion uplift when the index (not a model) selects the
+injected cross-file context:
+
+```sh
+agentify eval repobench validate
+agentify eval repobench plan --suite repo-8
+evals/repobench/run-repobench.sh repo-8
+agentify eval repobench import evals/repobench/jobs/<job>
+```
+
+Imported receipts are labeled `harness: repobench` and report exact match,
+edit similarity, identifier F1, and the standalone retrieval precision/recall
+summary. Protocol, the committed selection rule, and claim boundaries are in
+`docs/repobench.md`.
+
 ## Failure memory
 
 **Why:** agents rediscover the same dead ends. A command that failed three sessions ago gets retried verbatim, fails the same way, and burns the same tokens.

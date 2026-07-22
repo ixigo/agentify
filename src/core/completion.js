@@ -130,6 +130,11 @@ const COMMANDS = [
           flag("--suite", { valueKind: "text", description: "Suite for swebench plan (smoke, repo-stratified-6)" }),
         ],
       }),
+      subcommand("repobench", "RepoBench repo-context adapter (validate, plan, import)", {
+        flags: [
+          flag("--suite", { valueKind: "text", description: "Suite for repobench plan (smoke, repo-8)" }),
+        ],
+      }),
     ],
   }),
   command("workflow", "Prebuilt platform workflows", {
