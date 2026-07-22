@@ -203,11 +203,11 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
       ref_edge_hit_rate: 1,
       impact_hit_rate: 0.5,
       mrr: 0.75,
-      macro_precision: 0.4,
+      macro_precision: 0.35,
       mean_candidates: 3.5,
       cost_usd: 0,
     }));
-    for (const task of manifest.tasks) {
+    for (const [index, task] of manifest.tasks.entries()) {
       await fs.writeFile(
         path.join(jobDir, "retrieval", "tasks", `${task.task_id.replace(/\//g, "-")}.json`),
         JSON.stringify({
@@ -216,9 +216,11 @@ async function writeJob(root, manifest, { withRetrieval = true } = {}) {
           repo: task.repo,
           commit: task.commit,
           def_hit: true,
-          gold_rank: 1,
+          gold_rank: index === 0 ? 1 : 2,
+          candidate_count: index === 0 ? 2 : 5,
+          snippet_hit: true,
           ref_edge_hit: true,
-          impact_hit: true,
+          impact_hit: index === 0,
         }),
       );
     }
@@ -233,7 +235,7 @@ test("import produces an aggregate paired RepoBench report with completion quali
   const jobDir = await writeJob(root, manifest);
   await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/0", commit: "1".repeat(40), exactMatch: false, es: 61.5, f1: 0.5, cost: 0.02 });
-  await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
+  await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02, retrieval: { gold_rank: 2, impact_hit: false } });
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
 
   const imported = await importRepobenchJob(root, {}, jobDir, { now: "2026-07-22T01:00:00Z" });
@@ -295,13 +297,19 @@ test("import refuses incomplete jobs, missing retrieval receipts, tool use, and 
   await writeAttempt(jobDir, { arm: "claude-code", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
   const agentifyPath = path.join(jobDir, "attempts", "agentify", "cross_file_first-1", "1");
   await fs.mkdir(agentifyPath, { recursive: true });
-  await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02 });
+  await writeAttempt(jobDir, { arm: "agentify", task: "cross_file_first/1", commit: "2".repeat(40), exactMatch: true, es: 100, f1: 1, cost: 0.02, retrieval: { gold_rank: 2, impact_hit: false } });
   const record = JSON.parse(await fs.readFile(path.join(agentifyPath, "result.json"), "utf8"));
   record.retrieval = null;
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /lacks its retrieval receipt/);
 
+  // Attempt retrieval data that contradicts the job's own receipt is not
+  // importable evidence.
   record.retrieval = { def_hit: true, gold_rank: 1, ref_edge_hit: true, impact_hit: true };
+  await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /disagrees with the job's retrieval receipt/);
+
+  record.retrieval = { def_hit: true, gold_rank: 2, ref_edge_hit: true, impact_hit: false };
   record.provider.tool_calls = 2;
   await fs.writeFile(path.join(agentifyPath, "result.json"), JSON.stringify(record));
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /not verifiably tool-free/);
@@ -320,6 +328,10 @@ test("import refuses incomplete jobs, missing retrieval receipts, tool use, and 
   await fs.writeFile(summaryPath, JSON.stringify(summary));
   await assert.rejects(importRepobenchJob(root, {}, jobDir), /produced by agentify "0.3.0"/);
   summary.agentify = manifest.pins.agentify;
+  summary.def_hit_rate = 0.5;
+  await fs.writeFile(summaryPath, JSON.stringify(summary));
+  await assert.rejects(importRepobenchJob(root, {}, jobDir), /receipts recompute to 1/);
+  summary.def_hit_rate = 1;
   await fs.writeFile(summaryPath, JSON.stringify(summary));
   const receiptPath = path.join(jobDir, "retrieval", "tasks", "cross_file_first-1.json");
   const receipt = JSON.parse(await fs.readFile(receiptPath, "utf8"));

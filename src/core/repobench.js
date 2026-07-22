@@ -352,24 +352,49 @@ async function requireRetrievalSummary(jobDir, root, job, suiteTasks, localManif
   if (summary.tasks !== suiteTasks.length) {
     throw new Error(`RepoBench retrieval summary covers ${summary.tasks} task(s), expected ${suiteTasks.length}`);
   }
-  for (const rate of ["def_hit_rate", "hit_at_1", "hit_at_5", "snippet_hit_rate", "ref_edge_hit_rate", "impact_hit_rate", "mrr", "macro_precision"]) {
-    const value = summary[rate];
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
-      throw new Error(`RepoBench retrieval summary metric ${rate} must be a rate in [0, 1], got "${value}"`);
-    }
-  }
+  const receipts = new Map();
   for (const task of suiteTasks) {
     const receiptPath = path.join(jobDir, "retrieval", "tasks", `${taskSlug(task.task_id)}.json`);
     const receipt = (await exists(receiptPath)) ? await readJson(receiptPath).catch(() => null) : null;
+    const goldRankValid = receipt?.gold_rank === null || (Number.isInteger(receipt?.gold_rank) && receipt.gold_rank >= 1);
     if (receipt?.schema !== REPOBENCH_RETRIEVAL_SCHEMA_VERSION
       || receipt.task_id !== task.task_id
       || receipt.repo !== task.repo
       || receipt.commit !== task.commit
-      || typeof receipt.def_hit !== "boolean") {
+      || typeof receipt.def_hit !== "boolean"
+      || typeof receipt.snippet_hit !== "boolean"
+      || typeof receipt.ref_edge_hit !== "boolean"
+      || typeof receipt.impact_hit !== "boolean"
+      || !goldRankValid
+      || receipt.def_hit !== (receipt.gold_rank !== null)
+      || !Number.isInteger(receipt.candidate_count) || receipt.candidate_count < 0) {
       throw new Error(`RepoBench retrieval receipt for ${task.task_id} is missing or disagrees with the committed pin`);
     }
+    receipts.set(task.task_id, receipt);
   }
-  return summary;
+  // Aggregates are recomputed from the per-task receipts: a summary claiming
+  // rates its own receipts do not support is fabricated evidence.
+  const all = [...receipts.values()];
+  const rate = (predicate) => Number((all.filter(predicate).length / all.length).toFixed(4));
+  const recomputed = {
+    def_hit_rate: rate((receipt) => receipt.def_hit),
+    hit_at_1: rate((receipt) => receipt.gold_rank === 1),
+    hit_at_5: rate((receipt) => receipt.gold_rank !== null && receipt.gold_rank <= 5),
+    snippet_hit_rate: rate((receipt) => receipt.snippet_hit),
+    ref_edge_hit_rate: rate((receipt) => receipt.ref_edge_hit),
+    impact_hit_rate: rate((receipt) => receipt.impact_hit),
+    mrr: Number((all.reduce((sum, receipt) => sum + (receipt.gold_rank ? 1 / receipt.gold_rank : 0), 0) / all.length).toFixed(4)),
+    macro_precision: Number((all.reduce((sum, receipt) => (
+      sum + (receipt.def_hit && receipt.candidate_count > 0 ? 1 / receipt.candidate_count : 0)
+    ), 0) / all.length).toFixed(4)),
+  };
+  for (const [metric, value] of Object.entries(recomputed)) {
+    const claimed = summary[metric];
+    if (typeof claimed !== "number" || !Number.isFinite(claimed) || Math.abs(claimed - value) > 0.001) {
+      throw new Error(`RepoBench retrieval summary metric ${metric} is "${claimed}" but its own receipts recompute to ${value}`);
+    }
+  }
+  return { summary, receipts };
 }
 
 export async function importRepobenchJob(root, config = {}, jobDirInput, options = {}) {
@@ -426,7 +451,7 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
     };
   });
   const sampleSha256 = createHash("sha256").update(JSON.stringify(sample)).digest("hex");
-  const retrievalSummary = await requireRetrievalSummary(
+  const { summary: retrievalSummary, receipts: retrievalReceipts } = await requireRetrievalSummary(
     jobDir, root, job, suite.tasks.map((id) => expectedTasks.get(id)), localManifest,
   );
 
@@ -454,6 +479,15 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       skipped.push({ attempt: attempt.task_id, reason: "completion score is missing" });
     } else if (arm === "agentify" && (!attempt.retrieval || typeof attempt.retrieval.def_hit !== "boolean")) {
       skipped.push({ attempt: attempt.task_id, reason: "agentify attempt lacks its retrieval receipt" });
+    } else if (arm === "agentify" && (() => {
+      const receipt = retrievalReceipts.get(attempt.task_id);
+      return !receipt
+        || attempt.retrieval.def_hit !== receipt.def_hit
+        || attempt.retrieval.gold_rank !== receipt.gold_rank
+        || attempt.retrieval.ref_edge_hit !== receipt.ref_edge_hit
+        || attempt.retrieval.impact_hit !== receipt.impact_hit;
+    })()) {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt retrieval data disagrees with the job's retrieval receipt" });
     } else if (seenAttempts.has(attemptKey)) {
       skipped.push({ attempt: attempt.task_id, reason: "duplicate scored arm/task/attempt record" });
     } else {

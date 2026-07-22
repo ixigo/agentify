@@ -38,8 +38,10 @@ repository drift is a hard error rather than a silent re-benchmark.
 
 The sample follows one committed, executable selection rule (also shipped as
 `runner.py select`): **first content-verified row per distinct repository, in
-dataset order, capped at 8 repositories**. It is a bounded sample for
-protocol validation and directional evidence, not a leaderboard run.
+dataset order, capped at 8 repositories**. Commit resolution searches each
+file's history newest-first up to a disclosed cutoff (`--max-commits`,
+default 1000). It is a bounded sample for protocol validation and directional
+evidence, not a leaderboard run.
 
 ## Two harnesses, one gold label
 
@@ -170,10 +172,12 @@ them private unless deliberately reviewed.
 Import requires a fully scored job: the complete task × attempt × arm
 cross-product, a `tool_calls: 0` receipt on every attempt, a retrieval
 receipt on every agentify attempt, and a valid retrieval summary bound to
-this job's suite, dataset revision, and pinned Agentify version, with a
-per-task receipt matching every committed repo/commit pin — a job missing
-its token-free retrieval evidence, or carrying evidence copied from another
-job, does not import. The imported aggregate report uses one paired repeat index per
+this job's suite, dataset revision, and pinned Agentify version. Every suite
+task must carry a per-task receipt matching its committed repo/commit pin,
+the summary's aggregate metrics are recomputed from those receipts and must
+agree, and each agentify attempt's retrieval data must match its task's
+receipt — a job missing its token-free retrieval evidence, or carrying
+fabricated or copied evidence, does not import. The imported aggregate report uses one paired repeat index per
 task/attempt and exposes:
 
 - exact match as per-arm `pass_rate` with a Wilson 95% interval, plus the

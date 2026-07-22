@@ -340,7 +340,10 @@ def ensure_tools(manifest: dict[str, Any], *, paid: bool) -> None:
     for name, (command, expected) in version_commands.items():
         completed = run_command(command, cwd=ROOT)
         observed = f"{completed.stdout}\n{completed.stderr}"
-        if completed.returncode != 0 or expected not in observed:
+        # Exact version-token equality: substring matching would accept
+        # "10.4.0" for an expected "0.4.0".
+        tokens = re.findall(r"\d+\.\d+\.[0-9A-Za-z.-]+", observed)
+        if completed.returncode != 0 or expected not in tokens:
             raise AdapterError(f"{name} must be pinned at {expected}; observed {observed.strip() or 'unavailable'}")
 
 
@@ -393,19 +396,22 @@ def query_symbols(import_statement: str, cap: int = MAX_QUERY_SYMBOLS) -> list[s
 
 
 def run_retrieval_queries(workspace: Path, task_file: str, symbols: list[str]) -> dict[str, Any]:
-    """Run def/refs per symbol; candidates are defining files in query order."""
+    """Run def and refs per symbol; candidates are defining files in query
+    order. `def` is the scored definition source so a regression specific to
+    that verb is detected; `refs` supplies the reverse dependency edges."""
     candidates: list[str] = []
     definitions: list[dict[str, Any]] = []
     referencing_files: set[str] = set()
     for symbol in symbols:
-        refs = agentify_query(workspace, "refs", "--symbol", symbol)
-        for definition in refs.get("definitions") or []:
+        defs = agentify_query(workspace, "def", "--symbol", symbol)
+        for definition in defs.get("definitions") or []:
             file_path = definition.get("file_path")
             if not file_path or file_path == task_file:
                 continue
             definitions.append({"symbol": symbol, **definition})
             if file_path not in candidates:
                 candidates.append(file_path)
+        refs = agentify_query(workspace, "refs", "--symbol", symbol)
         for reference in refs.get("references") or []:
             importer = reference.get("file_path")
             imported = reference.get("imports")
@@ -428,19 +434,18 @@ def score_retrieval(
     candidates = queries["candidates"]
     gold_rank = candidates.index(gold["path"]) + 1 if gold["path"] in candidates else None
 
+    gold_file = workspace / gold["path"]
+    gold_content = gold_file.read_text(encoding="utf-8", errors="replace") if gold_file.is_file() else ""
+    span = snippet_span(gold_content, gold["snippet"])
     snippet_hit = False
-    if gold_rank is not None:
-        gold_file = workspace / gold["path"]
-        gold_content = gold_file.read_text(encoding="utf-8", errors="replace") if gold_file.is_file() else ""
-        span = snippet_span(gold_content, gold["snippet"])
-        if span is not None:
-            for definition in queries["definitions"]:
-                if definition.get("file_path") != gold["path"]:
-                    continue
-                def_line = definition.get("start_line")
-                if isinstance(def_line, int) and span[0] <= def_line <= span[1]:
-                    snippet_hit = True
-                    break
+    if gold_rank is not None and span is not None:
+        for definition in queries["definitions"]:
+            if definition.get("file_path") != gold["path"]:
+                continue
+            def_line = definition.get("start_line")
+            if isinstance(def_line, int) and span[0] <= def_line <= span[1]:
+                snippet_hit = True
+                break
 
     # The reverse direction: does the index know the task file depends on the
     # gold file? refs lists importers of each defining file; impacts walks the
@@ -459,6 +464,7 @@ def score_retrieval(
         "level": task.get("level"),
         "query_symbols": symbols,
         "gold_path": gold["path"],
+        "gold_snippet_span": list(span) if span else None,
         "candidates": candidates,
         "candidate_count": len(candidates),
         "gold_rank": gold_rank,
@@ -570,9 +576,32 @@ def build_prompt(template: str, row: dict[str, Any], *, context_block: str) -> s
 
 def answer_leak_receipt(context_block: str, next_line: str) -> bool:
     """Legitimate retrieval can still quote the exact answer line (cross-file
-    duplication). Record it; never gate on it silently."""
+    duplication). Record every exact line match, however short; never gate on
+    it silently."""
     target = next_line.strip()
-    return len(target) >= 10 and target in context_block
+    if not target:
+        return False
+    for line in context_block.split("\n"):
+        content = line[2:] if line.startswith("# ") else line
+        if content.strip() == target:
+            return True
+    return False
+
+
+def gold_context_receipt(retrieval: dict[str, Any], context_entries: list[dict[str, Any]]) -> bool:
+    """True only when an injected snippet overlaps the gold snippet's line
+    span — a different definition from the gold file is not gold context."""
+    span = retrieval.get("gold_snippet_span")
+    if not span:
+        return False
+    for entry in context_entries:
+        if entry["file_path"] != retrieval["gold_path"]:
+            continue
+        entry_start = entry["start_line"]
+        entry_end = entry_start + entry["snippet"].count("\n")
+        if entry_start <= span[1] and entry_end >= span[0]:
+            return True
+    return False
 
 
 def claude_model(manifest: dict[str, Any]) -> str:
@@ -887,8 +916,7 @@ def run_attempt(
             "chars": len(block),
             "files": [entry["file_path"] for entry in context_entries] if arm == "agentify" else [],
             "answer_in_context": answer_leak_receipt(block, next_line),
-            "gold_in_context": arm == "agentify"
-                and any(entry["file_path"] == retrieval["gold_path"] for entry in context_entries),
+            "gold_in_context": arm == "agentify" and gold_context_receipt(retrieval, context_entries),
         },
         "retrieval": {key: retrieval[key] for key in ("def_hit", "gold_rank", "ref_edge_hit", "impact_hit")}
             if arm == "agentify" else None,
@@ -1030,14 +1058,25 @@ def raw_github_file(repo: str, commit: str, file_path: str) -> str | None:
         return None
 
 
-def resolve_verified_commit(repo: str, row: dict[str, Any], gold: dict[str, str], until: str) -> str | None:
-    listing = github_json(
-        f"https://api.github.com/repos/{repo}/commits?path={urllib.parse.quote(row['file_path'])}"
-        f"&until={until}&per_page=30"
-    )
-    if not isinstance(listing, list):
+def resolve_verified_commit(
+    repo: str, row: dict[str, Any], gold: dict[str, str], until: str, max_commits: int = 1000,
+) -> str | None:
+    """Search the file's commit history newest-first, paginated up to the
+    disclosed max_commits cutoff, for a content-verified commit."""
+    listing: list[dict[str, Any]] = []
+    for page in range(1, (max_commits // 100) + 2):
+        if len(listing) >= max_commits:
+            break
+        chunk = github_json(
+            f"https://api.github.com/repos/{repo}/commits?path={urllib.parse.quote(row['file_path'])}"
+            f"&until={until}&per_page=100&page={page}"
+        )
+        if not isinstance(chunk, list) or not chunk:
+            break
+        listing.extend(chunk)
+    if not listing:
         return None
-    for entry in listing:
+    for entry in listing[:max_commits]:
         commit = entry.get("sha")
         content = raw_github_file(repo, commit, row["file_path"]) if commit else None
         if content is None or not verify_checkout_content(content, row):
@@ -1090,9 +1129,13 @@ def select_sample(args: argparse.Namespace) -> None:
                 continue
             if gold["path"] == row["file_path"]:
                 continue
-            commit = resolve_verified_commit(repo, row, gold, args.until)
+            commit = resolve_verified_commit(repo, row, gold, args.until, args.max_commits)
             if not commit:
-                print(f"skip {entry['row_idx']} {repo}: no content-verified commit", file=sys.stderr)
+                print(
+                    f"skip {entry['row_idx']} {repo}: no content-verified commit "
+                    f"in the newest {args.max_commits} file commits",
+                    file=sys.stderr,
+                )
                 continue
             seen_repos.add(repo)
             tasks.append({
@@ -1132,6 +1175,8 @@ def build_parser() -> argparse.ArgumentParser:
     select.add_argument("--limit", type=int, default=8)
     select.add_argument("--max-rows", type=int, default=500)
     select.add_argument("--until", default="2024-03-01T00:00:00Z")
+    select.add_argument("--max-commits", type=int, default=1000,
+                        help="newest-first per-file commit search cutoff (disclosed in skip messages)")
     return parser
 
 

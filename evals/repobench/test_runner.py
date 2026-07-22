@@ -152,6 +152,20 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(runner.answer_leak_receipt("# return compute_total(policy)", "    return compute_total(policy)"))
         self.assertFalse(runner.answer_leak_receipt("# def compute_total(policy):", "    return compute_total(policy)"))
         self.assertFalse(runner.answer_leak_receipt("# x = 1", "x"))
+        # Short duplicated answers still count: substring/length heuristics
+        # would silently under-report leakage.
+        self.assertTrue(runner.answer_leak_receipt("# return x", "  return x"))
+        self.assertFalse(runner.answer_leak_receipt("# return xy", "  return x"))
+
+    def test_gold_context_receipt_requires_span_overlap(self):
+        retrieval = {"gold_path": "pkg/helpers.py", "gold_snippet_span": [10, 14]}
+        overlapping = [{"file_path": "pkg/helpers.py", "start_line": 13, "snippet": "a\nb\nc"}]
+        elsewhere = [{"file_path": "pkg/helpers.py", "start_line": 40, "snippet": "a\nb"}]
+        other_file = [{"file_path": "pkg/other.py", "start_line": 10, "snippet": "a"}]
+        self.assertTrue(runner.gold_context_receipt(retrieval, overlapping))
+        self.assertFalse(runner.gold_context_receipt(retrieval, elsewhere))
+        self.assertFalse(runner.gold_context_receipt(retrieval, other_file))
+        self.assertFalse(runner.gold_context_receipt({"gold_path": "p", "gold_snippet_span": None}, overlapping))
 
     def test_trial_order_is_randomized_and_preserves_the_full_cross_product(self):
         tasks = [{"task_id": "cross_file_first/0"}, {"task_id": "cross_file_first/1"}]
