@@ -160,6 +160,8 @@ async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cos
       duration_ms: 900,
       num_turns: 1,
       tool_calls: 0,
+      resolved_model: "claude-sonnet-4-5-20250929",
+      observed_models: ["claude-sonnet-4-5-20250929"],
       cost_usd: cost,
       usage: { fresh_input_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0, output_tokens: 5 },
     },

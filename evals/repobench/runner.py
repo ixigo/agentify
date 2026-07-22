@@ -643,6 +643,7 @@ def claude_command(manifest: dict[str, Any], prompt: str) -> list[str]:
 def parse_stream(path: Path) -> dict[str, Any]:
     result: dict[str, Any] | None = None
     tool_calls = 0
+    assistant_models: set[str] = set()
     for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(raw_line)
@@ -654,11 +655,16 @@ def parse_stream(path: Path) -> dict[str, Any]:
             result = event
             continue
         if event.get("type") == "assistant" and isinstance(event.get("message"), dict):
+            if event["message"].get("model"):
+                assistant_models.add(str(event["message"]["model"]))
             content = event["message"].get("content")
             for block in content if isinstance(content, list) else []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     tool_calls += 1
     result = result or {}
+    observed_models: set[str] = set(assistant_models)
+    if isinstance(result.get("modelUsage"), dict):
+        observed_models.update(str(model) for model in result["modelUsage"].keys())
     usage = result.get("usage") if isinstance(result.get("usage"), dict) else None
     normalized_usage = None
     if usage:
@@ -672,6 +678,7 @@ def parse_stream(path: Path) -> dict[str, Any]:
         "subtype": result.get("subtype"),
         "num_turns": result.get("num_turns"),
         "tool_calls": tool_calls,
+        "observed_models": sorted(observed_models),
         "cost_usd": result.get("total_cost_usd") if isinstance(result.get("total_cost_usd"), (int, float)) else None,
         "usage": normalized_usage,
         "final_output": result.get("result") if isinstance(result.get("result"), str) else None,
@@ -708,14 +715,18 @@ def run_claude_completion(
         exit_code = 124
         stderr = str(error)
     telemetry = parse_stream(trajectory) if trajectory.exists() else {
-        "subtype": None, "num_turns": None, "tool_calls": None, "cost_usd": None, "usage": None, "final_output": None,
+        "subtype": None, "num_turns": None, "tool_calls": None, "observed_models": [],
+        "cost_usd": None, "usage": None, "final_output": None,
     }
+    observed = telemetry.get("observed_models") or []
     telemetry.update(
         {
             "exit_code": exit_code,
             "timed_out": timed_out,
             "duration_ms": round((time.monotonic() - started) * 1000),
-            "resolved_model": claude_model(manifest),
+            # Observed from the trajectory, never asserted; foreign models
+            # fail closed in run_attempt.
+            "resolved_model": observed[0] if len(observed) == 1 else None,
             "stderr_tail": stderr[-2000:] if stderr else "",
         }
     )
@@ -909,19 +920,25 @@ def run_attempt(
     context_block: str, context_entries: list[dict[str, Any]],
     work_root: Path, job_dir: Path,
 ) -> dict[str, Any]:
-    scratch = work_root / "sessions" / arm / f"{task_slug(task['task_id'])}-{attempt_number}"
-    scratch.mkdir(parents=True, exist_ok=True)
+    # Unique per invocation: a reused --work-root must never resurrect an
+    # earlier session's Claude home (settings, hooks, scratch state).
+    scratch = work_root / "sessions" / f"{arm}-{task_slug(task['task_id'])}-{attempt_number}-{secrets.token_hex(4)}"
+    scratch.mkdir(parents=True)
     block = context_block if arm == "agentify" else ""
     prompt = build_prompt(template, row, context_block=block)
     next_line = str(row["next_line"])
     result_dir = job_dir / "attempts" / arm / task_slug(task["task_id"]) / str(attempt_number)
     trajectory = result_dir / "trajectory.jsonl"
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    provider = run_claude_completion(
-        manifest, prompt, scratch=scratch,
-        trajectory=trajectory,
-        session=f"repobench-{arm}-{task_slug(task['task_id'])}-{attempt_number}",
-    )
+    try:
+        provider = run_claude_completion(
+            manifest, prompt, scratch=scratch,
+            trajectory=trajectory,
+            session=f"repobench-{arm}-{task_slug(task['task_id'])}-{attempt_number}",
+        )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+        shutil.rmtree(scratch.parent / f".{scratch.name}-claude-home", ignore_errors=True)
     final_output = str(provider.pop("final_output", "") or "")
     clean_session = provider["exit_code"] == 0 and provider.get("tool_calls") == 0
     prediction = parse_completion(final_output) if clean_session else ""
@@ -961,6 +978,13 @@ def run_attempt(
         raise AdapterError(
             f"completion session for {task['task_id']} arm {arm} attempt {attempt_number} "
             f"used {provider.get('tool_calls')} tool call(s); tool-free completion is required"
+        )
+    requested_model = claude_model(manifest)
+    if provider.get("resolved_model") != requested_model:
+        raise AdapterError(
+            f"completion session for {task['task_id']} arm {arm} attempt {attempt_number} "
+            f"observed model(s) {provider.get('observed_models') or 'none'}; the pinned model "
+            f"{requested_model} must be the only one observed"
         )
     return record
 
@@ -1112,9 +1136,10 @@ def resolve_verified_commit(
         gold_content = raw_github_file(repo, commit, gold["path"])
         if gold_content is None:
             continue
-        gold_lines = [line.rstrip() for line in gold_content.replace("\r\n", "\n").split("\n")]
-        if gold["snippet"] in gold_content.replace("\r\n", "\n") \
-                or ordered_subsequence_end(gold_lines, nonempty_lines(gold["snippet"])) is not None:
+        # Selection must apply the same contiguous rule as the scorer's
+        # snippet_span, or it would pin tasks whose snippet_hit can never
+        # be true.
+        if snippet_span(gold_content, gold["snippet"]) is not None:
             return commit
     return None
 

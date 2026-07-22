@@ -483,6 +483,8 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       skipped.push({ attempt: attempt.task_id, reason: "attempt file path disagrees with the committed pin" });
     } else if (attempt.model !== job.model) {
       skipped.push({ attempt: attempt.task_id, reason: "attempt model disagrees with the job pin" });
+    } else if (attempt.provider?.resolved_model !== String(job.model).split("/").pop()) {
+      skipped.push({ attempt: attempt.task_id, reason: "trajectory-observed model disagrees with the job pin" });
     } else if (attempt.provider?.exit_code !== 0 || attempt.provider?.timed_out === true) {
       skipped.push({ attempt: attempt.task_id, reason: "provider execution did not complete successfully" });
     } else if (attempt.provider?.tool_calls !== 0) {
@@ -652,9 +654,12 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       repos: [...new Set(scored.map((attempt) => attempt.repo))],
       sample,
       sample_sha256: sampleSha256,
-      // Treatment limits ride along so the report fingerprint changes when
-      // the context budget or turn caps change.
+      // Treatment limits and tool pins ride along so the report fingerprint
+      // changes when the context budget, turn caps, or pinned tool versions
+      // change. Semver alone cannot distinguish two builds reporting the
+      // same version — quote results with the Agentify commit.
       limits: job.limits ?? null,
+      pins: job.pins ?? null,
       retrieval: retrievalSummary,
     },
     agentify_version: job.pins?.agentify ?? VERSION,

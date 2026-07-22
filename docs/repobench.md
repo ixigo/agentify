@@ -37,10 +37,12 @@ re-checked against every fetched dataset row, so upstream dataset or
 repository drift is a hard error rather than a silent re-benchmark.
 
 The sample follows one committed, executable selection rule (also shipped as
-`runner.py select`): **first content-verified row per distinct repository, in
-dataset order, capped at 8 repositories**. Commit resolution searches each
-file's history newest-first up to a disclosed cutoff (`--max-commits`,
-default 1000). It is a bounded sample for protocol validation and directional
+`runner.py select`): **first row per distinct repository, in dataset order,
+whose in-file context and contiguously-matching gold snippet verify at a
+pinned commit; capped at 8 repositories**. The gold snippet must match the
+same contiguous rule the scorer uses, so no pinned task carries an
+unattainable `snippet_hit`. Commit resolution searches each file's history
+newest-first up to a disclosed cutoff (`--max-commits`, default 1000). It is a bounded sample for protocol validation and directional
 evidence, not a leaderboard run.
 
 ## Two harnesses, one gold label
@@ -78,8 +80,14 @@ context, same model and caps. Tool-freedom is enforced twice — the tool list
 is disallowed up front, and the runner counts `tool_use` blocks in each
 trajectory: any tool call invalidates the trial, and
 `agentify eval repobench import` refuses an attempt whose `tool_calls`
-receipt is not exactly zero. The **only** difference between arms is the
-cross-file context block:
+receipt is not exactly zero. Session scratch directories and Claude homes
+are unique per attempt and deleted afterwards, so a reused `--work-root`
+caches only repository clones (each re-verified against its pinned commit
+and re-indexed on every use), never session state. The model is observed
+from the trajectory rather than asserted: any session whose observed model
+set is not exactly the pinned model fails closed, and import re-checks the
+receipt. The **only** difference between arms is the cross-file context
+block:
 
 - `claude-code` (baseline): in-file context only;
 - `agentify`: plus up to 5 definition-anchored snippets selected mechanically

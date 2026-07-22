@@ -21,7 +21,7 @@
     "agentify",
     "claude-code"
   ],
-  "selection_rule": "first content-verified row per distinct repository, in dataset order, capped at 8 repositories",
+  "selection_rule": "first row per distinct repository, in dataset order, whose in-file context and contiguously-matching gold snippet verify at a pinned commit; capped at 8 repositories",
   "tasks": [
     {
       "task_id": "cross_file_first/0",
@@ -37,22 +37,6 @@
         "next_line_sha256": "e8cb5383e67813439c63aef6b73574bb233b908153dc8815c671c10b22edf2b3",
         "gold_path_sha256": "b07ac85613096b5becd05be11f3701bc0066e06cd6558016f1251e210115cdbe",
         "gold_snippet_sha256": "60640d82bd72e54890afff0b53160c15d163a10d2b01da0d199be757c7d89522"
-      }
-    },
-    {
-      "task_id": "cross_file_first/1",
-      "row_index": 1,
-      "repo": "jianchang512/vocal-separate",
-      "commit": "9ac78e1e9627df906af640eaa62fad7ceb47efec",
-      "file_path": "start.py",
-      "level": "2k",
-      "verification": {
-        "all_code_sha256": "fd7ccc88d6bfd8ff2a808ba5e8961a2aef9529c6f115411553840b85d875574c",
-        "cropped_code_sha256": "05f2fbfc614260cc68dd6e3dd2fbe9247786950d340886a52390f1213b96104f",
-        "import_statement_sha256": "59930a69bb477f57e2cd9b887ddb067870137163857681ed1859c551ed125935",
-        "next_line_sha256": "99d7c1c9b98e1a9e8000958cd697a8157043c676b76c09f4fc1da90b8415c438",
-        "gold_path_sha256": "6bdcdc2f4c9ac83940dcb6d33911d0c383975034cac14b10c97cdda16d9e48b3",
-        "gold_snippet_sha256": "8f9b4775418e1c2fbbceefdd89772b9ac6e34b5bfd68cfd4a2ff8db798384df0"
       }
     },
     {
@@ -150,6 +134,22 @@
         "gold_path_sha256": "9c71dfd5ce895177612ef404634d53b2cb50f5ccf58a2b6495c6314ed6390d03",
         "gold_snippet_sha256": "40d770e51a7239552dbc60cde2ed24b5de82f9f040f78e69f131b891eb4a0a50"
       }
+    },
+    {
+      "task_id": "cross_file_first/9",
+      "row_index": 9,
+      "repo": "jesenzhang/ComfyUI_StreamDiffusion",
+      "commit": "f4656d07348be31f45c4b3f08a009130b71dfc12",
+      "file_path": "streamdiffusion/pipeline.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "266f156eeb390d1e3b66f4e993730c83dcc2a2ff2b62b759c6f2a68759e34986",
+        "cropped_code_sha256": "61a5094df8a0c4a0dd541c385942333f22e0b322f0de849df4006c400af98fa4",
+        "import_statement_sha256": "4070f47bfea61fdbe1e5f717f39b4a02e87c58df3c290d5a8e2029451a055829",
+        "next_line_sha256": "e5333e636b64a4c2076d3d67ba3c1980bcef239f013fbf4929d5c23188e9d41e",
+        "gold_path_sha256": "8fd686513910f9fd1249eefb20456e342c664a44ce22c6e46453c6dd01d7571c",
+        "gold_snippet_sha256": "7a87f3e0f7d02eee38cffd301775bd6143d4f2dcbdf36b3f56a618fe7c12dc5c"
+      }
     }
   ],
   "suites": {
@@ -162,13 +162,13 @@
     "repo-8": {
       "tasks": [
         "cross_file_first/0",
-        "cross_file_first/1",
         "cross_file_first/2",
         "cross_file_first/3",
         "cross_file_first/4",
         "cross_file_first/5",
         "cross_file_first/6",
-        "cross_file_first/7"
+        "cross_file_first/7",
+        "cross_file_first/9"
       ],
       "attempts": 1
     }
