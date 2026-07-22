@@ -61,6 +61,7 @@ import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
 import { importSwebenchJob, planSwebenchRun, validateSwebenchDataset } from "./core/swebench.js";
+import { importRepobenchJob, planRepobenchRun, validateRepobenchDataset } from "./core/repobench.js";
 import {
   COMPARE_EXIT_ERROR,
   EVAL_EXPORT_FORMATS,
@@ -931,7 +932,61 @@ export async function runCli(argv, _runtime = {}) {
           throw new Error("eval swebench requires a subcommand: validate, plan, or import (see docs/swebench.md)");
         }
 
-        throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, harbor, or swebench");
+        if (subcommand === "repobench") {
+          // The RepoBench runner remains external Python tooling. These verbs
+          // validate the pinned protocol, bound paid completion spend, and
+          // import scored artifacts plus the token-free retrieval summary
+          // into the native report schema (#321).
+          const repobenchAction = args._[2];
+          if (repobenchAction === "validate") {
+            const result = await validateRepobenchDataset(root, config);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+            } else {
+              log(`RepoBench ${bold(`${result.dataset.name}@${result.dataset.revision.slice(0, 12)}`)} — model ${result.model}, ${result.tasks.length} pinned task(s).`);
+              log(dim(`Selection rule: ${result.selection_rule}`));
+              for (const problem of result.problems) log(bold(`problem: ${problem}`));
+              log("");
+              log(result.ok ? green("RepoBench protocol is valid.") : `${result.problems.length} problem(s) found.`);
+            }
+            if (!result.ok) process.exitCode = 1;
+            return;
+          }
+          if (repobenchAction === "plan") {
+            const result = await planRepobenchRun(root, config, { suite: hasOwn(args, "suite") ? String(args.suite) : undefined });
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`RepoBench suite ${bold(result.suite)} — ${result.tasks.length} task(s) across ${result.repos.length} repo(s), model ${result.model}.`);
+            log(`${result.completion_trials} completion session(s) capped at $${result.max_spend_usd} total; retrieval scoring costs $${result.retrieval_cost_usd}.`);
+            log(`Maximum possible spend: ${bold(`$${result.max_spend_usd}`)}.`);
+            log(dim(`Enforcement: ${result.enforcement}`));
+            log("");
+            log(`Score retrieval (free): ${dim(result.retrieval_command)}`);
+            log(`Run completions: ${dim(result.runner_command)}`);
+            log(`Then import: ${dim(result.import_command)}`);
+            if (result.confirmation_required) log(dim("Paid run: confirm the maximum spend above before passing --yes."));
+            return;
+          }
+          if (repobenchAction === "import") {
+            const result = await importRepobenchJob(root, config, args._[3]);
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            log(`Imported ${bold(String(result.attempts_imported))} scored attempt(s) from RepoBench job ${result.job}.`);
+            if (result.retrieval) {
+              log(`Retrieval (token-free): gold file hit ${result.retrieval.def_hit_rate ?? "n/a"}, hit@1 ${result.retrieval.hit_at_1 ?? "n/a"}, refs edge ${result.retrieval.ref_edge_hit_rate ?? "n/a"}.`);
+            }
+            log(`- ${bold(result.run.run_id)} ${result.run.task_id} — arms ${result.run.arms.join(" vs ")} ${dim(`(${result.run.report_command})`)}`);
+            for (const entry of result.attempts_skipped) log(dim(`skipped ${entry.attempt}: ${entry.reason}`));
+            return;
+          }
+          throw new Error("eval repobench requires a subcommand: validate, plan, or import (see docs/repobench.md)");
+        }
+
+        throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, harbor, swebench, or repobench");
       }
 
       case "risk": {

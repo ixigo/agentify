@@ -1,0 +1,184 @@
+{
+  "schema": "repobench-context-v1",
+  "dataset": {
+    "name": "tianyang/repobench_python_v1.1",
+    "revision": "8a7cf0c8942cc1aa066bf261839650ac55a2ff79",
+    "split": "cross_file_first"
+  },
+  "pins": {
+    "claude_code": "2.1.215",
+    "agentify": "0.4.0",
+    "node": "22.22.0"
+  },
+  "model": "anthropic/claude-sonnet-4-5-20250929",
+  "limits": {
+    "completion_max_budget_usd": 0.25,
+    "completion_max_turns": 4,
+    "context_snippets": 5,
+    "context_max_chars": 6000
+  },
+  "arms": [
+    "agentify",
+    "claude-code"
+  ],
+  "selection_rule": "first row per distinct repository, in dataset order, whose in-file context and contiguously-matching gold snippet verify at a pinned commit; capped at 8 repositories",
+  "tasks": [
+    {
+      "task_id": "cross_file_first/0",
+      "row_index": 0,
+      "repo": "DLYuanGod/TinyGPT-V",
+      "commit": "b666fad36eb4796e8ca3829a4f318c508dadf2b2",
+      "file_path": "minigpt4/processors/blip_processors.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "3d2048bc53674be31615811598528a9884b8ab289d21c8faa80c2f382e2b35ab",
+        "cropped_code_sha256": "09087ae22632fd4b700f06fce93e63f196c90e354ae3ab50960ce335d3c715b0",
+        "import_statement_sha256": "48ee337a0bc94729ffdef9e2a3a33d75c9188e247351bced208810019525a620",
+        "next_line_sha256": "e8cb5383e67813439c63aef6b73574bb233b908153dc8815c671c10b22edf2b3",
+        "gold_path_sha256": "b07ac85613096b5becd05be11f3701bc0066e06cd6558016f1251e210115cdbe",
+        "gold_snippet_sha256": "60640d82bd72e54890afff0b53160c15d163a10d2b01da0d199be757c7d89522",
+        "next_line_token_sha256": "e8cb5383e67813439c63aef6b73574bb233b908153dc8815c671c10b22edf2b3"
+      }
+    },
+    {
+      "task_id": "cross_file_first/2",
+      "row_index": 2,
+      "repo": "ali-vilab/dreamtalk",
+      "commit": "50116789a2f420a4ae3ee2d025c3b01cdb91ed6b",
+      "file_path": "core/networks/dynamic_fc_decoder.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "c5e5c6887fef4f652ba57df4e8170e7a35ee9cce7fa534cec6d26b5d9e4ef4d2",
+        "cropped_code_sha256": "e9373cc8aace0d0372ee6b34f865313fa8a4bef45a700c4d19ad295792dce1b3",
+        "import_statement_sha256": "a2d565b78deb47a50c8689c465fa8b3e43b0c113a345329c8fde265c86694406",
+        "next_line_sha256": "66efe5667189621a8ca11e43a836a8c0cfac86c14fd6480fb09d2d7845ba6324",
+        "gold_path_sha256": "f6db394868d3ad794e1a4933371e0ef915483ff0e47d5ed2b63d2380d6433499",
+        "gold_snippet_sha256": "f963c812a1882e75e505560928cd749b1d75c096ed9377a8597676fcd3b21bf1",
+        "next_line_token_sha256": "3ae8bee21008684ade8ff74cb1c6acd136cc11b7afa42afd99def3a519ec48db"
+      }
+    },
+    {
+      "task_id": "cross_file_first/3",
+      "row_index": 3,
+      "repo": "jiawei-ren/dreamgaussian4d",
+      "commit": "7b36e82a4006474cb39f67318ccc6167ef2d7668",
+      "file_path": "diffusers/src/diffusers/models/activations.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "059d163cc2a97b354976d46d668029a593b75fa73de538a9bfe8333cd2b92001",
+        "cropped_code_sha256": "24d3c0026adbae645a0a99a89190ebf70f4c6ee8f9027b174718e081b712ec54",
+        "import_statement_sha256": "b034283b6d516d2215772ab748b32df1f16ec02fba2b5e2e393aa9a2d039a7df",
+        "next_line_sha256": "ef93144fba4124a35156f4685f4efe136dcb2a937a7165aab37faf1e93a43ab8",
+        "gold_path_sha256": "ea2cd1173a0e417a2c252bd156fbc51a4e501422456321e18818cf495f1a3261",
+        "gold_snippet_sha256": "2865942bad755b641808415fad86908917d4e2b01b15283aaa6c99a1eefe290e",
+        "next_line_token_sha256": "d973dcb8f6a3a25d724a21605ecee540772ed256c6c21a2f05b4a353e76283c4"
+      }
+    },
+    {
+      "task_id": "cross_file_first/4",
+      "row_index": 4,
+      "repo": "Meituan-AutoML/MobileVLM",
+      "commit": "5d53a994984f827615eae334777552e7e851d896",
+      "file_path": "mobilevlm/model/mobilevlm.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "0fbc16cac72d8b0ea15323e79fe127a8ec2c5e22bbdde1dcb53a1e5a2f56b640",
+        "cropped_code_sha256": "7c6b0559ae3a9c79498be3bb8c9bb189a30da16bad1ed1f7f1a7b3995f16c4e3",
+        "import_statement_sha256": "c30ea1405ef5bc6ca36ff2f86914774b02a4c635853ebaa7bf8f909fe210ff09",
+        "next_line_sha256": "2139830be7d9be0a662bd7c1c2b00a7cdca8c7f52e18906387b6948ae8dae103",
+        "gold_path_sha256": "5220647fdbab8712fa0711661b46f72eb7ec7b74709022b030d5febd5fdd0edc",
+        "gold_snippet_sha256": "379174c34a420db3e8e078593f0389455c08b07d32a8dbdea9cebea93e0ffb15",
+        "next_line_token_sha256": "d20405b8abbb69f3542d92206f487aa242964f7b0d7234cc11b1448f43d741f8"
+      }
+    },
+    {
+      "task_id": "cross_file_first/5",
+      "row_index": 5,
+      "repo": "kinggongzilla/ai-clone-whatsapp",
+      "commit": "d6856214873cd3b0cd671d864fbbc4a114cb506e",
+      "file_path": "utils/config_utils.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "4203fa9e9898121e5f4e8b43b2e4f40860eaa461c3a33fde8a11224e4c35e631",
+        "cropped_code_sha256": "4b5ff21925c259a211b0d166cc4fe77b93faf9b06d5c93b79e8f652934be35d5",
+        "import_statement_sha256": "aa77b89df57a5ee05b85d4fd8b9f0fa6101c542b01d02a1b2414effd0f8638dd",
+        "next_line_sha256": "d0e30924231ff10fa88ac603254585571fa06f332aac7c39175a54bb3e2ac1c3",
+        "gold_path_sha256": "8de4121b7d68502055b3390c1ee85dbd9f740decc32ae853a00bf5bf2fb6046a",
+        "gold_snippet_sha256": "71f5826f5208335bd2b2d7c7a8ca47a57360cd8ae70c6c21dac64ffd09a627be",
+        "next_line_token_sha256": "83a5ebfcb4ec4fa8fdff6148e40e1d77848d11ea9b9a87a1b8cdfab1d1d04b90"
+      }
+    },
+    {
+      "task_id": "cross_file_first/6",
+      "row_index": 6,
+      "repo": "FoundationVision/UniRef",
+      "commit": "d41c1f998aac46be54080bc5c686ea80056a2cde",
+      "file_path": "projects/UniRef/uniref/models/deformable_detr/matcher.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "c557bf8a6d9ee53cc2d5502b4d152c11184f0dcf162f0e75dae8831f8bbbe30b",
+        "cropped_code_sha256": "963ce2a780e1214213fd8f2ffe0c06b0fdc79dedcd8f004eef647e03a103b335",
+        "import_statement_sha256": "18b8fc7ecff5a55b5261be97b8d8358a5b83ba6f9edb19e9748653a833daa163",
+        "next_line_sha256": "ea29186d68e986947d29305741b5e3c7e1f42fbae7755ab532ae316798841f7d",
+        "gold_path_sha256": "38ef511c8f329df0993b5b954e507fa6c744963a44c2b8550ce1ba458f61b4dd",
+        "gold_snippet_sha256": "13d45d354b5bf809faa86af0281a8df4d5ac2fb11bc77f43b3aa1fefab2d5d69",
+        "next_line_token_sha256": "266a22a5f658d6a9a64730f7d0ced165377218fb848511b0cdee567a22e9ae10"
+      }
+    },
+    {
+      "task_id": "cross_file_first/7",
+      "row_index": 7,
+      "repo": "xhuangcv/humannorm",
+      "commit": "da3236dad2c78c58fed99eca10c293190e897f90",
+      "file_path": "threestudio/models/materials/neural_radiance_material.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "ffe406fde71e4b3c5507551fd649e3095cbc5be1a29fed913b2e6af2184efb18",
+        "cropped_code_sha256": "40308350fd4b7aa668ef972c1bb3ade064a7f1057b6741d0094a724533400f0b",
+        "import_statement_sha256": "0041eaad45aa25e7070ffef9af8fffec180370ec9e0408533b3b5fd9d6b5276c",
+        "next_line_sha256": "495ca7f63806ce75a17bca9a971ee63dd51843319af25f3b398d017826e30f2d",
+        "gold_path_sha256": "9c71dfd5ce895177612ef404634d53b2cb50f5ccf58a2b6495c6314ed6390d03",
+        "gold_snippet_sha256": "40d770e51a7239552dbc60cde2ed24b5de82f9f040f78e69f131b891eb4a0a50",
+        "next_line_token_sha256": "f124052ab2204283a88b7d55a34f7cb0f4c06bfb1721fb5054705b939020b559"
+      }
+    },
+    {
+      "task_id": "cross_file_first/9",
+      "row_index": 9,
+      "repo": "jesenzhang/ComfyUI_StreamDiffusion",
+      "commit": "f4656d07348be31f45c4b3f08a009130b71dfc12",
+      "file_path": "streamdiffusion/pipeline.py",
+      "level": "2k",
+      "verification": {
+        "all_code_sha256": "266f156eeb390d1e3b66f4e993730c83dcc2a2ff2b62b759c6f2a68759e34986",
+        "cropped_code_sha256": "61a5094df8a0c4a0dd541c385942333f22e0b322f0de849df4006c400af98fa4",
+        "import_statement_sha256": "4070f47bfea61fdbe1e5f717f39b4a02e87c58df3c290d5a8e2029451a055829",
+        "next_line_sha256": "e5333e636b64a4c2076d3d67ba3c1980bcef239f013fbf4929d5c23188e9d41e",
+        "gold_path_sha256": "8fd686513910f9fd1249eefb20456e342c664a44ce22c6e46453c6dd01d7571c",
+        "gold_snippet_sha256": "7a87f3e0f7d02eee38cffd301775bd6143d4f2dcbdf36b3f56a618fe7c12dc5c",
+        "next_line_token_sha256": "aea1621ae79e2dc11ef35efe75a3b02d774fa21d2fa15d6031a079601fffab5a"
+      }
+    }
+  ],
+  "suites": {
+    "smoke": {
+      "tasks": [
+        "cross_file_first/0"
+      ],
+      "attempts": 1
+    },
+    "repo-8": {
+      "tasks": [
+        "cross_file_first/0",
+        "cross_file_first/2",
+        "cross_file_first/3",
+        "cross_file_first/4",
+        "cross_file_first/5",
+        "cross_file_first/6",
+        "cross_file_first/7",
+        "cross_file_first/9"
+      ],
+      "attempts": 1
+    }
+  }
+}

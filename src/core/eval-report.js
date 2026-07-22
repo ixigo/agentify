@@ -570,6 +570,27 @@ function contextMetricsByArm(byArm, attempts) {
   return any ? result : null;
 }
 
+// RepoBench line completions are graded on exact match, but the benchmark's
+// standard secondary metrics (edit similarity, identifier F1) carry most of
+// the signal on a small sample; surface them per arm rather than losing them
+// in the binary pass rate. The answer-in-context tally is an honesty receipt:
+// retrieved cross-file snippets can legitimately quote the answer line.
+function repobenchArmMetrics(records) {
+  const scored = records.filter((record) => record.repobench);
+  if (scored.length === 0) return null;
+  const mean = (values) => {
+    const usable = values.filter((value) => typeof value === "number" && Number.isFinite(value));
+    return usable.length > 0 ? Number((usable.reduce((sum, value) => sum + value, 0) / usable.length).toFixed(2)) : null;
+  };
+  return {
+    attempts: scored.length,
+    exact_match_rate: Number((scored.filter((record) => record.repobench.exact_match === true).length / scored.length).toFixed(4)),
+    mean_edit_similarity: mean(scored.map((record) => record.repobench.edit_similarity)),
+    mean_identifier_f1: mean(scored.map((record) => record.repobench.identifier_f1)),
+    answer_in_context_attempts: scored.filter((record) => record.repobench.context?.answer_in_context === true).length,
+  };
+}
+
 function attemptDrilldown(record) {
   return {
     attempt_id: record.attempt_id,
@@ -604,6 +625,7 @@ function attemptDrilldown(record) {
     ...(record.error ? { error: redactSensitiveText(record.error) } : {}),
     artifacts: record.artifacts ?? null,
     ...(record.swebench ? { swebench: record.swebench } : {}),
+    ...(record.repobench ? { repobench: record.repobench } : {}),
     agentify_version: record.agentify_version ?? null,
     claude_version: record.claude_version ?? null,
   };
@@ -622,6 +644,10 @@ export async function buildEvalReport(root, config, runIdInput) {
   const arms = {};
   for (const [arm, records] of [...byArm.entries()].sort()) {
     arms[arm] = armMetrics(records);
+    if (meta.harness === "repobench") {
+      const extras = repobenchArmMetrics(records);
+      if (extras) arms[arm].repobench = extras;
+    }
   }
 
   const counts = [...byArm.values()].map((records) => records.length);
@@ -663,6 +689,7 @@ export async function buildEvalReport(root, config, runIdInput) {
     harness: meta.harness ?? "native",
     ...(meta.harbor ? { harbor: meta.harbor } : {}),
     ...(meta.swebench ? { swebench: meta.swebench } : {}),
+    ...(meta.repobench ? { repobench: meta.repobench } : {}),
     artifacts_root: path.relative(root, runDir),
     task: {
       id: task.id ?? null,
@@ -689,6 +716,15 @@ export async function buildEvalReport(root, config, runIdInput) {
           swebench_suite: meta.swebench.suite ?? null,
           swebench_sample_sha256: meta.swebench.sample_sha256 ?? null,
           swebench_sample: meta.swebench.sample ?? null,
+        } : {}),
+        ...(meta.repobench ? {
+          repobench_dataset: meta.repobench.dataset ?? null,
+          repobench_suite: meta.repobench.suite ?? null,
+          repobench_sample_sha256: meta.repobench.sample_sha256 ?? null,
+          repobench_sample: meta.repobench.sample ?? null,
+          repobench_limits: meta.repobench.limits ?? null,
+          repobench_pins: meta.repobench.pins ?? null,
+          repobench_build: meta.repobench.build ?? null,
         } : {}),
         prompt: task.prompt ?? null,
         model: task.model ?? null,
@@ -1008,7 +1044,9 @@ export function renderEvalReportMarkdown(report) {
     ? ` (job \`${report.harbor.job}\`, dataset ${report.harbor.dataset ? `${report.harbor.dataset.name}@${report.harbor.dataset.version}` : "n/a"})`
     : report.swebench
       ? ` (job \`${report.swebench.job}\`, dataset ${report.swebench.dataset ? `${report.swebench.dataset.name}@${String(report.swebench.dataset.revision || "").slice(0, 12)}` : "n/a"}, suite ${report.swebench.suite ?? "n/a"})`
-      : "";
+      : report.repobench
+        ? ` (job \`${report.repobench.job}\`, dataset ${report.repobench.dataset ? `${report.repobench.dataset.name}@${String(report.repobench.dataset.revision || "").slice(0, 12)}` : "n/a"}, suite ${report.repobench.suite ?? "n/a"})`
+        : "";
   const lines = [
     `# Eval report — ${report.task.id} (${report.run_id})`,
     "",
@@ -1028,6 +1066,22 @@ export function renderEvalReportMarkdown(report) {
   }
   if (Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall")) {
     lines.push("", "> Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.");
+  }
+  if (Object.values(report.arms).some((metrics) => metrics.repobench)) {
+    lines.push("", "## Completion quality (repobench)", "");
+    lines.push("| arm | exact match | mean edit similarity | mean identifier F1 | answer-in-context attempts |");
+    lines.push("| --- | --- | --- | --- | --- |");
+    for (const [arm, metrics] of Object.entries(report.arms)) {
+      if (!metrics.repobench) continue;
+      lines.push(`| ${arm} | ${formatRate(metrics.repobench.exact_match_rate)} | ${metrics.repobench.mean_edit_similarity ?? "n/a"} | ${metrics.repobench.mean_identifier_f1 ?? "n/a"} | ${metrics.repobench.answer_in_context_attempts}/${metrics.repobench.attempts} |`);
+    }
+  }
+  if (report.repobench?.retrieval) {
+    const retrieval = report.repobench.retrieval;
+    lines.push("", "## Index retrieval vs gold cross-file context (token-free)", "");
+    lines.push(`- Gold defining file retrieved: ${formatRate(retrieval.def_hit_rate)} (hit@1 ${formatRate(retrieval.hit_at_1)}, hit@5 ${formatRate(retrieval.hit_at_5)}, MRR ${retrieval.mrr ?? "n/a"})`);
+    lines.push(`- Gold snippet region matched: ${formatRate(retrieval.snippet_hit_rate)} · macro precision ${formatRate(retrieval.macro_precision)} · mean candidates ${retrieval.mean_candidates ?? "n/a"}`);
+    lines.push(`- Dependency edge known to the index: refs ${formatRate(retrieval.ref_edge_hit_rate)}, impacts ${formatRate(retrieval.impact_hit_rate)} — over ${retrieval.tasks} task(s) at $0 provider spend.`);
   }
   for (const [arm, metrics] of Object.entries(report.arms)) {
     if (metrics.cost.unreported_attempts > 0) {
@@ -1194,7 +1248,9 @@ export function renderEvalReportHtml(report) {
     ? ` · job <code>${escapeHtml(report.harbor.job)}</code>${report.harbor.dataset ? ` · dataset <code>${escapeHtml(`${report.harbor.dataset.name}@${report.harbor.dataset.version}`)}</code>` : ""}`
     : report.swebench
       ? ` · job <code>${escapeHtml(report.swebench.job)}</code>${report.swebench.dataset ? ` · dataset <code>${escapeHtml(`${report.swebench.dataset.name}@${String(report.swebench.dataset.revision || "").slice(0, 12)}`)}</code>` : ""} · suite <code>${escapeHtml(report.swebench.suite ?? "n/a")}</code>`
-      : "";
+      : report.repobench
+        ? ` · job <code>${escapeHtml(report.repobench.job)}</code>${report.repobench.dataset ? ` · dataset <code>${escapeHtml(`${report.repobench.dataset.name}@${String(report.repobench.dataset.revision || "").slice(0, 12)}`)}</code>` : ""} · suite <code>${escapeHtml(report.repobench.suite ?? "n/a")}</code>`
+        : "";
   const armRows = Object.entries(report.arms).map(([arm, metrics]) => `
     <tr>
       <th scope="row"><code>${escapeHtml(arm)}</code></th>
@@ -1374,6 +1430,23 @@ export function renderEvalReportHtml(report) {
 </table></div>
 ${Object.values(report.arms).some((metrics) => metrics.turns.scope === "phase_b_recall") ? '<p class="formula">Multisession turn counts cover the graded phase-B recall only; Agentify cost/attempt and cost/pass include both the phase-A seed and phase-B recall.</p>' : ""}
 </section>
+${Object.values(report.arms).some((metrics) => metrics.repobench) ? `<section aria-labelledby="repobench-title">
+<p class="eyebrow">Repo-context benchmark</p>
+<h2 id="repobench-title">Completion quality (repobench)</h2>
+<div class="table-wrap"><table>
+  <caption>RepoBench line-completion metrics per arm; answer-in-context counts retrieved snippets that quote the target line</caption>
+  <thead><tr><th scope="col">arm</th><th scope="col">exact match</th><th scope="col">mean edit similarity</th><th scope="col">mean identifier F1</th><th scope="col">answer-in-context attempts</th></tr></thead>
+  <tbody>${Object.entries(report.arms).filter(([, metrics]) => metrics.repobench).map(([arm, metrics]) => `
+    <tr>
+      <th scope="row"><code>${escapeHtml(arm)}</code></th>
+      <td>${formatRate(metrics.repobench.exact_match_rate)}</td>
+      <td>${metrics.repobench.mean_edit_similarity ?? "n/a"}</td>
+      <td>${metrics.repobench.mean_identifier_f1 ?? "n/a"}</td>
+      <td>${metrics.repobench.answer_in_context_attempts}/${metrics.repobench.attempts}</td>
+    </tr>`).join("")}</tbody>
+</table></div>
+${report.repobench?.retrieval ? `<p class="formula">Index retrieval vs gold cross-file context (token-free, ${report.repobench.retrieval.tasks} task(s), $0): gold file ${escapeHtml(formatRate(report.repobench.retrieval.def_hit_rate))} (hit@1 ${escapeHtml(formatRate(report.repobench.retrieval.hit_at_1))}, hit@5 ${escapeHtml(formatRate(report.repobench.retrieval.hit_at_5))}, MRR ${escapeHtml(String(report.repobench.retrieval.mrr ?? "n/a"))}) · snippet ${escapeHtml(formatRate(report.repobench.retrieval.snippet_hit_rate))} · dependency edge via refs ${escapeHtml(formatRate(report.repobench.retrieval.ref_edge_hit_rate))} / impacts ${escapeHtml(formatRate(report.repobench.retrieval.impact_hit_rate))}.</p>` : ""}
+</section>` : ""}
 ${economicsRows ? `<section aria-labelledby="economics-title">
 <p class="eyebrow">Value receipt</p>
 <h2 id="economics-title">Memory economics</h2>

@@ -25,3 +25,5 @@ evals/harbor/agents/__pycache__/
 evals/harbor/jobs
 evals/swebench/jobs/
 evals/swebench/__pycache__/
+evals/repobench/jobs/
+evals/repobench/__pycache__/

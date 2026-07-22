@@ -525,6 +525,13 @@ function collectRegexSymbols(text, matchers) {
       if (!symbol?.name) {
         continue;
       }
+      // `^\s*`-anchored patterns start matching on the first blank line of a
+      // preceding gap, which would misreport the declaration line. Anchor the
+      // symbol to its first non-whitespace character instead.
+      symbol.startLine = lineNumberForOffset(text, match.index + match[0].search(/\S/));
+      if (symbol.endLine < symbol.startLine) {
+        symbol.endLine = symbol.startLine;
+      }
       symbols.push(symbol);
     }
   }
