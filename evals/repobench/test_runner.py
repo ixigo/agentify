@@ -129,6 +129,11 @@ class RunnerTests(unittest.TestCase):
             bad.write_text("Predict {next_line} for {file_path}", encoding="utf-8")
             with self.assertRaises(runner.AdapterError):
                 runner.load_prompt_template(bad)
+            # A template that drops {context_block} would erase the treatment
+            # difference between arms; the exact placeholder set is required.
+            bad.write_text("Complete {code} in {file_path} with {import_statement}", encoding="utf-8")
+            with self.assertRaises(runner.AdapterError):
+                runner.load_prompt_template(bad)
 
     def test_completion_parsing_and_scores(self):
         output = "Here is the line:\n```python\n    return compute_total(policy)\n```\n"

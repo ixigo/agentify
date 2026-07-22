@@ -557,9 +557,12 @@ def build_context_block(
 def load_prompt_template(path: Path = DEFAULT_PROMPT) -> str:
     template = path.read_text(encoding="utf-8")
     placeholders = set(re.findall(r"\{(\w+)\}", template))
-    if not placeholders <= PROMPT_PLACEHOLDERS:
+    # Exactly the allowlist: an extra placeholder could splice answer data,
+    # and a missing one silently degrades the task (no {context_block} makes
+    # both arms identical; no {code} removes the completion input).
+    if placeholders != PROMPT_PLACEHOLDERS:
         raise AdapterError(
-            f"completion prompt may only splice {sorted(PROMPT_PLACEHOLDERS)}; found {sorted(placeholders)}"
+            f"completion prompt must splice exactly {sorted(PROMPT_PLACEHOLDERS)}; found {sorted(placeholders)}"
         )
     return template
 
@@ -794,18 +797,36 @@ def score_completion(prediction: str, target: str) -> dict[str, Any]:
 def prepare_task_workspace(
     task: dict[str, Any], row: dict[str, Any], gold: dict[str, str], work_root: Path,
 ) -> Path:
+    """Only the clone is cached; commit identity, content verification, and
+    the index rebuild run unconditionally so a reused --work-root can never
+    score a wrong commit, edited checkout, or stale index."""
     workspace = work_root / "repos" / task_slug(task["task_id"])
     if not workspace.exists():
         checkout(task["repo"], task["commit"], workspace)
-        task_file = workspace / task["file_path"]
-        if not task_file.is_file():
-            raise AdapterError(f"{task['task_id']}: pinned checkout is missing {task['file_path']}")
-        if not verify_checkout_content(task_file.read_text(encoding="utf-8", errors="replace"), row):
-            raise AdapterError(f"{task['task_id']}: pinned checkout content does not match the dataset row")
-        gold_file = workspace / gold["path"]
-        if not gold_file.is_file():
-            raise AdapterError(f"{task['task_id']}: pinned checkout is missing gold file {gold['path']}")
-        install_index(workspace)
+    head = run_command(["git", "rev-parse", "HEAD"], cwd=workspace)
+    if head.returncode != 0 or head.stdout.strip().lower() != task["commit"].lower():
+        raise AdapterError(
+            f"{task['task_id']}: workspace HEAD {head.stdout.strip() or 'unknown'} does not match pinned commit {task['commit']}"
+        )
+    status = run_command(["git", "status", "--porcelain=v1"], cwd=workspace)
+    if status.returncode != 0:
+        raise AdapterError(f"{task['task_id']}: git status failed in the workspace")
+    dirty = [
+        line for line in status.stdout.splitlines()
+        # The Agentify index itself lives untracked inside the checkout.
+        if line.strip() and not line[3:].startswith(".agentify")
+    ]
+    if dirty:
+        raise AdapterError(f"{task['task_id']}: workspace has local modifications; refusing to score it")
+    task_file = workspace / task["file_path"]
+    if not task_file.is_file():
+        raise AdapterError(f"{task['task_id']}: pinned checkout is missing {task['file_path']}")
+    if not verify_checkout_content(task_file.read_text(encoding="utf-8", errors="replace"), row):
+        raise AdapterError(f"{task['task_id']}: pinned checkout content does not match the dataset row")
+    gold_file = workspace / gold["path"]
+    if not gold_file.is_file():
+        raise AdapterError(f"{task['task_id']}: pinned checkout is missing gold file {gold['path']}")
+    install_index(workspace)
     return workspace
 
 

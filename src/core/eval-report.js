@@ -722,6 +722,7 @@ export async function buildEvalReport(root, config, runIdInput) {
           repobench_suite: meta.repobench.suite ?? null,
           repobench_sample_sha256: meta.repobench.sample_sha256 ?? null,
           repobench_sample: meta.repobench.sample ?? null,
+          repobench_limits: meta.repobench.limits ?? null,
         } : {}),
         prompt: task.prompt ?? null,
         model: task.model ?? null,

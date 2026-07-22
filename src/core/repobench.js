@@ -239,6 +239,14 @@ export async function validateRepobenchDataset(root, config = {}) {
         problems.push(`completion prompt splices non-allowlisted field "{${placeholder}}"`);
       }
     }
+    // Missing placeholders silently degrade the experiment: without
+    // {context_block} the arms are identical, without {code} the task has no
+    // completion input.
+    for (const placeholder of PROMPT_PLACEHOLDER_ALLOWLIST) {
+      if (!placeholders.includes(placeholder)) {
+        problems.push(`completion prompt is missing required placeholder "{${placeholder}}"`);
+      }
+    }
   }
   return {
     command: "eval",
@@ -471,12 +479,22 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       skipped.push({ attempt: attempt.task_id, reason: "task identity is outside the committed suite or disagrees with its pin" });
     } else if (!Number.isInteger(attempt.attempt) || attempt.attempt < 1 || attempt.attempt > suite.attempts) {
       skipped.push({ attempt: attempt.task_id, reason: "attempt index is outside the committed suite" });
+    } else if (expected && attempt.file_path !== expected.file_path) {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt file path disagrees with the committed pin" });
+    } else if (attempt.model !== job.model) {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt model disagrees with the job pin" });
     } else if (attempt.provider?.exit_code !== 0 || attempt.provider?.timed_out === true) {
       skipped.push({ attempt: attempt.task_id, reason: "provider execution did not complete successfully" });
     } else if (attempt.provider?.tool_calls !== 0) {
       skipped.push({ attempt: attempt.task_id, reason: "completion session was not verifiably tool-free" });
-    } else if (typeof attempt.score?.exact_match !== "boolean" || finiteNumber(attempt.score?.edit_similarity) === null) {
-      skipped.push({ attempt: attempt.task_id, reason: "completion score is missing" });
+    } else if (typeof attempt.score?.exact_match !== "boolean"
+      || finiteNumber(attempt.score?.edit_similarity) === null
+      || attempt.score.edit_similarity < 0 || attempt.score.edit_similarity > 100
+      || finiteNumber(attempt.score?.identifier_f1) === null
+      || attempt.score.identifier_f1 < 0 || attempt.score.identifier_f1 > 1) {
+      skipped.push({ attempt: attempt.task_id, reason: "completion score is missing or out of range" });
+    } else if (typeof attempt.context?.answer_in_context !== "boolean") {
+      skipped.push({ attempt: attempt.task_id, reason: "attempt lacks its answer-in-context receipt" });
     } else if (arm === "agentify" && (!attempt.retrieval || typeof attempt.retrieval.def_hit !== "boolean")) {
       skipped.push({ attempt: attempt.task_id, reason: "agentify attempt lacks its retrieval receipt" });
     } else if (arm === "agentify" && (() => {
@@ -555,7 +573,9 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
         retrieval: attempt.retrieval ?? null,
         source_result: sourceResult,
       },
-      agentify_version: VERSION,
+      // Provenance names the Agentify version that was evaluated (the job
+      // pin), not whichever CLI later performed the import.
+      agentify_version: job.pins?.agentify ?? VERSION,
       claude_version: job.pins?.claude_code ?? null,
       model,
       effort: null,
@@ -619,9 +639,12 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
       repos: [...new Set(scored.map((attempt) => attempt.repo))],
       sample,
       sample_sha256: sampleSha256,
+      // Treatment limits ride along so the report fingerprint changes when
+      // the context budget or turn caps change.
+      limits: job.limits ?? null,
       retrieval: retrievalSummary,
     },
-    agentify_version: VERSION,
+    agentify_version: job.pins?.agentify ?? VERSION,
     claude_version: job.pins?.claude_code ?? null,
     plan: {
       task: {
@@ -632,6 +655,7 @@ export async function importRepobenchJob(root, config = {}, jobDirInput, options
         phases: ["retrieval", "completion"],
         profile: null,
         max_budget_usd: job.limits?.completion_max_budget_usd ?? null,
+        max_turns: job.limits?.completion_max_turns ?? null,
         forbidden_paths: [],
       },
       task_path: null,

@@ -131,12 +131,14 @@ test("manifest forbids answer-bearing fields, unpinned revisions, and repeated r
   await assert.rejects(loadRepobenchManifest(root), /verification.next_line_sha256/);
 });
 
-test("validation rejects prompts splicing non-allowlisted fields", async () => {
+test("validation rejects prompts splicing non-allowlisted fields or missing required ones", async () => {
   const root = await makeRoot();
   await writeFixture(root, fixtureManifest(), "Complete {code} and hint at {next_line}.\n");
   const result = await validateRepobenchDataset(root, {});
   assert.equal(result.ok, false);
   assert.ok(result.problems.some((problem) => problem.includes('"{next_line}"')));
+  // Missing {context_block} would silently make both arms identical.
+  assert.ok(result.problems.some((problem) => problem.includes('missing required placeholder "{context_block}"')));
 });
 
 async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cost, retrieval }) {
@@ -147,10 +149,11 @@ async function writeAttempt(jobDir, { arm, task, commit, exactMatch, es, f1, cos
     task_id: task,
     repo: task.endsWith("0") ? "owner/repo-one" : "owner/repo-two",
     commit,
-    file_path: "pkg/consumer.py",
+    file_path: task.endsWith("0") ? "pkg/consumer.py" : "src/other.py",
     level: "2k",
     arm,
     attempt: 1,
+    model: "anthropic/claude-sonnet-4-5-20250929",
     provider: {
       exit_code: 0,
       timed_out: false,
