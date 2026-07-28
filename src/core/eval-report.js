@@ -135,6 +135,10 @@ function classifyFailure(record) {
   if (record.pass) {
     return null;
   }
+  // A non-gradeable attempt (e.g. the MCP server never registered, #334) is
+  // not a grader failure: label it distinctly so reports never render it as
+  // FAIL (grader_failed).
+  if (record.status === "invalid") return "invalid_run";
   if (record.status === "error") return "harness_error";
   if ((record.grade?.forbidden_violations || []).length > 0) return "forbidden_change";
   if (record.provider?.timed_out) return "timeout";
@@ -142,7 +146,14 @@ function classifyFailure(record) {
   return "grader_failed";
 }
 
-function armMetrics(records) {
+function armMetrics(allRecords) {
+  // "invalid" attempts (e.g. the Agentify MCP server never registered, #334)
+  // are infrastructure failures, not arm outcomes: exclude them from the
+  // pass-rate denominator and cost/latency aggregates so they never read as a
+  // regression, and surface the count separately. This mirrors the runner's
+  // own summarizeAttempts (src/core/eval.js).
+  const records = allRecords.filter((record) => record.status !== "invalid");
+  const invalid = allRecords.length - records.length;
   const attempts = records.length;
   const passes = records.filter((record) => record.pass).length;
 
@@ -203,6 +214,9 @@ function armMetrics(records) {
     attempts,
     passes,
     failures: attempts - passes,
+    // Non-gradeable attempts excluded from the metrics above (never counted as
+    // failures); reported so an all-invalid arm is visible, not silently empty.
+    invalid,
     pass_rate: attempts > 0 ? round(passes / attempts, 4) : null,
     pass_rate_ci95: wilsonInterval(passes, attempts),
     cost: {
@@ -435,6 +449,13 @@ function discordantPairs(leftRecords, rightRecords) {
   for (const [index, leftRecord] of left) {
     const rightRecord = right.get(index);
     if (rightRecord) {
+      // A pair with a non-gradeable ("invalid") attempt on either arm carries
+      // no paired evidence (#334): dropping it here keeps it out of the
+      // discordant win/loss counts, the sign test, and the economics pairing,
+      // consistent with armMetrics excluding invalid attempts.
+      if (leftRecord.status === "invalid" || rightRecord.status === "invalid") {
+        continue;
+      }
       pairs.push({ repeat_index: index, left: leftRecord, right: rightRecord });
     }
   }
@@ -624,10 +645,15 @@ export async function buildEvalReport(root, config, runIdInput) {
     arms[arm] = armMetrics(records);
   }
 
-  const counts = [...byArm.values()].map((records) => records.length);
+  // Power is measured over gradeable attempts only: an arm whose attempts were
+  // all "invalid" (e.g. the MCP server never registered, #334) has no evidence
+  // and must read as underpowered, not as a full-strength arm.
+  const gradeable = (records) => records.filter((record) => record.status !== "invalid");
+  const counts = [...byArm.values()].map((records) => gradeable(records).length);
   // Paired means every arm completed the same repeat indices — equal counts
-  // over disjoint repeats are not a paired sample.
-  const indexSets = [...byArm.values()].map((records) => [...new Set(records.map((record) => record.repeat_index))].sort().join(","));
+  // over disjoint repeats are not a paired sample. Invalid attempts are not
+  // gradeable evidence, so they do not establish a paired index either.
+  const indexSets = [...byArm.values()].map((records) => [...new Set(gradeable(records).map((record) => record.repeat_index))].sort().join(","));
   const completeness = {
     planned_attempts: planned,
     completed_attempts: attempts.length,
@@ -1036,6 +1062,9 @@ export function renderEvalReportMarkdown(report) {
     if (metrics.tokens.usage_missing_attempts > 0) {
       lines.push("", `> ${arm}: ${metrics.tokens.usage_missing_attempts} attempt(s) reported no token usage.`);
     }
+    if (metrics.invalid > 0) {
+      lines.push("", `> ${arm}: ${metrics.invalid} attempt(s) were **invalid** (e.g. the Agentify MCP server did not register) and are excluded from the pass rate above, not counted as failures.`);
+    }
   }
 
   if (report.economics.comparisons.length > 0) {
@@ -1095,7 +1124,7 @@ export function renderEvalReportMarkdown(report) {
   lines.push("", "## Attempts", "");
   for (const attempt of report.attempts) {
     const bits = [
-      attempt.pass ? "PASS" : `FAIL (${attempt.failure_kind})`,
+      attempt.status === "invalid" ? "INVALID (non-gradeable)" : attempt.pass ? "PASS" : `FAIL (${attempt.failure_kind})`,
       `status ${attempt.status}`,
       attempt.stop_reason ? `stop ${attempt.stop_reason}` : null,
       attempt.cost_usd !== null ? formatUsd(attempt.cost_usd) : "cost unreported",
@@ -1242,7 +1271,7 @@ export function renderEvalReportHtml(report) {
 
   const attemptBlocks = report.attempts.map((attempt) => `
     <details>
-      <summary><code>${escapeHtml(attempt.attempt_id)}</code> — ${attempt.pass ? "PASS" : `FAIL (${escapeHtml(attempt.failure_kind ?? "")})`} · ${escapeHtml(formatUsd(attempt.cost_usd))} · ${escapeHtml(formatMs(attempt.provider_duration_ms))}</summary>
+      <summary><code>${escapeHtml(attempt.attempt_id)}</code> — ${attempt.status === "invalid" ? "INVALID (non-gradeable)" : attempt.pass ? "PASS" : `FAIL (${escapeHtml(attempt.failure_kind ?? "")})`} · ${escapeHtml(formatUsd(attempt.cost_usd))} · ${escapeHtml(formatMs(attempt.provider_duration_ms))}</summary>
       <table>
         <tr><th scope="row">status</th><td>${escapeHtml(attempt.status)}</td></tr>
         <tr><th scope="row">stop reason</th><td>${escapeHtml(attempt.stop_reason ?? "n/a")}</td></tr>
@@ -1411,7 +1440,10 @@ ${attemptBlocks}
 // prompt hash), no provider argv, drill-down fields already redacted.
 export function buildPromptfooExport(report) {
   const promptLabel = `${report.task.id} (prompt sha256:${String(report.task.prompt_sha256 || "").slice(0, 16)})`;
-  const results = report.attempts.map((attempt) => {
+  // Non-gradeable ("invalid") attempts are excluded from the export: promptfoo
+  // has no "skipped" state, so including them would count infrastructure
+  // failures (e.g. the MCP server never registered, #334) as task failures.
+  const results = report.attempts.filter((attempt) => attempt.status !== "invalid").map((attempt) => {
     const usage = attempt.usage || {};
     const prompt = (usage.fresh_input_tokens || 0) + (usage.cache_write_tokens || 0) + (usage.cache_read_tokens || 0);
     return {

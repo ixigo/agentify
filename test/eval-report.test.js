@@ -813,3 +813,46 @@ test("buildEvalGrid computes deltas over the paired subset only, ignoring unpair
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("invalid attempts are excluded from arm metrics, not counted as failures (#334)", async () => {
+  const root = await makeRoot();
+  try {
+    // The agentify arm has one genuine pass and one "invalid" attempt (e.g. the
+    // MCP server never registered). The invalid one must not deflate pass rate.
+    const attempts = [
+      makeAttempt("agentify", 1, { pass: true, cost: 0.01 }),
+      makeAttempt("agentify", 2, { pass: false, cost: null, status: "invalid", subtype: null }),
+      makeAttempt("plain-safe", 1, { pass: true, cost: 0.01 }),
+      makeAttempt("plain-safe", 2, { pass: true, cost: 0.01 }),
+    ];
+    const runId = await writeRunFixture(root, attempts);
+    const report = await buildEvalReport(root, {}, runId);
+
+    const agentify = report.arms.agentify;
+    // Only the one gradeable attempt counts; the invalid one is reported apart.
+    assert.equal(agentify.attempts, 1);
+    assert.equal(agentify.passes, 1);
+    assert.equal(agentify.failures, 0);
+    assert.equal(agentify.invalid, 1);
+    assert.equal(agentify.pass_rate, 1);
+    // The baseline arm has no invalid attempts.
+    assert.equal(report.arms["plain-safe"].invalid, 0);
+    assert.equal(report.arms["plain-safe"].attempts, 2);
+
+    // Reporting surfaces treat the invalid attempt as non-gradeable, never a
+    // grader failure: markdown labels it INVALID and notes the exclusion.
+    const md = renderEvalReportMarkdown(report);
+    assert.match(md, /INVALID \(non-gradeable\)/);
+    assert.doesNotMatch(md, /FAIL \(grader_failed\)/);
+    assert.match(md, /excluded from the pass rate/);
+
+    // Promptfoo export drops invalid attempts (no "skipped" state), so they are
+    // never exported as task failures. The three remaining attempts all pass.
+    const promptfoo = buildPromptfooExport(report);
+    assert.equal(promptfoo.results.results.length, 3); // 4 attempts − 1 invalid
+    assert.equal(promptfoo.results.stats.successes, 3);
+    assert.equal(promptfoo.results.stats.failures, 0);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
