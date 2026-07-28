@@ -439,6 +439,9 @@ test("digest mode is bounded by the policy budget, not injected in full", async 
     assert.equal(events[0].injected_items, bulletsInDigest, "injected_items must match the bullets in the truncated digest");
     assert.ok(events[0].injected_items < 12, "a truncated digest must not claim all 12 notes");
     assert.equal(events[0].truncated, true);
+    // The eval collector reads budget.truncated_items and budget.max_tokens.
+    assert.equal(events[0].budget.truncated_items, 1);
+    assert.ok(Number.isFinite(events[0].budget.max_tokens));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

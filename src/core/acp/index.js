@@ -74,6 +74,15 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   // the downstream's digest/match injection: its context TRACKING and its
   // PreToolUse failed-command prechecks both keep running (the hooks path runs
   // precheck independent of the injection mode — see runCtxHook).
+  //
+  // Known trade-off (documented, not a bug): #336 injects at SESSION START (the
+  // first user turn) only. Against a downstream that runs its own Agentify hooks
+  // (Claude Code), suppressing those hooks means later turns no longer get the
+  // hooks' PER-PROMPT matched context — the proxy is deliberately first-turn
+  // only. That is acceptable because this feature is default-off, unevaluated,
+  // and primarily exists to give context to downstreams that have NO native
+  // injection (e.g. Codex over ACP); enabling it against Claude Code is an
+  // explicit operator choice.
   const childEnv = injecting ? { ...env, AGENTIFY_CTX_INJECTION: "off" } : env;
 
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {

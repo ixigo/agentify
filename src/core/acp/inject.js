@@ -203,6 +203,17 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
       decisions_reused: decisions,
       stale_context_rejected: 0,
       truncated: Boolean(truncated),
+      match_ms: 0,
+      // Mirror the relevant-mode budget shape so the eval collector (which reads
+      // budget.max_tokens / budget.truncated_items) records digest arms too.
+      budget: {
+        max_tokens: budget,
+        rendered_tokens: estimateContextTokens(finalDigest),
+        truncated_items: truncated ? 1 : 0,
+        source: policy.budget_source,
+        reason: policy.budget_reason,
+        skipped: {},
+      },
     });
     return { digest: finalDigest, commit };
   }
@@ -439,11 +450,17 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
   // establish sessions in other working directories (session/new, session/load,
   // session/resume, session/fork all carry a `cwd`), and injecting the launch
   // root's context into a session operating in a DIFFERENT repo would leak one
-  // repo's notes into another — violating the per-repo privacy invariant. So if a
-  // session is *established* outside the launch root we can no longer safely
-  // attribute later prompts to a workspace, and injection is disabled
-  // connection-wide. Only establishing methods count: read-only calls like
-  // session/list also accept a `cwd` filter but do not create/attach a session.
+  // repo's notes into another — violating the per-repo privacy invariant.
+  //
+  // Attributing a prompt to a workspace would need the session/new RESPONSE
+  // (which assigns the sessionId), and the proxy deliberately never parses the
+  // reverse direction. So the guard is conservative and connection-wide: once
+  // ANY session is established outside the launch root, injection is disabled for
+  // the rest of the connection (it never re-enables). This over-restricts the
+  // uncommon multi-repo-per-connection topology but never leaks — the privacy
+  // invariant wins over convenience. Only establishing methods count: read-only
+  // calls like session/list also accept a `cwd` filter but do not attach a
+  // session.
   const verifyWorkspace = typeof isSameWorkspace === "function" ? isSameWorkspace : () => true;
   const SESSION_ESTABLISHING_METHODS = new Set(["session/new", "session/load", "session/resume", "session/fork"]);
   let workspaceMismatch = false;
@@ -454,6 +471,10 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
   // ACP sessions whose first user turn has already been handled. Keyed by the
   // prompt's sessionId so injection is confined to each session's start.
   const seenSessions = new Set();
+  // Serialize post-injection commits (ledger + telemetry writes) so concurrent
+  // first turns from different sessions on one connection cannot interleave the
+  // unlocked ledger read-modify-write. Runs off the stream, never blocking it.
+  let commitChain = Promise.resolve();
 
   // Inspect one complete newline-terminated line. Non-prompt lines — and later
   // turns of a session we have already handled — are pushed as their original
@@ -557,9 +578,11 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
       return;
     }
     transform.push(Buffer.from(rewritten, "utf8")); // rewritten keeps the trailing '\n'
-    // Persist telemetry ONLY now that the injection has actually been forwarded.
+    // Persist ledger/telemetry ONLY now that the injection has actually been
+    // forwarded, and serialize it behind any prior commit so concurrent sessions
+    // don't clobber the shared ledger.
     if (typeof commit === "function") {
-      Promise.resolve().then(commit).catch(() => {});
+      commitChain = commitChain.then(commit).catch(() => {});
     }
     if (typeof onInject === "function") {
       try { onInject({ digest, sessionId }); } catch { /* observers must not break the stream */ }
