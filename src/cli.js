@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 
+import { parseArgs } from "./core/cli-args.js";
 import { handleFastPath, isHelpRequest, isVersionRequest } from "./core/cli-fast-paths.js";
 
 const args = process.argv.slice(2);
 const isJson = args.includes("--json");
 const isHelp = isHelpRequest(args);
 const isVersion = isVersionRequest(args);
-// Quiet commands run inside Claude Code hooks, shell completion, or an MCP
-// client; the banner would pollute their output (stdout is the MCP channel).
-const isQuiet = args.includes("completion") || args[0] === "ctx" || args[0] === "serve" || args.includes("--hook");
+
+// Resolve the command token the same way runCli does — via the real parser, so
+// leading global flags (boolean or value-taking) are handled correctly, e.g.
+// `agentify --dry-run acp` and `agentify --root . acp` both resolve to "acp".
+const [commandToken] = parseArgs(args)._;
+
+// Quiet commands run inside Claude Code hooks, shell completion, an MCP client,
+// or the ACP proxy; the banner would pollute their protocol output on stdout.
+const isQuiet = commandToken === "completion"
+  || commandToken === "ctx"
+  || commandToken === "serve"
+  || commandToken === "acp"
+  || args.includes("--hook");
 
 async function main() {
   if (await handleFastPath(args)) {

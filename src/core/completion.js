@@ -1,6 +1,6 @@
 import { listBuiltinSkills } from "./skills.js";
 import { SUPPORTED_PROVIDERS } from "./provider-command.js";
-import { DELEGATE_PROVIDER_NAMES } from "./provider-registry.js";
+import { ACP_PROVIDER_NAMES, DELEGATE_PROVIDER_NAMES } from "./provider-registry.js";
 
 const LANGUAGE_VALUES = ["auto", "ts", "python", "go", "rust", "dotnet", "java", "kotlin", "swift"];
 const SCOPE_VALUES = ["project", "user"];
@@ -185,6 +185,12 @@ const COMMANDS = [
     flags: [flag("--since", { valueKind: "text", description: "Commit or ref" })],
   }),
   command("serve", "Run the MCP server over stdio"),
+  command("acp", "ACP pass-through proxy to a downstream agent", {
+    flags: [
+      flag("--provider", { values: ACP_PROVIDER_NAMES, description: "Downstream ACP adapter provider" }),
+      flag("--command", { valueKind: "text", description: "Explicit downstream adapter binary (overrides --provider)" }),
+    ],
+  }),
   command("review", "Cross-vendor review of a change", {
     flags: [
       flag("--diff", { valueKind: "text", description: "Commit or ref to diff against" }),
