@@ -259,7 +259,7 @@ const EMPTY = Buffer.alloc(0);
 // direction, which is not routed through this Transform) are forwarded as their
 // original raw bytes, so byte-identity holds for everything we do not inject
 // into.
-const NO_SESSION_KEY = " __acp_no_session__";
+const NO_SESSION_KEY = "acp:no-session-sentinel";
 
 export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
   if (typeof buildDigest !== "function") {
