@@ -430,6 +430,10 @@ function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null) {
   delete env.AGENTIFY_CTX_INJECTION;
   delete env.AGENTIFY_CTX_BUDGET;
   delete env.AGENTIFY_PROFILE;
+  // The ACP proxy's context injection (#336) follows AGENTIFY_CTX_INJECTION so
+  // it is ablatable by this harness; a stray ACP-specific override must not
+  // contaminate an arm, so scrub it too.
+  delete env.AGENTIFY_ACP_INJECTION;
   if (isAgentifyArm(arm)) {
     // The whole point of this arm is live context hooks — make sure a parent
     // delegate/eval process cannot leak its recursion guard into it.

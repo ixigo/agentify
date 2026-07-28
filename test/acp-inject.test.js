@@ -283,6 +283,23 @@ test("commit runs only after a real injection is forwarded", async () => {
   assert.equal(committed, 1, "commit runs once after the injection is forwarded");
 });
 
+test("tearing down the injector during a build records no phantom injection", async () => {
+  let committed = 0;
+  const injector = createFirstTurnInjector({
+    buildDigest: () => new Promise((resolve) => setTimeout(
+      () => resolve({ digest: "D", commit: async () => { committed += 1; } }),
+      60,
+    )),
+  });
+  injector.on("data", () => {}); // drain
+  const prompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  injector.write(Buffer.from(prompt, "utf8"));
+  await delay(10); // build is in flight
+  injector.destroy();
+  await delay(120); // let the build settle
+  assert.equal(committed, 0, "a build that resolves after teardown must not commit");
+});
+
 test("an unterminated final prompt frame at EOF is still injected", async () => {
   const injector = createFirstTurnInjector({ buildDigest: async () => "D" });
   // No trailing newline — a valid final ACP frame at EOF.
@@ -333,6 +350,12 @@ test("resolveAcpInjectionMode defaults off, honors config, env override, and the
   // AGENTIFY_CTX_INJECTION=off (set by a parent proxy that already injects)
   // forces off too, so a chained agentify-acp proxy never double-injects.
   assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "relevant" } }, { AGENTIFY_CTX_INJECTION: "off" }), "off");
+  // The shared AGENTIFY_CTX_INJECTION lever (what the eval runner sets per
+  // ablation arm) drives ACP mode too, so the feature is ablatable.
+  assert.equal(resolveAcpInjectionMode({}, { AGENTIFY_CTX_INJECTION: "relevant" }), "relevant");
+  assert.equal(resolveAcpInjectionMode({}, { AGENTIFY_CTX_INJECTION: "digest" }), "digest");
+  // An explicit ACP override wins over the shared lever (non-off).
+  assert.equal(resolveAcpInjectionMode({}, { AGENTIFY_CTX_INJECTION: "relevant", AGENTIFY_ACP_INJECTION: "digest" }), "digest");
 });
 
 test("buildInjectionDigest re-checks the transient pause marker per session start", async () => {

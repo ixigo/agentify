@@ -47,19 +47,27 @@ export function normalizeAcpInjectionMode(value, { fallback = "off" } = {}) {
 // re-checked per session-start in buildInjectionDigest so pause/resume takes
 // effect on a running proxy.
 export function resolveAcpInjectionMode(config = {}, env = process.env) {
-  // Hard suppression guards win over any enable, so nesting is safe: a parent
-  // that already injects sets AGENTIFY_CTX_INJECTION=off on its child, and a
-  // delegate child inherits AGENTIFY_CTX=off. Either forces this proxy off,
+  // Hard suppression guards win over any enable, so nesting is safe: a delegate
+  // child inherits AGENTIFY_CTX=off, and a parent proxy that already injects
+  // sets AGENTIFY_CTX_INJECTION=off on its child. Either forces this proxy off,
   // preventing a chained agentify-acp proxy from injecting a second time.
   if (String(env?.AGENTIFY_CTX || "").toLowerCase() === "off") {
     return "off";
   }
-  if (String(env?.AGENTIFY_CTX_INJECTION || "").trim().toLowerCase() === "off") {
+  const ctxInjection = String(env?.AGENTIFY_CTX_INJECTION || "").trim();
+  if (ctxInjection.toLowerCase() === "off") {
     return "off";
   }
-  const envMode = String(env?.AGENTIFY_ACP_INJECTION || "").trim();
-  if (envMode) {
-    return normalizeAcpInjectionMode(envMode);
+  // An explicit ACP-specific override (a one-off run) wins next.
+  const acpOverride = String(env?.AGENTIFY_ACP_INJECTION || "").trim();
+  if (acpOverride) {
+    return normalizeAcpInjectionMode(acpOverride);
+  }
+  // Otherwise follow AGENTIFY_CTX_INJECTION when set: it is the shared lever the
+  // eval runner drives per context-ablation arm, so ACP injection is ablatable
+  // by the same harness as the hooks path.
+  if (ctxInjection) {
+    return normalizeAcpInjectionMode(ctxInjection);
   }
   return normalizeAcpInjectionMode(config?.context?.acpInjection);
 }
@@ -140,28 +148,25 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
       ...policy,
       max_injected_tokens: Math.max(0, policy.max_injected_tokens - MARKER_OVERHEAD_TOKENS),
     };
-    const matches = await matchContext(root, promptText || "", {
-      sessionId: sid,
-      config,
-      env,
-      policy: budgetedPolicy,
-      recordInjection: false,
-    });
+    const matchOptions = { sessionId: sid, config, env, policy: budgetedPolicy };
+    // Compute WITHOUT side effects so an abandoned build (timeout) leaves no
+    // trace, then decide whether to inject.
+    const matches = await matchContext(root, promptText || "", { ...matchOptions, recordInjection: false });
     const digest = matches.digest || "";
     if (!digest) {
       return none;
     }
-    const decisions = (matches.notes || []).filter((item) => item.note?.type === "decision").length;
-    const injectedItems = (matches.notes || []).length + (matches.summaries || []).length
-      + (matches.files || []).length + (matches.failures || []).length;
-    const commit = () => recordInjectionEvent(root, {
-      mode: "relevant",
-      sid,
-      estimated_tokens: matches.budget?.rendered_tokens ?? estimateContextTokens(digest),
-      injected_items: injectedItems,
-      decisions_reused: decisions,
-      stale_context_rejected: matches.stale_rejected || 0,
-    });
+    // commit() re-runs the same deterministic match WITH recording, so the ACP
+    // injection updates the dedup ledger, summary-usage log, and value telemetry
+    // exactly like the hooks path — but only once the injection has actually
+    // been forwarded (no persistent trace for a dropped injection).
+    const commit = async () => {
+      try {
+        await matchContext(root, promptText || "", matchOptions);
+      } catch {
+        // Recording must never break the stream.
+      }
+    };
     return { digest, commit };
   }
   if (mode === "digest") {
@@ -533,6 +538,14 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
     } catch {
       digest = "";
       commit = null;
+    }
+    // The stream may have been torn down (client abort / downstream crash) while
+    // the build was in flight: if so, the rewritten prompt can never reach the
+    // downstream, so neither push nor commit anything (no phantom telemetry).
+    // (writableEnded is NOT a teardown signal — it is set the moment the client
+    // half-closes, while this very chunk is still legitimately being forwarded.)
+    if (transform.destroyed) {
+      return;
     }
     if (!digest) {
       transform.push(lineBuf); // nothing to inject — forward unchanged
