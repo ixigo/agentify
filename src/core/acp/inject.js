@@ -433,8 +433,13 @@ function withTimeout(promise, ms, fallback) {
   }
   return new Promise((resolve) => {
     let settled = false;
+    // Deliberately NOT unref'd. This timer is the recovery path for a build that
+    // never settles, so it must be able to hold the event loop open on its own —
+    // an unref'd timer cannot fire once the loop has drained, which is exactly
+    // the stalled-build case, and the pending prompt would then never be
+    // forwarded. It is bounded (ms) and cleared on either settle path below, so
+    // keeping it referenced cannot outlive the timeout or wedge a clean exit.
     const timer = setTimeout(() => { if (!settled) { settled = true; resolve(fallback); } }, ms);
-    timer.unref?.();
     promise.then(
       (value) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } },
       () => { if (!settled) { settled = true; clearTimeout(timer); resolve(fallback); } },
