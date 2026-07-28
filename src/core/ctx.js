@@ -20,6 +20,10 @@ export function resolveContextPaths(root) {
   return {
     contextRoot,
     eventsPath: path.join(contextRoot, "events.jsonl"),
+    // Diagnostic side-log for the ACP proxy's `compare` capture mode (#337): it
+    // records what the proxy would capture WITHOUT touching events.jsonl, so it
+    // can run safely alongside the hooks and feed the fidelity comparison.
+    acpCapturePath: path.join(contextRoot, "acp-capture.jsonl"),
     notesPath: path.join(contextRoot, "notes.jsonl"),
     handoffDir: path.join(contextRoot, "handoffs"),
     pausedPath: path.join(contextRoot, "paused"),
@@ -63,7 +67,7 @@ export async function clearContext(root, options = {}) {
   if (options.archive !== false) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const targetDir = path.join(paths.archiveDir, stamp);
-    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath], ["value-events.jsonl", paths.valueEventsPath]]) {
+    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["acp-capture.jsonl", paths.acpCapturePath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath], ["value-events.jsonl", paths.valueEventsPath]]) {
       if (await exists(sourcePath)) {
         await ensureDir(targetDir);
         await fs.rename(sourcePath, path.join(targetDir, label));
@@ -72,6 +76,7 @@ export async function clearContext(root, options = {}) {
     }
   } else {
     await fs.rm(paths.eventsPath, { force: true });
+    await fs.rm(paths.acpCapturePath, { force: true });
     await fs.rm(paths.notesPath, { force: true });
     await fs.rm(paths.summariesPath, { force: true });
     await fs.rm(paths.summaryUsagePath, { force: true });
@@ -224,6 +229,60 @@ export async function trackEvent(root, payload) {
   await appendJsonLine(paths.eventsPath, event);
   const compacted = await compactEventLogIfNeeded(paths.eventsPath);
   return { tracked: true, event, compacted };
+}
+
+// Record an event captured from the proxied ACP stream (#337) through the SAME
+// events schema and write path the hooks use — buildEventFromHookPayload does
+// the edit/cmd shaping, path-relativizing, command redaction, and failure
+// detection, so redaction is applied before anything is written and there is no
+// second storage format. Captured events are tagged `src: "acp"` (and, where the
+// effect was only inferred from an opaque wrapper, `confidence: "inferred"`) so
+// they are distinguishable from hook events for the fidelity comparison.
+//
+// Crucially this path checks the pause marker itself: `addNote` historically
+// ignored pause, so routing capture through a pause-aware writer is what makes
+// `agentify ctx pause` genuinely suppress proxy capture. `sink: "compare"`
+// diverts the write to the diagnostic side-log instead of events.jsonl.
+export async function recordCapturedEvent(root, payload, options = {}) {
+  if (await isContextPaused(root, options.env || process.env)) {
+    return null;
+  }
+  const event = buildEventFromHookPayload(root, payload);
+  if (!event) {
+    return null;
+  }
+  // Privacy backstop: never record a file outside the launch repo, however the
+  // session was scoped (a session/new may add workspace roots beyond cwd). The
+  // path here is already repo-relative; if its first segment is ".." (or it is
+  // absolute) it points outside the repo, so drop it rather than write a
+  // `../other-repo/...` edit. A leading segment like "..config" is a real
+  // in-repo file and must NOT be rejected.
+  if (event.type === "edit" && (event.path.split(/[/\\]/)[0] === ".." || path.isAbsolute(event.path))) {
+    return null;
+  }
+  event.src = "acp";
+  if (String(options.confidence || "observed") === "inferred") {
+    event.confidence = "inferred";
+  }
+  const paths = resolveContextPaths(root);
+  const targetPath = options.sink === "compare" ? paths.acpCapturePath : paths.eventsPath;
+  await appendJsonLine(targetPath, event);
+  await compactEventLogIfNeeded(targetPath);
+  return event;
+}
+
+// Read the two event sources the fidelity comparison contrasts: events written
+// by the hooks (events.jsonl entries NOT tagged src:"acp") and events captured
+// by the proxy (the compare side-log, plus any src:"acp" events an `all`-mode
+// run wrote into the main store).
+export async function readCaptureComparison(root) {
+  const paths = resolveContextPaths(root);
+  const mainEvents = await readJsonLines(paths.eventsPath);
+  const proxyFromLog = await readJsonLines(paths.acpCapturePath);
+  return {
+    hookEvents: mainEvents.filter((event) => event.src !== "acp"),
+    proxyEvents: [...proxyFromLog, ...mainEvents.filter((event) => event.src === "acp")],
+  };
 }
 
 export const NOTE_TYPES = ["note", "decision"];

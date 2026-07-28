@@ -18,6 +18,7 @@ import {
   normalizeInjectionMode,
   pauseContext,
   precheckCommand,
+  readCaptureComparison,
   recordContextDigestInjection,
   readHookPayload,
   renderContextDigest,
@@ -29,6 +30,7 @@ import {
   trackEvent,
   writeHandoff,
 } from "./ctx.js";
+import { compareCaptureSources } from "./acp/capture.js";
 import { getPromptFromArgs } from "./cli-args.js";
 import { bold, dim, log, success } from "./ui.js";
 
@@ -409,7 +411,36 @@ export async function runCtxCommand(root, config, args, subcommand) {
       return;
     }
 
+    case "capture-report": {
+      // Fidelity comparison (#337): contrast what the ACP proxy captured against
+      // what the hooks captured for the same session(s). Reads events.jsonl
+      // (hooks) and the proxy's acp-capture.jsonl side-log.
+      const { hookEvents, proxyEvents } = await readCaptureComparison(root);
+      const report = compareCaptureSources({ hookEvents, proxyEvents });
+      if (config.json) {
+        console.log(JSON.stringify(report, null, 2));
+        return;
+      }
+      const show = (entry) => `${entry.value} ${dim(`(session ${entry.sid})`)}`;
+      log(bold("ACP capture vs. hooks — fidelity comparison"));
+      log(`Sessions: hooks ${report.sessions.hooks.length}, proxy ${report.sessions.proxy.length}, shared ${report.sessions.shared.length}`);
+      log("");
+      log(`${bold("Edits")}  hooks: ${report.edits.hooks_distinct} distinct / ${report.edits.hooks_events} event(s) · proxy: ${report.edits.proxy_distinct} distinct / ${report.edits.proxy_events} event(s) · both: ${report.edits.caught_by_both.length}`);
+      for (const entry of report.edits.hooks_only) log(`  ${dim("hooks only:")} ${show(entry)}`);
+      for (const entry of report.edits.proxy_only) log(`  ${dim("proxy only:")} ${show(entry)}`);
+      log("");
+      log(`${bold("Commands")}  hooks: ${report.commands.hooks_distinct} distinct / ${report.commands.hooks_events} event(s) · proxy: ${report.commands.proxy_distinct} distinct / ${report.commands.proxy_events} event(s) · both: ${report.commands.caught_by_both.length}`);
+      for (const entry of report.commands.hooks_only) log(`  ${dim("hooks only:")} ${show(entry)}`);
+      for (const entry of report.commands.proxy_only) log(`  ${dim("proxy only:")} ${show(entry)}`);
+      log("");
+      log(`Session outcomes — hooks: ${report.session_outcomes.hooks}, proxy: ${report.session_outcomes.proxy}`);
+      if (report.proxy_inferred_events > 0) {
+        log(dim(`Proxy events with inferred (not directly observed) effects: ${report.proxy_inferred_events}`));
+      }
+      return;
+    }
+
     default:
-      throw new Error("ctx requires a subcommand: track, note, decision, decisions, load, match, explain, precheck, status, summarize, share, handoff, pause, resume, or clear");
+      throw new Error("ctx requires a subcommand: track, note, decision, decisions, load, match, explain, precheck, status, summarize, share, handoff, pause, resume, clear, or capture-report");
   }
 }

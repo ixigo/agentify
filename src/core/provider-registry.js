@@ -531,6 +531,11 @@ export const PROVIDER_DEFINITIONS = {
     name: "claude",
     executable: true,
     skillInstall: true,
+    // Claude Code runs Agentify's PostToolUse/SessionEnd hooks, so it already
+    // records edits/commands/outcomes to the context store. The ACP proxy's
+    // `auto` capture mode defers to those hooks for this provider (one writer
+    // per session) rather than double-counting (#337).
+    hooksTrackContext: true,
     buildTemplateCommand: claudeTemplateCommand,
     bootstrap: {
       id: "claude",

@@ -53,6 +53,23 @@ const DEFAULT_CONFIG = {
     // rather than following `injection`. relevant = task-scoped, budgeted match
     // against the first user turn; digest = the full `ctx load` digest.
     acpInjection: "off",
+    // ACP proxy (`agentify acp`) session-event capture (#337): record edits,
+    // commands, and session outcomes from the proxied stream into the context
+    // store, giving providers without native Agentify hooks (e.g. Codex over
+    // ACP) the same tracking Claude Code gets from hooks. Modes:
+    //   off     - no capture (default; capture is observation-only but writes
+    //             to the store, so it stays opt-in like acpInjection).
+    //   auto    - capture to the store for a downstream WITHOUT native hook
+    //             tracking (Codex); for one WITH hooks (Claude) divert to the
+    //             side-log instead, so hooks and the proxy never double-count
+    //             yet nothing is silently lost. Run such a provider without its
+    //             hooks? Use "all".
+    //   all     - capture to the store for every downstream (operator asserts
+    //             the downstream's own hooks are disabled).
+    //   compare - write to a diagnostic side-log only (never events.jsonl), safe
+    //             alongside hooks; feeds `agentify ctx capture-report`.
+    // Capture never alters a single byte on the wire and honors `ctx pause`.
+    acpCapture: "off",
     // Hard token budget for per-prompt injected context. Deliberately null
     // here (like models.profile): an explicit value pins the budget, while
     // null lets the context policy resolve it (documented default 1200,
