@@ -585,3 +585,48 @@ The server exposes six tools, all backed by the same store and index the hooks u
 **When to use hooks vs MCP:** hooks are better in Claude Code (tracking is automatic and per-prompt injection is free); MCP is for clients without lifecycle hooks. Running both in Claude Code is fine — the note/query tools complement automatic tracking.
 
 Any other agent can still use the plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.
+
+## One-command install: registration, index, and a first-run win
+
+`agentify install` performs the full setup in one pass and prints a receipt of everything it did — what it **detected**, **registered**, **wrote to disk**, and **read**.
+
+What it does, in order:
+
+1. **Detect** installed provider CLIs (Claude Code, Codex) and whether each is authenticated.
+2. **Register the Agentify MCP server** with each installed provider, by editing that provider's own config file directly (never by shelling out to `claude mcp add` / `codex mcp add`):
+   - Claude Code → `~/.claude.json`, a `stdio` entry under `mcpServers.agentify`.
+   - Codex → `~/.codex/config.toml`, a `[mcp_servers.agentify]` table.
+   Registration is **idempotent** (a byte-identical entry is a no-op), **backs up** the config to a timestamped copy before any change, and **preserves every unrelated key**. Running twice yields exactly one registration.
+3. **Wire guidance and hooks** for the installed providers (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
+4. **Build the structural index** (`agentify scan` under the hood) so `query` / `risk` / `test_select` work immediately.
+5. **Show a first-run win**: the digest of recent local sessions (hot files, unresolved failed commands) when there is history, or a setup audit of your global provider config on a repo with no Agentify history yet.
+
+Flags:
+
+```bash
+agentify install                       # detect everything present, register, index, show the win
+agentify install --provider claude     # force a provider (registers even if that CLI is absent)
+agentify install --skip-mcp            # guidance + hooks only; no MCP registration
+agentify install --no-index            # skip the structural index build
+agentify install --global              # global-scope guidance (no project baseline)
+agentify install --home <dir>          # override the home used for MCP registration (tests/CI; never your real config)
+agentify install --json                # machine-readable receipt (single payload)
+```
+
+A provider that is installed but **not authenticated** produces a warning and the install continues — the MCP registration is written regardless (auth is a separate concern), and the receipt prints the login command to run when you are ready.
+
+**ACP clients** are registered only if this build carries an ACP registration path. When it does not (it lands with a separate change), the receipt reports ACP as unavailable and skips it — it never assumes a client is present.
+
+### Manual fallback for every automated step
+
+| Automated step | Do it by hand |
+| --- | --- |
+| MCP registration, Claude Code | `claude mcp add --scope user agentify -- agentify serve` (matches the user-scoped `~/.claude.json` entry the automated path writes; Claude's default scope is project-local) |
+| MCP registration, Codex | `codex mcp add agentify -- agentify serve`, or add to `~/.codex/config.toml`:<br>`[mcp_servers.agentify]`<br>`command = "agentify"`<br>`args = ["serve"]` |
+| Guidance + hooks | `agentify install --skip-mcp` |
+| Structural index | `agentify scan` |
+| First-run win, later | `agentify ctx load` (session digest); `agentify analyze --include-config` (setup audit) |
+| Confirm what is registered | `claude mcp list`; inspect `~/.codex/config.toml`; `agentify status` reports MCP registration state |
+| Undo | `agentify uninstall` removes guidance and hooks. The MCP registration is user-scoped and shared across repos, so it is removed only with `agentify uninstall --global` or `--mcp`; manually, `claude mcp remove agentify` / delete the `[mcp_servers.agentify]` table |
+
+The output stays honest about scope: Claude Code tracking is automatic through hooks, Codex is guidance-driven, and hidden provider transcripts are never replayed.

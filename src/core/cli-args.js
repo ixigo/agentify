@@ -35,6 +35,10 @@ const BOOLEAN_FLAGS = new Set([
   "showPaths",
   "insightsDryRun",
   "keepInsightsPacket",
+  "mcp",
+  "skipMcp",
+  "noMcp",
+  "noIndex",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

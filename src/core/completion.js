@@ -20,23 +20,29 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
-  command("install", "Install Agentify into this repo and its agent config", {
+  command("install", "Detect providers, register the MCP server, wire guidance, build the index", {
     aliases: ["init"],
     flags: [
       flag("--global", { description: "Install into ~/.claude or ~/.codex instead of the project" }),
-      flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to install" }),
+      flag("--provider", { values: ["claude", "codex", "all"], description: "Force a provider instead of auto-detecting" }),
+      flag("--skip-mcp", { description: "Skip MCP server registration (guidance + hooks only)" }),
+      flag("--no-index", { description: "Skip building the structural index" }),
+      flag("--home", { description: "Home dir for MCP registration (default: your home)" }),
     ],
   }),
   command("uninstall", "Remove the Agentify agent integration", {
     flags: [
-      flag("--global", { description: "Uninstall from ~/.claude or ~/.codex" }),
+      flag("--global", { description: "Uninstall from ~/.claude or ~/.codex (also removes MCP registration)" }),
       flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to remove" }),
+      flag("--mcp", { description: "Also unregister the user-scoped MCP server" }),
+      flag("--home", { description: "Home dir for MCP unregistration (default: your home)" }),
     ],
   }),
-  command("status", "Show integration and context-tracking status", {
+  command("status", "Show integration, MCP registration, and context-tracking status", {
     flags: [
       flag("--global", { description: "Inspect the global integration" }),
       flag("--provider", { values: ["claude", "codex", "all"], description: "Agent integration to inspect" }),
+      flag("--home", { description: "Home dir for MCP registration status (default: your home)" }),
     ],
   }),
   command("ctx", "Lightweight context tracking", {

@@ -115,9 +115,15 @@ test("runCli completion values providers writes provider names to stdout", async
 // install / uninstall / status
 // ---------------------------------------------------------------------------
 
+// The one-command install registers the MCP server into a real home config, so
+// every install call in these tests points --home at a throwaway dir and forces
+// --provider claude for a deterministic integration count regardless of which
+// provider CLIs happen to be installed on the machine running the suite. No
+// real ~/.claude.json or ~/.codex/config.toml is ever touched.
 test("runCli install --json writes managed integration and emits one payload", async () => {
   const root = await tmpRoot("agentify-main-install-");
-  const lines = await captureLog(() => runCli(["install", "--root", root, "--json"]));
+  const home = await tmpRoot("agentify-main-install-home-");
+  const lines = await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "claude", "--json"]));
   assert.equal(lines.length, 1);
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "install");
@@ -125,6 +131,13 @@ test("runCli install --json writes managed integration and emits one payload", a
   assert.equal(payload.integrations.length, 1);
   assert.equal(payload.integrations[0].provider, "claude");
   assert.ok(payload.integrations[0].memory.changed);
+
+  // MCP server registered into the throwaway home, not the real one.
+  const claudeMcp = payload.mcp.registrations.find((item) => item.provider === "claude");
+  assert.equal(claudeMcp.registered, true);
+  assert.equal(claudeMcp.path, path.join(home, ".claude.json"));
+  const claudeJson = JSON.parse(await fs.readFile(path.join(home, ".claude.json"), "utf8"));
+  assert.deepEqual(claudeJson.mcpServers.agentify, { type: "stdio", command: "agentify", args: ["serve"] });
 
   const memory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.match(memory, /<!-- agentify:begin -->/);
@@ -135,7 +148,8 @@ test("runCli install --json writes managed integration and emits one payload", a
 
 test("runCli init is an alias for install", async () => {
   const root = await tmpRoot("agentify-main-init-");
-  const lines = await captureLog(() => runCli(["init", "--root", root, "--json"]));
+  const home = await tmpRoot("agentify-main-init-home-");
+  const lines = await captureLog(() => runCli(["init", "--root", root, "--home", home, "--provider", "claude", "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "install");
   await fs.access(path.join(root, "CLAUDE.md"));
@@ -143,27 +157,48 @@ test("runCli init is an alias for install", async () => {
 
 test("runCli uninstall removes the managed integration", async () => {
   const root = await tmpRoot("agentify-main-uninstall-");
-  await captureLog(() => runCli(["install", "--root", root, "--json"]));
-  const lines = await captureLog(() => runCli(["uninstall", "--root", root, "--json"]));
-  const payload = JSON.parse(lines[0]);
-  assert.equal(payload.command, "uninstall");
-  const claudeResult = payload.integrations.find((item) => item.provider === "claude");
+  const home = await tmpRoot("agentify-main-uninstall-home-");
+  await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "claude", "--json"]));
+  // Default project uninstall: guidance/hooks are removed, but the shared
+  // user-scoped MCP registration is left in place.
+  const projectLines = await captureLog(() => runCli(["uninstall", "--root", root, "--home", home, "--provider", "claude", "--json"]));
+  const projectPayload = JSON.parse(projectLines[0]);
+  assert.equal(projectPayload.command, "uninstall");
+  assert.equal(projectPayload.mcp_removed, false);
+  const claudeResult = projectPayload.integrations.find((item) => item.provider === "claude");
   assert.equal(claudeResult.memory.changed, true);
-
   const memory = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
   assert.doesNotMatch(memory, /<!-- agentify:begin -->/);
+  const stillRegistered = JSON.parse(await fs.readFile(path.join(home, ".claude.json"), "utf8"));
+  assert.ok(stillRegistered.mcpServers.agentify, "MCP registration must survive a default project uninstall");
+
+  // --mcp opts into removing the registration too.
+  const lines = await captureLog(() => runCli(["uninstall", "--root", root, "--home", home, "--provider", "claude", "--mcp", "--json"]));
+  const payload = JSON.parse(lines[0]);
+  assert.equal(payload.mcp_removed, true);
+  const claudeMcp = payload.mcp.find((item) => item.provider === "claude");
+  assert.equal(claudeMcp.changed, true);
+  const claudeJson = JSON.parse(await fs.readFile(path.join(home, ".claude.json"), "utf8"));
+  assert.equal(claudeJson.mcpServers, undefined);
 });
 
 test("runCli status --json reports integration and context state", async () => {
   const root = await tmpRoot("agentify-main-status-");
-  await captureLog(() => runCli(["install", "--root", root, "--json"]));
-  const lines = await captureLog(() => runCli(["status", "--root", root, "--json"]));
+  const home = await tmpRoot("agentify-main-status-home-");
+  await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "claude", "--json"]));
+  const lines = await captureLog(() => runCli(["status", "--root", root, "--home", home, "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.command, "status");
   const claudeStatus = payload.integrations.find((item) => item.provider === "claude");
   assert.equal(claudeStatus.installed, true);
   const codexStatus = payload.integrations.find((item) => item.provider === "codex");
   assert.equal(codexStatus.installed, false);
+  // MCP status reflects the throwaway home: claude registered, codex not.
+  const claudeMcp = payload.mcp.find((item) => item.provider === "claude");
+  assert.equal(claudeMcp.registered, true);
+  assert.equal(claudeMcp.current, true);
+  const codexMcp = payload.mcp.find((item) => item.provider === "codex");
+  assert.equal(codexMcp.registered, false);
   assert.equal(payload.context.event_count, 0);
 });
 
@@ -359,18 +394,23 @@ test("plan-to-html hook script renders manual markdown to plans html", async () 
 
 test("runCli install --provider codex writes AGENTS.md guidance", async () => {
   const root = await tmpRoot("agentify-main-install-codex-");
-  const lines = await captureLog(() => runCli(["install", "--root", root, "--provider", "codex", "--json"]));
+  const home = await tmpRoot("agentify-main-install-codex-home-");
+  const lines = await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "codex", "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.integrations.length, 1);
   assert.equal(payload.integrations[0].provider, "codex");
   const agentsMd = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
   assert.match(agentsMd, /<!-- agentify:begin -->/);
   await assert.rejects(() => fs.access(path.join(root, ".claude", "settings.json")));
+  // MCP registration for codex lands in the throwaway home, not the real one.
+  const codexMcp = payload.mcp.registrations.find((item) => item.provider === "codex");
+  assert.equal(codexMcp.path, path.join(home, ".codex", "config.toml"));
 });
 
 test("runCli install --provider all writes both integrations", async () => {
   const root = await tmpRoot("agentify-main-install-all-");
-  const lines = await captureLog(() => runCli(["install", "--root", root, "--provider", "all", "--json"]));
+  const home = await tmpRoot("agentify-main-install-all-home-");
+  const lines = await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "all", "--json"]));
   const payload = JSON.parse(lines[0]);
   assert.deepEqual(payload.integrations.map((item) => item.provider), ["claude", "codex"]);
   await fs.access(path.join(root, "CLAUDE.md"));
@@ -379,4 +419,6 @@ test("runCli install --provider all writes both integrations", async () => {
   await fs.access(path.join(root, ".claude", "hooks", "plan-to-html.mjs"));
   const settings = JSON.parse(await fs.readFile(path.join(root, ".claude", "settings.json"), "utf8"));
   assert.ok(settings.hooks.PostToolUse.some((entry) => entry.matcher === "ExitPlanMode"));
+  // Both providers registered under the throwaway home.
+  assert.deepEqual(payload.mcp.registrations.map((item) => item.provider).sort(), ["claude", "codex"]);
 });
