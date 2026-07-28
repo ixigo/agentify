@@ -1,6 +1,6 @@
 import { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 import { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
-import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjection } from "./inject.js";
+import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjectionMode } from "./inject.js";
 
 export { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 export { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
@@ -15,7 +15,7 @@ export {
   injectIntoPromptMessage,
   markInjectedBlock,
   normalizeAcpInjectionMode,
-  resolveAcpInjection,
+  resolveAcpInjectionMode,
 } from "./inject.js";
 
 function describeAdapter(adapter) {
@@ -54,9 +54,11 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   const env = options.env || process.env;
 
   // Decide session-start context injection (#336) before spawning: whether we
-  // inject determines the downstream's environment (see below).
-  const injection = await resolveAcpInjection(root, config, env);
-  const injecting = injection.mode !== "off";
+  // inject determines the downstream's environment (see below). This is the
+  // static decision (config + env recursion guard); the transient `ctx pause`
+  // marker is re-checked per session-start when the digest is built.
+  const injectionMode = resolveAcpInjectionMode(config, env);
+  const injecting = injectionMode !== "off";
 
   // Double-injection guard: if we inject, the downstream provider's own
   // Agentify hooks (e.g. Claude Code) must NOT also inject the digest, or a
@@ -82,7 +84,7 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   if (injecting) {
     const injector = createFirstTurnInjector({
       buildDigest: (promptText, opts) => buildInjectionDigest(root, {
-        mode: injection.mode,
+        mode: injectionMode,
         promptText,
         config,
         env,
@@ -91,7 +93,7 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
         // "already seen" in the next.
         sessionId: opts?.sessionId,
       }),
-      onInject: ({ sessionId }) => log(`agentify acp: injected ${injection.mode} context into the first turn of session ${sessionId}`),
+      onInject: ({ sessionId }) => log(`agentify acp: injected ${injectionMode} context into the first turn of session ${sessionId}`),
     });
     // The proxy observes the injector (clientReadable), not `input`. So the
     // ways `input` can terminate must reach the injector: a clean EOF is
@@ -103,7 +105,7 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     input.once("close", () => { if (!injector.writableEnded) injector.destroy(); });
     input.pipe(injector);
     clientReadable = injector;
-    log(`agentify acp: session-start context injection enabled (mode: ${injection.mode}; downstream Agentify hooks suppressed via AGENTIFY_CTX=off)`);
+    log(`agentify acp: session-start context injection enabled (mode: ${injectionMode}; downstream Agentify hook injection suppressed via AGENTIFY_CTX_INJECTION=off, tracking preserved)`);
   }
 
   const clientDuplex = { readable: clientReadable, writable: output };

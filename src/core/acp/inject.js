@@ -15,14 +15,18 @@
 // JSON.parse/JSON.stringify — corrupting the prompt request's id would break
 // its response correlation, the exact failure #335 guards against.
 
+import { createHash } from "node:crypto";
 import { Transform } from "node:stream";
 
+import { resolveContextPolicy } from "../ctx-budget.js";
 import {
   isContextPaused,
   loadContextSnapshot,
   matchContext,
+  recordContextDigestInjection,
   renderContextDigest,
 } from "../ctx.js";
+import { estimateContextTokens } from "../value-telemetry.js";
 
 export const ACP_INJECTION_MODES = ["off", "relevant", "digest"];
 
@@ -34,21 +38,36 @@ export function normalizeAcpInjectionMode(value, { fallback = "off" } = {}) {
   return ACP_INJECTION_MODES.includes(mode) ? mode : fallback;
 }
 
-// Resolve whether (and how) the proxy injects context for this session.
-// Precedence: pause/recursion guard (AGENTIFY_CTX=off or `ctx pause`) forces
-// off > AGENTIFY_ACP_INJECTION env override > context.acpInjection config >
-// off. Async because the pause guard reads the paused marker; isContextPaused
-// also honors AGENTIFY_CTX=off, which is the delegate-child recursion guard.
-export async function resolveAcpInjection(root, config = {}, env = process.env) {
-  if (await isContextPaused(root, env)) {
-    return { mode: "off", reason: "paused_or_recursion_guard" };
+// Resolve HOW the proxy injects context, as a static, one-time decision made at
+// startup (it governs whether the interposer is wired and the downstream is
+// suppressed). Precedence: the AGENTIFY_CTX=off recursion guard (a delegate
+// child must never inject) forces off > AGENTIFY_ACP_INJECTION env override >
+// context.acpInjection config > off.
+//
+// The TRANSIENT `ctx pause` marker is deliberately NOT folded in here: it is
+// re-checked per session-start in buildInjectionDigest so pause/resume takes
+// effect on a running proxy.
+export function resolveAcpInjectionMode(config = {}, env = process.env) {
+  if (String(env?.AGENTIFY_CTX || "").toLowerCase() === "off") {
+    return "off";
   }
   const envMode = String(env?.AGENTIFY_ACP_INJECTION || "").trim();
   if (envMode) {
-    return { mode: normalizeAcpInjectionMode(envMode), reason: "env" };
+    return normalizeAcpInjectionMode(envMode);
   }
-  const configured = config?.context?.acpInjection;
-  return { mode: normalizeAcpInjectionMode(configured), reason: "config" };
+  return normalizeAcpInjectionMode(config?.context?.acpInjection);
+}
+
+// Map an ACP session id to a stable 8-char ledger key. matchContext truncates
+// the session id to 8 chars for its persistent per-session ledger, so two
+// distinct ACP ids that share an 8-char prefix (e.g. "sess_abc123" /
+// "sess_abc999") would otherwise cross-suppress each other's context. Hashing
+// first spreads them across the keyspace so the truncation is collision-safe.
+function ledgerSessionId(sessionId) {
+  if (!sessionId) {
+    return undefined;
+  }
+  return createHash("sha1").update(String(sessionId)).digest("hex").slice(0, 8);
 }
 
 // Concatenate the user-authored text of an ACP prompt (an array of content
@@ -62,23 +81,6 @@ export function extractPromptText(promptBlocks) {
     .map((block) => block.text)
     .join("\n")
     .trim();
-}
-
-// Build the digest text to inject for the first user turn, reusing the exact
-// same selection/rendering the hooks path uses. Returns "" when there is
-// nothing worth injecting. relevant mode is task-scoped and budgeted via
-// ctx-budget's selectWithinBudget (an oversized item is truncated by the
-// policy, not dropped); digest mode is the full `ctx load` digest.
-export async function buildInjectionDigest(root, { mode, promptText, config = {}, env = process.env, sessionId } = {}) {
-  if (mode === "relevant") {
-    const matches = await matchContext(root, promptText || "", { sessionId, config, env });
-    return matches.digest || "";
-  }
-  if (mode === "digest") {
-    const snapshot = await loadContextSnapshot(root);
-    return renderContextDigest(snapshot) || "";
-  }
-  return "";
 }
 
 // Wrap the digest so the agent can tell Agentify-supplied background context
@@ -95,6 +97,53 @@ export function markInjectedBlock(digest) {
     digest,
     AGENTIFY_CONTEXT_CLOSE,
   ].join("\n");
+}
+
+// Fixed token cost of the marking wrapper (preamble + fenced tags), measured
+// with an empty body. The relevant-mode budget is reduced by this so the FULL
+// injected block (wrapper + digest) stays within the policy cap.
+const MARKER_OVERHEAD_TOKENS = estimateContextTokens(markInjectedBlock(""));
+
+// Build the digest text to inject for the first user turn, reusing the exact
+// same selection/rendering the hooks path uses. Returns "" when there is
+// nothing worth injecting. relevant mode is task-scoped and budgeted via
+// ctx-budget's selectWithinBudget (an oversized item is truncated by the
+// policy, not dropped); digest mode is the full `ctx load` digest.
+//
+// The transient `ctx pause` marker is re-checked here so pause/resume takes
+// effect per session-start on a running proxy.
+export async function buildInjectionDigest(root, { mode, promptText, config = {}, env = process.env, sessionId } = {}) {
+  if (await isContextPaused(root, env)) {
+    return "";
+  }
+  if (mode === "relevant") {
+    // Reserve the wrapper's fixed overhead out of the policy budget so the
+    // marked block as a whole honors the cap. The selection algorithm and
+    // policy resolution are reused as-is; only the budget the caller asks the
+    // selector to fill is pre-reduced (via the supported policy override).
+    const policy = await resolveContextPolicy(root, config, { env });
+    const budgetedPolicy = {
+      ...policy,
+      max_injected_tokens: Math.max(0, policy.max_injected_tokens - MARKER_OVERHEAD_TOKENS),
+    };
+    const matches = await matchContext(root, promptText || "", {
+      sessionId: ledgerSessionId(sessionId),
+      config,
+      env,
+      policy: budgetedPolicy,
+    });
+    return matches.digest || "";
+  }
+  if (mode === "digest") {
+    const snapshot = await loadContextSnapshot(root);
+    const digest = renderContextDigest(snapshot) || "";
+    if (digest) {
+      // Keep ACP digest injections in value/eval telemetry, like the hooks path.
+      await recordContextDigestInjection(root, snapshot, digest, { sessionId: ledgerSessionId(sessionId) });
+    }
+    return digest;
+  }
+  return "";
 }
 
 function isWhitespace(ch) {
@@ -261,11 +310,20 @@ const EMPTY = Buffer.alloc(0);
 // into.
 const NO_SESSION_KEY = "acp:no-session-sentinel";
 
-export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
+// Once a single unterminated line exceeds this many bytes, stop buffering and
+// parsing and switch to a pure raw pass-through for the rest of the connection.
+// ACP prompts can legitimately carry large base64 blobs (images/audio); without
+// a cap, buffering a whole such line to parse it risks quadratic copying and
+// memory blow-up. Injection is a best-effort first-turn enhancement, so
+// forwarding an oversized message unchanged is the safe degradation.
+const MAX_SCAN_BYTES = 512 * 1024;
+
+export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = MAX_SCAN_BYTES } = {}) {
   if (typeof buildDigest !== "function") {
     throw new Error("createFirstTurnInjector requires a buildDigest(promptText, opts) function");
   }
   let buffer = EMPTY;
+  let passthrough = false; // set once an oversized line forces raw forwarding
   let transform;
   // ACP sessions whose first user turn has already been handled. Keyed by the
   // prompt's sessionId so injection is confined to each session's start.
@@ -276,6 +334,12 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
   // bytes; a session's first prompt is (maybe) rewritten to carry the marked
   // context block.
   const handleLine = async (lineBuf) => {
+    // Never buffer/parse/reserialize a line larger than the cap (e.g. a prompt
+    // carrying a big base64 blob) — forward it unchanged.
+    if (lineBuf.length > maxScanBytes) {
+      transform.push(lineBuf);
+      return;
+    }
     const text = lineBuf.toString("utf8");
     let message;
     try {
@@ -328,6 +392,10 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
     async transform(chunk, _enc, callback) {
       try {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        if (passthrough) {
+          this.push(bytes);
+          return callback();
+        }
         buffer = buffer.length ? Buffer.concat([buffer, bytes]) : bytes;
         let start = 0;
         let nl;
@@ -336,7 +404,14 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
           start = nl + 1;
           await handleLine(lineBuf);
         }
-        const leftover = buffer.subarray(start);
+        let leftover = buffer.subarray(start);
+        // A single line larger than the cap without a newline: give up parsing
+        // and forward everything raw from here on, unchanged.
+        if (leftover.length > maxScanBytes) {
+          passthrough = true;
+          this.push(Buffer.from(leftover));
+          leftover = EMPTY;
+        }
         buffer = leftover.length ? Buffer.from(leftover) : EMPTY;
         callback();
       } catch (error) {

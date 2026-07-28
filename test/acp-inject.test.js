@@ -16,7 +16,7 @@ import {
   injectIntoPromptMessage,
   markInjectedBlock,
   normalizeAcpInjectionMode,
-  resolveAcpInjection,
+  resolveAcpInjectionMode,
   runAcpProxyCommand,
 } from "../src/core/acp/index.js";
 
@@ -172,6 +172,19 @@ test("the injector injects the first turn of EACH session on a shared connection
   assert.equal(calls, 2, "buildDigest runs once per session start, not per turn");
 });
 
+test("the injector stops parsing and forwards raw once a line exceeds the scan cap", async () => {
+  // A tiny cap plus an oversized prompt line: rather than buffer/parse it (risk
+  // of quadratic copying / OOM on large base64 blobs), the injector forwards
+  // everything unchanged from that point on.
+  let called = false;
+  const injector = createFirstTurnInjector({ buildDigest: async () => { called = true; return "D"; }, maxScanBytes: 64 });
+  const bigText = "z".repeat(500);
+  const bigPrompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: bigText }] } });
+  const out = await runInjector(injector, [bigPrompt]);
+  assert.equal(out, bigPrompt, "oversized line must be forwarded byte-identically");
+  assert.equal(called, false, "no injection is attempted on an oversized line");
+});
+
 test("the injector forwards the first prompt unchanged when there is nothing to inject", async () => {
   const injector = createFirstTurnInjector({ buildDigest: async () => "" });
   const firstPrompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
@@ -186,20 +199,26 @@ test("the injector preserves a huge prompt id end-to-end", async () => {
   assert.ok(out.includes('"id":9007199254740993'), "the injected first prompt must keep its exact id");
 });
 
-test("resolveAcpInjection defaults off, honors config, env override, and the recursion/pause guard", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-acp-inject-resolve-"));
+test("resolveAcpInjectionMode defaults off, honors config, env override, and the recursion guard", () => {
+  // Default config → off (no eval evidence justifies default-on).
+  assert.equal(resolveAcpInjectionMode({}, {}), "off");
+  // Per-repo switch enables it.
+  assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "relevant" } }, {}), "relevant");
+  // Env override wins over config.
+  assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "off" } }, { AGENTIFY_ACP_INJECTION: "digest" }), "digest");
+  // AGENTIFY_CTX=off (delegate-child recursion guard) forces off even if enabled.
+  assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "relevant" } }, { AGENTIFY_CTX: "off" }), "off");
+});
+
+test("buildInjectionDigest re-checks the transient pause marker per session start", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-acp-inject-pause-"));
   try {
-    // Default config → off (no eval evidence justifies default-on).
-    assert.deepEqual((await resolveAcpInjection(root, {}, {})).mode, "off");
-    // Per-repo switch enables it.
-    assert.equal((await resolveAcpInjection(root, { context: { acpInjection: "relevant" } }, {})).mode, "relevant");
-    // Env override wins over config.
-    assert.equal((await resolveAcpInjection(root, { context: { acpInjection: "off" } }, { AGENTIFY_ACP_INJECTION: "digest" })).mode, "digest");
-    // AGENTIFY_CTX=off (delegate-child recursion guard) forces off even if enabled.
-    assert.equal((await resolveAcpInjection(root, { context: { acpInjection: "relevant" } }, { AGENTIFY_CTX: "off" })).mode, "off");
-    // A paused repo forces off.
+    await addNote(root, "payment retries must reuse an idempotency key so a retry never double-charges");
+    // Not paused → a digest is produced.
+    assert.ok(await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} }));
+    // Paused → nothing is injected, even though the mode was resolved earlier.
     await pauseContext(root);
-    assert.equal((await resolveAcpInjection(root, { context: { acpInjection: "relevant" } }, {})).mode, "off");
+    assert.equal(await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} }), "");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -214,13 +233,14 @@ test("buildInjectionDigest (relevant) returns a marked-within-budget digest buil
     assert.ok(digest, "expected a non-empty digest");
     assert.ok(/idempotency key/.test(digest), "the matched note should be present");
 
-    // Reusing ctx-budget: the digest is within the resolved policy budget (default 1200).
-    assert.ok(estimateContextTokens(digest) <= 1200);
-
-    // And it renders inside a clearly-marked block once wrapped.
+    // Reusing ctx-budget: the FULL injected block (wrapper + digest) is within
+    // the resolved policy budget (default 1200), not just the bare digest.
     const marked = markInjectedBlock(digest);
+    assert.ok(estimateContextTokens(marked) <= 1200);
+
+    // And it renders inside a clearly-marked block.
     assert.ok(marked.includes(AGENTIFY_CONTEXT_OPEN) && marked.includes(AGENTIFY_CONTEXT_CLOSE));
-    assert.ok(/not been? written by the user|NOT written by the user/i.test(marked));
+    assert.ok(/NOT written by the user/i.test(marked));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -233,11 +253,12 @@ test("budget boundary: an oversized item is truncated by the policy, not silentl
     // policy must truncate it with provenance rather than omit it entirely.
     const huge = `payment retry idempotency: ${"x".repeat(1200)}`;
     await addNote(root, huge, { type: "decision" });
-    const config = { context: { maxInjectedTokens: 120 } };
+    const config = { context: { maxInjectedTokens: 300 } };
     const digest = await buildInjectionDigest(root, { mode: "relevant", promptText: "payment retry idempotency", config });
     assert.ok(digest, "the oversized decision must not be silently dropped");
     assert.ok(/truncated from \d+ chars/.test(digest), "it must be truncated with provenance by the policy");
-    assert.ok(estimateContextTokens(digest) <= 120, "the truncated digest must respect the budget");
+    // The full injected block (wrapper + truncated digest) respects the cap.
+    assert.ok(estimateContextTokens(markInjectedBlock(digest)) <= 300, "the injected block must respect the budget");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
