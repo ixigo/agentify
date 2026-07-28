@@ -47,7 +47,14 @@ export function normalizeAcpInjectionMode(value, { fallback = "off" } = {}) {
 // re-checked per session-start in buildInjectionDigest so pause/resume takes
 // effect on a running proxy.
 export function resolveAcpInjectionMode(config = {}, env = process.env) {
+  // Hard suppression guards win over any enable, so nesting is safe: a parent
+  // that already injects sets AGENTIFY_CTX_INJECTION=off on its child, and a
+  // delegate child inherits AGENTIFY_CTX=off. Either forces this proxy off,
+  // preventing a chained agentify-acp proxy from injecting a second time.
   if (String(env?.AGENTIFY_CTX || "").toLowerCase() === "off") {
+    return "off";
+  }
+  if (String(env?.AGENTIFY_CTX_INJECTION || "").trim().toLowerCase() === "off") {
     return "off";
   }
   const envMode = String(env?.AGENTIFY_ACP_INJECTION || "").trim();
@@ -374,20 +381,44 @@ const NO_SESSION_KEY = "acp:no-session-sentinel";
 // forwarding an oversized message unchanged is the safe degradation.
 const MAX_SCAN_BYTES = 512 * 1024;
 
-export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace, maxScanBytes = MAX_SCAN_BYTES } = {}) {
+// Bound how long a single first-turn digest build may hold up the (serial)
+// client -> downstream stream. Digest building is local and fast; the cap only
+// exists so a stalled filesystem can't wedge cancellation/subsequent traffic.
+const DEFAULT_INJECT_TIMEOUT_MS = 2000;
+
+// Resolve to `promise`'s value, or "" if it does not settle within `ms`. The
+// underlying promise is left to complete on its own (its ledger/telemetry write
+// still lands); we simply stop blocking the stream on it.
+function withTimeout(promise, ms) {
+  if (!(ms > 0)) {
+    return promise;
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => { if (!settled) { settled = true; resolve(""); } }, ms);
+    timer.unref?.();
+    promise.then(
+      (value) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } },
+      () => { if (!settled) { settled = true; clearTimeout(timer); resolve(""); } },
+    );
+  });
+}
+
+export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace, maxScanBytes = MAX_SCAN_BYTES, injectTimeoutMs = DEFAULT_INJECT_TIMEOUT_MS } = {}) {
   if (typeof buildDigest !== "function") {
     throw new Error("createFirstTurnInjector requires a buildDigest(promptText, opts) function");
   }
   // The proxy reads context from its launch root. A single connection can
   // establish sessions in other working directories (session/new, session/load,
-  // session/resume, session/fork — every session-establishing ACP method carries
-  // a `cwd`), and injecting the launch root's context into a session operating in
-  // a DIFFERENT repo would leak one repo's notes into another — violating the
-  // per-repo privacy invariant. So the check is method-agnostic: ANY message
-  // that carries a top-level `params.cwd` outside the launch root disables
-  // injection connection-wide (we can no longer safely attribute later prompts to
-  // a workspace). session/prompt itself carries no cwd, so this never fires on it.
+  // session/resume, session/fork all carry a `cwd`), and injecting the launch
+  // root's context into a session operating in a DIFFERENT repo would leak one
+  // repo's notes into another — violating the per-repo privacy invariant. So if a
+  // session is *established* outside the launch root we can no longer safely
+  // attribute later prompts to a workspace, and injection is disabled
+  // connection-wide. Only establishing methods count: read-only calls like
+  // session/list also accept a `cwd` filter but do not create/attach a session.
   const verifyWorkspace = typeof isSameWorkspace === "function" ? isSameWorkspace : () => true;
+  const SESSION_ESTABLISHING_METHODS = new Set(["session/new", "session/load", "session/resume", "session/fork"]);
   let workspaceMismatch = false;
 
   let buffer = EMPTY;
@@ -420,10 +451,11 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
       transform.push(lineBuf); // not JSON we understand — forward untouched
       return;
     }
-    // Any message naming a working directory (session/new|load|resume|fork, or
-    // any future cwd-bearing method) outside the launch root disables injection
-    // connection-wide (privacy — no cross-repo leak).
-    if (typeof message?.params?.cwd === "string" && !verifyWorkspace(message.params.cwd)) {
+    // A session established (new/load/resume/fork) with a working directory
+    // outside the launch root disables injection connection-wide (privacy — no
+    // cross-repo leak).
+    if (SESSION_ESTABLISHING_METHODS.has(message?.method)
+      && typeof message.params?.cwd === "string" && !verifyWorkspace(message.params.cwd)) {
       workspaceMismatch = true;
     }
     const isPrompt = message && typeof message === "object" && !Array.isArray(message)
@@ -447,11 +479,24 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
       transform.push(lineBuf); // a session escaped the launch root — never inject
       return;
     }
+    const promptText = extractPromptText(message.params.prompt);
+    // Double-injection guard: if the turn already carries an Agentify context
+    // block (e.g. a chained agentify-acp proxy upstream already injected, or the
+    // client re-sent an injected prompt), do not add a second one.
+    if (promptText.includes(AGENTIFY_CONTEXT_OPEN)) {
+      transform.push(lineBuf);
+      return;
+    }
     let digest = "";
     try {
-      digest = await buildDigest(extractPromptText(message.params.prompt), {
-        sessionId: sessionId === NO_SESSION_KEY ? undefined : sessionId,
-      });
+      // Bound the wait: building the digest reads .agentify files and writes the
+      // ledger/telemetry; the transform loop is serial, so a stalled filesystem
+      // would otherwise hold up the very next client message (e.g. a
+      // session/cancel). On timeout we forward the prompt unchanged.
+      digest = await withTimeout(
+        buildDigest(promptText, { sessionId: sessionId === NO_SESSION_KEY ? undefined : sessionId }),
+        injectTimeoutMs,
+      );
     } catch {
       digest = "";
     }

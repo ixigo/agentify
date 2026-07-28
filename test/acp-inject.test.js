@@ -203,8 +203,8 @@ test("the injector refuses to inject once a session is established outside the l
   assert.equal(called, 0, "buildDigest must not run for a session outside the launch workspace");
 });
 
-test("the workspace guard is method-agnostic (session/resume, session/fork, any cwd-bearing method)", async () => {
-  for (const method of ["session/resume", "session/fork", "some/future-method"]) {
+test("the workspace guard covers every session-establishing method (resume, fork, load)", async () => {
+  for (const method of ["session/resume", "session/fork", "session/load"]) {
     let called = 0;
     const injector = createFirstTurnInjector({
       buildDigest: async () => { called += 1; return "D"; },
@@ -216,6 +216,41 @@ test("the workspace guard is method-agnostic (session/resume, session/fork, any 
     assert.equal(out, `${establish}${prompt}`, `${method} with a foreign cwd must disable injection`);
     assert.equal(called, 0);
   }
+});
+
+test("a read-only session/list with a cwd filter does NOT disable injection", async () => {
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => "D",
+    isSameWorkspace: (cwd) => cwd === "/root",
+  });
+  // session/list is not session-establishing; its cwd filter must not trip the
+  // privacy guard.
+  const list = line({ jsonrpc: "2.0", id: 1, method: "session/list", params: { cwd: "/other-repo" } });
+  const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [list, prompt]);
+  const outLines = out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(outLines[1].params.prompt.length, 2, "the prompt must still be injected");
+  assert.ok(outLines[1].params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+});
+
+test("the injector does not add a second context block when one is already present", async () => {
+  let called = 0;
+  const injector = createFirstTurnInjector({ buildDigest: async () => { called += 1; return "D"; } });
+  const already = markInjectedBlock("upstream digest");
+  const prompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: already }, { type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [prompt]);
+  assert.equal(out, prompt, "an already-marked prompt must be forwarded unchanged");
+  assert.equal(called, 0, "buildDigest must not run when a marker is already present");
+});
+
+test("a stalled digest build times out and forwards the prompt unchanged", async () => {
+  const injector = createFirstTurnInjector({
+    buildDigest: () => new Promise(() => {}), // never resolves
+    injectTimeoutMs: 30,
+  });
+  const prompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [prompt]);
+  assert.equal(out, prompt, "on timeout the prompt must be forwarded byte-identically");
 });
 
 test("the injector injects when the session is established in the launch workspace", async () => {
@@ -255,6 +290,9 @@ test("resolveAcpInjectionMode defaults off, honors config, env override, and the
   assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "off" } }, { AGENTIFY_ACP_INJECTION: "digest" }), "digest");
   // AGENTIFY_CTX=off (delegate-child recursion guard) forces off even if enabled.
   assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "relevant" } }, { AGENTIFY_CTX: "off" }), "off");
+  // AGENTIFY_CTX_INJECTION=off (set by a parent proxy that already injects)
+  // forces off too, so a chained agentify-acp proxy never double-injects.
+  assert.equal(resolveAcpInjectionMode({ context: { acpInjection: "relevant" } }, { AGENTIFY_CTX_INJECTION: "off" }), "off");
 });
 
 test("buildInjectionDigest re-checks the transient pause marker per session start", async () => {
