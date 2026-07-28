@@ -78,36 +78,56 @@ export function matchAgentifyServerTool(server, tool) {
 }
 
 // Detects a failed Agentify call from a Codex mcp_tool_call_end `result`.
-// Codex serializes the Rust Result enum: { Ok: { content, isError } } for a
-// completed MCP call (which may still be a tool-level error via isError) and
-// { Err: ... } for a protocol-level failure. Both count as errors.
-export function mcpToolCallEndErrored(result) {
-  if (!result || typeof result !== "object") return false;
-  if (Object.prototype.hasOwnProperty.call(result, "Err")) return true;
-  const ok = result.Ok;
-  if (ok && typeof ok === "object" && (ok.isError === true || ok.is_error === true)) return true;
-  return false;
+// Outcome is tri-state: "success", "error", or "unknown". Only a definitively
+// recognized envelope resolves to success/error; anything ambiguous stays
+// unknown so it is excluded from the resolved denominator rather than assumed
+// either way.
+export const OUTCOME_SUCCESS = "success";
+export const OUTCOME_ERROR = "error";
+export const OUTCOME_UNKNOWN = "unknown";
+
+function markerErrored(obj) {
+  return obj.isError === true || obj.is_error === true || obj.success === false
+    || (typeof obj.error === "string" && obj.error.length > 0);
 }
 
-// Best-effort detection of a failed Agentify MCP call from a Codex tool
-// output string. Used only as a fallback for older rollouts that carry no
-// mcp_tool_call_end result; an MCP error surfaces as an isError / is_error /
-// success:false marker (or an error field). Anything unrecognizable stays a
-// non-error — the outcome is unknowable and must not be invented, consistent
-// with how codex.js treats opaque shell output.
-export function codexMcpOutputErrored(rawOutput) {
-  if (typeof rawOutput !== "string" || rawOutput.length === 0) return false;
+function markerSucceeded(obj) {
+  return obj.isError === false || obj.is_error === false || obj.success === true;
+}
+
+// Classifies a Codex mcp_tool_call_end `result`. Codex serializes the Rust
+// Result enum: { Ok: { content, isError } } for a completed MCP call (which
+// may still be a tool-level error via isError) and { Err: ... } for a
+// protocol-level failure. A result with neither a valid Ok nor Err envelope
+// (missing or schema-drifted) is unknown, never a silent success.
+export function classifyMcpToolCallEndResult(result) {
+  if (!result || typeof result !== "object") return OUTCOME_UNKNOWN;
+  if (Object.prototype.hasOwnProperty.call(result, "Err")) return OUTCOME_ERROR;
+  const ok = result.Ok;
+  if (ok && typeof ok === "object") {
+    return (ok.isError === true || ok.is_error === true) ? OUTCOME_ERROR : OUTCOME_SUCCESS;
+  }
+  return OUTCOME_UNKNOWN;
+}
+
+// Classifies a Codex tool output string, used as a fallback for older
+// rollouts that carry no mcp_tool_call_end result. An MCP error/success
+// surfaces as an isError / is_error / success marker (or an error field);
+// opaque or non-JSON output stays unknown — the outcome is unknowable and
+// must not be invented, consistent with how codex.js treats opaque shell
+// output.
+export function classifyCodexOutput(rawOutput) {
+  if (typeof rawOutput !== "string" || rawOutput.length === 0) return OUTCOME_UNKNOWN;
   let parsed;
   try {
     parsed = JSON.parse(rawOutput);
   } catch {
-    return false;
+    return OUTCOME_UNKNOWN;
   }
-  if (!parsed || typeof parsed !== "object") return false;
-  if (parsed.isError === true || parsed.is_error === true) return true;
-  if (parsed.success === false) return true;
-  if (typeof parsed.error === "string" && parsed.error.length > 0) return true;
-  return false;
+  if (!parsed || typeof parsed !== "object") return OUTCOME_UNKNOWN;
+  if (markerErrored(parsed)) return OUTCOME_ERROR;
+  if (markerSucceeded(parsed)) return OUTCOME_SUCCESS;
+  return OUTCOME_UNKNOWN;
 }
 
 // Per-session accumulator carried on the session object by the parsers.

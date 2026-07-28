@@ -12,10 +12,12 @@ import {
 } from "../normalize.js";
 import { codexPromptText, createContentClassifier } from "../content-classify.js";
 import {
-  codexMcpOutputErrored,
+  OUTCOME_UNKNOWN,
+  OUTCOME_SUCCESS,
+  classifyCodexOutput,
+  classifyMcpToolCallEndResult,
   matchAgentifyMcpTool,
   matchAgentifyServerTool,
-  mcpToolCallEndErrored,
   recordAgentifyToolCall,
   recordAgentifyToolOutcome,
 } from "../agentify-tools.js";
@@ -154,9 +156,11 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       if (agentifyTool) {
         const callId = payload.call_id ? String(payload.call_id) : null;
         recordAgentifyCall(callId, agentifyTool);
-        // The end event carries a definitive result; attribute the outcome
-        // directly from its tool, independent of whether a call_id is present.
-        recordAgentifyOutcome(callId, agentifyTool, !mcpToolCallEndErrored(payload.result));
+        // The end event usually carries a definitive result; attribute the
+        // outcome directly from its tool (independent of a call_id). A result
+        // with no recognized Ok/Err envelope stays unknown, not a success.
+        const outcome = classifyMcpToolCallEndResult(payload.result);
+        if (outcome !== OUTCOME_UNKNOWN) recordAgentifyOutcome(callId, agentifyTool, outcome === OUTCOME_SUCCESS);
       }
       return;
     }
@@ -205,13 +209,16 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       // recognizable exit_code counts as evidence, anything else stays
       // unknowable and never influences the outcome.
       // Fallback outcome attribution for older rollouts whose MCP result is
-      // not carried in an mcp_tool_call_end record. Only a recognizable error
-      // marker is a definitive outcome; opaque output stays unknown (never
-      // assumed successful). De-duplicated by call_id against the end event.
+      // not carried in an mcp_tool_call_end record. A recognizable success or
+      // error marker resolves the call; opaque output stays unknown (never
+      // assumed either way). De-duplicated by call_id against the end event.
       const agentifyCallId = payload.call_id ? String(payload.call_id) : null;
       const agentifyOutputTool = agentifyCallId ? agentifyCallsById.get(agentifyCallId) : null;
-      if (agentifyOutputTool && !agentifyOutcomeIds.has(agentifyCallId) && codexMcpOutputErrored(payload.output)) {
-        recordAgentifyOutcome(agentifyCallId, agentifyOutputTool, false);
+      if (agentifyOutputTool && !agentifyOutcomeIds.has(agentifyCallId)) {
+        const outputOutcome = classifyCodexOutput(payload.output);
+        if (outputOutcome !== OUTCOME_UNKNOWN) {
+          recordAgentifyOutcome(agentifyCallId, agentifyOutputTool, outputOutcome === OUTCOME_SUCCESS);
+        }
       }
       const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
       let ok = null;

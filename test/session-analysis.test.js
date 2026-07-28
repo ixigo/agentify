@@ -17,11 +17,14 @@ import {
 import { createProgressRenderer } from "../src/core/session-analysis/progress.js";
 import {
   AGENTIFY_TOOL_TELEMETRY_VERSION,
+  OUTCOME_ERROR,
+  OUTCOME_SUCCESS,
+  OUTCOME_UNKNOWN,
   aggregateAgentifyToolCalls,
-  codexMcpOutputErrored,
+  classifyCodexOutput,
+  classifyMcpToolCallEndResult,
   matchAgentifyMcpTool,
   matchAgentifyServerTool,
-  mcpToolCallEndErrored,
 } from "../src/core/session-analysis/agentify-tools.js";
 import { runCli } from "../src/main.js";
 
@@ -1399,25 +1402,31 @@ test("matchAgentifyServerTool matches Codex invocations only under an Agentify a
   assert.equal(matchAgentifyServerTool(null, "ctx_load"), null); // no alias, no match
 });
 
-test("mcpToolCallEndErrored reads the Rust Result envelope Codex serializes", () => {
-  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], isError: true } }), true);
-  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], is_error: true } }), true);
-  assert.equal(mcpToolCallEndErrored({ Err: "protocol failure" }), true);
-  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], isError: false } }), false);
-  assert.equal(mcpToolCallEndErrored({ Ok: {} }), false);
-  assert.equal(mcpToolCallEndErrored(null), false);
+test("classifyMcpToolCallEndResult reads the Rust Result envelope as tri-state", () => {
+  assert.equal(classifyMcpToolCallEndResult({ Ok: { content: [], isError: true } }), OUTCOME_ERROR);
+  assert.equal(classifyMcpToolCallEndResult({ Ok: { content: [], is_error: true } }), OUTCOME_ERROR);
+  assert.equal(classifyMcpToolCallEndResult({ Err: "protocol failure" }), OUTCOME_ERROR);
+  // A completed Ok envelope without an error flag is a resolved success.
+  assert.equal(classifyMcpToolCallEndResult({ Ok: { content: [], isError: false } }), OUTCOME_SUCCESS);
+  assert.equal(classifyMcpToolCallEndResult({ Ok: {} }), OUTCOME_SUCCESS);
+  // No recognized envelope (missing / schema-drifted) is unknown, not success.
+  assert.equal(classifyMcpToolCallEndResult({}), OUTCOME_UNKNOWN);
+  assert.equal(classifyMcpToolCallEndResult(null), OUTCOME_UNKNOWN);
 });
 
-test("codexMcpOutputErrored flags only recognizable error envelopes", () => {
-  assert.equal(codexMcpOutputErrored(JSON.stringify({ isError: true })), true);
-  assert.equal(codexMcpOutputErrored(JSON.stringify({ is_error: true })), true);
-  assert.equal(codexMcpOutputErrored(JSON.stringify({ success: false })), true);
-  assert.equal(codexMcpOutputErrored(JSON.stringify({ error: "boom" })), true);
-  assert.equal(codexMcpOutputErrored(JSON.stringify({ isError: false })), false);
-  // Opaque / non-JSON output stays a non-error: the outcome is unknowable.
-  assert.equal(codexMcpOutputErrored("ok, done"), false);
-  assert.equal(codexMcpOutputErrored(""), false);
-  assert.equal(codexMcpOutputErrored(undefined), false);
+test("classifyCodexOutput resolves explicit success and error, leaves opaque output unknown", () => {
+  assert.equal(classifyCodexOutput(JSON.stringify({ isError: true })), OUTCOME_ERROR);
+  assert.equal(classifyCodexOutput(JSON.stringify({ is_error: true })), OUTCOME_ERROR);
+  assert.equal(classifyCodexOutput(JSON.stringify({ success: false })), OUTCOME_ERROR);
+  assert.equal(classifyCodexOutput(JSON.stringify({ error: "boom" })), OUTCOME_ERROR);
+  // Explicit success must resolve too (else success is undercounted).
+  assert.equal(classifyCodexOutput(JSON.stringify({ isError: false })), OUTCOME_SUCCESS);
+  assert.equal(classifyCodexOutput(JSON.stringify({ success: true })), OUTCOME_SUCCESS);
+  // Opaque / non-JSON / empty output stays unknown: the outcome is unknowable.
+  assert.equal(classifyCodexOutput("ok, done"), OUTCOME_UNKNOWN);
+  assert.equal(classifyCodexOutput(JSON.stringify({ content: [] })), OUTCOME_UNKNOWN);
+  assert.equal(classifyCodexOutput(""), OUTCOME_UNKNOWN);
+  assert.equal(classifyCodexOutput(undefined), OUTCOME_UNKNOWN);
 });
 
 test("aggregateAgentifyToolCalls zero-fills tools and never reports confirmed under-calling for undetermined sessions", () => {
@@ -1606,6 +1615,30 @@ test("Codex mcp_tool_call_end errors are attributed even when call_id is absent"
   assert.equal(agg.total_errors, 1);
   assert.deepEqual(agg.by_tool.risk, { calls: 1, resolved: 1, errors: 1 });
   assert.equal(agg.error_rate, 1);
+});
+
+test("older Codex rollouts resolve explicit success and error from function output (no mcp_tool_call_end)", async () => {
+  const repoRoot = await makeRoot("agentify-codex-legacy-");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  const dayDir = path.join(codexRoot, "2026", "07", "14");
+  await fs.mkdir(dayDir, { recursive: true });
+  const rollout = [
+    JSON.stringify({ timestamp: minutesAgo(20), type: "session_meta", payload: { cwd: repoRoot, id: "cxleg", cli_version: "0.105.0" } }),
+    // Flat-name MCP calls with JSON-marker outputs, no mcp_tool_call_end.
+    JSON.stringify({ timestamp: minutesAgo(19), type: "response_item", payload: { type: "custom_tool_call", name: "mcp__agentify__query", call_id: "L1", input: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(18), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "L1", output: JSON.stringify({ isError: false, content: [{ type: "text", text: "ok" }] }) } }),
+    JSON.stringify({ timestamp: minutesAgo(17), type: "response_item", payload: { type: "custom_tool_call", name: "mcp__agentify__risk", call_id: "L2", input: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(16), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "L2", output: JSON.stringify({ isError: true, content: [{ type: "text", text: "no index" }] }) } }),
+  ];
+  await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-legacy.jsonl"), `${rollout.join("\n")}\n`);
+  const report = await buildSessionAnalysis(repoRoot, { codexRoot, providers: ["codex"], days: 30 });
+  const agg = report.agentify_tool_calls;
+  assert.equal(agg.total_calls, 2);
+  assert.equal(agg.total_resolved_calls, 2); // BOTH success and error resolve
+  assert.equal(agg.total_errors, 1);
+  assert.equal(agg.error_rate, 0.5); // 1/2, not 1/1
+  assert.deepEqual(agg.by_tool.query, { calls: 1, resolved: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.risk, { calls: 1, resolved: 1, errors: 1 });
 });
 
 test("the Agentify tool-call baseline renders in json, text, and a dedicated html block", async () => {
