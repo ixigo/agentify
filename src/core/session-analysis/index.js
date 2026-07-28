@@ -22,7 +22,7 @@ import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./sc
 import { createAnalysisCache } from "./cache.js";
 import { buildCostSummary, estimateSessionCost } from "./pricing.js";
 import { buildConfigAudit, configAuditSources } from "./config-audit.js";
-import { aggregateAgentifyToolCalls, mergeAgentifyToolCalls } from "./agentify-tools.js";
+import { aggregateAgentifyToolCalls, emptySessionAgentifyToolCalls, mergeAgentifyToolCalls } from "./agentify-tools.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -340,6 +340,9 @@ export async function buildSessionAnalysis(root, options = {}) {
       parent.tools.by_name[name] = (parent.tools.by_name[name] || 0) + count;
     }
     parent.failed_tool_calls += transcript.failed_tool_calls;
+    // A parent from an incomplete cache entry may predate this field; treat a
+    // missing accumulator as zero telemetry rather than crash the merge.
+    if (!parent.agentify_tool_calls) parent.agentify_tool_calls = emptySessionAgentifyToolCalls();
     mergeAgentifyToolCalls(parent.agentify_tool_calls, transcript.agentify_tool_calls);
     for (const key of Object.keys(parent.shell_patterns)) {
       parent.shell_patterns[key] += transcript.shell_patterns[key] || 0;

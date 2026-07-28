@@ -1365,13 +1365,17 @@ test("cli: analyze --dry-run needs no consent", async () => {
 
 // --- #331: Agentify MCP tool-call telemetry ---------------------------------
 
-test("matchAgentifyMcpTool identifies Agentify MCP calls by server + tool suffix", () => {
+test("matchAgentifyMcpTool identifies Agentify MCP calls, tolerating custom server aliases", () => {
   assert.equal(matchAgentifyMcpTool("mcp__agentify__ctx_load"), "ctx_load");
   assert.equal(matchAgentifyMcpTool("mcp__agentify__test_select"), "test_select");
   // Server segment may carry extra qualifiers as long as it matches /agentify/i.
   assert.equal(matchAgentifyMcpTool("mcp__local_agentify__ctx_note"), "ctx_note");
   assert.equal(matchAgentifyMcpTool("mcp__Agentify__query"), "query");
-  // Generic tool suffixes on a different server must not false-positive.
+  // Distinctive tools are matched under ANY alias (`claude mcp add <name>`).
+  assert.equal(matchAgentifyMcpTool("mcp__repo-tools__ctx_load"), "ctx_load");
+  assert.equal(matchAgentifyMcpTool("mcp__repo-tools__test_select"), "test_select");
+  // Generic-word tools require an Agentify-looking alias to avoid collisions.
+  assert.equal(matchAgentifyMcpTool("mcp__repo-tools__query"), null);
   assert.equal(matchAgentifyMcpTool("mcp__figma__query"), null);
   assert.equal(matchAgentifyMcpTool("mcp__codex_apps__risk"), null);
   // Not an Agentify tool, missing prefix, or empty server segment.
@@ -1382,13 +1386,18 @@ test("matchAgentifyMcpTool identifies Agentify MCP calls by server + tool suffix
   assert.equal(matchAgentifyMcpTool(null), null);
 });
 
-test("matchAgentifyServerTool matches Codex mcp_tool_call_end invocations by server + tool", () => {
+test("matchAgentifyServerTool matches Codex mcp_tool_call_end invocations, tolerating custom aliases", () => {
   assert.equal(matchAgentifyServerTool("agentify", "ctx_load"), "ctx_load");
   assert.equal(matchAgentifyServerTool("Agentify", "test_select"), "test_select");
   assert.equal(matchAgentifyServerTool("local-agentify", "query"), "query");
+  // Distinctive tool under an unrelated alias still counts.
+  assert.equal(matchAgentifyServerTool("repo-tools", "ctx_match"), "ctx_match");
+  // Generic tool under an unrelated alias does not.
+  assert.equal(matchAgentifyServerTool("repo-tools", "risk"), null);
   assert.equal(matchAgentifyServerTool("agentify", "deps"), null); // not an Agentify MCP tool
   assert.equal(matchAgentifyServerTool("codex_apps", "query"), null); // wrong server
-  assert.equal(matchAgentifyServerTool(null, "ctx_load"), null);
+  assert.equal(matchAgentifyServerTool(null, "risk"), null); // generic tool needs an Agentify alias
+  assert.equal(matchAgentifyServerTool(null, "unknown"), null);
 });
 
 test("mcpToolCallEndErrored reads the Rust Result envelope Codex serializes", () => {
@@ -1577,6 +1586,9 @@ test("the Agentify tool-call baseline renders in json, text, and a dedicated htm
   assert.ok(html.includes('data-testid="analyze-agentify-tool-calls"'), "dedicated html block missing");
   assert.ok(html.includes("Do agents actually call Agentify"), "html block heading missing");
   assert.ok(/mcp__<server>__<tool>/.test(report.agentify_tool_calls.detection_rule) && /agentify/i.test(report.agentify_tool_calls.detection_rule), "detection rule not recorded");
+  assert.ok(Array.isArray(report.agentify_tool_calls.detection_limitations) && report.agentify_tool_calls.detection_limitations.length >= 1, "detection limitations not recorded");
+  assert.ok(report.agentify_tool_calls.detection_limitations.some((item) => /query and risk/.test(item)), "custom-alias limitation not documented");
+  assert.ok(html.includes("Detection limitations"), "html omits detection limitations");
   assert.ok(html.includes("availability-undetermined") || /availability is undetermined/i.test(html), "html omits the availability caveat");
   assert.match(text, /Agentify MCP tool calls \(baseline\)/);
   assert.match(text, /Zero-call sessions:/);

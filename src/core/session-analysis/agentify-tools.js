@@ -30,11 +30,35 @@ export const AGENTIFY_TOOL_TELEMETRY_VERSION = "agentify-tool-telemetry-v1";
 // (not imported) so telemetry never depends on constructing the live server.
 export const AGENTIFY_MCP_TOOLS = ["ctx_load", "ctx_note", "ctx_match", "query", "risk", "test_select"];
 
+// `claude mcp add <name> -- agentify serve` lets the operator choose any
+// server alias, so the alias in a transcript is not guaranteed to contain
+// "agentify". Four of the tool names are distinctive enough to Agentify that
+// a match on the tool alone is safe regardless of alias; `query` and `risk`
+// are generic English words other MCP servers plausibly expose, so those two
+// still require the alias to look like Agentify. The residual limitation
+// (query/risk under a non-"agentify" alias) is surfaced in the telemetry
+// block rather than silently biasing the baseline.
+const DISTINCTIVE_AGENTIFY_TOOLS = new Set(["ctx_load", "ctx_note", "ctx_match", "test_select"]);
+const GENERIC_AGENTIFY_TOOLS = new Set(["query", "risk"]);
+
 const MCP_PREFIX = "mcp__";
 
-// Returns the canonical Agentify tool name for an MCP tool-call name, or null
-// when the name is not an Agentify MCP call. Works identically for Claude and
-// Codex because both use the `mcp__<server>__<tool>` convention.
+function isAgentifyServer(server) {
+  return /agentify/i.test(String(server || ""));
+}
+
+// Decides whether (server, tool) is an Agentify call: distinctive tools match
+// under any alias; generic tools require an Agentify-looking server alias.
+function resolveAgentifyTool(server, tool) {
+  if (DISTINCTIVE_AGENTIFY_TOOLS.has(tool)) return tool;
+  if (GENERIC_AGENTIFY_TOOLS.has(tool) && isAgentifyServer(server)) return tool;
+  return null;
+}
+
+// Returns the canonical Agentify tool name for a flat `mcp__<server>__<tool>`
+// name, or null. Works for Claude tool_use and Codex function_call/
+// custom_tool_call names. Server and tool names can both contain underscores,
+// so the tool suffix is matched from the end rather than by splitting on `__`.
 export function matchAgentifyMcpTool(rawName) {
   const name = String(rawName || "");
   if (!name.startsWith(MCP_PREFIX)) return null;
@@ -43,20 +67,19 @@ export function matchAgentifyMcpTool(rawName) {
     const suffix = `__${tool}`;
     if (rest.length > suffix.length && rest.endsWith(suffix)) {
       const server = rest.slice(0, rest.length - suffix.length);
-      if (/agentify/i.test(server)) return tool;
+      const resolved = resolveAgentifyTool(server, tool);
+      if (resolved) return resolved;
     }
   }
   return null;
 }
 
 // Returns the canonical Agentify tool name for a Codex mcp_tool_call_end
-// invocation (explicit server + tool fields), or null. Case-insensitive on
-// the server, exact on the tool.
+// invocation (explicit server + tool fields), or null.
 export function matchAgentifyServerTool(server, tool) {
-  const serverName = String(server || "");
   const toolName = String(tool || "");
-  if (!/agentify/i.test(serverName)) return null;
-  return AGENTIFY_MCP_TOOLS.includes(toolName) ? toolName : null;
+  if (!AGENTIFY_MCP_TOOLS.includes(toolName)) return null;
+  return resolveAgentifyTool(server, toolName);
 }
 
 // Detects a failed Agentify call from a Codex mcp_tool_call_end `result`.
@@ -126,11 +149,21 @@ export function mergeAgentifyToolCalls(target, source) {
   return target;
 }
 
-const DETECTION_RULE = "An MCP call whose server matches /agentify/i and whose tool is one of "
-  + `${AGENTIFY_MCP_TOOLS.join(", ")} (the server registered via \`claude mcp add agentify -- agentify serve\`). `
-  + "Matched from two transcript shapes: a flat mcp__<server>__<tool> name (Claude tool_use and Codex "
-  + "function_call/custom_tool_call), and Codex mcp_tool_call_end events carrying invocation.server/tool. "
-  + "Codex calls are de-duplicated by call_id so a call present in both shapes is counted once.";
+const DETECTION_RULE = "An MCP call to an Agentify tool (one of "
+  + `${AGENTIFY_MCP_TOOLS.join(", ")}), the server registered via \`claude mcp add <alias> -- agentify serve\`. `
+  + "The distinctive tools (ctx_load, ctx_note, ctx_match, test_select) are matched under any server alias; "
+  + "the generic-word tools (query, risk) additionally require the server alias to match /agentify/i. Matched "
+  + "from two transcript shapes: a flat mcp__<server>__<tool> name (Claude tool_use and Codex function_call/"
+  + "custom_tool_call), and Codex mcp_tool_call_end events carrying invocation.server/tool. Codex calls are "
+  + "de-duplicated by call_id so a call present in both shapes is counted once.";
+
+const DETECTION_LIMITATIONS = [
+  "query and risk are generic words, so a call to them counts only when the MCP server alias matches "
+    + "/agentify/i; if Agentify is registered under an unrelated alias (e.g. `claude mcp add repo-tools`), "
+    + "query/risk calls under that alias are not counted and the baseline is a lower bound for those two tools.",
+  "Transcripts do not record MCP server registration, so a session with no Agentify call cannot be proven to "
+    + "have had Agentify available (see availability.note).",
+];
 
 const AVAILABILITY_NOTE = "Neither Claude nor Codex transcripts record which MCP servers were registered "
   + "for a session, so Agentify availability is only positively provable when a call is present. Sessions "
@@ -186,6 +219,7 @@ export function aggregateAgentifyToolCalls(sessions) {
   return {
     schema_version: AGENTIFY_TOOL_TELEMETRY_VERSION,
     detection_rule: DETECTION_RULE,
+    detection_limitations: [...DETECTION_LIMITATIONS],
     known_tools: [...AGENTIFY_MCP_TOOLS],
     availability: {
       determinable_from_transcript: false,

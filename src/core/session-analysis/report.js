@@ -338,6 +338,9 @@ function agentifyToolCallsSection(telemetry) {
           <p class="metric-note">${escapeHtml(telemetry.availability.note)}</p>
           <p class="metric-note">${escapeHtml(zero.note)}</p>
           <p class="opp-caveat">${escapeHtml(telemetry.detection_rule)}</p>
+          ${Array.isArray(telemetry.detection_limitations) && telemetry.detection_limitations.length > 0
+    ? `<details><summary>Detection limitations (${telemetry.detection_limitations.length})</summary><ul>${telemetry.detection_limitations.map((item) => `<li class="metric-note">${escapeHtml(item)}</li>`).join("")}</ul></details>`
+    : ""}
         </article>
       </div>
     </section>`;
