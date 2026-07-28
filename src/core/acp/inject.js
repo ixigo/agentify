@@ -121,6 +121,9 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
     // marked block as a whole honors the cap. The selection algorithm and
     // policy resolution are reused as-is; only the budget the caller asks the
     // selector to fill is pre-reduced (via the supported policy override).
+    // Consequence: matchContext's telemetry records this content budget (cap
+    // minus the fixed marker) and the digest's own tokens — i.e. the budget
+    // that actually governs the injected CONTEXT — not the marker framing.
     const policy = await resolveContextPolicy(root, config, { env });
     const budgetedPolicy = {
       ...policy,
@@ -335,8 +338,12 @@ export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = 
   // context block.
   const handleLine = async (lineBuf) => {
     // Never buffer/parse/reserialize a line larger than the cap (e.g. a prompt
-    // carrying a big base64 blob) — forward it unchanged.
+    // carrying a big base64 blob). Forward it unchanged AND fall back to pure
+    // pass-through for the rest of the connection: injecting into a *later*
+    // turn instead would violate "first turn only", and making that depend on
+    // how the transport happened to chunk the bytes would be worse still.
     if (lineBuf.length > maxScanBytes) {
+      passthrough = true;
       transform.push(lineBuf);
       return;
     }
@@ -403,6 +410,14 @@ export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = 
           const lineBuf = buffer.subarray(start, nl + 1); // includes the '\n'
           start = nl + 1;
           await handleLine(lineBuf);
+          if (passthrough) {
+            // An oversized line flipped us to raw forwarding; flush whatever is
+            // left in this chunk unchanged and stop parsing.
+            const rest = buffer.subarray(start);
+            if (rest.length) this.push(Buffer.from(rest));
+            buffer = EMPTY;
+            return callback();
+          }
         }
         let leftover = buffer.subarray(start);
         // A single line larger than the cap without a newline: give up parsing

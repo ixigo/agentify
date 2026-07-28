@@ -69,6 +69,13 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   // summaries) intact — unlike AGENTIFY_CTX=off, which pauses tracking too.
   // When we are not injecting we leave the environment untouched, preserving
   // #335's exact pass-through behaviour.
+  //
+  // Known trade-off: AGENTIFY_CTX_INJECTION=off is the only existing lever that
+  // suppresses the downstream's context injection, and the hooks path gates its
+  // PreToolUse failed-command precheck behind the same mode, so an injecting ACP
+  // session also loses the downstream's precheck warnings. Tracking is
+  // preserved; a per-feature lever would be a change to the shared hooks path,
+  // out of scope for #336.
   const childEnv = injecting ? { ...env, AGENTIFY_CTX_INJECTION: "off" } : env;
 
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {

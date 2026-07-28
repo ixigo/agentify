@@ -172,17 +172,19 @@ test("the injector injects the first turn of EACH session on a shared connection
   assert.equal(calls, 2, "buildDigest runs once per session start, not per turn");
 });
 
-test("the injector stops parsing and forwards raw once a line exceeds the scan cap", async () => {
-  // A tiny cap plus an oversized prompt line: rather than buffer/parse it (risk
-  // of quadratic copying / OOM on large base64 blobs), the injector forwards
-  // everything unchanged from that point on.
-  let called = false;
-  const injector = createFirstTurnInjector({ buildDigest: async () => { called = true; return "D"; }, maxScanBytes: 64 });
-  const bigText = "z".repeat(500);
-  const bigPrompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: bigText }] } });
-  const out = await runInjector(injector, [bigPrompt]);
-  assert.equal(out, bigPrompt, "oversized line must be forwarded byte-identically");
-  assert.equal(called, false, "no injection is attempted on an oversized line");
+test("an oversized first prompt disables injection for the rest of the connection (no later-turn injection)", async () => {
+  // A tiny cap plus an oversized first prompt: rather than buffer/parse it (risk
+  // of quadratic copying / OOM on large base64 blobs), the injector forwards it
+  // unchanged AND falls back to raw pass-through, so a later smaller turn of the
+  // same session is NOT injected into — injection stays first-turn-only and is
+  // not dependent on how the transport chunked the bytes.
+  let called = 0;
+  const injector = createFirstTurnInjector({ buildDigest: async () => { called += 1; return "D"; }, maxScanBytes: 64 });
+  const bigPrompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "z".repeat(500) }] } });
+  const laterPrompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "small" }] } });
+  const out = await runInjector(injector, [bigPrompt, laterPrompt]);
+  assert.equal(out, `${bigPrompt}${laterPrompt}`, "both lines must be forwarded byte-identically");
+  assert.equal(called, 0, "no injection is attempted once the scan cap is exceeded");
 });
 
 test("the injector forwards the first prompt unchanged when there is nothing to inject", async () => {
