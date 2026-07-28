@@ -253,6 +253,46 @@ test("a stalled digest build times out and forwards the prompt unchanged", async
   assert.equal(out, prompt, "on timeout the prompt must be forwarded byte-identically");
 });
 
+test("a build that finishes after the timeout does not commit telemetry (no phantom injection)", async () => {
+  // The build resolves AFTER the timeout with a commit callback. Because the
+  // injector already forwarded the prompt raw, it must never invoke that commit.
+  let committed = 0;
+  const injector = createFirstTurnInjector({
+    injectTimeoutMs: 20,
+    buildDigest: () => new Promise((resolve) => setTimeout(
+      () => resolve({ digest: "D", commit: async () => { committed += 1; } }),
+      120,
+    )),
+  });
+  const prompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [prompt]);
+  assert.equal(out, prompt, "the prompt was forwarded raw (build timed out)");
+  await delay(200); // let the late build settle
+  assert.equal(committed, 0, "a dropped injection must not be recorded as successful");
+});
+
+test("commit runs only after a real injection is forwarded", async () => {
+  let committed = 0;
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => ({ digest: "D", commit: async () => { committed += 1; } }),
+  });
+  const prompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [prompt]);
+  assert.ok(JSON.parse(out.trim()).params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN), "the prompt was injected");
+  await delay(20);
+  assert.equal(committed, 1, "commit runs once after the injection is forwarded");
+});
+
+test("an unterminated final prompt frame at EOF is still injected", async () => {
+  const injector = createFirstTurnInjector({ buildDigest: async () => "D" });
+  // No trailing newline — a valid final ACP frame at EOF.
+  const prompt = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [prompt]);
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.params.prompt.length, 2, "the unterminated final prompt must be injected");
+  assert.ok(parsed.params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+});
+
 test("the injector injects when the session is established in the launch workspace", async () => {
   const injector = createFirstTurnInjector({
     buildDigest: async () => "D",
@@ -300,10 +340,10 @@ test("buildInjectionDigest re-checks the transient pause marker per session star
   try {
     await addNote(root, "payment retries must reuse an idempotency key so a retry never double-charges");
     // Not paused → a digest is produced.
-    assert.ok(await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} }));
+    assert.ok((await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} })).digest);
     // Paused → nothing is injected, even though the mode was resolved earlier.
     await pauseContext(root);
-    assert.equal(await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} }), "");
+    assert.equal((await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config: {} })).digest, "");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -314,7 +354,7 @@ test("buildInjectionDigest (relevant) returns a marked-within-budget digest buil
   try {
     await addNote(root, "payment retries must reuse an idempotency key so a retry never double-charges");
     const config = {};
-    const digest = await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config });
+    const { digest } = await buildInjectionDigest(root, { mode: "relevant", promptText: "fix the payment retries", config });
     assert.ok(digest, "expected a non-empty digest");
     assert.ok(/idempotency key/.test(digest), "the matched note should be present");
 
@@ -339,7 +379,7 @@ test("budget boundary: an oversized item is truncated by the policy, not silentl
     const huge = `payment retry idempotency: ${"x".repeat(1200)}`;
     await addNote(root, huge, { type: "decision" });
     const config = { context: { maxInjectedTokens: 300 } };
-    const digest = await buildInjectionDigest(root, { mode: "relevant", promptText: "payment retry idempotency", config });
+    const { digest } = await buildInjectionDigest(root, { mode: "relevant", promptText: "payment retry idempotency", config });
     assert.ok(digest, "the oversized decision must not be silently dropped");
     assert.ok(/truncated from \d+ chars/.test(digest), "it must be truncated with provenance by the policy");
     // The full injected block (wrapper + truncated digest) respects the cap.
@@ -358,10 +398,13 @@ test("digest mode is bounded by the policy budget, not injected in full", async 
       await addNote(root, `note ${i}: ${"context ".repeat(60)}`);
     }
     const config = { context: { maxInjectedTokens: 200 } };
-    const digest = await buildInjectionDigest(root, { mode: "digest", promptText: "", config });
+    const { digest, commit } = await buildInjectionDigest(root, { mode: "digest", promptText: "", config });
     assert.ok(digest, "digest mode should still inject something");
     assert.ok(/truncated to fit the Agentify context budget/.test(digest), "an oversized digest must be truncated");
     assert.ok(estimateContextTokens(markInjectedBlock(digest)) <= 200, "the injected block must respect the budget");
+
+    // commit() persists telemetry only when the injection is actually applied.
+    await commit();
 
     // Telemetry must count only what actually survived truncation, not the full
     // snapshot — the counts gate whether this feature is worth enabling.

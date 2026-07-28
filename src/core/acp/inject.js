@@ -110,44 +110,65 @@ export function markInjectedBlock(digest) {
 // injected block (wrapper + digest) stays within the policy cap.
 const MARKER_OVERHEAD_TOKENS = estimateContextTokens(markInjectedBlock(""));
 
-// Build the digest text to inject for the first user turn, reusing the exact
-// same selection/rendering the hooks path uses. Returns "" when there is
-// nothing worth injecting. relevant mode is task-scoped and budgeted via
-// ctx-budget's selectWithinBudget (an oversized item is truncated by the
-// policy, not dropped); digest mode is the full `ctx load` digest.
+// Build the digest to inject for the first user turn, reusing the exact same
+// selection/rendering the hooks path uses. Returns `{ digest, commit }`:
+// `digest` is "" when there is nothing worth injecting, and `commit` is an async
+// fn (or null) the caller invokes ONLY after the injection actually reaches the
+// downstream — so telemetry never records an injection that was dropped (a
+// timed-out build, or a prompt forwarded raw). Computation itself is
+// side-effect-free (matchContext runs with recordInjection:false), so a build
+// abandoned by the caller's timeout leaves no persistent trace.
 //
-// The transient `ctx pause` marker is re-checked here so pause/resume takes
-// effect per session-start on a running proxy.
+// relevant mode is task-scoped and budgeted via ctx-budget's selectWithinBudget
+// (an oversized item is truncated by the policy, not dropped); digest mode is
+// the full `ctx load` digest, capped to the same budget. The transient
+// `ctx pause` marker is re-checked here so pause/resume takes effect per
+// session-start on a running proxy.
 export async function buildInjectionDigest(root, { mode, promptText, config = {}, env = process.env, sessionId } = {}) {
+  const none = { digest: "", commit: null };
   if (await isContextPaused(root, env)) {
-    return "";
+    return none;
   }
+  const sid = ledgerSessionId(sessionId);
   if (mode === "relevant") {
     // Reserve the wrapper's fixed overhead out of the policy budget so the
     // marked block as a whole honors the cap. The selection algorithm and
     // policy resolution are reused as-is; only the budget the caller asks the
     // selector to fill is pre-reduced (via the supported policy override).
-    // Consequence: matchContext's telemetry records this content budget (cap
-    // minus the fixed marker) and the digest's own tokens — i.e. the budget
-    // that actually governs the injected CONTEXT — not the marker framing.
     const policy = await resolveContextPolicy(root, config, { env });
     const budgetedPolicy = {
       ...policy,
       max_injected_tokens: Math.max(0, policy.max_injected_tokens - MARKER_OVERHEAD_TOKENS),
     };
     const matches = await matchContext(root, promptText || "", {
-      sessionId: ledgerSessionId(sessionId),
+      sessionId: sid,
       config,
       env,
       policy: budgetedPolicy,
+      recordInjection: false,
     });
-    return matches.digest || "";
+    const digest = matches.digest || "";
+    if (!digest) {
+      return none;
+    }
+    const decisions = (matches.notes || []).filter((item) => item.note?.type === "decision").length;
+    const injectedItems = (matches.notes || []).length + (matches.summaries || []).length
+      + (matches.files || []).length + (matches.failures || []).length;
+    const commit = () => recordInjectionEvent(root, {
+      mode: "relevant",
+      sid,
+      estimated_tokens: matches.budget?.rendered_tokens ?? estimateContextTokens(digest),
+      injected_items: injectedItems,
+      decisions_reused: decisions,
+      stale_context_rejected: matches.stale_rejected || 0,
+    });
+    return { digest, commit };
   }
   if (mode === "digest") {
     const snapshot = await loadContextSnapshot(root);
     let digest = renderContextDigest(snapshot) || "";
     if (!digest) {
-      return "";
+      return none;
     }
     // The full `ctx load` digest is not item-budgeted, so bound it to the same
     // policy cap (minus the marker overhead) rather than letting a large history
@@ -155,21 +176,32 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
     const policy = await resolveContextPolicy(root, config, { env });
     const budget = policy.max_injected_tokens - MARKER_OVERHEAD_TOKENS;
     if (budget <= 0) {
-      return "";
+      return none;
     }
     const truncated = estimateContextTokens(digest) > budget;
     if (truncated) {
       digest = truncateToTokenBudget(digest, budget);
     }
-    if (digest) {
-      // Keep ACP digest injections in value/eval telemetry — but count only what
-      // actually survives into the injected digest, so a truncated digest never
-      // claims items that were cut (the counts drive the feature's own eval gate).
-      await recordDigestTelemetry(root, digest, { sessionId: ledgerSessionId(sessionId), truncated });
+    if (!digest) {
+      return none;
     }
-    return digest;
+    // Count only what actually survives into the injected digest (each item is a
+    // "- " bullet), so a truncated digest never claims items that were cut.
+    const bullets = (digest.match(/^- /gm) || []).length;
+    const decisions = (digest.match(/\[decision\]/g) || []).length;
+    const finalDigest = digest;
+    const commit = () => recordInjectionEvent(root, {
+      mode: "digest",
+      sid,
+      estimated_tokens: estimateContextTokens(finalDigest),
+      injected_items: bullets,
+      decisions_reused: decisions,
+      stale_context_rejected: 0,
+      truncated: Boolean(truncated),
+    });
+    return { digest: finalDigest, commit };
   }
-  return "";
+  return none;
 }
 
 // Hard char-based cap for the non-item-budgeted digest, with a provenance
@@ -187,23 +219,13 @@ function truncateToTokenBudget(text, maxTokens) {
   return `${text.slice(0, budgetChars).trimEnd()}${marker}`;
 }
 
-// Record a digest-mode injection from the digest text ACTUALLY injected (each
-// item renders as a "- " bullet), so telemetry stays honest even when the
-// digest was truncated. Best-effort: telemetry must never break injection.
-async function recordDigestTelemetry(root, digest, { sessionId, truncated } = {}) {
-  const bullets = digest.match(/^- /gm) || [];
-  const decisions = digest.match(/\[decision\]/g) || [];
+// Record a completed ACP injection in value/eval telemetry. Called by the
+// caller's commit() ONLY after the injection actually reached the downstream, so
+// counts never reflect a dropped injection. Best-effort: telemetry must never
+// break injection.
+async function recordInjectionEvent(root, event) {
   try {
-    await recordValueEvent(root, {
-      type: "context_injection",
-      mode: "digest",
-      sid: sessionId,
-      estimated_tokens: estimateContextTokens(digest),
-      injected_items: bullets.length,
-      decisions_reused: decisions.length,
-      stale_context_rejected: 0,
-      truncated: Boolean(truncated),
-    });
+    await recordValueEvent(root, { type: "context_injection", ...event });
   } catch {
     // Context output must never depend on value telemetry.
   }
@@ -386,20 +408,20 @@ const MAX_SCAN_BYTES = 512 * 1024;
 // exists so a stalled filesystem can't wedge cancellation/subsequent traffic.
 const DEFAULT_INJECT_TIMEOUT_MS = 2000;
 
-// Resolve to `promise`'s value, or "" if it does not settle within `ms`. The
-// underlying promise is left to complete on its own (its ledger/telemetry write
-// still lands); we simply stop blocking the stream on it.
-function withTimeout(promise, ms) {
+// Resolve to `promise`'s value, or `fallback` if it does not settle within `ms`.
+// The underlying promise is left to complete on its own; because digest building
+// is side-effect-free until commit(), abandoning it here leaves no trace.
+function withTimeout(promise, ms, fallback) {
   if (!(ms > 0)) {
     return promise;
   }
   return new Promise((resolve) => {
     let settled = false;
-    const timer = setTimeout(() => { if (!settled) { settled = true; resolve(""); } }, ms);
+    const timer = setTimeout(() => { if (!settled) { settled = true; resolve(fallback); } }, ms);
     timer.unref?.();
     promise.then(
       (value) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } },
-      () => { if (!settled) { settled = true; clearTimeout(timer); resolve(""); } },
+      () => { if (!settled) { settled = true; clearTimeout(timer); resolve(fallback); } },
     );
   });
 }
@@ -488,17 +510,29 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
       return;
     }
     let digest = "";
+    let commit = null;
     try {
-      // Bound the wait: building the digest reads .agentify files and writes the
-      // ledger/telemetry; the transform loop is serial, so a stalled filesystem
-      // would otherwise hold up the very next client message (e.g. a
-      // session/cancel). On timeout we forward the prompt unchanged.
-      digest = await withTimeout(
-        buildDigest(promptText, { sessionId: sessionId === NO_SESSION_KEY ? undefined : sessionId }),
+      // Bound the wait: building the digest reads .agentify files; the transform
+      // loop is serial, so a stalled filesystem would otherwise hold up the very
+      // next client message (e.g. a session/cancel). On timeout we forward the
+      // prompt unchanged. Building is side-effect-free until commit(), so an
+      // abandoned build records nothing. buildDigest may return the digest string
+      // directly or `{ digest, commit }`; commit (if any) is invoked only after
+      // the injection is actually forwarded.
+      const built = await withTimeout(
+        Promise.resolve(buildDigest(promptText, { sessionId: sessionId === NO_SESSION_KEY ? undefined : sessionId })),
         injectTimeoutMs,
+        { digest: "", commit: null },
       );
+      if (typeof built === "string") {
+        digest = built;
+      } else if (built && typeof built === "object") {
+        digest = built.digest || "";
+        commit = typeof built.commit === "function" ? built.commit : null;
+      }
     } catch {
       digest = "";
+      commit = null;
     }
     if (!digest) {
       transform.push(lineBuf); // nothing to inject — forward unchanged
@@ -506,10 +540,14 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
     }
     const rewritten = injectIntoPromptMessage(text, message, markInjectedBlock(digest));
     if (rewritten === null) {
-      transform.push(lineBuf); // could not locate the array — forward unchanged
+      transform.push(lineBuf); // could not locate the array — forward unchanged (no commit)
       return;
     }
     transform.push(Buffer.from(rewritten, "utf8")); // rewritten keeps the trailing '\n'
+    // Persist telemetry ONLY now that the injection has actually been forwarded.
+    if (typeof commit === "function") {
+      Promise.resolve().then(commit).catch(() => {});
+    }
     if (typeof onInject === "function") {
       try { onInject({ digest, sessionId }); } catch { /* observers must not break the stream */ }
     }
@@ -553,12 +591,24 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
         callback(error);
       }
     },
-    flush(callback) {
-      if (buffer.length) {
-        this.push(buffer); // trailing partial line (no newline) — forward as-is
-        buffer = EMPTY;
+    async flush(callback) {
+      try {
+        if (buffer.length) {
+          const rest = buffer;
+          buffer = EMPTY;
+          // An unterminated final line is still a valid ACP frame at EOF, so run
+          // it through the same handling (it may be the first session/prompt) —
+          // unless we already fell back to raw pass-through.
+          if (passthrough) {
+            this.push(rest);
+          } else {
+            await handleLine(rest);
+          }
+        }
+        callback();
+      } catch (error) {
+        callback(error);
       }
-      callback();
     },
   });
 
