@@ -93,6 +93,29 @@ test("injectIntoPromptMessage prepends a marked block and preserves a huge id ve
   assert.deepEqual(parsed.params.prompt[1], { type: "text", text: "hello" });
 });
 
+test("injectIntoPromptMessage preserves every other byte, including large numbers and _meta, verbatim", () => {
+  // A parse+reserialize would round both big numbers and could reorder keys;
+  // the surgical insert must leave everything except the new block untouched.
+  const raw = '{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"s","big":10000000000000001,"prompt":[{"type":"text","text":"hi"}],"_meta":{"trace":90071992547409931}}}';
+  const out = injectIntoPromptMessage(raw, JSON.parse(raw), markInjectedBlock("D"));
+  assert.ok(out.includes("10000000000000001"), "a large params number must survive unrounded");
+  assert.ok(out.includes("90071992547409931"), "a large _meta number must survive unrounded");
+  // Everything outside the prompt array is byte-for-byte identical: the output
+  // equals the input with exactly the injected block spliced in after '['.
+  const marker = '"prompt":[';
+  const at = raw.indexOf(marker) + marker.length;
+  const block = JSON.stringify({ type: "text", text: markInjectedBlock("D") });
+  assert.equal(out, `${raw.slice(0, at)}${block},${raw.slice(at)}`);
+});
+
+test("injectIntoPromptMessage handles an empty prompt array without a stray comma", () => {
+  const raw = '{"id":1,"method":"session/prompt","params":{"sessionId":"s","prompt":[]}}';
+  const out = injectIntoPromptMessage(raw, JSON.parse(raw), "D");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.params.prompt.length, 1);
+  assert.equal(parsed.params.prompt[0].text, "D");
+});
+
 test("injectIntoPromptMessage refuses non-prompt shapes", () => {
   const notify = '{"jsonrpc":"2.0","method":"session/prompt","params":{"prompt":[]}}';
   assert.equal(injectIntoPromptMessage(notify, JSON.parse(notify), "x"), null); // no id
@@ -124,6 +147,29 @@ test("the injector forwards non-prompt traffic byte-identically and injects only
 
   // The second prompt is untouched (byte-identical) — injection is first-turn only.
   assert.equal(outLines[3], secondPrompt);
+});
+
+test("the injector injects the first turn of EACH session on a shared connection", async () => {
+  let calls = 0;
+  const injector = createFirstTurnInjector({ buildDigest: async () => `DIGEST-${++calls}` });
+
+  const sessA1 = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "A", prompt: [{ type: "text", text: "a1" }] } });
+  const sessA2 = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "A", prompt: [{ type: "text", text: "a2" }] } });
+  const sessB1 = line({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: "B", prompt: [{ type: "text", text: "b1" }] } });
+
+  const out = await runInjector(injector, [sessA1, sessA2, sessB1]);
+  const outLines = out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+  // Session A's first turn: injected.
+  assert.equal(outLines[0].params.prompt.length, 2);
+  assert.ok(outLines[0].params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+  // Session A's second turn: untouched.
+  assert.equal(outLines[1].params.prompt.length, 1);
+  assert.deepEqual(outLines[1].params.prompt[0], { type: "text", text: "a2" });
+  // Session B's first turn: injected (its own session start).
+  assert.equal(outLines[2].params.prompt.length, 2);
+  assert.ok(outLines[2].params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+  assert.equal(calls, 2, "buildDigest runs once per session start, not per turn");
 });
 
 test("the injector forwards the first prompt unchanged when there is nothing to inject", async () => {
@@ -214,7 +260,7 @@ rl.on("line", (raw) => {
   } else if (message.method === "session/new") {
     send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "sess" } });
   } else if (message.method === "session/prompt") {
-    send({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn", received: message.params.prompt, envCtx: process.env.AGENTIFY_CTX ?? null } });
+    send({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn", received: message.params.prompt, envCtx: process.env.AGENTIFY_CTX ?? null, envInjection: process.env.AGENTIFY_CTX_INJECTION ?? null } });
   } else if (message.id !== undefined && message.id !== null) {
     send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "method not found" } });
   }
@@ -275,11 +321,37 @@ test("runAcpProxyCommand injects into the first turn and suppresses downstream h
     assert.ok(/idempotency key/.test(promptResult.received[0].text));
     assert.deepEqual(promptResult.received[1], { type: "text", text: "fix the payment retries" });
 
-    // Double-injection guard: the child was spawned with AGENTIFY_CTX=off.
-    assert.equal(promptResult.envCtx, "off");
+    // Double-injection guard: the child was spawned with the NARROW switch
+    // (AGENTIFY_CTX_INJECTION=off) so its own injection is suppressed, while its
+    // context TRACKING stays enabled (AGENTIFY_CTX is NOT forced off).
+    assert.equal(promptResult.envInjection, "off");
+    assert.notEqual(promptResult.envCtx, "off");
 
     input.end();
     await commandPromise;
+  });
+});
+
+test("runAcpProxyCommand tears down cleanly when the client aborts before ending", async () => {
+  await withEchoAgent(async (dir, scriptPath) => {
+    await addNote(dir, "payment retries must reuse an idempotency key so a retry never double-charges");
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let child = null;
+    const commandPromise = runAcpProxyCommand(
+      dir,
+      { context: { acpInjection: "relevant" } },
+      { command: scriptPath, provider: null },
+      { input, output, log: () => {}, handleSignals: false, setExitCode: false, env: { PATH: process.env.PATH }, onSpawn: (spawned) => { child = spawned; } },
+    );
+    await waitUntil(() => child !== null, { timeout: 5000 });
+    // Abrupt disconnect: destroy the client stream without a clean EOF. With the
+    // injector interposed, the proxy must still observe the teardown, resolve,
+    // and terminate the child (not hang).
+    input.destroy();
+    const result = await commandPromise;
+    assert.ok(result);
+    assert.ok(child.exitCode !== null || child.signalCode !== null, "child must be terminated on an abrupt client close");
   });
 });
 

@@ -161,26 +161,32 @@ function skipValue(line, start) {
   return i;
 }
 
-// Extract the RAW text of the top-level `"id"` value from a JSON-RPC line,
-// without parsing it into a (possibly lossy) JS number. Returns the exact
-// source substring (e.g. "9007199254740993" or '"req-1"'), or null if there is
-// no top-level id. Only depth-1 keys are considered, so an "id" nested inside
-// params is ignored.
-export function extractTopLevelRawId(line) {
-  let i = 0;
+function decodeKey(rawKeyWithQuotes) {
+  try {
+    return JSON.parse(rawKeyWithQuotes);
+  } catch {
+    return null;
+  }
+}
+
+// Scan the JSON object whose opening `{` is at `line[braceIndex]` and return the
+// `[valueStart, valueEnd)` span of the given (decoded) key at THIS object's top
+// level, or null. Keys are compared by their decoded value so an escaped key
+// like "id" still matches "id". Nested objects/arrays are skipped wholesale
+// via skipValue, so only depth-1 keys of this object are considered.
+function findObjectValueSpan(line, braceIndex, key) {
   const n = line.length;
-  while (i < n && line[i] !== "{") i += 1;
-  if (i >= n) return null;
-  i += 1; // past the opening '{'
+  if (line[braceIndex] !== "{") return null;
+  let i = braceIndex + 1;
   while (i < n) {
     while (i < n && (isWhitespace(line[i]) || line[i] === ",")) i += 1;
     if (i >= n) return null;
-    if (line[i] === "}") return null; // end of object, no id found
+    if (line[i] === "}") return null; // end of object, key not found
     if (line[i] !== '"') return null; // malformed at the key position
     const keyStart = i;
     const keyEnd = skipString(line, i);
     if (keyEnd < 0) return null;
-    const key = line.slice(keyStart, keyEnd);
+    const decoded = decodeKey(line.slice(keyStart, keyEnd));
     i = keyEnd;
     while (i < n && isWhitespace(line[i])) i += 1;
     if (line[i] !== ":") return null;
@@ -189,18 +195,32 @@ export function extractTopLevelRawId(line) {
     const valStart = i;
     const valEnd = skipValue(line, i);
     if (valEnd < 0) return null;
-    if (key === '"id"') {
-      return line.slice(valStart, valEnd).trim();
+    if (decoded === key) {
+      return [valStart, valEnd];
     }
     i = valEnd;
   }
   return null;
 }
 
-// Reserialize a parsed first-prompt message with the marked context block
-// prepended to params.prompt, restoring the original top-level id bytes so
-// large-integer ids survive. Returns the new line (no trailing newline), or
-// null when the shape is not the expected prompt request.
+// Extract the RAW text of the top-level `"id"` value from a JSON-RPC line,
+// without parsing it into a (possibly lossy) JS number. Returns the exact
+// source substring (e.g. "9007199254740993" or '"req-1"'), or null when there
+// is no top-level id. Only depth-1 keys are considered.
+export function extractTopLevelRawId(line) {
+  const brace = line.indexOf("{");
+  if (brace < 0) return null;
+  const span = findObjectValueSpan(line, brace, "id");
+  return span ? line.slice(span[0], span[1]).trim() : null;
+}
+
+// Surgically insert a marked context block as the FIRST element of the raw
+// prompt array, touching nothing else. This is a pure byte insertion — the
+// JSON-RPC id, every other params field, `_meta`, key order, whitespace, and
+// large numeric values all keep their exact original bytes (a parse+reserialize
+// would round any integer beyond 2^53 anywhere in the message). Returns the
+// rewritten line, or null if the expected `params.prompt` array cannot be
+// located, in which case the caller forwards the original bytes unchanged.
 export function injectIntoPromptMessage(rawLine, message, markedText) {
   if (!message || typeof message !== "object" || Array.isArray(message)) {
     return null;
@@ -208,48 +228,53 @@ export function injectIntoPromptMessage(rawLine, message, markedText) {
   if (message.method !== PROMPT_METHOD || !("id" in message) || message.id === null) {
     return null;
   }
-  const params = message.params;
-  if (!params || typeof params !== "object" || !Array.isArray(params.prompt)) {
+  if (!message.params || typeof message.params !== "object" || !Array.isArray(message.params.prompt)) {
     return null;
   }
-  const modified = {
-    ...message,
-    params: {
-      ...params,
-      prompt: [{ type: "text", text: markedText }, ...params.prompt],
-    },
-  };
-  const rawId = extractTopLevelRawId(rawLine);
-  if (rawId === null) {
-    // Could not isolate the id safely; reserialize wholesale (small/string ids
-    // round-trip losslessly, which is the overwhelmingly common case).
-    return JSON.stringify(modified);
-  }
-  delete modified.id;
-  const body = JSON.stringify(modified);
-  return body === "{}" ? `{"id":${rawId}}` : `{"id":${rawId},${body.slice(1)}`;
+  const brace = rawLine.indexOf("{");
+  if (brace < 0) return null;
+  const paramsSpan = findObjectValueSpan(rawLine, brace, "params");
+  if (!paramsSpan || rawLine[paramsSpan[0]] !== "{") return null;
+  const promptSpan = findObjectValueSpan(rawLine, paramsSpan[0], "prompt");
+  if (!promptSpan || rawLine[promptSpan[0]] !== "[") return null;
+
+  const insertAt = promptSpan[0] + 1; // just after the opening '['
+  let after = insertAt;
+  while (after < rawLine.length && isWhitespace(rawLine[after])) after += 1;
+  const arrayIsEmpty = rawLine[after] === "]";
+  const block = JSON.stringify({ type: "text", text: markedText });
+  return `${rawLine.slice(0, insertAt)}${block}${arrayIsEmpty ? "" : ","}${rawLine.slice(insertAt)}`;
 }
 
 const EMPTY = Buffer.alloc(0);
 
 // Build the interposing Transform for the client -> downstream direction.
 //
-// `buildDigest(promptText)` is async and returns the digest string to inject
-// ("" to inject nothing). It is invoked at most once, for the first
-// session/prompt request. Every other byte is forwarded verbatim; once the
-// first prompt has been handled the Transform stops parsing entirely and
-// becomes a pure raw pass-through.
+// `buildDigest(promptText, { sessionId })` is async and returns the digest
+// string to inject ("" to inject nothing). It is invoked at most once PER ACP
+// session — for that session's first `session/prompt` — because a single
+// connection can host multiple sessions (`session/new` can be called more than
+// once) and each session start is its own first user turn. Later turns of an
+// already-seen session and every other message (including the whole reverse
+// direction, which is not routed through this Transform) are forwarded as their
+// original raw bytes, so byte-identity holds for everything we do not inject
+// into.
+const NO_SESSION_KEY = " __acp_no_session__";
+
 export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
   if (typeof buildDigest !== "function") {
-    throw new Error("createFirstTurnInjector requires a buildDigest(promptText) function");
+    throw new Error("createFirstTurnInjector requires a buildDigest(promptText, opts) function");
   }
   let buffer = EMPTY;
-  let doneParsing = false;
   let transform;
+  // ACP sessions whose first user turn has already been handled. Keyed by the
+  // prompt's sessionId so injection is confined to each session's start.
+  const seenSessions = new Set();
 
-  // Inspect one complete newline-terminated line. Non-prompt lines are pushed
-  // as their original bytes; the first session/prompt is (maybe) reserialized
-  // with the marked context block. After the first prompt, parsing stops.
+  // Inspect one complete newline-terminated line. Non-prompt lines — and later
+  // turns of a session we have already handled — are pushed as their original
+  // bytes; a session's first prompt is (maybe) rewritten to carry the marked
+  // context block.
   const handleLine = async (lineBuf) => {
     const text = lineBuf.toString("utf8");
     let message;
@@ -261,16 +286,26 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
     }
     const isPrompt = message && typeof message === "object" && !Array.isArray(message)
       && message.method === PROMPT_METHOD && "id" in message && message.id !== null
-      && message.params && Array.isArray(message.params.prompt);
+      && message.params && typeof message.params === "object" && Array.isArray(message.params.prompt);
     if (!isPrompt) {
       transform.push(lineBuf);
       return;
     }
-    // The first user turn: build and (maybe) inject, exactly once.
-    doneParsing = true;
+    const sessionId = typeof message.params.sessionId === "string" && message.params.sessionId
+      ? message.params.sessionId
+      : NO_SESSION_KEY;
+    if (seenSessions.has(sessionId)) {
+      transform.push(lineBuf); // a later turn — never rewrite it
+      return;
+    }
+    // First user turn of this session: consider it handled whether or not we
+    // end up injecting, so only the turn at session start is ever touched.
+    seenSessions.add(sessionId);
     let digest = "";
     try {
-      digest = await buildDigest(extractPromptText(message.params.prompt));
+      digest = await buildDigest(extractPromptText(message.params.prompt), {
+        sessionId: sessionId === NO_SESSION_KEY ? undefined : sessionId,
+      });
     } catch {
       digest = "";
     }
@@ -280,12 +315,12 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
     }
     const rewritten = injectIntoPromptMessage(text, message, markInjectedBlock(digest));
     if (rewritten === null) {
-      transform.push(lineBuf);
+      transform.push(lineBuf); // could not locate the array — forward unchanged
       return;
     }
-    transform.push(Buffer.from(`${rewritten}\n`, "utf8"));
+    transform.push(Buffer.from(rewritten, "utf8")); // rewritten keeps the trailing '\n'
     if (typeof onInject === "function") {
-      try { onInject({ digest }); } catch { /* observers must not break the stream */ }
+      try { onInject({ digest, sessionId }); } catch { /* observers must not break the stream */ }
     }
   };
 
@@ -293,25 +328,16 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
     async transform(chunk, _enc, callback) {
       try {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        if (doneParsing) {
-          this.push(bytes);
-          return callback();
-        }
         buffer = buffer.length ? Buffer.concat([buffer, bytes]) : bytes;
         let start = 0;
-        while (!doneParsing) {
-          const nl = buffer.indexOf(NEWLINE, start);
-          if (nl === -1) break;
+        let nl;
+        while ((nl = buffer.indexOf(NEWLINE, start)) !== -1) {
           const lineBuf = buffer.subarray(start, nl + 1); // includes the '\n'
           start = nl + 1;
           await handleLine(lineBuf);
         }
         const leftover = buffer.subarray(start);
         buffer = leftover.length ? Buffer.from(leftover) : EMPTY;
-        if (doneParsing && buffer.length) {
-          this.push(buffer);
-          buffer = EMPTY;
-        }
         callback();
       } catch (error) {
         callback(error);
@@ -319,7 +345,7 @@ export function createFirstTurnInjector({ buildDigest, onInject } = {}) {
     },
     flush(callback) {
       if (buffer.length) {
-        this.push(buffer);
+        this.push(buffer); // trailing partial line (no newline) — forward as-is
         buffer = EMPTY;
       }
       callback();

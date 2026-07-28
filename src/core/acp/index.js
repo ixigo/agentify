@@ -60,12 +60,14 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
 
   // Double-injection guard: if we inject, the downstream provider's own
   // Agentify hooks (e.g. Claude Code) must NOT also inject the digest, or a
-  // session gets it twice. AGENTIFY_CTX=off is the existing recursion guard
-  // (isContextPaused honors it, the same way delegate children are shielded),
-  // so setting it in the child's environment suppresses the downstream hooks.
+  // session gets it twice. AGENTIFY_CTX_INJECTION=off is the narrow, existing
+  // switch the hooks path already honors (resolveInjectionMode reads it first,
+  // the same lever eval ablations use): it turns the downstream's prompt/digest
+  // injection off while leaving its context TRACKING (edits, commands, session
+  // summaries) intact — unlike AGENTIFY_CTX=off, which pauses tracking too.
   // When we are not injecting we leave the environment untouched, preserving
   // #335's exact pass-through behaviour.
-  const childEnv = injecting ? { ...env, AGENTIFY_CTX: "off" } : env;
+  const childEnv = injecting ? { ...env, AGENTIFY_CTX_INJECTION: "off" } : env;
 
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {
     cwd: root,
@@ -79,19 +81,26 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   let clientReadable = input;
   if (injecting) {
     const injector = createFirstTurnInjector({
-      buildDigest: (promptText) => buildInjectionDigest(root, {
+      buildDigest: (promptText, opts) => buildInjectionDigest(root, {
         mode: injection.mode,
         promptText,
         config,
         env,
-        sessionId: options.sessionId,
+        // Scope injection dedupe to the ACP session, not a shared "unknown"
+        // ledger key, so context injected in one session isn't suppressed as
+        // "already seen" in the next.
+        sessionId: opts?.sessionId,
       }),
-      onInject: () => log(`agentify acp: injected ${injection.mode} context into the first user turn`),
+      onInject: ({ sessionId }) => log(`agentify acp: injected ${injection.mode} context into the first turn of session ${sessionId}`),
     });
-    // A stream error on the injector must tear the session down, not crash the
-    // process; attribute it to the client side like any other client-stream
-    // fault. The proxy already handles errors on clientReadable itself.
+    // The proxy observes the injector (clientReadable), not `input`. So the
+    // ways `input` can terminate must reach the injector: a clean EOF is
+    // forwarded by pipe (end -> injector end -> proxy "client" end); an error
+    // or an abrupt close (destroy without EOF) would otherwise leave the
+    // injector — and therefore the proxy and child — open forever, so mirror
+    // those onto the injector.
     input.once("error", () => { injector.destroy(); });
+    input.once("close", () => { if (!injector.writableEnded) injector.destroy(); });
     input.pipe(injector);
     clientReadable = injector;
     log(`agentify acp: session-start context injection enabled (mode: ${injection.mode}; downstream Agentify hooks suppressed via AGENTIFY_CTX=off)`);
