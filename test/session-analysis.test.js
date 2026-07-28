@@ -20,6 +20,8 @@ import {
   aggregateAgentifyToolCalls,
   codexMcpOutputErrored,
   matchAgentifyMcpTool,
+  matchAgentifyServerTool,
+  mcpToolCallEndErrored,
 } from "../src/core/session-analysis/agentify-tools.js";
 import { runCli } from "../src/main.js";
 
@@ -1380,6 +1382,24 @@ test("matchAgentifyMcpTool identifies Agentify MCP calls by server + tool suffix
   assert.equal(matchAgentifyMcpTool(null), null);
 });
 
+test("matchAgentifyServerTool matches Codex mcp_tool_call_end invocations by server + tool", () => {
+  assert.equal(matchAgentifyServerTool("agentify", "ctx_load"), "ctx_load");
+  assert.equal(matchAgentifyServerTool("Agentify", "test_select"), "test_select");
+  assert.equal(matchAgentifyServerTool("local-agentify", "query"), "query");
+  assert.equal(matchAgentifyServerTool("agentify", "deps"), null); // not an Agentify MCP tool
+  assert.equal(matchAgentifyServerTool("codex_apps", "query"), null); // wrong server
+  assert.equal(matchAgentifyServerTool(null, "ctx_load"), null);
+});
+
+test("mcpToolCallEndErrored reads the Rust Result envelope Codex serializes", () => {
+  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], isError: true } }), true);
+  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], is_error: true } }), true);
+  assert.equal(mcpToolCallEndErrored({ Err: "protocol failure" }), true);
+  assert.equal(mcpToolCallEndErrored({ Ok: { content: [], isError: false } }), false);
+  assert.equal(mcpToolCallEndErrored({ Ok: {} }), false);
+  assert.equal(mcpToolCallEndErrored(null), false);
+});
+
 test("codexMcpOutputErrored flags only recognizable error envelopes", () => {
   assert.equal(codexMcpOutputErrored(JSON.stringify({ isError: true })), true);
   assert.equal(codexMcpOutputErrored(JSON.stringify({ is_error: true })), true);
@@ -1485,18 +1505,32 @@ async function writeAgentifyTelemetryFixtures(claudeRoot, codexRoot, repoRoot) {
   ];
   await fs.writeFile(path.join(projectDir, "ag-c.jsonl"), `${sessionC.join("\n")}\n`);
 
-  // Codex session D: registered, one success (test_select) and one error
-  // (query) attributed via the JSON-wrapped output envelope.
+  // Codex session D: modern shape — MCP identity and outcome live in
+  // mcp_tool_call_end (invocation.server/tool + result), while the paired
+  // function_call carries only a bare/namespaced name. test_select succeeds;
+  // query fails via result.Ok.isError. The function_call must NOT be missed
+  // (that would inflate zero-call sessions) nor double-counted.
   const dayDir = path.join(codexRoot, "2026", "07", "14");
   await fs.mkdir(dayDir, { recursive: true });
   const sessionD = [
-    JSON.stringify({ timestamp: minutesAgo(30), type: "session_meta", payload: { cwd: repoRoot, id: "cxag", cli_version: "0.105.0" } }),
-    JSON.stringify({ timestamp: minutesAgo(29), type: "response_item", payload: { type: "function_call", name: "mcp__agentify__test_select", call_id: "d1", arguments: "{}" } }),
-    JSON.stringify({ timestamp: minutesAgo(28), type: "response_item", payload: { type: "function_call_output", call_id: "d1", output: "selected 3 tests" } }),
-    JSON.stringify({ timestamp: minutesAgo(27), type: "response_item", payload: { type: "custom_tool_call", name: "mcp__agentify__query", call_id: "d2", input: "{}" } }),
-    JSON.stringify({ timestamp: minutesAgo(26), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "d2", output: JSON.stringify({ isError: true, content: [{ type: "text", text: "index missing" }] }) } }),
+    JSON.stringify({ timestamp: minutesAgo(30), type: "session_meta", payload: { cwd: repoRoot, id: "cxag", cli_version: "0.140.0" } }),
+    JSON.stringify({ timestamp: minutesAgo(29), type: "response_item", payload: { type: "function_call", name: "_select", namespace: "mcp__agentify__test", call_id: "d1", arguments: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(29), type: "event_msg", payload: { type: "mcp_tool_call_end", call_id: "d1", invocation: { server: "agentify", tool: "test_select", arguments: {} }, result: { Ok: { content: [{ type: "text", text: "selected 3 tests" }], isError: false } } } }),
+    JSON.stringify({ timestamp: minutesAgo(28), type: "response_item", payload: { type: "function_call_output", call_id: "d1", output: "Wall time: 0.1s\nOutput:\nselected 3 tests" } }),
+    JSON.stringify({ timestamp: minutesAgo(27), type: "response_item", payload: { type: "function_call", name: "_query", namespace: "mcp__agentify__q", call_id: "d2", arguments: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(27), type: "event_msg", payload: { type: "mcp_tool_call_end", call_id: "d2", invocation: { server: "agentify", tool: "query", arguments: {} }, result: { Ok: { content: [{ type: "text", text: "index missing" }], isError: true } } } }),
+    JSON.stringify({ timestamp: minutesAgo(26), type: "response_item", payload: { type: "function_call_output", call_id: "d2", output: "Wall time: 0.1s\nOutput:\nindex missing" } }),
   ];
   await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-ag-d.jsonl"), `${sessionD.join("\n")}\n`);
+
+  // Codex session E: flat-name shape AND a matching mcp_tool_call_end for the
+  // same call_id. The call must be counted exactly once (dedup by call_id).
+  const sessionE = [
+    JSON.stringify({ timestamp: minutesAgo(24), type: "session_meta", payload: { cwd: repoRoot, id: "cxage", cli_version: "0.130.0" } }),
+    JSON.stringify({ timestamp: minutesAgo(23), type: "response_item", payload: { type: "custom_tool_call", name: "mcp__agentify__ctx_match", call_id: "e1", input: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(23), type: "event_msg", payload: { type: "mcp_tool_call_end", call_id: "e1", invocation: { server: "agentify", tool: "ctx_match", arguments: {} }, result: { Ok: { content: [{ type: "text", text: "match" }], isError: false } } } }),
+  ];
+  await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-ag-e.jsonl"), `${sessionE.join("\n")}\n`);
 }
 
 async function agentifyTelemetryReport(overrides = {}) {
@@ -1513,24 +1547,26 @@ test("analyze aggregates per-tool Agentify MCP calls, errors, and a labelled zer
   const agg = report.agentify_tool_calls;
   assert.ok(agg, "agentify_tool_calls block present in analysis result");
   assert.equal(agg.schema_version, AGENTIFY_TOOL_TELEMETRY_VERSION);
-  assert.equal(agg.sessions_total, 4); // A, B, C (claude) + D (codex)
-  assert.equal(agg.sessions_with_calls, 3); // A, B, D
+  assert.equal(agg.sessions_total, 5); // A, B, C (claude) + D, E (codex)
+  assert.equal(agg.sessions_with_calls, 4); // A, B, D, E
   assert.equal(agg.sessions_without_calls, 1); // C
-  assert.equal(agg.total_calls, 6); // A:3 + B:1 + D:2
+  assert.equal(agg.total_calls, 7); // A:3 + B:1 + D:2 + E:1
   assert.equal(agg.total_errors, 2); // A risk + D query
   assert.deepEqual(agg.by_tool.ctx_load, { calls: 1, errors: 0 });
   assert.deepEqual(agg.by_tool.ctx_note, { calls: 1, errors: 0 });
   assert.deepEqual(agg.by_tool.query, { calls: 2, errors: 1 });
   assert.deepEqual(agg.by_tool.risk, { calls: 1, errors: 1 });
   assert.deepEqual(agg.by_tool.test_select, { calls: 1, errors: 0 });
-  assert.deepEqual(agg.by_tool.ctx_match, { calls: 0, errors: 0 });
+  // Counted exactly once despite appearing as both a flat name and an
+  // mcp_tool_call_end (call_id dedup).
+  assert.deepEqual(agg.by_tool.ctx_match, { calls: 1, errors: 0 });
   // A generically-named MCP tool from another server is NOT counted.
   assert.equal(report.tools["mcp__figma__query"], 1);
   // The zero-call session is labelled undetermined, never a confirmed rate.
   assert.equal(agg.zero_call_sessions.count, 1);
   assert.equal(agg.zero_call_sessions.availability_undetermined, true);
   assert.match(agg.availability.note, /never counted as confirmed under-calling/);
-  assert.equal(agg.by_provider.codex.calls, 2);
+  assert.equal(agg.by_provider.codex.calls, 3); // D:2 + E:1
   assert.equal(agg.by_provider.claude.calls, 4);
 });
 

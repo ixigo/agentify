@@ -8,15 +8,21 @@
 //
 // Detection rule. Agentify exposes its tools over an MCP server whose
 // serverInfo.name is "agentify" and which the docs register with
-// `claude mcp add agentify -- agentify serve`. Both Claude and Codex encode
-// MCP tool calls in transcripts as `mcp__<server>__<tool>`. A call counts as
-// an Agentify call when, after the `mcp__` prefix, the name ends in one of
-// the six known Agentify tool suffixes AND the server segment before that
-// suffix matches /agentify/i. Requiring the server name (rather than a bare
-// tool suffix) avoids false positives from other MCP servers that expose
-// generically named tools such as `query` or `risk`. Server and tool names
-// can both contain underscores, so the suffix is matched from the end rather
-// than by splitting on `__`.
+// `claude mcp add agentify -- agentify serve`. In transcripts an Agentify
+// call is one whose MCP server matches /agentify/i and whose tool is one of
+// the six known names. That identity surfaces in more than one shape, so both
+// are matched (verified against the real local Codex store):
+//   1. A flat `mcp__<server>__<tool>` name — Claude tool_use, and Codex
+//      function_call / custom_tool_call whose `name` carries the full form.
+//   2. Codex `event_msg` records of type `mcp_tool_call_end`, where identity
+//      lives in `invocation.server` / `invocation.tool` and the paired
+//      function_call may carry only a bare/namespaced name. Modern Codex CLI
+//      versions emit MCP calls this way, so keying only on shape (1) would
+//      miss them and inflate the zero-call fraction.
+// Requiring the server name (rather than a bare tool suffix) avoids false
+// positives from other MCP servers that expose generically named tools such
+// as `query` or `risk`. Server and tool names can both contain underscores,
+// so the flat suffix is matched from the end rather than by splitting on `__`.
 
 export const AGENTIFY_TOOL_TELEMETRY_VERSION = "agentify-tool-telemetry-v1";
 
@@ -43,11 +49,34 @@ export function matchAgentifyMcpTool(rawName) {
   return null;
 }
 
+// Returns the canonical Agentify tool name for a Codex mcp_tool_call_end
+// invocation (explicit server + tool fields), or null. Case-insensitive on
+// the server, exact on the tool.
+export function matchAgentifyServerTool(server, tool) {
+  const serverName = String(server || "");
+  const toolName = String(tool || "");
+  if (!/agentify/i.test(serverName)) return null;
+  return AGENTIFY_MCP_TOOLS.includes(toolName) ? toolName : null;
+}
+
+// Detects a failed Agentify call from a Codex mcp_tool_call_end `result`.
+// Codex serializes the Rust Result enum: { Ok: { content, isError } } for a
+// completed MCP call (which may still be a tool-level error via isError) and
+// { Err: ... } for a protocol-level failure. Both count as errors.
+export function mcpToolCallEndErrored(result) {
+  if (!result || typeof result !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(result, "Err")) return true;
+  const ok = result.Ok;
+  if (ok && typeof ok === "object" && (ok.isError === true || ok.is_error === true)) return true;
+  return false;
+}
+
 // Best-effort detection of a failed Agentify MCP call from a Codex tool
-// output. Codex JSON-wraps tool outputs; an MCP error surfaces as an
-// isError / is_error / success:false marker (or an error field). Anything
-// unrecognizable stays a non-error — the outcome is unknowable and must not
-// be invented, consistent with how codex.js treats opaque shell output.
+// output string. Used only as a fallback for older rollouts that carry no
+// mcp_tool_call_end result; an MCP error surfaces as an isError / is_error /
+// success:false marker (or an error field). Anything unrecognizable stays a
+// non-error — the outcome is unknowable and must not be invented, consistent
+// with how codex.js treats opaque shell output.
 export function codexMcpOutputErrored(rawOutput) {
   if (typeof rawOutput !== "string" || rawOutput.length === 0) return false;
   let parsed;
@@ -97,10 +126,11 @@ export function mergeAgentifyToolCalls(target, source) {
   return target;
 }
 
-const DETECTION_RULE = "Tool-call name matches mcp__<server>__<tool> where <tool> is one of "
-  + `${AGENTIFY_MCP_TOOLS.join(", ")} and the <server> segment matches /agentify/i `
-  + "(the server registered via `claude mcp add agentify -- agentify serve`). "
-  + "Applies identically to Claude and Codex transcripts, which both use the mcp__ naming convention.";
+const DETECTION_RULE = "An MCP call whose server matches /agentify/i and whose tool is one of "
+  + `${AGENTIFY_MCP_TOOLS.join(", ")} (the server registered via \`claude mcp add agentify -- agentify serve\`). `
+  + "Matched from two transcript shapes: a flat mcp__<server>__<tool> name (Claude tool_use and Codex "
+  + "function_call/custom_tool_call), and Codex mcp_tool_call_end events carrying invocation.server/tool. "
+  + "Codex calls are de-duplicated by call_id so a call present in both shapes is counted once.";
 
 const AVAILABILITY_NOTE = "Neither Claude nor Codex transcripts record which MCP servers were registered "
   + "for a session, so Agentify availability is only positively provable when a call is present. Sessions "

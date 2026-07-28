@@ -14,6 +14,8 @@ import { codexPromptText, createContentClassifier } from "../content-classify.js
 import {
   codexMcpOutputErrored,
   matchAgentifyMcpTool,
+  matchAgentifyServerTool,
+  mcpToolCallEndErrored,
   recordAgentifyToolCall,
   recordAgentifyToolError,
 } from "../agentify-tools.js";
@@ -66,9 +68,23 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
   const outcome = createOutcomeTracker();
   const callKinds = new Map();
-  // call_id -> canonical Agentify tool name, so a later *_output record can
-  // attribute a success/error to the specific Agentify tool that was called.
+  // call_id -> canonical Agentify tool name, so a later *_output or
+  // mcp_tool_call_end record can attribute a success/error to the specific
+  // Agentify tool. An Agentify MCP call can surface both as a function_call
+  // and as an mcp_tool_call_end; keying by call_id counts it exactly once.
   const agentifyCallsById = new Map();
+  const agentifyErroredIds = new Set();
+  const recordAgentifyCall = (callId, tool) => {
+    if (callId && agentifyCallsById.has(callId)) return; // already counted
+    if (callId) agentifyCallsById.set(callId, tool);
+    recordAgentifyToolCall(session.agentify_tool_calls, tool);
+  };
+  const recordAgentifyError = (callId) => {
+    const tool = callId ? agentifyCallsById.get(callId) : null;
+    if (!tool || (callId && agentifyErroredIds.has(callId))) return;
+    if (callId) agentifyErroredIds.add(callId);
+    recordAgentifyToolError(session.agentify_tool_calls, tool);
+  };
   let sawEventPrompts = false;
   const fallbackPrompts = [];
 
@@ -123,6 +139,23 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       return;
     }
 
+    // MCP-identity shape (2): modern Codex emits mcp_tool_call_end with the
+    // server/tool in `invocation` (the paired function_call may carry only a
+    // bare/namespaced name). This is the authoritative record for Agentify
+    // calls and their outcome; the call is de-duplicated by call_id so a call
+    // also seen as a flat-named function_call is counted once. Its own
+    // tool-mix counting happens on the function_call record, not here.
+    if (record.type === "event_msg" && payload.type === "mcp_tool_call_end") {
+      const invocation = payload.invocation && typeof payload.invocation === "object" ? payload.invocation : {};
+      const agentifyTool = matchAgentifyServerTool(invocation.server, invocation.tool);
+      if (agentifyTool) {
+        const callId = payload.call_id ? String(payload.call_id) : null;
+        recordAgentifyCall(callId, agentifyTool);
+        if (mcpToolCallEndErrored(payload.result)) recordAgentifyError(callId);
+      }
+      return;
+    }
+
     // Current rollouts emit both function_call and custom_tool_call
     // records (the latter dominate in recent CLI versions); both count as
     // tool activity and both can carry a shell command.
@@ -130,11 +163,9 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       const name = String(payload.name || "unknown");
       session.tools.calls += 1;
       session.tools.by_name[name] = (session.tools.by_name[name] || 0) + 1;
+      // Flat-name shape (1): the Agentify identity is in the tool name.
       const agentifyTool = matchAgentifyMcpTool(name);
-      if (agentifyTool) {
-        recordAgentifyToolCall(session.agentify_tool_calls, agentifyTool);
-        if (payload.call_id) agentifyCallsById.set(String(payload.call_id), agentifyTool);
-      }
+      if (agentifyTool) recordAgentifyCall(payload.call_id ? String(payload.call_id) : null, agentifyTool);
       // Codex wraps file work in exec/script envelopes, so no structured
       // path is trusted here: commands are classified in memory for pattern
       // counts only and never persisted or evaluated.
@@ -168,9 +199,12 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       // Outputs are JSON-wrapped in current rollouts; only a structurally
       // recognizable exit_code counts as evidence, anything else stays
       // unknowable and never influences the outcome.
-      const agentifyTool = payload.call_id ? agentifyCallsById.get(String(payload.call_id)) : null;
-      if (agentifyTool && codexMcpOutputErrored(payload.output)) {
-        recordAgentifyToolError(session.agentify_tool_calls, agentifyTool);
+      // Fallback error attribution for older rollouts whose MCP result is not
+      // carried in an mcp_tool_call_end record. De-duplicated by call_id so a
+      // failure already booked from mcp_tool_call_end is not counted twice.
+      const callId = payload.call_id ? String(payload.call_id) : null;
+      if (callId && agentifyCallsById.has(callId) && codexMcpOutputErrored(payload.output)) {
+        recordAgentifyError(callId);
       }
       const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
       let ok = null;
