@@ -112,7 +112,7 @@ export function createSessionSkeleton(provider, filePath) {
     // Agentify's own MCP tool calls (issue #331), a subset of tools.by_name
     // attributed by name with per-tool success/error counts. Distinct from
     // tool-inventory.js, which detects installed dev binaries.
-    agentify_tool_calls: { calls: 0, errors: 0, by_name: {} },
+    agentify_tool_calls: { calls: 0, resolved: 0, errors: 0, by_name: {} },
     file_access: [],
     sidechain_events: 0,
     provider_session_id: null,

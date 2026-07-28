@@ -111,12 +111,18 @@ export function codexMcpOutputErrored(rawOutput) {
 }
 
 // Per-session accumulator carried on the session object by the parsers.
+// `calls` counts every Agentify call; `resolved` counts the calls whose
+// outcome was actually observed (a tool_result for Claude, an
+// mcp_tool_call_end result or a parseable output for Codex); `errors` counts
+// the resolved calls that failed. Calls with no observed outcome (opaque
+// Codex output, truncated Claude sessions) increment `calls` but not
+// `resolved`, so an error rate can be reported honestly against what is known.
 export function emptySessionAgentifyToolCalls() {
-  return { calls: 0, errors: 0, by_name: {} };
+  return { calls: 0, resolved: 0, errors: 0, by_name: {} };
 }
 
 function ensureToolEntry(agg, tool) {
-  if (!agg.by_name[tool]) agg.by_name[tool] = { calls: 0, errors: 0 };
+  if (!agg.by_name[tool]) agg.by_name[tool] = { calls: 0, resolved: 0, errors: 0 };
   return agg.by_name[tool];
 }
 
@@ -125,9 +131,17 @@ export function recordAgentifyToolCall(agg, tool) {
   ensureToolEntry(agg, tool).calls += 1;
 }
 
-export function recordAgentifyToolError(agg, tool) {
-  agg.errors += 1;
-  ensureToolEntry(agg, tool).errors += 1;
+// Records a definitively observed outcome for a call already counted by
+// recordAgentifyToolCall. ok=false books an error; ok=true books a resolved
+// success. Calls whose outcome is never observed simply never reach here.
+export function recordAgentifyToolOutcome(agg, tool, ok) {
+  agg.resolved += 1;
+  const entry = ensureToolEntry(agg, tool);
+  entry.resolved += 1;
+  if (ok === false) {
+    agg.errors += 1;
+    entry.errors += 1;
+  }
 }
 
 // Merge a subagent transcript's telemetry into its parent session, mirroring
@@ -135,10 +149,12 @@ export function recordAgentifyToolError(agg, tool) {
 export function mergeAgentifyToolCalls(target, source) {
   if (!source) return target;
   target.calls += source.calls || 0;
+  target.resolved += source.resolved || 0;
   target.errors += source.errors || 0;
   for (const [tool, entry] of Object.entries(source.by_name || {})) {
     const merged = ensureToolEntry(target, tool);
     merged.calls += entry.calls || 0;
+    merged.resolved += entry.resolved || 0;
     merged.errors += entry.errors || 0;
   }
   return target;
@@ -172,6 +188,11 @@ const ZERO_CALL_NOTE = "Fraction of ALL in-scope sessions with no Agentify MCP c
   + "not a confirmed zero-call rate. confirmed_registered_zero_call is 0 by construction because registration "
   + "can only be proven by a call.";
 
+const ERROR_RATE_NOTE = "errors / resolved_calls — over calls whose outcome was actually observed. Calls with "
+  + "no observed outcome (opaque Codex tool output, truncated Claude sessions with no tool_result) are excluded "
+  + "from the denominator rather than assumed successful. error_rate_lower_bound divides the same errors by ALL "
+  + "calls and is therefore a floor when some outcomes are unknown.";
+
 function ratio(numerator, denominator) {
   if (!denominator) return null;
   return Number((numerator / denominator).toFixed(4));
@@ -180,9 +201,10 @@ function ratio(numerator, denominator) {
 // Aggregate the per-session Agentify telemetry over the in-window, in-scope
 // sessions (after subagent transcripts have been merged into their parents).
 export function aggregateAgentifyToolCalls(sessions) {
-  const byTool = Object.fromEntries(AGENTIFY_MCP_TOOLS.map((tool) => [tool, { calls: 0, errors: 0 }]));
+  const byTool = Object.fromEntries(AGENTIFY_MCP_TOOLS.map((tool) => [tool, { calls: 0, resolved: 0, errors: 0 }]));
   const byProvider = {};
   let totalCalls = 0;
+  let totalResolved = 0;
   let totalErrors = 0;
   let sessionsWithCalls = 0;
 
@@ -190,12 +212,14 @@ export function aggregateAgentifyToolCalls(sessions) {
     const agg = session.agentify_tool_calls || emptySessionAgentifyToolCalls();
     const provider = session.provider || "unknown";
     if (!byProvider[provider]) {
-      byProvider[provider] = { sessions_total: 0, sessions_with_calls: 0, calls: 0, errors: 0 };
+      byProvider[provider] = { sessions_total: 0, sessions_with_calls: 0, calls: 0, resolved: 0, errors: 0 };
     }
     byProvider[provider].sessions_total += 1;
     byProvider[provider].calls += agg.calls || 0;
+    byProvider[provider].resolved += agg.resolved || 0;
     byProvider[provider].errors += agg.errors || 0;
     totalCalls += agg.calls || 0;
+    totalResolved += agg.resolved || 0;
     totalErrors += agg.errors || 0;
     if ((agg.calls || 0) > 0) {
       sessionsWithCalls += 1;
@@ -206,6 +230,7 @@ export function aggregateAgentifyToolCalls(sessions) {
       // guarantees this, but guard so an unexpected key cannot appear.
       if (!byTool[tool]) continue;
       byTool[tool].calls += entry.calls || 0;
+      byTool[tool].resolved += entry.resolved || 0;
       byTool[tool].errors += entry.errors || 0;
     }
   }
@@ -227,8 +252,12 @@ export function aggregateAgentifyToolCalls(sessions) {
     sessions_with_calls: sessionsWithCalls,
     sessions_without_calls: sessionsWithoutCalls,
     total_calls: totalCalls,
+    total_resolved_calls: totalResolved,
+    total_unknown_outcome_calls: totalCalls - totalResolved,
     total_errors: totalErrors,
-    error_rate: ratio(totalErrors, totalCalls),
+    error_rate: ratio(totalErrors, totalResolved),
+    error_rate_lower_bound: ratio(totalErrors, totalCalls),
+    error_rate_note: ERROR_RATE_NOTE,
     calls_per_session_all: ratio(totalCalls, sessionsTotal),
     calls_per_session_when_registered: ratio(totalCalls, sessionsWithCalls),
     zero_call_sessions: {

@@ -14,7 +14,7 @@ import {
   recordFileAccess,
 } from "../normalize.js";
 import { claudePromptText, createContentClassifier } from "../content-classify.js";
-import { matchAgentifyMcpTool, recordAgentifyToolCall, recordAgentifyToolError } from "../agentify-tools.js";
+import { matchAgentifyMcpTool, recordAgentifyToolCall, recordAgentifyToolOutcome } from "../agentify-tools.js";
 
 export function defaultClaudeRoot() {
   return path.join(os.homedir(), ".claude", "projects");
@@ -216,8 +216,10 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
         const failed = item.is_error === true;
         const shellCall = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
         outcome.record(shellCall?.kinds || [], !failed, { evidenceReliable: shellCall ? shellCall.evidenceReliable : true });
+        // A tool_result is a definitive outcome for the Agentify call: record
+        // success or error so the error rate reflects only observed outcomes.
         const agentifyTool = item.tool_use_id ? agentifyCallsById.get(item.tool_use_id) : null;
-        if (agentifyTool && failed) recordAgentifyToolError(session.agentify_tool_calls, agentifyTool);
+        if (agentifyTool) recordAgentifyToolOutcome(session.agentify_tool_calls, agentifyTool, !failed);
         if (!failed) continue;
         session.failed_tool_calls += 1;
         if (shellCall?.fingerprint) {

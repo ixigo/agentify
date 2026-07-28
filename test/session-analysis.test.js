@@ -1422,10 +1422,10 @@ test("codexMcpOutputErrored flags only recognizable error envelopes", () => {
 
 test("aggregateAgentifyToolCalls zero-fills tools and never reports confirmed under-calling for undetermined sessions", () => {
   const sessions = [
-    { provider: "claude", agentify_tool_calls: { calls: 2, errors: 1, by_name: { query: { calls: 2, errors: 1 } } } },
-    { provider: "codex", agentify_tool_calls: { calls: 1, errors: 0, by_name: { risk: { calls: 1, errors: 0 } } } },
+    { provider: "claude", agentify_tool_calls: { calls: 2, resolved: 2, errors: 1, by_name: { query: { calls: 2, resolved: 2, errors: 1 } } } },
+    { provider: "codex", agentify_tool_calls: { calls: 1, resolved: 1, errors: 0, by_name: { risk: { calls: 1, resolved: 1, errors: 0 } } } },
     // Session with no Agentify call: availability is undetermined.
-    { provider: "claude", agentify_tool_calls: { calls: 0, errors: 0, by_name: {} } },
+    { provider: "claude", agentify_tool_calls: { calls: 0, resolved: 0, errors: 0, by_name: {} } },
     // A session missing the field entirely must be treated as zero, not crash.
     { provider: "codex" },
   ];
@@ -1435,14 +1435,17 @@ test("aggregateAgentifyToolCalls zero-fills tools and never reports confirmed un
   assert.equal(agg.sessions_with_calls, 2);
   assert.equal(agg.sessions_without_calls, 2);
   assert.equal(agg.total_calls, 3);
+  assert.equal(agg.total_resolved_calls, 3);
+  assert.equal(agg.total_unknown_outcome_calls, 0);
   assert.equal(agg.total_errors, 1);
   assert.equal(agg.error_rate, 0.3333);
+  assert.equal(agg.error_rate_lower_bound, 0.3333);
   assert.equal(agg.calls_per_session_all, 0.75);
   assert.equal(agg.calls_per_session_when_registered, 1.5);
   // Every known tool present, unused ones zero-filled.
   assert.deepEqual(Object.keys(agg.by_tool).sort(), ["ctx_load", "ctx_match", "ctx_note", "query", "risk", "test_select"]);
-  assert.deepEqual(agg.by_tool.query, { calls: 2, errors: 1 });
-  assert.deepEqual(agg.by_tool.ctx_load, { calls: 0, errors: 0 });
+  assert.deepEqual(agg.by_tool.query, { calls: 2, resolved: 2, errors: 1 });
+  assert.deepEqual(agg.by_tool.ctx_load, { calls: 0, resolved: 0, errors: 0 });
   // Honesty guarantees.
   assert.equal(agg.availability.determinable_from_transcript, false);
   assert.equal(agg.availability.confirmed_registered_sessions, 2);
@@ -1560,14 +1563,20 @@ test("analyze aggregates per-tool Agentify MCP calls, errors, and a labelled zer
   assert.equal(agg.sessions_without_calls, 1); // C
   assert.equal(agg.total_calls, 7); // A:3 + B:1 + D:2 + E:1
   assert.equal(agg.total_errors, 2); // A risk + D query
-  assert.deepEqual(agg.by_tool.ctx_load, { calls: 1, errors: 0 });
-  assert.deepEqual(agg.by_tool.ctx_note, { calls: 1, errors: 0 });
-  assert.deepEqual(agg.by_tool.query, { calls: 2, errors: 1 });
-  assert.deepEqual(agg.by_tool.risk, { calls: 1, errors: 1 });
-  assert.deepEqual(agg.by_tool.test_select, { calls: 1, errors: 0 });
+  // ctx_note (session B) has no tool_result, so its outcome is unknown and it
+  // is excluded from the error-rate denominator rather than assumed a success.
+  assert.equal(agg.total_resolved_calls, 6);
+  assert.equal(agg.total_unknown_outcome_calls, 1);
+  assert.equal(agg.error_rate, 0.3333); // 2 / 6 resolved
+  assert.equal(agg.error_rate_lower_bound, 0.2857); // 2 / 7 all calls
+  assert.deepEqual(agg.by_tool.ctx_load, { calls: 1, resolved: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.ctx_note, { calls: 1, resolved: 0, errors: 0 });
+  assert.deepEqual(agg.by_tool.query, { calls: 2, resolved: 2, errors: 1 });
+  assert.deepEqual(agg.by_tool.risk, { calls: 1, resolved: 1, errors: 1 });
+  assert.deepEqual(agg.by_tool.test_select, { calls: 1, resolved: 1, errors: 0 });
   // Counted exactly once despite appearing as both a flat name and an
   // mcp_tool_call_end (call_id dedup).
-  assert.deepEqual(agg.by_tool.ctx_match, { calls: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.ctx_match, { calls: 1, resolved: 1, errors: 0 });
   // A generically-named MCP tool from another server is NOT counted.
   assert.equal(report.tools["mcp__figma__query"], 1);
   // The zero-call session is labelled undetermined, never a confirmed rate.
@@ -1576,6 +1585,27 @@ test("analyze aggregates per-tool Agentify MCP calls, errors, and a labelled zer
   assert.match(agg.availability.note, /never counted as confirmed under-calling/);
   assert.equal(agg.by_provider.codex.calls, 3); // D:2 + E:1
   assert.equal(agg.by_provider.claude.calls, 4);
+});
+
+test("Codex mcp_tool_call_end errors are attributed even when call_id is absent", async () => {
+  const repoRoot = await makeRoot("agentify-codex-nocallid-");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  const dayDir = path.join(codexRoot, "2026", "07", "14");
+  await fs.mkdir(dayDir, { recursive: true });
+  const rollout = [
+    JSON.stringify({ timestamp: minutesAgo(20), type: "session_meta", payload: { cwd: repoRoot, id: "cxnc", cli_version: "0.140.0" } }),
+    // No call_id on either record: the tool comes from invocation, and the
+    // error result must still be counted (regression for the round-4 finding).
+    JSON.stringify({ timestamp: minutesAgo(19), type: "event_msg", payload: { type: "mcp_tool_call_end", invocation: { server: "agentify", tool: "risk" }, result: { Err: "boom" } } }),
+  ];
+  await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-nc.jsonl"), `${rollout.join("\n")}\n`);
+  const report = await buildSessionAnalysis(repoRoot, { codexRoot, providers: ["codex"], days: 30 });
+  const agg = report.agentify_tool_calls;
+  assert.equal(agg.total_calls, 1);
+  assert.equal(agg.total_resolved_calls, 1);
+  assert.equal(agg.total_errors, 1);
+  assert.deepEqual(agg.by_tool.risk, { calls: 1, resolved: 1, errors: 1 });
+  assert.equal(agg.error_rate, 1);
 });
 
 test("the Agentify tool-call baseline renders in json, text, and a dedicated html block", async () => {

@@ -17,7 +17,7 @@ import {
   matchAgentifyServerTool,
   mcpToolCallEndErrored,
   recordAgentifyToolCall,
-  recordAgentifyToolError,
+  recordAgentifyToolOutcome,
 } from "../agentify-tools.js";
 
 export function defaultCodexRoot() {
@@ -73,17 +73,20 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   // Agentify tool. An Agentify MCP call can surface both as a function_call
   // and as an mcp_tool_call_end; keying by call_id counts it exactly once.
   const agentifyCallsById = new Map();
-  const agentifyErroredIds = new Set();
+  const agentifyOutcomeIds = new Set();
   const recordAgentifyCall = (callId, tool) => {
     if (callId && agentifyCallsById.has(callId)) return; // already counted
     if (callId) agentifyCallsById.set(callId, tool);
     recordAgentifyToolCall(session.agentify_tool_calls, tool);
   };
-  const recordAgentifyError = (callId) => {
-    const tool = callId ? agentifyCallsById.get(callId) : null;
-    if (!tool || (callId && agentifyErroredIds.has(callId))) return;
-    if (callId) agentifyErroredIds.add(callId);
-    recordAgentifyToolError(session.agentify_tool_calls, tool);
+  // Book an observed outcome once per call. The tool is passed explicitly so
+  // attribution never depends on a call_id being present (mcp_tool_call_end
+  // carries the tool directly); call_id is used only to de-duplicate an
+  // outcome seen in both the end event and the function output.
+  const recordAgentifyOutcome = (callId, tool, ok) => {
+    if (!tool || (callId && agentifyOutcomeIds.has(callId))) return;
+    if (callId) agentifyOutcomeIds.add(callId);
+    recordAgentifyToolOutcome(session.agentify_tool_calls, tool, ok);
   };
   let sawEventPrompts = false;
   const fallbackPrompts = [];
@@ -151,7 +154,9 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       if (agentifyTool) {
         const callId = payload.call_id ? String(payload.call_id) : null;
         recordAgentifyCall(callId, agentifyTool);
-        if (mcpToolCallEndErrored(payload.result)) recordAgentifyError(callId);
+        // The end event carries a definitive result; attribute the outcome
+        // directly from its tool, independent of whether a call_id is present.
+        recordAgentifyOutcome(callId, agentifyTool, !mcpToolCallEndErrored(payload.result));
       }
       return;
     }
@@ -199,12 +204,14 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       // Outputs are JSON-wrapped in current rollouts; only a structurally
       // recognizable exit_code counts as evidence, anything else stays
       // unknowable and never influences the outcome.
-      // Fallback error attribution for older rollouts whose MCP result is not
-      // carried in an mcp_tool_call_end record. De-duplicated by call_id so a
-      // failure already booked from mcp_tool_call_end is not counted twice.
-      const callId = payload.call_id ? String(payload.call_id) : null;
-      if (callId && agentifyCallsById.has(callId) && codexMcpOutputErrored(payload.output)) {
-        recordAgentifyError(callId);
+      // Fallback outcome attribution for older rollouts whose MCP result is
+      // not carried in an mcp_tool_call_end record. Only a recognizable error
+      // marker is a definitive outcome; opaque output stays unknown (never
+      // assumed successful). De-duplicated by call_id against the end event.
+      const agentifyCallId = payload.call_id ? String(payload.call_id) : null;
+      const agentifyOutputTool = agentifyCallId ? agentifyCallsById.get(agentifyCallId) : null;
+      if (agentifyOutputTool && !agentifyOutcomeIds.has(agentifyCallId) && codexMcpOutputErrored(payload.output)) {
+        recordAgentifyOutcome(agentifyCallId, agentifyOutputTool, false);
       }
       const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
       let ok = null;

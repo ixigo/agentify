@@ -83,7 +83,7 @@ export function renderAnalysisText(report) {
     lines.push(
       "",
       "Agentify MCP tool calls (baseline):",
-      `  ${agentifyCalls.total_calls} call(s) across ${agentifyCalls.sessions_with_calls}/${agentifyCalls.sessions_total} session(s) · ${agentifyCalls.total_errors} error(s)${agentifyCalls.error_rate === null ? "" : ` (${Math.round(agentifyCalls.error_rate * 100)}%)`} · ${agentifyCalls.calls_per_session_all ?? 0} call(s)/session`,
+      `  ${agentifyCalls.total_calls} call(s) across ${agentifyCalls.sessions_with_calls}/${agentifyCalls.sessions_total} session(s) · ${agentifyCalls.total_errors} error(s)${agentifyCalls.error_rate === null ? "" : ` (${Math.round(agentifyCalls.error_rate * 100)}% of ${agentifyCalls.total_resolved_calls} resolved)`} · ${agentifyCalls.calls_per_session_all ?? 0} call(s)/session`,
       `  Per tool (calls/errors): ${perTool}`,
       `  Zero-call sessions: ${agentifyCalls.zero_call_sessions.count}/${agentifyCalls.sessions_total} (${zeroPct}) — availability undetermined, an upper bound on under-calling, not a confirmed rate.`,
     );
@@ -306,10 +306,11 @@ function configAuditSection(audit) {
 function agentifyToolCallsSection(telemetry) {
   if (!telemetry) return "";
   const rows = telemetry.known_tools.map((tool) => {
-    const entry = telemetry.by_tool[tool] || { calls: 0, errors: 0 };
+    const entry = telemetry.by_tool[tool] || { calls: 0, resolved: 0, errors: 0 };
     return `<tr>
       <th scope="row"><code>${escapeHtml(tool)}</code></th>
       <td class="number">${escapeHtml(formatNumber(entry.calls))}</td>
+      <td class="number">${escapeHtml(formatNumber(entry.resolved))}</td>
       <td class="number">${escapeHtml(formatNumber(entry.errors))}</td>
     </tr>`;
   }).join("");
@@ -317,7 +318,7 @@ function agentifyToolCallsSection(telemetry) {
   const zeroPct = zero.fraction_of_all === null ? "—" : `${Math.round(zero.fraction_of_all * 100)}%`;
   const errorPct = telemetry.error_rate === null ? "—" : `${Math.round(telemetry.error_rate * 100)}%`;
   const cards = [
-    metricCard("Agentify calls", formatNumber(telemetry.total_calls), `${formatNumber(telemetry.total_errors)} error(s) · ${errorPct} error rate`, "signal"),
+    metricCard("Agentify calls", formatNumber(telemetry.total_calls), `${formatNumber(telemetry.total_errors)} error(s) · ${errorPct} error rate of ${formatNumber(telemetry.total_resolved_calls)} resolved`, "signal"),
     metricCard("calls / session", String(telemetry.calls_per_session_all ?? 0), `over all ${formatNumber(telemetry.sessions_total)} session(s)`, "neutral"),
     metricCard("sessions with a call", `${formatNumber(telemetry.sessions_with_calls)}/${formatNumber(telemetry.sessions_total)}`, "the only sessions where Agentify is provably registered", "good"),
     metricCard("zero-call sessions", `${formatNumber(zero.count)} (${zeroPct})`, "availability undetermined — upper bound, not a confirmed rate", "guard"),
@@ -331,12 +332,13 @@ function agentifyToolCallsSection(telemetry) {
       <div class="split">
         <article class="card">
           <h3>Calls per tool</h3>
-          <div class="table-wrap"><table><caption>Agentify MCP tool calls and errors across sessions in window</caption><thead><tr><th scope="col">Tool</th><th scope="col">Calls</th><th scope="col">Errors</th></tr></thead><tbody>${rows}</tbody></table></div>
+          <div class="table-wrap"><table><caption>Agentify MCP tool calls, resolved outcomes, and errors across sessions in window</caption><thead><tr><th scope="col">Tool</th><th scope="col">Calls</th><th scope="col">Resolved</th><th scope="col">Errors</th></tr></thead><tbody>${rows}</tbody></table></div>
         </article>
         <article class="card">
           <h3>Can we trust the zero-call rate?</h3>
           <p class="metric-note">${escapeHtml(telemetry.availability.note)}</p>
           <p class="metric-note">${escapeHtml(zero.note)}</p>
+          <p class="metric-note">${escapeHtml(telemetry.error_rate_note)}</p>
           <p class="opp-caveat">${escapeHtml(telemetry.detection_rule)}</p>
           ${Array.isArray(telemetry.detection_limitations) && telemetry.detection_limitations.length > 0
     ? `<details><summary>Detection limitations (${telemetry.detection_limitations.length})</summary><ul>${telemetry.detection_limitations.map((item) => `<li class="metric-note">${escapeHtml(item)}</li>`).join("")}</ul></details>`
