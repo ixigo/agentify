@@ -1,8 +1,24 @@
+import path from "node:path";
+
 import { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 import { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
+import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjectionMode } from "./inject.js";
 
 export { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 export { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
+export {
+  ACP_INJECTION_MODES,
+  AGENTIFY_CONTEXT_CLOSE,
+  AGENTIFY_CONTEXT_OPEN,
+  buildInjectionDigest,
+  createFirstTurnInjector,
+  extractPromptText,
+  extractTopLevelRawId,
+  injectIntoPromptMessage,
+  markInjectedBlock,
+  normalizeAcpInjectionMode,
+  resolveAcpInjectionMode,
+} from "./inject.js";
 
 function describeAdapter(adapter) {
   return adapter.args.length > 0 ? `${adapter.command} ${adapter.args.join(" ")}` : adapter.command;
@@ -37,13 +53,80 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
   const log = options.log || ((message) => process.stderr.write(`${message}\n`));
+  const env = options.env || process.env;
 
-  const clientDuplex = { readable: input, writable: output };
+  // Decide session-start context injection (#336) before spawning: whether we
+  // inject determines the downstream's environment (see below). This is the
+  // static decision (config + env recursion guard); the transient `ctx pause`
+  // marker is re-checked per session-start when the digest is built.
+  const injectionMode = resolveAcpInjectionMode(config, env);
+  const injecting = injectionMode !== "off";
+
+  // Double-injection guard: if we inject, the downstream provider's own
+  // Agentify hooks (e.g. Claude Code) must NOT also inject the digest, or a
+  // session gets it twice. AGENTIFY_CTX_INJECTION=off is the narrow, existing
+  // switch the hooks path already honors (resolveInjectionMode reads it first,
+  // the same lever eval ablations use): it turns the downstream's prompt/digest
+  // injection off while leaving its context TRACKING (edits, commands, session
+  // summaries) intact — unlike AGENTIFY_CTX=off, which pauses tracking too.
+  // When we are not injecting we leave the environment untouched, preserving
+  // #335's exact pass-through behaviour. AGENTIFY_CTX_INJECTION=off disables only
+  // the downstream's digest/match injection: its context TRACKING and its
+  // PreToolUse failed-command prechecks both keep running (the hooks path runs
+  // precheck independent of the injection mode — see runCtxHook).
+  //
+  // Known trade-off (documented, not a bug): #336 injects at SESSION START (the
+  // first user turn) only. Against a downstream that runs its own Agentify hooks
+  // (Claude Code), suppressing those hooks means later turns no longer get the
+  // hooks' PER-PROMPT matched context — the proxy is deliberately first-turn
+  // only. That is acceptable because this feature is default-off, unevaluated,
+  // and primarily exists to give context to downstreams that have NO native
+  // injection (e.g. Codex over ACP); enabling it against Claude Code is an
+  // explicit operator choice.
+  const childEnv = injecting ? { ...env, AGENTIFY_CTX_INJECTION: "off" } : env;
+
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {
     cwd: root,
-    env: process.env,
+    env: childEnv,
     stderr: options.stderr || "inherit",
   });
+
+  // Client -> downstream stream: interpose the first-turn injector only when
+  // injecting, so untouched sessions keep the raw byte relay verbatim. The
+  // reverse direction (downstream -> client) is never interposed.
+  let clientReadable = input;
+  if (injecting) {
+    const injector = createFirstTurnInjector({
+      buildDigest: (promptText, opts) => buildInjectionDigest(root, {
+        mode: injectionMode,
+        promptText,
+        config,
+        env,
+        // Scope injection dedupe to the ACP session, not a shared "unknown"
+        // ledger key, so context injected in one session isn't suppressed as
+        // "already seen" in the next.
+        sessionId: opts?.sessionId,
+      }),
+      onInject: ({ sessionId }) => log(`agentify acp: injected ${injectionMode} context into the first turn of session ${sessionId}`),
+      // Privacy: only inject when a session's working directory is the same repo
+      // the proxy reads context from. A session established elsewhere (a
+      // long-lived proxy reused across repos) must not receive this root's notes.
+      isSameWorkspace: (cwd) => typeof cwd === "string" && path.resolve(cwd) === path.resolve(root),
+    });
+    // The proxy observes the injector (clientReadable), not `input`. So the
+    // ways `input` can terminate must reach the injector: a clean EOF is
+    // forwarded by pipe (end -> injector end -> proxy "client" end); an error
+    // or an abrupt close (destroy without EOF) would otherwise leave the
+    // injector — and therefore the proxy and child — open forever, so mirror
+    // those onto the injector.
+    input.once("error", () => { injector.destroy(); });
+    input.once("close", () => { if (!injector.writableEnded) injector.destroy(); });
+    input.pipe(injector);
+    clientReadable = injector;
+    log(`agentify acp: session-start context injection enabled (mode: ${injectionMode}; downstream Agentify hook injection suppressed via AGENTIFY_CTX_INJECTION=off, tracking preserved)`);
+  }
+
+  const clientDuplex = { readable: clientReadable, writable: output };
   if (typeof options.onSpawn === "function") {
     options.onSpawn(child);
   }
@@ -111,6 +194,13 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     // `stopping` first so the exit it triggers is not misread as a crash.
     stopping = true;
     await terminateChild(child);
+    // When injecting, the proxy tore down the injector (clientReadable) but not
+    // its source `input`; destroy it so stdin/the client stream is released
+    // exactly as the non-injecting pass-through does (proxy destroys `input`
+    // directly there).
+    if (injecting && clientReadable !== input) {
+      input.destroy();
+    }
   }
 
   const downstreamFailed = Boolean(spawnError) || downstreamCrashed || endedBy === "downstream";

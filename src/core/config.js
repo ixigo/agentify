@@ -45,6 +45,14 @@ const DEFAULT_CONFIG = {
   },
   context: {
     injection: "relevant",
+    // ACP proxy (`agentify acp`) context injection, independent of the hooks
+    // path above. off | relevant | digest, mirroring `injection`'s modes but
+    // defaulting to "off". Unlike hooks, the proxy would inject into EVERY ACP
+    // client + downstream agent, so enabling it broadly is gated on the paired
+    // eval in #336 (unexecuted — a paid run), which is why the default is off
+    // rather than following `injection`. relevant = task-scoped, budgeted match
+    // against the first user turn; digest = the full `ctx load` digest.
+    acpInjection: "off",
     // Hard token budget for per-prompt injected context. Deliberately null
     // here (like models.profile): an explicit value pins the budget, while
     // null lets the context policy resolve it (documented default 1200,
