@@ -8,7 +8,7 @@ import { ensureProjectStore, resolveAgentifyPaths } from "./project-store.js";
 import { createRunReporter } from "./run-report.js";
 import { validateRepo } from "./validate.js";
 import { acquireLock, acquireProjectStoreLock } from "./lock.js";
-import { closeIndexDatabase, inTransaction, openIndexDatabase } from "./db/connection.js";
+import { closeIndexDatabase, inTransaction, openIndexDatabase, removeIndexDatabaseFiles } from "./db/connection.js";
 import { getRepoMeta } from "./db/metadata-store.js";
 import { loadModules, writeRepositoryIndex } from "./db/structural-store.js";
 import { buildRepositoryIndex } from "./indexer.js";
@@ -77,9 +77,15 @@ export async function ensureBaselineArtifacts(root, config, options = {}) {
   if (agentifyPaths.mode === "shared") {
     await ensureProjectStore(agentifyPaths);
   }
-  await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
-  await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
-  await ensureAgentifyGitignore(root);
+  // In indexOnly mode (a read-style caller such as the MCP query auto-heal) we
+  // write no project files at all — not the policy files, and not .gitignore.
+  // The caller is responsible for only invoking this where the index location
+  // is already git-safe, so a read never modifies a tracked file.
+  if (!options.indexOnly) {
+    await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
+    await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
+    await ensureAgentifyGitignore(root);
+  }
 }
 
 function resolveArtifactRoot(root, config, runId) {
@@ -198,14 +204,33 @@ async function emitLockContention(phase, lock, progress, config, options) {
 async function _runScanInner(root, config, options, progress, resolvedArtifacts = {}) {
   const artifactRoot = resolvedArtifacts.artifactRoot || resolveArtifactRoot(root, config, options.ghostRunId || null);
   const artifactPaths = resolvedArtifacts.artifactPaths || await resolveArtifactPaths(root, config, { artifactRoot });
-  await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths });
+  // indexOnly builds just the structural index without the baseline policy
+  // files or repo map — used when a scan is triggered as a side effect of a
+  // read-style operation (e.g. the MCP query tool) so it does not dirty the
+  // working tree with unrelated artifacts. .agentify/ is still gitignored so
+  // the index itself never appears as an untracked change.
+  await ensureBaselineArtifacts(artifactRoot, config, { paths: artifactPaths, indexOnly: options.indexOnly });
   const headCommit = await getHeadCommit(root);
   const freshness = !config.dryRun ? await getIndexFreshness(root, artifactPaths) : null;
-  if (!config.dryRun && freshness?.index_status === "warm") {
+  // options.force skips the warm-reuse shortcut so callers that know the index
+  // is unusable (e.g. the MCP query auto-heal) always get a full rebuild.
+  if (!config.dryRun && !options.force && freshness?.index_status === "warm") {
     try {
       const db = openIndexDatabase(artifactPaths, { readOnly: true });
       try {
-        getRepoMeta(db);
+        const meta = getRepoMeta(db);
+        // A warm index may have been built index-only (e.g. by the MCP query
+        // auto-heal), which skips the repo map. A normal scan reusing that index
+        // must still produce a missing map rather than leave it absent forever.
+        const wrote = [];
+        if (!options.indexOnly) {
+          const repoMapPath = path.join(artifactRoot, "docs", "repo-map.md");
+          if (!(await exists(repoMapPath))) {
+            const index = buildRenderableIndex(root, meta, loadModules(db));
+            await writeText(repoMapPath, renderRepoMap(index));
+            wrote.push("docs/repo-map.md");
+          }
+        }
         const result = {
           command: options.commandName || "scan",
           status: "reused",
@@ -213,7 +238,7 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
           refresh_mode: "reuse",
           reused_index: true,
           index_path: artifactPaths.indexDb,
-          wrote: [],
+          wrote,
         };
         progress.log("scan: reused warm index");
         progress.setCommand(options.commandName || "scan");
@@ -239,6 +264,13 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
   progress.log(`scan: analyzed ${snapshot.files.length} files and detected ${snapshot.modules.length} modules`);
 
   if (!config.dryRun) {
+    // options.reset wipes the derived database first so a forced rebuild starts
+    // from a clean schema. `CREATE TABLE IF NOT EXISTS` cannot repair a table
+    // that exists but is missing a column, so callers recovering from a
+    // structurally broken index (e.g. the MCP query auto-heal) reset it.
+    if (options.reset) {
+      removeIndexDatabaseFiles(artifactPaths.indexDb);
+    }
     const db = openIndexDatabase(artifactPaths);
     try {
       inTransaction(db, () => {
@@ -247,15 +279,22 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
           provider: config.provider,
         });
       });
-      const index = buildRenderableIndex(root, getRepoMeta(db), loadModules(db));
-      await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
+      if (!options.indexOnly) {
+        const index = buildRenderableIndex(root, getRepoMeta(db), loadModules(db));
+        await writeText(path.join(artifactRoot, "docs", "repo-map.md"), renderRepoMap(index));
+      }
     } finally {
       closeIndexDatabase(db);
     }
     await writeIndexMeta(root, artifactPaths, snapshot, freshness || await getIndexFreshness(root, artifactPaths));
   }
-  progress.log("scan: wrote SQLite index and repo guidance");
+  progress.log(options.indexOnly ? "scan: wrote SQLite index" : "scan: wrote SQLite index and repo guidance");
 
+  const wrote = config.dryRun
+    ? []
+    : options.indexOnly
+      ? [".agentify/index.db", ".agentify/index.meta.json"]
+      : [".agentify/index.db", ".agentify/index.meta.json", "docs/repo-map.md"];
   const result = {
     command: options.commandName || "scan",
     index_status: freshness?.refresh_mode === "incremental" ? "incremental" : "rebuilt",
@@ -264,7 +303,7 @@ async function _runScanInner(root, config, options, progress, resolvedArtifacts 
     detected_stacks: snapshot.repo.detected_stacks,
     default_stack: snapshot.repo.default_stack,
     modules: snapshot.modules.map((moduleInfo) => ({ id: moduleInfo.id, root_path: moduleInfo.root_path })),
-    wrote: config.dryRun ? [] : [".agentify/index.db", ".agentify/index.meta.json", "docs/repo-map.md"],
+    wrote,
   };
   progress.setCommand(options.commandName || "scan");
   progress.setScan(result);

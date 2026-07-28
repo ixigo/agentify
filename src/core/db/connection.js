@@ -308,7 +308,7 @@ function openReadOnlyIndexDatabase(sourceDbPath, options) {
   }
 }
 
-function removeIndexDatabaseFiles(dbPath) {
+export function removeIndexDatabaseFiles(dbPath) {
   for (const suffix of ["", "-wal", "-shm"]) {
     fs.rmSync(`${dbPath}${suffix}`, { force: true });
   }

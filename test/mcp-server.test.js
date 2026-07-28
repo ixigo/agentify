@@ -1,12 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { promisify } from "node:util";
 
+const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
+
+async function initGitRepo(root) {
+  await execFileAsync("git", ["init"], { cwd: root });
+  await execFileAsync("git", ["config", "user.name", "Agentify Tests"], { cwd: root });
+  await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
+  await execFileAsync("git", ["add", "."], { cwd: root });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+}
+
+// An Agentify-initialized git repo: .agentify/ is already gitignored and
+// committed, so auto-building the index writes nothing git tracks.
+async function initAgentifyGitRepo(root) {
+  await fs.writeFile(path.join(root, ".gitignore"), ".agentify/\n", "utf8");
+  await initGitRepo(root);
+}
+
+import { runScan } from "../src/core/commands.js";
+import { loadConfig } from "../src/core/config.js";
 import { addNote, resolveContextPaths, trackEvent } from "../src/core/ctx.js";
 import { buildMcpTools, handleMcpMessage, runMcpServer } from "../src/core/mcp-server.js";
+
+async function withSourceRepo(prefix) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "station.ts"),
+    "export function findMetroStation(query) { return query.trim(); }\n",
+    "utf8",
+  );
+  return root;
+}
+
+async function callQuery(tools, args) {
+  return handleMcpMessage(tools, {
+    jsonrpc: "2.0",
+    id: 42,
+    method: "tools/call",
+    params: { name: "query", arguments: args },
+  });
+}
 
 async function withContextFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mcp-"));
@@ -103,6 +147,251 @@ test("tools/call runs ctx tools against the store", async () => {
     });
     assert.equal(failed.result.isError, true);
   } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query builds a missing index in-place and leaves the working tree clean", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-missing-");
+  try {
+    await initAgentifyGitRepo(root);
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    const tools = buildMcpTools(root, config);
+
+    const dbPath = path.join(root, ".agentify", "index.db");
+    const beforeExists = await fs.access(dbPath).then(() => true).catch(() => false);
+    assert.equal(beforeExists, false, "precondition: no index yet");
+
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "missing index should self-heal, not error");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "rebuilt");
+    assert.ok(Array.isArray(payload.files) || Array.isArray(payload.symbols));
+
+    const afterExists = await fs.access(dbPath).then(() => true).catch(() => false);
+    assert.equal(afterExists, true, "auto-scan should have written the index");
+
+    // The auto-heal is a read-style operation: in an initialized repo it writes
+    // only the (gitignored) index and touches no tracked file. git status must
+    // be completely clean — no repo map, no policy files, no untracked .agentify.
+    const status = await execFileAsync("git", ["status", "--porcelain"], { cwd: root });
+    assert.equal(status.stdout.trim(), "", `auto-heal dirtied the working tree:\n${status.stdout}`);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a normal scan regenerates the repo map after an index-only auto-heal", async () => {
+  const root = await withSourceRepo("agentify-mcp-scan-repomap-");
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    // Simulate the MCP auto-heal: an index-only build with no repo map.
+    await runScan(root, config, { skipOutput: true, skipFinalize: true, indexOnly: true, force: true, reset: true });
+    const repoMapPath = path.join(root, "docs", "repo-map.md");
+    assert.equal(
+      await fs.access(repoMapPath).then(() => true).catch(() => false),
+      false,
+      "index-only build must not write the repo map",
+    );
+
+    // A subsequent normal scan reuses the warm index but must still create the
+    // missing map rather than leave it absent forever.
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+    assert.equal(
+      await fs.access(repoMapPath).then(() => true).catch(() => false),
+      true,
+      "normal scan must regenerate a missing repo map even on a warm index",
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query refuses to auto-build when it would dirty an uninitialized git repo", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-uninit-");
+  try {
+    // Git repo with no .gitignore for .agentify/: building here would create
+    // untracked files or force a tracked .gitignore change.
+    await initGitRepo(root);
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    const tools = buildMcpTools(root, config);
+
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "should degrade to an instruction, not throw");
+    assert.match(response.result.content[0].text, /agentify scan/);
+
+    const dbExists = await fs.access(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false);
+    assert.equal(dbExists, false, "must not build an index that would dirty git");
+
+    const status = await execFileAsync("git", ["status", "--porcelain"], { cwd: root });
+    assert.equal(status.stdout.trim(), "", "must not modify the working tree when refusing");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query flags a git-detected stale index after a source edit", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-git-stale-");
+  try {
+    await initGitRepo(root);
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+    // Modify tracked source so git-based freshness reports the index as stale.
+    await fs.writeFile(
+      path.join(root, "src", "station.ts"),
+      "export function findMetroStation(query) { return query.trim().toLowerCase(); }\n",
+      "utf8",
+    );
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "stale index should still answer");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "stale");
+    assert.ok(payload._agentify_index.changed_files >= 1, "should report at least one changed file");
+    assert.match(payload._agentify_index.note, /stale/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query answers from a stale index and attaches an explicit staleness note", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-stale-");
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+    // Drop the index metadata so freshness reports the index as stale while the
+    // structural database itself is still queryable.
+    await fs.rm(path.join(root, ".agentify", "index.meta.json"), { force: true });
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "stale index should still answer");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "stale");
+    assert.equal(payload._agentify_index.stale_reason, "missing_meta");
+    assert.match(payload._agentify_index.note, /stale/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query rebuilds and answers when the existing index is unreadable", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-unreadable-");
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+    // Corrupt the database so opening it throws (mirrors a schema mismatch after
+    // an Agentify upgrade). Freshness may still report it as warm.
+    const dbPath = path.join(root, ".agentify", "index.db");
+    await fs.writeFile(dbPath, "not a sqlite database\n", "utf8");
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "an unreadable index should be rebuilt, not error");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "rebuilt");
+    assert.ok(Array.isArray(payload.files) || Array.isArray(payload.symbols));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query force-rebuilds a structurally incomplete index (missing search table)", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-incomplete-");
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+    // Drop the search table directly so repo_meta stays intact (freshness reads
+    // "warm") but `search` fails at query time — a logically incomplete index.
+    const dbPath = path.join(root, ".agentify", "index.db");
+    const Database = require("better-sqlite3");
+    const raw = new Database(dbPath);
+    raw.exec("DROP TABLE IF EXISTS query_search_fts");
+    raw.close();
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "an incomplete index should be rebuilt, not error");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "rebuilt");
+    assert.ok(Array.isArray(payload.files) || Array.isArray(payload.symbols));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query resets and rebuilds an index whose table is missing a column", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-dropcol-");
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+    await runScan(root, config, { skipOutput: true, skipFinalize: true });
+
+    // Drop a column so the schema version still matches but queries selecting it
+    // fail — CREATE TABLE IF NOT EXISTS cannot restore it, so recovery must wipe
+    // and rebuild the derived database.
+    const dbPath = path.join(root, ".agentify", "index.db");
+    const Database = require("better-sqlite3");
+    const raw = new Database(dbPath);
+    raw.exec("ALTER TABLE symbols DROP COLUMN exported");
+    raw.close();
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "def", symbol: "findMetroStation" });
+    assert.notEqual(response.result.isError, true, "a missing column should be repaired by a reset rebuild");
+
+    const payload = JSON.parse(response.result.content[0].text);
+    assert.equal(payload._agentify_index.status, "rebuilt");
+    assert.equal(payload.symbol, "findMetroStation");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("query degrades gracefully when the index lock is held during recovery", async () => {
+  const root = await withSourceRepo("agentify-mcp-query-locked-");
+  const previousExitCode = process.exitCode;
+  try {
+    const config = await loadConfig(root, { provider: "local", dryRun: false });
+
+    // Hold the single-writer index-refresh lock so the auto-scan cannot run.
+    const locksRoot = path.join(root, ".agentify", "locks");
+    await fs.mkdir(locksRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(locksRoot, "index.lock"),
+      JSON.stringify({
+        pid: process.pid,
+        hostname: os.hostname(),
+        host: os.hostname(),
+        operation: "index-refresh",
+        created_at: new Date().toISOString(),
+        acquired_at: Date.now(),
+      }),
+      "utf8",
+    );
+
+    const tools = buildMcpTools(root, config);
+    const response = await callQuery(tools, { kind: "search", term: "findMetroStation" });
+
+    assert.notEqual(response.result.isError, true, "lock contention must not surface as an error/throw");
+    const text = response.result.content[0].text;
+    assert.match(text, /in progress/i);
+    assert.match(text, /agentify scan/);
+
+    const dbExists = await fs.access(path.join(root, ".agentify", "index.db")).then(() => true).catch(() => false);
+    assert.equal(dbExists, false, "a blocked auto-scan must not write the index");
+    assert.equal(process.exitCode, previousExitCode, "blocked auto-scan must not leak a failure exit code");
+  } finally {
+    process.exitCode = previousExitCode;
     await fs.rm(root, { recursive: true, force: true });
   }
 });
