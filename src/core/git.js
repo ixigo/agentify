@@ -167,6 +167,31 @@ export async function getHeadCommit(root) {
   }
 }
 
+export async function isGitRepository(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root });
+    return stdout.trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
+// Returns true if `relPath` is git-ignored, false if git would track it, and
+// null if the ignore status cannot be determined (not a git repository, or git
+// is unavailable/errored). Works on paths that do not exist yet, since it only
+// consults ignore rules.
+export async function isPathIgnoredByGit(root, relPath) {
+  try {
+    await execFileAsync("git", ["check-ignore", "-q", "--", relPath], { cwd: root });
+    return true;
+  } catch (error) {
+    if (error?.code === 1) {
+      return false;
+    }
+    return null;
+  }
+}
+
 export async function getUpstreamRef(root) {
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
