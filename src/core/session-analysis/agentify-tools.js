@@ -1,0 +1,183 @@
+// Baseline telemetry for Agentify's OWN MCP tool calls (issue #331).
+//
+// This is agent tool-call telemetry — how often agents actually reach for
+// Agentify's MCP tools — and is deliberately distinct from
+// tool-inventory.js, which detects installed dev binaries (rg etc.). It
+// reuses the tool calls the provider parsers already extract during their
+// single streaming pass; it adds aggregation, not a new parse.
+//
+// Detection rule. Agentify exposes its tools over an MCP server whose
+// serverInfo.name is "agentify" and which the docs register with
+// `claude mcp add agentify -- agentify serve`. Both Claude and Codex encode
+// MCP tool calls in transcripts as `mcp__<server>__<tool>`. A call counts as
+// an Agentify call when, after the `mcp__` prefix, the name ends in one of
+// the six known Agentify tool suffixes AND the server segment before that
+// suffix matches /agentify/i. Requiring the server name (rather than a bare
+// tool suffix) avoids false positives from other MCP servers that expose
+// generically named tools such as `query` or `risk`. Server and tool names
+// can both contain underscores, so the suffix is matched from the end rather
+// than by splitting on `__`.
+
+export const AGENTIFY_TOOL_TELEMETRY_VERSION = "agentify-tool-telemetry-v1";
+
+// The tools buildMcpTools() in mcp-server.js exposes. Kept as a literal list
+// (not imported) so telemetry never depends on constructing the live server.
+export const AGENTIFY_MCP_TOOLS = ["ctx_load", "ctx_note", "ctx_match", "query", "risk", "test_select"];
+
+const MCP_PREFIX = "mcp__";
+
+// Returns the canonical Agentify tool name for an MCP tool-call name, or null
+// when the name is not an Agentify MCP call. Works identically for Claude and
+// Codex because both use the `mcp__<server>__<tool>` convention.
+export function matchAgentifyMcpTool(rawName) {
+  const name = String(rawName || "");
+  if (!name.startsWith(MCP_PREFIX)) return null;
+  const rest = name.slice(MCP_PREFIX.length);
+  for (const tool of AGENTIFY_MCP_TOOLS) {
+    const suffix = `__${tool}`;
+    if (rest.length > suffix.length && rest.endsWith(suffix)) {
+      const server = rest.slice(0, rest.length - suffix.length);
+      if (/agentify/i.test(server)) return tool;
+    }
+  }
+  return null;
+}
+
+// Best-effort detection of a failed Agentify MCP call from a Codex tool
+// output. Codex JSON-wraps tool outputs; an MCP error surfaces as an
+// isError / is_error / success:false marker (or an error field). Anything
+// unrecognizable stays a non-error — the outcome is unknowable and must not
+// be invented, consistent with how codex.js treats opaque shell output.
+export function codexMcpOutputErrored(rawOutput) {
+  if (typeof rawOutput !== "string" || rawOutput.length === 0) return false;
+  let parsed;
+  try {
+    parsed = JSON.parse(rawOutput);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.isError === true || parsed.is_error === true) return true;
+  if (parsed.success === false) return true;
+  if (typeof parsed.error === "string" && parsed.error.length > 0) return true;
+  return false;
+}
+
+// Per-session accumulator carried on the session object by the parsers.
+export function emptySessionAgentifyToolCalls() {
+  return { calls: 0, errors: 0, by_name: {} };
+}
+
+function ensureToolEntry(agg, tool) {
+  if (!agg.by_name[tool]) agg.by_name[tool] = { calls: 0, errors: 0 };
+  return agg.by_name[tool];
+}
+
+export function recordAgentifyToolCall(agg, tool) {
+  agg.calls += 1;
+  ensureToolEntry(agg, tool).calls += 1;
+}
+
+export function recordAgentifyToolError(agg, tool) {
+  agg.errors += 1;
+  ensureToolEntry(agg, tool).errors += 1;
+}
+
+// Merge a subagent transcript's telemetry into its parent session, mirroring
+// how index.js folds the other per-session counters.
+export function mergeAgentifyToolCalls(target, source) {
+  if (!source) return target;
+  target.calls += source.calls || 0;
+  target.errors += source.errors || 0;
+  for (const [tool, entry] of Object.entries(source.by_name || {})) {
+    const merged = ensureToolEntry(target, tool);
+    merged.calls += entry.calls || 0;
+    merged.errors += entry.errors || 0;
+  }
+  return target;
+}
+
+const DETECTION_RULE = "Tool-call name matches mcp__<server>__<tool> where <tool> is one of "
+  + `${AGENTIFY_MCP_TOOLS.join(", ")} and the <server> segment matches /agentify/i `
+  + "(the server registered via `claude mcp add agentify -- agentify serve`). "
+  + "Applies identically to Claude and Codex transcripts, which both use the mcp__ naming convention.";
+
+const AVAILABILITY_NOTE = "Neither Claude nor Codex transcripts record which MCP servers were registered "
+  + "for a session, so Agentify availability is only positively provable when a call is present. Sessions "
+  + "with zero Agentify calls cannot be distinguished between \"server not registered\" and \"registered but "
+  + "not called\"; they are labelled availability-undetermined and are never counted as confirmed under-calling.";
+
+const ZERO_CALL_NOTE = "Fraction of ALL in-scope sessions with no Agentify MCP call. Availability is "
+  + "undetermined for these sessions (see availability.note), so this is an upper bound on under-calling, "
+  + "not a confirmed zero-call rate. confirmed_registered_zero_call is 0 by construction because registration "
+  + "can only be proven by a call.";
+
+function ratio(numerator, denominator) {
+  if (!denominator) return null;
+  return Number((numerator / denominator).toFixed(4));
+}
+
+// Aggregate the per-session Agentify telemetry over the in-window, in-scope
+// sessions (after subagent transcripts have been merged into their parents).
+export function aggregateAgentifyToolCalls(sessions) {
+  const byTool = Object.fromEntries(AGENTIFY_MCP_TOOLS.map((tool) => [tool, { calls: 0, errors: 0 }]));
+  const byProvider = {};
+  let totalCalls = 0;
+  let totalErrors = 0;
+  let sessionsWithCalls = 0;
+
+  for (const session of sessions) {
+    const agg = session.agentify_tool_calls || emptySessionAgentifyToolCalls();
+    const provider = session.provider || "unknown";
+    if (!byProvider[provider]) {
+      byProvider[provider] = { sessions_total: 0, sessions_with_calls: 0, calls: 0, errors: 0 };
+    }
+    byProvider[provider].sessions_total += 1;
+    byProvider[provider].calls += agg.calls || 0;
+    byProvider[provider].errors += agg.errors || 0;
+    totalCalls += agg.calls || 0;
+    totalErrors += agg.errors || 0;
+    if ((agg.calls || 0) > 0) {
+      sessionsWithCalls += 1;
+      byProvider[provider].sessions_with_calls += 1;
+    }
+    for (const [tool, entry] of Object.entries(agg.by_name || {})) {
+      // Only the six known tools are tracked; matchAgentifyMcpTool already
+      // guarantees this, but guard so an unexpected key cannot appear.
+      if (!byTool[tool]) continue;
+      byTool[tool].calls += entry.calls || 0;
+      byTool[tool].errors += entry.errors || 0;
+    }
+  }
+
+  const sessionsTotal = sessions.length;
+  const sessionsWithoutCalls = sessionsTotal - sessionsWithCalls;
+
+  return {
+    schema_version: AGENTIFY_TOOL_TELEMETRY_VERSION,
+    detection_rule: DETECTION_RULE,
+    known_tools: [...AGENTIFY_MCP_TOOLS],
+    availability: {
+      determinable_from_transcript: false,
+      confirmed_registered_sessions: sessionsWithCalls,
+      note: AVAILABILITY_NOTE,
+    },
+    sessions_total: sessionsTotal,
+    sessions_with_calls: sessionsWithCalls,
+    sessions_without_calls: sessionsWithoutCalls,
+    total_calls: totalCalls,
+    total_errors: totalErrors,
+    error_rate: ratio(totalErrors, totalCalls),
+    calls_per_session_all: ratio(totalCalls, sessionsTotal),
+    calls_per_session_when_registered: ratio(totalCalls, sessionsWithCalls),
+    zero_call_sessions: {
+      count: sessionsWithoutCalls,
+      fraction_of_all: sessionsTotal ? ratio(sessionsWithoutCalls, sessionsTotal) : null,
+      availability_undetermined: true,
+      confirmed_registered_zero_call: 0,
+      note: ZERO_CALL_NOTE,
+    },
+    by_tool: byTool,
+    by_provider: byProvider,
+  };
+}

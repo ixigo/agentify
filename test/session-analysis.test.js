@@ -15,6 +15,12 @@ import {
   scoreSession,
 } from "../src/core/session-analysis/scorecard.js";
 import { createProgressRenderer } from "../src/core/session-analysis/progress.js";
+import {
+  AGENTIFY_TOOL_TELEMETRY_VERSION,
+  aggregateAgentifyToolCalls,
+  codexMcpOutputErrored,
+  matchAgentifyMcpTool,
+} from "../src/core/session-analysis/agentify-tools.js";
 import { runCli } from "../src/main.js";
 
 const SECRET_COMMAND = "export API_KEY=supersecret123 && curl -s https://internal.example.com";
@@ -1353,4 +1359,189 @@ test("cli: analyze --dry-run needs no consent", async () => {
   ]));
   const parsed = JSON.parse(out);
   assert.equal(parsed.dry_run, true);
+});
+
+// --- #331: Agentify MCP tool-call telemetry ---------------------------------
+
+test("matchAgentifyMcpTool identifies Agentify MCP calls by server + tool suffix", () => {
+  assert.equal(matchAgentifyMcpTool("mcp__agentify__ctx_load"), "ctx_load");
+  assert.equal(matchAgentifyMcpTool("mcp__agentify__test_select"), "test_select");
+  // Server segment may carry extra qualifiers as long as it matches /agentify/i.
+  assert.equal(matchAgentifyMcpTool("mcp__local_agentify__ctx_note"), "ctx_note");
+  assert.equal(matchAgentifyMcpTool("mcp__Agentify__query"), "query");
+  // Generic tool suffixes on a different server must not false-positive.
+  assert.equal(matchAgentifyMcpTool("mcp__figma__query"), null);
+  assert.equal(matchAgentifyMcpTool("mcp__codex_apps__risk"), null);
+  // Not an Agentify tool, missing prefix, or empty server segment.
+  assert.equal(matchAgentifyMcpTool("mcp__agentify__deps"), null);
+  assert.equal(matchAgentifyMcpTool("Read"), null);
+  assert.equal(matchAgentifyMcpTool("mcp__ctx_load"), null);
+  assert.equal(matchAgentifyMcpTool("mcp____ctx_load"), null);
+  assert.equal(matchAgentifyMcpTool(null), null);
+});
+
+test("codexMcpOutputErrored flags only recognizable error envelopes", () => {
+  assert.equal(codexMcpOutputErrored(JSON.stringify({ isError: true })), true);
+  assert.equal(codexMcpOutputErrored(JSON.stringify({ is_error: true })), true);
+  assert.equal(codexMcpOutputErrored(JSON.stringify({ success: false })), true);
+  assert.equal(codexMcpOutputErrored(JSON.stringify({ error: "boom" })), true);
+  assert.equal(codexMcpOutputErrored(JSON.stringify({ isError: false })), false);
+  // Opaque / non-JSON output stays a non-error: the outcome is unknowable.
+  assert.equal(codexMcpOutputErrored("ok, done"), false);
+  assert.equal(codexMcpOutputErrored(""), false);
+  assert.equal(codexMcpOutputErrored(undefined), false);
+});
+
+test("aggregateAgentifyToolCalls zero-fills tools and never reports confirmed under-calling for undetermined sessions", () => {
+  const sessions = [
+    { provider: "claude", agentify_tool_calls: { calls: 2, errors: 1, by_name: { query: { calls: 2, errors: 1 } } } },
+    { provider: "codex", agentify_tool_calls: { calls: 1, errors: 0, by_name: { risk: { calls: 1, errors: 0 } } } },
+    // Session with no Agentify call: availability is undetermined.
+    { provider: "claude", agentify_tool_calls: { calls: 0, errors: 0, by_name: {} } },
+    // A session missing the field entirely must be treated as zero, not crash.
+    { provider: "codex" },
+  ];
+  const agg = aggregateAgentifyToolCalls(sessions);
+  assert.equal(agg.schema_version, AGENTIFY_TOOL_TELEMETRY_VERSION);
+  assert.equal(agg.sessions_total, 4);
+  assert.equal(agg.sessions_with_calls, 2);
+  assert.equal(agg.sessions_without_calls, 2);
+  assert.equal(agg.total_calls, 3);
+  assert.equal(agg.total_errors, 1);
+  assert.equal(agg.error_rate, 0.3333);
+  assert.equal(agg.calls_per_session_all, 0.75);
+  assert.equal(agg.calls_per_session_when_registered, 1.5);
+  // Every known tool present, unused ones zero-filled.
+  assert.deepEqual(Object.keys(agg.by_tool).sort(), ["ctx_load", "ctx_match", "ctx_note", "query", "risk", "test_select"]);
+  assert.deepEqual(agg.by_tool.query, { calls: 2, errors: 1 });
+  assert.deepEqual(agg.by_tool.ctx_load, { calls: 0, errors: 0 });
+  // Honesty guarantees.
+  assert.equal(agg.availability.determinable_from_transcript, false);
+  assert.equal(agg.availability.confirmed_registered_sessions, 2);
+  assert.equal(agg.zero_call_sessions.count, 2);
+  assert.equal(agg.zero_call_sessions.fraction_of_all, 0.5);
+  assert.equal(agg.zero_call_sessions.availability_undetermined, true);
+  assert.equal(agg.zero_call_sessions.confirmed_registered_zero_call, 0);
+  assert.equal(agg.by_provider.claude.sessions_total, 2);
+  assert.equal(agg.by_provider.codex.calls, 1);
+});
+
+test("aggregate over no sessions is null-safe", () => {
+  const agg = aggregateAgentifyToolCalls([]);
+  assert.equal(agg.sessions_total, 0);
+  assert.equal(agg.total_calls, 0);
+  assert.equal(agg.error_rate, null);
+  assert.equal(agg.calls_per_session_all, null);
+  assert.equal(agg.calls_per_session_when_registered, null);
+  assert.equal(agg.zero_call_sessions.fraction_of_all, null);
+});
+
+async function writeAgentifyTelemetryFixtures(claudeRoot, codexRoot, repoRoot) {
+  const projectDir = path.join(claudeRoot, "-fixture-project");
+  await fs.mkdir(projectDir, { recursive: true });
+  const mcpTool = (id, name, input = {}) => ({ type: "tool_use", id, name, input });
+
+  // Claude session A: Agentify registered, three calls, one (risk) errors.
+  const sessionA = [
+    claudeUser({ ts: minutesAgo(60), cwd: repoRoot, content: [{ type: "text", text: "do the thing" }] }),
+    claudeAssistant({
+      ts: minutesAgo(59), requestId: "req_a", usage: USAGE, cwd: repoRoot,
+      content: [
+        mcpTool("ag1", "mcp__agentify__ctx_load"),
+        mcpTool("ag2", "mcp__agentify__query", { kind: "search", term: "x" }),
+        mcpTool("ag3", "mcp__agentify__risk"),
+      ],
+    }),
+    claudeUser({
+      ts: minutesAgo(58), cwd: repoRoot,
+      content: [
+        { type: "tool_result", tool_use_id: "ag1", content: "digest" },
+        { type: "tool_result", tool_use_id: "ag2", content: "results" },
+        { type: "tool_result", tool_use_id: "ag3", is_error: true, content: "risk failed" },
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "ag-a.jsonl"), `${sessionA.join("\n")}\n`);
+
+  // Claude session B: registered under a custom server name, single call.
+  const sessionB = [
+    claudeAssistant({
+      ts: minutesAgo(50), requestId: "req_b", usage: USAGE, cwd: repoRoot,
+      content: [mcpTool("agb1", "mcp__local_agentify__ctx_note", { text: "n" })],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "ag-b.jsonl"), `${sessionB.join("\n")}\n`);
+
+  // Claude session C: NO Agentify call (availability undetermined, not a
+  // confirmed zero-call). Also exercises a non-Agentify MCP server.
+  const sessionC = [
+    claudeAssistant({
+      ts: minutesAgo(40), requestId: "req_c", usage: USAGE, cwd: repoRoot,
+      content: [
+        { type: "tool_use", id: "c1", name: "Read", input: { file_path: path.join(repoRoot, "src/app.js") } },
+        mcpTool("c2", "mcp__figma__query", { term: "y" }),
+      ],
+    }),
+  ];
+  await fs.writeFile(path.join(projectDir, "ag-c.jsonl"), `${sessionC.join("\n")}\n`);
+
+  // Codex session D: registered, one success (test_select) and one error
+  // (query) attributed via the JSON-wrapped output envelope.
+  const dayDir = path.join(codexRoot, "2026", "07", "14");
+  await fs.mkdir(dayDir, { recursive: true });
+  const sessionD = [
+    JSON.stringify({ timestamp: minutesAgo(30), type: "session_meta", payload: { cwd: repoRoot, id: "cxag", cli_version: "0.105.0" } }),
+    JSON.stringify({ timestamp: minutesAgo(29), type: "response_item", payload: { type: "function_call", name: "mcp__agentify__test_select", call_id: "d1", arguments: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(28), type: "response_item", payload: { type: "function_call_output", call_id: "d1", output: "selected 3 tests" } }),
+    JSON.stringify({ timestamp: minutesAgo(27), type: "response_item", payload: { type: "custom_tool_call", name: "mcp__agentify__query", call_id: "d2", input: "{}" } }),
+    JSON.stringify({ timestamp: minutesAgo(26), type: "response_item", payload: { type: "custom_tool_call_output", call_id: "d2", output: JSON.stringify({ isError: true, content: [{ type: "text", text: "index missing" }] }) } }),
+  ];
+  await fs.writeFile(path.join(dayDir, "rollout-2026-07-14-ag-d.jsonl"), `${sessionD.join("\n")}\n`);
+}
+
+async function agentifyTelemetryReport(overrides = {}) {
+  const repoRoot = await makeRoot("agentify-tool-telemetry-");
+  const claudeRoot = path.join(repoRoot, "history", "claude");
+  const codexRoot = path.join(repoRoot, "history", "codex");
+  await writeAgentifyTelemetryFixtures(claudeRoot, codexRoot, repoRoot);
+  const report = await buildSessionAnalysis(repoRoot, { claudeRoot, codexRoot, days: 30, ...overrides });
+  return { repoRoot, report };
+}
+
+test("analyze aggregates per-tool Agentify MCP calls, errors, and a labelled zero-call fraction", async () => {
+  const { report } = await agentifyTelemetryReport();
+  const agg = report.agentify_tool_calls;
+  assert.ok(agg, "agentify_tool_calls block present in analysis result");
+  assert.equal(agg.schema_version, AGENTIFY_TOOL_TELEMETRY_VERSION);
+  assert.equal(agg.sessions_total, 4); // A, B, C (claude) + D (codex)
+  assert.equal(agg.sessions_with_calls, 3); // A, B, D
+  assert.equal(agg.sessions_without_calls, 1); // C
+  assert.equal(agg.total_calls, 6); // A:3 + B:1 + D:2
+  assert.equal(agg.total_errors, 2); // A risk + D query
+  assert.deepEqual(agg.by_tool.ctx_load, { calls: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.ctx_note, { calls: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.query, { calls: 2, errors: 1 });
+  assert.deepEqual(agg.by_tool.risk, { calls: 1, errors: 1 });
+  assert.deepEqual(agg.by_tool.test_select, { calls: 1, errors: 0 });
+  assert.deepEqual(agg.by_tool.ctx_match, { calls: 0, errors: 0 });
+  // A generically-named MCP tool from another server is NOT counted.
+  assert.equal(report.tools["mcp__figma__query"], 1);
+  // The zero-call session is labelled undetermined, never a confirmed rate.
+  assert.equal(agg.zero_call_sessions.count, 1);
+  assert.equal(agg.zero_call_sessions.availability_undetermined, true);
+  assert.match(agg.availability.note, /never counted as confirmed under-calling/);
+  assert.equal(agg.by_provider.codex.calls, 2);
+  assert.equal(agg.by_provider.claude.calls, 4);
+});
+
+test("the Agentify tool-call baseline renders in json, text, and a dedicated html block", async () => {
+  const { report } = await agentifyTelemetryReport();
+  const html = renderAnalysisHtml(report, { projectName: "fixture" });
+  const text = renderAnalysisText(report);
+  assert.ok(html.includes('data-testid="analyze-agentify-tool-calls"'), "dedicated html block missing");
+  assert.ok(html.includes("Do agents actually call Agentify"), "html block heading missing");
+  assert.ok(/mcp__<server>__<tool>/.test(report.agentify_tool_calls.detection_rule) && /agentify/i.test(report.agentify_tool_calls.detection_rule), "detection rule not recorded");
+  assert.ok(html.includes("availability-undetermined") || /availability is undetermined/i.test(html), "html omits the availability caveat");
+  assert.match(text, /Agentify MCP tool calls \(baseline\)/);
+  assert.match(text, /Zero-call sessions:/);
 });

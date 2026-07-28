@@ -22,6 +22,7 @@ import { buildScorecard, classifyWorkType, fitVerdict, scoreSession } from "./sc
 import { createAnalysisCache } from "./cache.js";
 import { buildCostSummary, estimateSessionCost } from "./pricing.js";
 import { buildConfigAudit, configAuditSources } from "./config-audit.js";
+import { aggregateAgentifyToolCalls, mergeAgentifyToolCalls } from "./agentify-tools.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -339,6 +340,7 @@ export async function buildSessionAnalysis(root, options = {}) {
       parent.tools.by_name[name] = (parent.tools.by_name[name] || 0) + count;
     }
     parent.failed_tool_calls += transcript.failed_tool_calls;
+    mergeAgentifyToolCalls(parent.agentify_tool_calls, transcript.agentify_tool_calls);
     for (const key of Object.keys(parent.shell_patterns)) {
       parent.shell_patterns[key] += transcript.shell_patterns[key] || 0;
     }
@@ -518,6 +520,7 @@ export async function buildSessionAnalysis(root, options = {}) {
     totals,
     models: [...modelRollup.values()].sort((a, b) => b.sessions - a.sessions),
     tools: Object.fromEntries([...toolRollup.entries()].sort((a, b) => b[1] - a[1])),
+    agentify_tool_calls: aggregateAgentifyToolCalls(sessions),
     sessions: sessionRows,
     sidechains: {
       transcripts: sidechains,

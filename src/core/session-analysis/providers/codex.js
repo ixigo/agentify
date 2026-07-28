@@ -11,6 +11,12 @@ import {
   outcomeEvidenceReliable,
 } from "../normalize.js";
 import { codexPromptText, createContentClassifier } from "../content-classify.js";
+import {
+  codexMcpOutputErrored,
+  matchAgentifyMcpTool,
+  recordAgentifyToolCall,
+  recordAgentifyToolError,
+} from "../agentify-tools.js";
 
 export function defaultCodexRoot() {
   return path.join(os.homedir(), ".codex", "sessions");
@@ -60,6 +66,9 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
   const outcome = createOutcomeTracker();
   const callKinds = new Map();
+  // call_id -> canonical Agentify tool name, so a later *_output record can
+  // attribute a success/error to the specific Agentify tool that was called.
+  const agentifyCallsById = new Map();
   let sawEventPrompts = false;
   const fallbackPrompts = [];
 
@@ -121,6 +130,11 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       const name = String(payload.name || "unknown");
       session.tools.calls += 1;
       session.tools.by_name[name] = (session.tools.by_name[name] || 0) + 1;
+      const agentifyTool = matchAgentifyMcpTool(name);
+      if (agentifyTool) {
+        recordAgentifyToolCall(session.agentify_tool_calls, agentifyTool);
+        if (payload.call_id) agentifyCallsById.set(String(payload.call_id), agentifyTool);
+      }
       // Codex wraps file work in exec/script envelopes, so no structured
       // path is trusted here: commands are classified in memory for pattern
       // counts only and never persisted or evaluated.
@@ -154,6 +168,10 @@ export async function parseCodexSession(file, { contentMode = "metadata-only" } 
       // Outputs are JSON-wrapped in current rollouts; only a structurally
       // recognizable exit_code counts as evidence, anything else stays
       // unknowable and never influences the outcome.
+      const agentifyTool = payload.call_id ? agentifyCallsById.get(String(payload.call_id)) : null;
+      if (agentifyTool && codexMcpOutputErrored(payload.output)) {
+        recordAgentifyToolError(session.agentify_tool_calls, agentifyTool);
+      }
       const call = payload.call_id ? callKinds.get(String(payload.call_id)) : null;
       let ok = null;
       if (typeof payload.output === "string") {
