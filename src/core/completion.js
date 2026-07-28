@@ -58,6 +58,7 @@ const COMMANDS = [
       subcommand("pause", "Pause tracking and digest injection"),
       subcommand("resume", "Resume tracking"),
       subcommand("clear", "Archive and reset the context store"),
+      subcommand("capture-report", "Compare ACP proxy-captured events against hook-captured events"),
     ],
   }),
   command("delegate", "Shell a task out to the right model", {

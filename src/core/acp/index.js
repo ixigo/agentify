@@ -1,11 +1,24 @@
 import path from "node:path";
 
+import { recordCapturedEvent } from "../ctx.js";
 import { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 import { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
 import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjectionMode } from "./inject.js";
+import { createCaptureEngine, createCaptureTap, resolveAcpCaptureMode, resolveCaptureSink } from "./capture.js";
 
 export { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 export { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
+export {
+  ACP_CAPTURE_MODES,
+  compareCaptureSources,
+  createCaptureEngine,
+  createCaptureTap,
+  normalizeAcpCaptureMode,
+  payloadsFromToolCall,
+  providerHasHookTracking,
+  resolveAcpCaptureMode,
+  resolveCaptureSink,
+} from "./capture.js";
 export {
   ACP_INJECTION_MODES,
   AGENTIFY_CONTEXT_CLOSE,
@@ -37,7 +50,8 @@ function describeAdapter(adapter) {
 const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 };
 
 export async function runAcpProxyCommand(root, config, args, options = {}) {
-  const provider = args.provider ? String(args.provider) : config.provider;
+  const explicitProvider = args.provider ? String(args.provider) : null;
+  const provider = explicitProvider || config.provider;
   // If `--command` is present at all it must be a non-empty string. A bare
   // `--command`, `--command=`, `--command=false`, or `--command=0` must not
   // silently fall back to the provider default — reject the malformed override.
@@ -85,6 +99,46 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   // explicit operator choice.
   const childEnv = injecting ? { ...env, AGENTIFY_CTX_INJECTION: "off" } : env;
 
+  // Session-event capture (#337): observe the proxied stream and record edits,
+  // commands, and outcomes into the context store. Observation-only — it never
+  // alters a byte on the wire (both taps re-emit the original bytes). The sink
+  // encodes the one-writer ownership rule: under `auto` the proxy defers to a
+  // downstream's own Agentify hooks (Claude) and captures only for providers
+  // without them (Codex); `all` always writes to the store; `compare` writes to
+  // a diagnostic side-log only, never events.jsonl, so it is safe alongside
+  // hooks and feeds `agentify ctx capture-report`.
+  const captureMode = resolveAcpCaptureMode(config, env);
+  // Ownership provider: an EXPLICIT --provider is always honored (so
+  // `--provider claude --command <claude-acp>` keeps the proxy out of the main
+  // store, since Claude's hooks are active). A bare --command with no explicit
+  // provider is NOT assumed to be the repo's configured provider — it points at
+  // an unknown adapter, so it is treated as hookless (captures to the store).
+  const ownershipProvider = explicitProvider || (command ? null : provider);
+  const captureSink = resolveCaptureSink(captureMode, { provider: ownershipProvider });
+  const capturing = captureSink !== "none";
+  // A session is in-workspace when its directory is the launch root OR any
+  // subdirectory of it (a monorepo package under the repo is still this repo);
+  // only a directory that escapes the root disables capture.
+  const withinRoot = (dir) => {
+    if (typeof dir !== "string") {
+      return false;
+    }
+    const rel = path.relative(root, path.resolve(dir));
+    // Segment-aware: only a leading ".." SEGMENT (or an absolute rel, i.e. a
+    // different drive) escapes the root — a name like "..config" stays inside.
+    return rel === "" || (rel.split(/[/\\]/)[0] !== ".." && !path.isAbsolute(rel));
+  };
+  const captureEngine = capturing
+    ? createCaptureEngine({
+      isSameWorkspace: withinRoot,
+      record: (payload, opts) => recordCapturedEvent(root, payload, {
+        confidence: opts?.confidence,
+        sink: captureSink === "compare" ? "compare" : "events",
+        env,
+      }),
+    })
+    : null;
+
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {
     cwd: root,
     env: childEnv,
@@ -126,6 +180,28 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     log(`agentify acp: session-start context injection enabled (mode: ${injectionMode}; downstream Agentify hook injection suppressed via AGENTIFY_CTX_INJECTION=off, tracking preserved)`);
   }
 
+  // Mirror a source's abrupt termination onto an interposing observer Transform
+  // so a client abort / downstream crash cannot leave the observer (and thus the
+  // proxy and child) open forever, exactly as the injector wiring does above.
+  const mirrorTeardown = (source, tap) => {
+    source.once("error", () => tap.destroy());
+    source.once("close", () => { if (!tap.writableEnded) tap.destroy(); });
+    source.pipe(tap);
+  };
+
+  let downstreamReadable = downstreamDuplex.readable;
+  if (captureEngine) {
+    // client -> downstream observer (session establishment + prompt ids only).
+    const clientTap = createCaptureTap((message, rawId) => captureEngine.observeClientToDownstream(message, rawId));
+    mirrorTeardown(clientReadable, clientTap);
+    clientReadable = clientTap;
+    // downstream -> client observer (tool calls + session outcomes).
+    const downstreamTap = createCaptureTap((message, rawId) => captureEngine.observeDownstreamToClient(message, rawId));
+    mirrorTeardown(downstreamDuplex.readable, downstreamTap);
+    downstreamReadable = downstreamTap;
+    log(`agentify acp: session capture enabled (mode: ${captureMode}; sink: ${captureSink === "compare" ? "diagnostic side-log" : "context store"}; observation-only, no bytes altered)`);
+  }
+
   const clientDuplex = { readable: clientReadable, writable: output };
   if (typeof options.onSpawn === "function") {
     options.onSpawn(child);
@@ -142,7 +218,10 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
 
   log(`agentify acp: forwarding ACP v${ACP_PROTOCOL_VERSION} to downstream "${describeAdapter(adapter)}" (${adapter.source})`);
 
-  const proxy = createAcpProxy({ client: clientDuplex, downstream: downstreamDuplex });
+  const proxy = createAcpProxy({
+    client: clientDuplex,
+    downstream: { readable: downstreamReadable, writable: downstreamDuplex.writable },
+  });
 
   // Observe the child's fate without ever blocking on it: `spawnError` for a
   // failed launch, `exitInfo` for its exit status, `downstreamCrashed` when it
@@ -194,12 +273,22 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     // `stopping` first so the exit it triggers is not misread as a crash.
     stopping = true;
     await terminateChild(child);
-    // When injecting, the proxy tore down the injector (clientReadable) but not
-    // its source `input`; destroy it so stdin/the client stream is released
-    // exactly as the non-injecting pass-through does (proxy destroys `input`
-    // directly there).
-    if (injecting && clientReadable !== input) {
+    // When we interposed a Transform (injector and/or capture tap), the proxy
+    // tore down the last stage (clientReadable) but not the original `input`;
+    // destroy it so stdin/the client stream is released exactly as the
+    // non-interposed pass-through does (there the proxy destroys `input`
+    // directly). One destroy cascades down the chain via the mirrored teardown.
+    if (clientReadable !== input) {
       input.destroy();
+    }
+    // Flush any queued capture writes (bounded, so shutdown can never hang on a
+    // stuck filesystem). By now the stream has ended, so every observed message
+    // has already been enqueued.
+    if (captureEngine) {
+      await Promise.race([
+        captureEngine.flush(),
+        new Promise((resolve) => { const t = setTimeout(resolve, 2000); t.unref?.(); }),
+      ]);
     }
   }
 
@@ -230,6 +319,7 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     provider: command ? null : provider,
     downstream: { command: adapter.command, args: adapter.args, source: adapter.source },
     protocol_version: ACP_PROTOCOL_VERSION,
+    capture: { mode: captureMode, sink: captureSink },
     ended_by: endedBy,
     exit_code: exitInfo?.code ?? null,
     signal: exitInfo?.signal ?? null,
