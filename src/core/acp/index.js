@@ -1,8 +1,22 @@
 import { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 import { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
+import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjection } from "./inject.js";
 
 export { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 export { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
+export {
+  ACP_INJECTION_MODES,
+  AGENTIFY_CONTEXT_CLOSE,
+  AGENTIFY_CONTEXT_OPEN,
+  buildInjectionDigest,
+  createFirstTurnInjector,
+  extractPromptText,
+  extractTopLevelRawId,
+  injectIntoPromptMessage,
+  markInjectedBlock,
+  normalizeAcpInjectionMode,
+  resolveAcpInjection,
+} from "./inject.js";
 
 function describeAdapter(adapter) {
   return adapter.args.length > 0 ? `${adapter.command} ${adapter.args.join(" ")}` : adapter.command;
@@ -37,13 +51,53 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
   const log = options.log || ((message) => process.stderr.write(`${message}\n`));
+  const env = options.env || process.env;
 
-  const clientDuplex = { readable: input, writable: output };
+  // Decide session-start context injection (#336) before spawning: whether we
+  // inject determines the downstream's environment (see below).
+  const injection = await resolveAcpInjection(root, config, env);
+  const injecting = injection.mode !== "off";
+
+  // Double-injection guard: if we inject, the downstream provider's own
+  // Agentify hooks (e.g. Claude Code) must NOT also inject the digest, or a
+  // session gets it twice. AGENTIFY_CTX=off is the existing recursion guard
+  // (isContextPaused honors it, the same way delegate children are shielded),
+  // so setting it in the child's environment suppresses the downstream hooks.
+  // When we are not injecting we leave the environment untouched, preserving
+  // #335's exact pass-through behaviour.
+  const childEnv = injecting ? { ...env, AGENTIFY_CTX: "off" } : env;
+
   const { child, duplex: downstreamDuplex } = spawnDownstream(adapter, {
     cwd: root,
-    env: process.env,
+    env: childEnv,
     stderr: options.stderr || "inherit",
   });
+
+  // Client -> downstream stream: interpose the first-turn injector only when
+  // injecting, so untouched sessions keep the raw byte relay verbatim. The
+  // reverse direction (downstream -> client) is never interposed.
+  let clientReadable = input;
+  if (injecting) {
+    const injector = createFirstTurnInjector({
+      buildDigest: (promptText) => buildInjectionDigest(root, {
+        mode: injection.mode,
+        promptText,
+        config,
+        env,
+        sessionId: options.sessionId,
+      }),
+      onInject: () => log(`agentify acp: injected ${injection.mode} context into the first user turn`),
+    });
+    // A stream error on the injector must tear the session down, not crash the
+    // process; attribute it to the client side like any other client-stream
+    // fault. The proxy already handles errors on clientReadable itself.
+    input.once("error", () => { injector.destroy(); });
+    input.pipe(injector);
+    clientReadable = injector;
+    log(`agentify acp: session-start context injection enabled (mode: ${injection.mode}; downstream Agentify hooks suppressed via AGENTIFY_CTX=off)`);
+  }
+
+  const clientDuplex = { readable: clientReadable, writable: output };
   if (typeof options.onSpawn === "function") {
     options.onSpawn(child);
   }
@@ -111,6 +165,13 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     // `stopping` first so the exit it triggers is not misread as a crash.
     stopping = true;
     await terminateChild(child);
+    // When injecting, the proxy tore down the injector (clientReadable) but not
+    // its source `input`; destroy it so stdin/the client stream is released
+    // exactly as the non-injecting pass-through does (proxy destroys `input`
+    // directly there).
+    if (injecting && clientReadable !== input) {
+      input.destroy();
+    }
   }
 
   const downstreamFailed = Boolean(spawnError) || downstreamCrashed || endedBy === "downstream";
