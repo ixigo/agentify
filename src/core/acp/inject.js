@@ -23,10 +23,9 @@ import {
   isContextPaused,
   loadContextSnapshot,
   matchContext,
-  recordContextDigestInjection,
   renderContextDigest,
 } from "../ctx.js";
-import { estimateContextTokens } from "../value-telemetry.js";
+import { estimateContextTokens, recordValueEvent } from "../value-telemetry.js";
 
 export const ACP_INJECTION_MODES = ["off", "relevant", "digest"];
 
@@ -151,12 +150,15 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
     if (budget <= 0) {
       return "";
     }
-    if (estimateContextTokens(digest) > budget) {
+    const truncated = estimateContextTokens(digest) > budget;
+    if (truncated) {
       digest = truncateToTokenBudget(digest, budget);
     }
     if (digest) {
-      // Keep ACP digest injections in value/eval telemetry, like the hooks path.
-      await recordContextDigestInjection(root, snapshot, digest, { sessionId: ledgerSessionId(sessionId) });
+      // Keep ACP digest injections in value/eval telemetry — but count only what
+      // actually survives into the injected digest, so a truncated digest never
+      // claims items that were cut (the counts drive the feature's own eval gate).
+      await recordDigestTelemetry(root, digest, { sessionId: ledgerSessionId(sessionId), truncated });
     }
     return digest;
   }
@@ -176,6 +178,28 @@ function truncateToTokenBudget(text, maxTokens) {
     return text;
   }
   return `${text.slice(0, budgetChars).trimEnd()}${marker}`;
+}
+
+// Record a digest-mode injection from the digest text ACTUALLY injected (each
+// item renders as a "- " bullet), so telemetry stays honest even when the
+// digest was truncated. Best-effort: telemetry must never break injection.
+async function recordDigestTelemetry(root, digest, { sessionId, truncated } = {}) {
+  const bullets = digest.match(/^- /gm) || [];
+  const decisions = digest.match(/\[decision\]/g) || [];
+  try {
+    await recordValueEvent(root, {
+      type: "context_injection",
+      mode: "digest",
+      sid: sessionId,
+      estimated_tokens: estimateContextTokens(digest),
+      injected_items: bullets.length,
+      decisions_reused: decisions.length,
+      stale_context_rejected: 0,
+      truncated: Boolean(truncated),
+    });
+  } catch {
+    // Context output must never depend on value telemetry.
+  }
 }
 
 function isWhitespace(ch) {
@@ -355,14 +379,15 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
     throw new Error("createFirstTurnInjector requires a buildDigest(promptText, opts) function");
   }
   // The proxy reads context from its launch root. A single connection can
-  // establish sessions in other working directories (session/new and
-  // session/load both carry `cwd`), and injecting the launch root's context
-  // into a session operating in a DIFFERENT repo would leak one repo's notes
-  // into another — violating the per-repo privacy invariant. So if any session
-  // is established outside the launch root we cannot safely attribute later
-  // prompts to a workspace, and injection is disabled connection-wide.
+  // establish sessions in other working directories (session/new, session/load,
+  // session/resume, session/fork — every session-establishing ACP method carries
+  // a `cwd`), and injecting the launch root's context into a session operating in
+  // a DIFFERENT repo would leak one repo's notes into another — violating the
+  // per-repo privacy invariant. So the check is method-agnostic: ANY message
+  // that carries a top-level `params.cwd` outside the launch root disables
+  // injection connection-wide (we can no longer safely attribute later prompts to
+  // a workspace). session/prompt itself carries no cwd, so this never fires on it.
   const verifyWorkspace = typeof isSameWorkspace === "function" ? isSameWorkspace : () => true;
-  const SESSION_METHODS_WITH_CWD = new Set(["session/new", "session/load"]);
   let workspaceMismatch = false;
 
   let buffer = EMPTY;
@@ -395,15 +420,11 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
       transform.push(lineBuf); // not JSON we understand — forward untouched
       return;
     }
-    // Watch session-establishing requests: if any names a working directory
-    // outside the launch root, disable injection connection-wide (privacy).
-    if (message && typeof message === "object" && !Array.isArray(message)
-      && SESSION_METHODS_WITH_CWD.has(message.method)) {
-      if (!verifyWorkspace(message.params?.cwd)) {
-        workspaceMismatch = true;
-      }
-      transform.push(lineBuf);
-      return;
+    // Any message naming a working directory (session/new|load|resume|fork, or
+    // any future cwd-bearing method) outside the launch root disables injection
+    // connection-wide (privacy — no cross-repo leak).
+    if (typeof message?.params?.cwd === "string" && !verifyWorkspace(message.params.cwd)) {
+      workspaceMismatch = true;
     }
     const isPrompt = message && typeof message === "object" && !Array.isArray(message)
       && message.method === PROMPT_METHOD && "id" in message && message.id !== null

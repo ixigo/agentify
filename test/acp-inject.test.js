@@ -6,7 +6,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { addNote, pauseContext } from "../src/core/ctx.js";
-import { estimateContextTokens } from "../src/core/value-telemetry.js";
+import { estimateContextTokens, resolveValueEventsPath } from "../src/core/value-telemetry.js";
 import {
   AGENTIFY_CONTEXT_CLOSE,
   AGENTIFY_CONTEXT_OPEN,
@@ -203,6 +203,21 @@ test("the injector refuses to inject once a session is established outside the l
   assert.equal(called, 0, "buildDigest must not run for a session outside the launch workspace");
 });
 
+test("the workspace guard is method-agnostic (session/resume, session/fork, any cwd-bearing method)", async () => {
+  for (const method of ["session/resume", "session/fork", "some/future-method"]) {
+    let called = 0;
+    const injector = createFirstTurnInjector({
+      buildDigest: async () => { called += 1; return "D"; },
+      isSameWorkspace: (cwd) => cwd === "/root",
+    });
+    const establish = line({ jsonrpc: "2.0", id: 1, method, params: { sessionId: "s", cwd: "/other-repo" } });
+    const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+    const out = await runInjector(injector, [establish, prompt]);
+    assert.equal(out, `${establish}${prompt}`, `${method} with a foreign cwd must disable injection`);
+    assert.equal(called, 0);
+  }
+});
+
 test("the injector injects when the session is established in the launch workspace", async () => {
   const injector = createFirstTurnInjector({
     buildDigest: async () => "D",
@@ -309,6 +324,17 @@ test("digest mode is bounded by the policy budget, not injected in full", async 
     assert.ok(digest, "digest mode should still inject something");
     assert.ok(/truncated to fit the Agentify context budget/.test(digest), "an oversized digest must be truncated");
     assert.ok(estimateContextTokens(markInjectedBlock(digest)) <= 200, "the injected block must respect the budget");
+
+    // Telemetry must count only what actually survived truncation, not the full
+    // snapshot — the counts gate whether this feature is worth enabling.
+    const events = (await fs.readFile(resolveValueEventsPath(root), "utf8"))
+      .split("\n").filter(Boolean).map((l) => JSON.parse(l))
+      .filter((e) => e.type === "context_injection");
+    assert.equal(events.length, 1);
+    const bulletsInDigest = (digest.match(/^- /gm) || []).length;
+    assert.equal(events[0].injected_items, bulletsInDigest, "injected_items must match the bullets in the truncated digest");
+    assert.ok(events[0].injected_items < 12, "a truncated digest must not claim all 12 notes");
+    assert.equal(events[0].truncated, true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

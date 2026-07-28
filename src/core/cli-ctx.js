@@ -70,6 +70,25 @@ export async function runCtxHook(action, root) {
       return;
     }
     const config = await loadConfigSafe(root);
+
+    if (action === "precheck") {
+      // A PreToolUse failed-command warning is a safety signal, NOT context
+      // digest injection, so it must run regardless of the injection mode. In
+      // particular the ACP proxy sets AGENTIFY_CTX_INJECTION=off on a downstream
+      // it injects for (to avoid double injection); prechecks must survive that.
+      const warning = await precheckCommand(root, payload);
+      if (warning) {
+        // PreToolUse hooks inject via structured JSON; plain stdout is ignored.
+        process.stdout.write(`${JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            additionalContext: renderPrecheckWarning(warning),
+          },
+        })}\n`);
+      }
+      return;
+    }
+
     const mode = resolveInjectionMode(config);
     if (mode === "off") {
       return;
@@ -106,19 +125,6 @@ export async function runCtxHook(action, root) {
         process.stdout.write(`${matches.digest}\n`);
       }
       return;
-    }
-
-    if (action === "precheck") {
-      const warning = await precheckCommand(root, payload);
-      if (warning) {
-        // PreToolUse hooks inject via structured JSON; plain stdout is ignored.
-        process.stdout.write(`${JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: "PreToolUse",
-            additionalContext: renderPrecheckWarning(warning),
-          },
-        })}\n`);
-      }
     }
   } catch {
     // Swallow all hook errors: a broken hook must not block the agent.
