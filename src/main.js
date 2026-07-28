@@ -1206,6 +1206,16 @@ export async function runCli(argv, _runtime = {}) {
         return;
       }
 
+      case "acp": {
+        // ACP pass-through proxy over stdio: stdout is the protocol channel,
+        // so all diagnostics go to stderr (#335). Lazily imported so the ACP
+        // SDK (and its Zod dependency) never load for the far more frequent
+        // ctx/query/hook invocations.
+        const { runAcpProxyCommand } = await import("./core/acp/index.js");
+        await runAcpProxyCommand(root, config, args);
+        return;
+      }
+
       case "test": {
         let selection;
         try {

@@ -500,6 +500,16 @@ export const PROVIDER_DEFINITIONS = {
       defaultModel: "codex-default",
       runner: "codex",
     },
+    // Downstream Agent Client Protocol adapter for `agentify acp` (#335). Codex
+    // speaks ACP through the standalone `codex-acp` bridge, not a `codex`
+    // subcommand — the Codex CLI has no `acp` command.
+    acpAdapter: {
+      command: "codex-acp",
+      args: [],
+      bin: "codex-acp",
+      package: "@agentclientprotocol/codex-acp",
+      install: ["npm", "install", "-g", "@agentclientprotocol/codex-acp"],
+    },
     delegate: {
       optIn: false,
       // Pinned per-tier Codex models (July 2026 lineup) so tier-equivalent
@@ -535,6 +545,18 @@ export const PROVIDER_DEFINITIONS = {
       kind: "external",
       defaultModel: "claude-default",
       runner: "claude",
+    },
+    // Downstream Agent Client Protocol adapter for `agentify acp` (#335). The
+    // Claude adapter is a standalone binary built on the Claude Agent SDK.
+    acpAdapter: {
+      command: "claude-agent-acp",
+      args: [],
+      bin: "claude-agent-acp",
+      package: "@agentclientprotocol/claude-agent-acp",
+      install: ["npm", "install", "-g", "@agentclientprotocol/claude-agent-acp"],
+      // The current claude-agent-acp requires Node >= 22, but Agentify supports
+      // Node >= 20; `agentify acp` warns when run on an older runtime (#335).
+      minNodeMajor: 22,
     },
     delegate: {
       optIn: false,
@@ -628,6 +650,8 @@ export const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFINITIONS);
 export const EXECUTABLE_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].executable);
 export const BOOTSTRAP_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].bootstrap);
 export const SKILL_INSTALL_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].skillInstall);
+// Providers that ship a downstream ACP adapter for `agentify acp` (#335).
+export const ACP_PROVIDER_NAMES = SUPPORTED_PROVIDERS.filter((provider) => PROVIDER_DEFINITIONS[provider].acpAdapter);
 // Vendors first, opt-in eval candidates after: this order is also the
 // deterministic fallback-alternate order in profiles.js.
 export const DELEGATE_PROVIDER_NAMES = ["claude", "codex", "gemini", "opencode"]
@@ -643,4 +667,8 @@ export function getProviderBootstrap(provider) {
 
 export function getDelegateAdapter(provider) {
   return getProviderDefinition(provider)?.delegate || null;
+}
+
+export function getAcpAdapter(provider) {
+  return getProviderDefinition(provider)?.acpAdapter || null;
 }
