@@ -187,6 +187,36 @@ test("an oversized first prompt disables injection for the rest of the connectio
   assert.equal(called, 0, "no injection is attempted once the scan cap is exceeded");
 });
 
+test("the injector refuses to inject once a session is established outside the launch workspace", async () => {
+  // isSameWorkspace models the launch root being "/root". A session/new for a
+  // different cwd must disable injection connection-wide so one repo's context
+  // never leaks into another repo's session.
+  let called = 0;
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => { called += 1; return "D"; },
+    isSameWorkspace: (cwd) => cwd === "/root",
+  });
+  const newOther = line({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: "/other-repo", mcpServers: [] } });
+  const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [newOther, prompt]);
+  assert.equal(out, `${newOther}${prompt}`, "nothing may be injected after a foreign-workspace session");
+  assert.equal(called, 0, "buildDigest must not run for a session outside the launch workspace");
+});
+
+test("the injector injects when the session is established in the launch workspace", async () => {
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => "D",
+    isSameWorkspace: (cwd) => cwd === "/root",
+  });
+  const newHere = line({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: "/root", mcpServers: [] } });
+  const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [newHere, prompt]);
+  const outLines = out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(outLines[0].method, "session/new"); // forwarded unchanged
+  assert.equal(outLines[1].params.prompt.length, 2); // injected
+  assert.ok(outLines[1].params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+});
+
 test("the injector forwards the first prompt unchanged when there is nothing to inject", async () => {
   const injector = createFirstTurnInjector({ buildDigest: async () => "" });
   const firstPrompt = line({ jsonrpc: "2.0", id: 1, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
@@ -261,6 +291,24 @@ test("budget boundary: an oversized item is truncated by the policy, not silentl
     assert.ok(/truncated from \d+ chars/.test(digest), "it must be truncated with provenance by the policy");
     // The full injected block (wrapper + truncated digest) respects the cap.
     assert.ok(estimateContextTokens(markInjectedBlock(digest)) <= 300, "the injected block must respect the budget");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("digest mode is bounded by the policy budget, not injected in full", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-acp-inject-digest-"));
+  try {
+    // A history far larger than a small cap: digest mode (the full `ctx load`
+    // digest) must be truncated to the budget, not injected wholesale.
+    for (let i = 0; i < 12; i += 1) {
+      await addNote(root, `note ${i}: ${"context ".repeat(60)}`);
+    }
+    const config = { context: { maxInjectedTokens: 200 } };
+    const digest = await buildInjectionDigest(root, { mode: "digest", promptText: "", config });
+    assert.ok(digest, "digest mode should still inject something");
+    assert.ok(/truncated to fit the Agentify context budget/.test(digest), "an oversized digest must be truncated");
+    assert.ok(estimateContextTokens(markInjectedBlock(digest)) <= 200, "the injected block must respect the budget");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -139,7 +139,21 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
   }
   if (mode === "digest") {
     const snapshot = await loadContextSnapshot(root);
-    const digest = renderContextDigest(snapshot) || "";
+    let digest = renderContextDigest(snapshot) || "";
+    if (!digest) {
+      return "";
+    }
+    // The full `ctx load` digest is not item-budgeted, so bound it to the same
+    // policy cap (minus the marker overhead) rather than letting a large history
+    // blow past context.maxInjectedTokens.
+    const policy = await resolveContextPolicy(root, config, { env });
+    const budget = policy.max_injected_tokens - MARKER_OVERHEAD_TOKENS;
+    if (budget <= 0) {
+      return "";
+    }
+    if (estimateContextTokens(digest) > budget) {
+      digest = truncateToTokenBudget(digest, budget);
+    }
     if (digest) {
       // Keep ACP digest injections in value/eval telemetry, like the hooks path.
       await recordContextDigestInjection(root, snapshot, digest, { sessionId: ledgerSessionId(sessionId) });
@@ -147,6 +161,21 @@ export async function buildInjectionDigest(root, { mode, promptText, config = {}
     return digest;
   }
   return "";
+}
+
+// Hard char-based cap for the non-item-budgeted digest, with a provenance
+// marker so a trimmed digest is visibly truncated rather than silently cut.
+const CHARS_PER_TOKEN = 4;
+function truncateToTokenBudget(text, maxTokens) {
+  const marker = "\n… [truncated to fit the Agentify context budget]";
+  const budgetChars = maxTokens * CHARS_PER_TOKEN - marker.length;
+  if (budgetChars <= 0) {
+    return "";
+  }
+  if (text.length <= budgetChars) {
+    return text;
+  }
+  return `${text.slice(0, budgetChars).trimEnd()}${marker}`;
 }
 
 function isWhitespace(ch) {
@@ -321,10 +350,21 @@ const NO_SESSION_KEY = "acp:no-session-sentinel";
 // forwarding an oversized message unchanged is the safe degradation.
 const MAX_SCAN_BYTES = 512 * 1024;
 
-export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = MAX_SCAN_BYTES } = {}) {
+export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace, maxScanBytes = MAX_SCAN_BYTES } = {}) {
   if (typeof buildDigest !== "function") {
     throw new Error("createFirstTurnInjector requires a buildDigest(promptText, opts) function");
   }
+  // The proxy reads context from its launch root. A single connection can
+  // establish sessions in other working directories (session/new and
+  // session/load both carry `cwd`), and injecting the launch root's context
+  // into a session operating in a DIFFERENT repo would leak one repo's notes
+  // into another — violating the per-repo privacy invariant. So if any session
+  // is established outside the launch root we cannot safely attribute later
+  // prompts to a workspace, and injection is disabled connection-wide.
+  const verifyWorkspace = typeof isSameWorkspace === "function" ? isSameWorkspace : () => true;
+  const SESSION_METHODS_WITH_CWD = new Set(["session/new", "session/load"]);
+  let workspaceMismatch = false;
+
   let buffer = EMPTY;
   let passthrough = false; // set once an oversized line forces raw forwarding
   let transform;
@@ -355,6 +395,16 @@ export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = 
       transform.push(lineBuf); // not JSON we understand — forward untouched
       return;
     }
+    // Watch session-establishing requests: if any names a working directory
+    // outside the launch root, disable injection connection-wide (privacy).
+    if (message && typeof message === "object" && !Array.isArray(message)
+      && SESSION_METHODS_WITH_CWD.has(message.method)) {
+      if (!verifyWorkspace(message.params?.cwd)) {
+        workspaceMismatch = true;
+      }
+      transform.push(lineBuf);
+      return;
+    }
     const isPrompt = message && typeof message === "object" && !Array.isArray(message)
       && message.method === PROMPT_METHOD && "id" in message && message.id !== null
       && message.params && typeof message.params === "object" && Array.isArray(message.params.prompt);
@@ -372,6 +422,10 @@ export function createFirstTurnInjector({ buildDigest, onInject, maxScanBytes = 
     // First user turn of this session: consider it handled whether or not we
     // end up injecting, so only the turn at session start is ever touched.
     seenSessions.add(sessionId);
+    if (workspaceMismatch) {
+      transform.push(lineBuf); // a session escaped the launch root — never inject
+      return;
+    }
     let digest = "";
     try {
       digest = await buildDigest(extractPromptText(message.params.prompt), {

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { ACP_PROTOCOL_VERSION, createAcpProxy } from "./proxy.js";
 import { resolveDownstreamAdapter, spawnDownstream, terminateChild } from "./downstream.js";
 import { buildInjectionDigest, createFirstTurnInjector, resolveAcpInjectionMode } from "./inject.js";
@@ -101,6 +103,10 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
         sessionId: opts?.sessionId,
       }),
       onInject: ({ sessionId }) => log(`agentify acp: injected ${injectionMode} context into the first turn of session ${sessionId}`),
+      // Privacy: only inject when a session's working directory is the same repo
+      // the proxy reads context from. A session established elsewhere (a
+      // long-lived proxy reused across repos) must not receive this root's notes.
+      isSameWorkspace: (cwd) => typeof cwd === "string" && path.resolve(cwd) === path.resolve(root),
     });
     // The proxy observes the injector (clientReadable), not `input`. So the
     // ways `input` can terminate must reach the injector: a clean EOF is
