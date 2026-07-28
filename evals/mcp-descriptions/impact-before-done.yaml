@@ -1,0 +1,43 @@
+schema: eval-task-v1
+id: impact-before-done
+description: >-
+  A rename with a wide blast radius across a single module, where the correct
+  move is to confirm nothing that depends on the symbol is left broken before
+  declaring the task done. Weighted toward that situation. The grader fails on
+  an unchanged workspace (the old name is still present at base), so a no-op
+  attempt cannot pass. Measures set a vs set b on tool-call rate and outcome.
+base_ref: 5bf2bdcd2a32c2018e10bdf08a7e7d541436468b
+# Describes the finishing bar (no dependent left broken), never a tool. The
+# prompt promises only what the grader checks: no reference to the old name
+# left anywhere.
+prompt: >-
+  The helper firstString in src/core/harbor.js is being renamed to
+  firstNonEmptyString. It is used throughout that module. Rename its definition
+  and update every place that uses it. Before you consider this task complete,
+  make sure you have not left any reference to the old name anywhere that would
+  break something depending on it.
+model: claude-haiku-4-5-20251001
+max_budget_usd: 0.35
+max_turns: 12
+timeout_seconds: 600
+repeat: 3
+arms:
+  - agentify
+  - plain-safe
+mcp_tools: true
+description_ablations:
+  - a
+  - b
+grader:
+  # The old name must be gone everywhere and the new definition must exist:
+  # both fail on the unchanged base, so an empty edit cannot pass.
+  commands:
+    - test -z "$(git grep -n 'firstString' -- src test || true)"
+    - git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js
+    # The new name must appear as often as the old one did at base (16
+    # references across src+test), so deleting call sites instead of renaming
+    # them cannot pass.
+    - test "$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')" -ge 16
+forbidden_paths:
+  - .claude/**
+  - CLAUDE.md

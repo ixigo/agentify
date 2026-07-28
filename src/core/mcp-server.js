@@ -19,6 +19,52 @@ const PROTOCOL_VERSION = "2025-06-18";
 
 const QUERY_KINDS = ["search", "def", "refs", "callers", "impacts", "owner", "deps", "changed"];
 
+// Two ablatable description sets for the eight tools (#334). Set "a" is the
+// current, shipped wording (part descriptive, part trigger). Set "b" is written
+// strictly as trigger conditions ("When you are about to …, call this"). Tool
+// names, schemas, and handlers are identical across sets — only the description
+// string differs, so this is an isolated ablation of the description variable.
+//
+// The active set is chosen by AGENTIFY_MCP_DESCRIPTIONS (a|b), defaulting to
+// "a". Set "b" is opt-in and NOT the default: it is the arm the paired eval in
+// evals/mcp-descriptions/ measures against "a", and no description is adopted
+// until that evaluation produces evidence. Keep set "a" byte-identical to the
+// shipped wording — a snapshot test pins both sets so a later edit here cannot
+// silently drift from the text the ablation compared.
+export const MCP_TOOL_DESCRIPTIONS = {
+  a: {
+    ctx_load: "Digest of what previous agent sessions did in this repository: session summaries, notes left for future sessions, hot files, recent commands, and commands that failed and were never fixed. Call this at the start of a task to avoid rediscovering known context.",
+    ctx_note: "Record a note for future agent sessions working in this repository: gotchas, open threads, or anything worth remembering. Use type \"decision\" for durable technical decisions with rationale (\"chose X over Y because Z\") — decisions are kept queryable so settled questions are not relitigated. Notes are surfaced to later sessions when relevant.",
+    ctx_match: "Find context from previous sessions related to a specific task: notes, session summaries, previously-edited files, and past command failures that look relevant. Use before starting work on a described task.",
+    query: "Structural queries over the repository index. Kinds: search (full-text over symbols/files), def (find a symbol definition), refs (references to a symbol), callers (callers of a symbol), impacts (files affected if a file changes), owner (module owning a file), deps (module dependencies), changed (indexed files changed since a ref). Requires `agentify scan` to have been run.",
+    risk: "Score the blast radius of the current change (or since a git ref): risk level, impacted modules/files/symbols, and prioritized regression test commands. Use before finishing a change.",
+    test_select: "Select only the test files affected by the current change (or since a git ref) using the structural index, with ready-to-run commands — instead of running the full suite.",
+    ctx_decisions: "Before you propose, endorse, or start implementing a technical direction that may already be settled — an architecture, a library or dependency, a data or file format, a naming or workflow convention — call this first to check whether a prior session already decided it. Previous sessions record durable decisions with rationale (\"chose X over Y because Z\"); read them before suggesting a direction so you do not re-propose or relitigate something already decided and rejected. Pass the topic you are about to weigh in on; omit it to review the decisions already on record. Returns matching decisions with their rationale, or a clear message when none are on record.",
+    ctx_handoff: "Call this when you are wrapping up a long or multi-step task, or ending a session with work still in flight, to persist a durable handoff summary before the context is lost. It captures recent activity, decisions on record, hot files, and commands that failed and were not fixed, and writes them to a Markdown file under the context store. Returns the saved path and a preview of the contents so you can point the next session (or a teammate) at the file.",
+  },
+  b: {
+    ctx_load: "When you are starting a task in this repository and have not yet loaded prior context, call this first — before reading files or planning — to avoid rediscovering what earlier sessions already established. Returns a digest of prior session summaries, notes left for future sessions, hot files, recent commands, and commands that failed and were never fixed.",
+    ctx_note: "When you hit a gotcha, leave an open thread, or make a durable technical decision that a future session would waste time rediscovering or relitigating, call this to record it before you move on. Use type \"decision\" for a settled choice with rationale (\"chose X over Y because Z\"); use the default note type for everything else. Recorded items are surfaced to later sessions when relevant.",
+    ctx_match: "When you are about to start work described by a task or ticket, call this first with that description to pull only the prior-session context that matches it — related notes, session summaries, previously-edited files, and past command failures — before you begin exploring.",
+    query: "When you need to locate or reason about code before editing it — where a symbol is defined, who references or calls it, which files a change impacts, which module owns a file, a module's dependencies, or what changed since a ref — call this instead of guessing or grepping by hand. Kinds: search, def, refs, callers, impacts, owner, deps, changed. Requires `agentify scan` to have been run.",
+    risk: "When you believe a change is complete and are about to declare it done, call this first to score its blast radius before you stop: it returns the risk level, the impacted modules/files/symbols, and the prioritized regression tests to run. Pass a git ref to diff against, or omit it to score the working tree.",
+    test_select: "When a change is ready to verify and you are about to run tests, call this first to get only the test files the change actually affects, with ready-to-run commands — so you do not run the whole suite. Pass a git ref to diff against, or omit it to use the working tree.",
+    ctx_decisions: "When you are about to propose, endorse, or start implementing a technical direction that may already be settled — an architecture, a library or dependency, a data or file format, a naming or workflow convention — call this first, before you suggest it, to check whether a prior session already decided the question. Pass the topic you are weighing; omit it to review every decision on record. Returns matching decisions with their rationale, or a clear message when none are on record, so you do not re-propose something already decided and rejected.",
+    ctx_handoff: "When you are wrapping up a long or multi-step task, or ending a session with work still in flight, call this before the context is lost to persist a durable handoff summary. It captures recent activity, decisions on record, hot files, and commands that failed and were not fixed, writes them to a Markdown file under the context store, and returns the saved path plus a preview so you can point the next session at it.",
+  },
+};
+
+// Resolve the active description set. Config wins (so callers can pin it
+// explicitly); otherwise the AGENTIFY_MCP_DESCRIPTIONS env var, defaulting to
+// the shipped set "a". Any unrecognized value falls back to "a" rather than
+// throwing — a bad env must never take the server down.
+export function resolveDescriptionSet(config = {}) {
+  const raw = String(
+    config.mcpDescriptionSet ?? process.env.AGENTIFY_MCP_DESCRIPTIONS ?? "a",
+  ).trim().toLowerCase();
+  return raw === "b" ? "b" : "a";
+}
+
 // Bounds the ctx_decisions response so a lookup on a mature repo cannot flood
 // the caller's context: at most 50 decisions and ~12k characters (~3k tokens),
 // whichever binds first — a note can be up to ~2000 chars, so the count cap
@@ -34,11 +80,12 @@ const HANDOFF_PREVIEW_CHARS = 2000;
 
 export function buildMcpTools(root, config = {}) {
   const queryOptions = { config, artifactPaths: config._agentifyPaths };
+  const descriptions = MCP_TOOL_DESCRIPTIONS[resolveDescriptionSet(config)];
 
   return [
     {
       name: "ctx_load",
-      description: "Digest of what previous agent sessions did in this repository: session summaries, notes left for future sessions, hot files, recent commands, and commands that failed and were never fixed. Call this at the start of a task to avoid rediscovering known context.",
+      description: descriptions.ctx_load,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       async handler() {
         const snapshot = await loadContextSnapshot(root);
@@ -47,7 +94,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "ctx_note",
-      description: "Record a note for future agent sessions working in this repository: gotchas, open threads, or anything worth remembering. Use type \"decision\" for durable technical decisions with rationale (\"chose X over Y because Z\") — decisions are kept queryable so settled questions are not relitigated. Notes are surfaced to later sessions when relevant.",
+      description: descriptions.ctx_note,
       inputSchema: {
         type: "object",
         properties: {
@@ -64,7 +111,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "ctx_match",
-      description: "Find context from previous sessions related to a specific task: notes, session summaries, previously-edited files, and past command failures that look relevant. Use before starting work on a described task.",
+      description: descriptions.ctx_match,
       inputSchema: {
         type: "object",
         properties: { task: { type: "string", description: "Description of the task you are about to work on" } },
@@ -78,7 +125,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "query",
-      description: "Structural queries over the repository index. Kinds: search (full-text over symbols/files), def (find a symbol definition), refs (references to a symbol), callers (callers of a symbol), impacts (files affected if a file changes), owner (module owning a file), deps (module dependencies), changed (indexed files changed since a ref). Requires `agentify scan` to have been run.",
+      description: descriptions.query,
       inputSchema: {
         type: "object",
         properties: {
@@ -136,7 +183,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "risk",
-      description: "Score the blast radius of the current change (or since a git ref): risk level, impacted modules/files/symbols, and prioritized regression test commands. Use before finishing a change.",
+      description: descriptions.risk,
       inputSchema: {
         type: "object",
         properties: { since: { type: "string", description: "Commit or ref to diff against (defaults to working tree changes)" } },
@@ -149,7 +196,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "test_select",
-      description: "Select only the test files affected by the current change (or since a git ref) using the structural index, with ready-to-run commands — instead of running the full suite.",
+      description: descriptions.test_select,
       inputSchema: {
         type: "object",
         properties: { since: { type: "string", description: "Commit or ref to diff against (defaults to working tree changes)" } },
@@ -162,7 +209,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "ctx_decisions",
-      description: "Before you propose, endorse, or start implementing a technical direction that may already be settled — an architecture, a library or dependency, a data or file format, a naming or workflow convention — call this first to check whether a prior session already decided it. Previous sessions record durable decisions with rationale (\"chose X over Y because Z\"); read them before suggesting a direction so you do not re-propose or relitigate something already decided and rejected. Pass the topic you are about to weigh in on; omit it to review the decisions already on record. Returns matching decisions with their rationale, or a clear message when none are on record.",
+      description: descriptions.ctx_decisions,
       inputSchema: {
         type: "object",
         properties: { topic: { type: "string", description: "Topic to look up (e.g. \"retry backoff\", \"state management\"); omit to review recorded decisions" } },
@@ -175,7 +222,7 @@ export function buildMcpTools(root, config = {}) {
     },
     {
       name: "ctx_handoff",
-      description: "Call this when you are wrapping up a long or multi-step task, or ending a session with work still in flight, to persist a durable handoff summary before the context is lost. It captures recent activity, decisions on record, hot files, and commands that failed and were not fixed, and writes them to a Markdown file under the context store. Returns the saved path and a preview of the contents so you can point the next session (or a teammate) at the file.",
+      description: descriptions.ctx_handoff,
       inputSchema: {
         type: "object",
         properties: { task: { type: "string", description: "Short description of the task being handed off" } },

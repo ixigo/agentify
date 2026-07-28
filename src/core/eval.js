@@ -22,6 +22,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
@@ -33,6 +34,13 @@ import { detectDelegateProviders, parseClaudeJsonOutput } from "./models.js";
 import { recordDelegation } from "./stats.js";
 import { redactSensitiveText } from "./redact.js";
 import { VERSION } from "./cli-fast-paths.js";
+
+// The Agentify CLI under test (this package's own entry). MCP-tool arms
+// register the server as `node <this cli> serve` so the description set the
+// ablation varies is served by the code being evaluated — never a stale or
+// differently-versioned Agentify that happens to be on PATH (which would
+// ignore AGENTIFY_MCP_DESCRIPTIONS and make A and B identical).
+const AGENTIFY_CLI_PATH = fileURLToPath(new URL("../cli.js", import.meta.url));
 
 const execFileAsync = promisify(execFile);
 
@@ -141,6 +149,24 @@ export function validateEvalTask(raw, source = "") {
     fail(source, `effort must be a simple level name (e.g. low, medium, high), got "${raw.effort}"`);
   }
   const contextAblations = normalizeContextAblations(raw.context_ablations, source);
+  const descriptionAblations = normalizeDescriptionAblations(raw.description_ablations, source);
+  // Context and description ablations both expand only the agentify arm, so
+  // combining them would silently cross-product into confounded arms. #334
+  // isolates the description variable, so refuse the combination outright.
+  if (contextAblations && descriptionAblations) {
+    fail(source, "context_ablations and description_ablations cannot be combined on one task (they would cross-product into confounded arms)");
+  }
+  // Registering the Agentify MCP server is what makes tool descriptions
+  // observable at all. A description ablation without mcp_tools would run both
+  // arms with no server registered and measure zero calls in both (#331), so
+  // require it explicitly.
+  if (raw.mcp_tools !== undefined && typeof raw.mcp_tools !== "boolean") {
+    fail(source, `mcp_tools must be a boolean, got "${raw.mcp_tools}"`);
+  }
+  const mcpTools = raw.mcp_tools === true;
+  if (descriptionAblations && !mcpTools) {
+    fail(source, "description_ablations require mcp_tools: true (the Agentify MCP server must be registered for tool-call rate to be measurable)");
+  }
   // The profile is pinned into every attempt's environment, so an unknown
   // name must fail at validation, not silently govern nothing.
   const profile = String(raw.profile || "balanced").trim().toLowerCase();
@@ -171,6 +197,11 @@ export function validateEvalTask(raw, source = "") {
     profile,
     seed_context: raw.seed_context !== false,
     context_ablations: contextAblations,
+    // When true, the agentify arm registers the Agentify MCP server in its
+    // workspace (alias "agentify") so its eight tools are actually available,
+    // and a run where the server did not register is treated as invalid.
+    mcp_tools: mcpTools,
+    description_ablations: descriptionAblations,
   };
 }
 
@@ -235,21 +266,71 @@ export function contextAblationLabel(ablation) {
   return `agentify-ctx-${ablation.mode}${ablation.max_injected_tokens === null ? "" : `-${ablation.max_injected_tokens}`}`;
 }
 
+// MCP tool-description ablation variants of the agentify arm (#334): same
+// install, same seeded context, but the active MCP description set (a|b) is
+// overridden per attempt via AGENTIFY_MCP_DESCRIPTIONS so the trigger-condition
+// wording (set b) becomes a measurable arm against the shipped wording (set a).
+// Unlike context ablations, this arm requires the Agentify MCP server to be
+// registered (task.mcp_tools) — an unregistered server means both arms would
+// measure zero tool calls and the ablation would be vacuous (#331).
+const DESCRIPTION_ABLATION_SETS = new Set(["a", "b"]);
+
+function normalizeDescriptionAblations(raw, source) {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    fail(source, "description_ablations must be a non-empty list");
+  }
+  const seen = new Set();
+  const sets = raw.map((entry) => {
+    const set = String(entry ?? "").trim().toLowerCase();
+    if (!DESCRIPTION_ABLATION_SETS.has(set)) {
+      fail(source, `description_ablations entry "${entry}" must be one of ${[...DESCRIPTION_ABLATION_SETS].join(", ")}`);
+    }
+    if (seen.has(set)) {
+      fail(source, `description_ablations lists duplicate set "${set}"`);
+    }
+    seen.add(set);
+    return set;
+  });
+  // A paired ablation needs both the shipped baseline and the trigger variant;
+  // a single-set list would measure one arm against nothing.
+  if (!seen.has("a") || !seen.has("b")) {
+    fail(source, "description_ablations must include both \"a\" (shipped) and \"b\" (trigger) to form a paired experiment");
+  }
+  return sets;
+}
+
+// The shipped set "a" keeps the plain "agentify" arm label so it stays the
+// pairing baseline; set "b" gets its own report bucket.
+export function descriptionAblationLabel(set) {
+  return set === "b" ? "agentify-desc-b" : "agentify";
+}
+
 export function isAgentifyArm(arm) {
-  return arm === "agentify" || String(arm || "").startsWith("agentify-ctx-");
+  return arm === "agentify"
+    || String(arm || "").startsWith("agentify-ctx-")
+    || String(arm || "").startsWith("agentify-desc-");
 }
 
 // Expand base arms into concrete run variants. Only the agentify arm carries
-// context ablations; baseline arms run with Agentify context provably off.
+// ablations; baseline arms run with Agentify context provably off. Context and
+// description ablations are mutually exclusive (enforced in validation) so this
+// never produces a confounded cross-product.
 export function expandArmVariants(task, arms) {
   const variants = [];
   for (const arm of arms) {
     if (arm === "agentify" && Array.isArray(task.context_ablations) && task.context_ablations.length > 0) {
       for (const ablation of task.context_ablations) {
-        variants.push({ arm: contextAblationLabel(ablation), base_arm: "agentify", context_ablation: ablation });
+        variants.push({ arm: contextAblationLabel(ablation), base_arm: "agentify", context_ablation: ablation, description_set: null });
+      }
+    } else if (arm === "agentify" && Array.isArray(task.description_ablations) && task.description_ablations.length > 0) {
+      for (const set of task.description_ablations) {
+        variants.push({ arm: descriptionAblationLabel(set), base_arm: "agentify", context_ablation: null, description_set: set });
       }
     } else {
-      variants.push({ arm, base_arm: arm, context_ablation: null });
+      variants.push({ arm, base_arm: arm, context_ablation: null, description_set: null });
     }
   }
   return variants;
@@ -331,7 +412,11 @@ async function resolveCommit(root, ref) {
 export function buildEvalArmCommand(arm, task) {
   const argv = [
     "claude", "-p", task.prompt,
-    "--output-format", "json",
+    // MCP-tool arms need the full event stream, not just the final envelope:
+    // the tool_use events are what #331's telemetry attributes per tool, and
+    // the terminal result line still carries cost/usage. Other tasks keep the
+    // compact final-envelope format unchanged.
+    ...(task.mcp_tools ? ["--output-format", "stream-json", "--verbose"] : ["--output-format", "json"]),
     "--model", task.model,
     "--max-budget-usd", String(task.max_budget_usd),
     "--max-turns", String(task.max_turns),
@@ -340,6 +425,15 @@ export function buildEvalArmCommand(arm, task) {
   ];
   if (task.effort) {
     argv.push("--effort", task.effort);
+  }
+  if (task.mcp_tools && isAgentifyArm(arm)) {
+    // Load the Agentify server from the workspace .mcp.json for this headless
+    // run and pre-approve its tools, so the tools are actually reachable
+    // without the interactive project-server approval prompt. --strict-mcp-config
+    // loads ONLY this config, so a global/stale Agentify on PATH can never be
+    // the server that answers. Relative path resolves against the run cwd
+    // (the workspace).
+    argv.push("--mcp-config", ".mcp.json", "--strict-mcp-config", "--allowedTools", `mcp__${EVAL_MCP_SERVER_ALIAS}`);
   }
   if (arm === "plain-safe") {
     // Vanilla-Claude baseline: no CLAUDE.md, hooks, skills, plugins, or MCP,
@@ -402,6 +496,7 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
         arm: variant.arm,
         base_arm: variant.base_arm,
         context_ablation: variant.context_ablation,
+        description_set: variant.description_set ?? null,
         repeat_index: index + 1,
         argv: buildEvalArmCommand(variant.base_arm, task),
       });
@@ -423,13 +518,15 @@ export async function planEvalRun(root, config, taskRef, options = {}) {
   };
 }
 
-function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null) {
+function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null, descriptionSet = null) {
   const env = { ...process.env, ...extraEnv };
   // Never inherit a parent shell's ablation or profile overrides: each
   // attempt's context configuration must come from its own plan entry only.
   delete env.AGENTIFY_CTX_INJECTION;
   delete env.AGENTIFY_CTX_BUDGET;
   delete env.AGENTIFY_PROFILE;
+  delete env.AGENTIFY_MCP_DESCRIPTIONS;
+  delete env.ENABLE_TOOL_SEARCH;
   if (isAgentifyArm(arm)) {
     // The whole point of this arm is live context hooks — make sure a parent
     // delegate/eval process cannot leak its recursion guard into it.
@@ -444,6 +541,19 @@ function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null) {
       if (contextAblation.max_injected_tokens !== null) {
         env.AGENTIFY_CTX_BUDGET = String(contextAblation.max_injected_tokens);
       }
+    }
+    if (descriptionSet) {
+      // Pin the MCP description set explicitly (even the shipped "a") so the
+      // arm's behavior comes from the plan, never from workspace config drift
+      // or a leaked parent-shell value. The spawned `agentify serve` inherits
+      // this and resolveDescriptionSet() reads it.
+      env.AGENTIFY_MCP_DESCRIPTIONS = descriptionSet;
+      // Load the eight tool definitions upfront instead of deferring them
+      // behind Claude's tool-search: the whole experiment is whether the
+      // description text triggers the call, so the text must be in context from
+      // turn one. Otherwise identical zero-call rates could just mean the
+      // definitions were never surfaced. (Only eight tools — cheap to load.)
+      env.ENABLE_TOOL_SEARCH = "false";
     }
   } else {
     // Baseline arms must provably receive no Agentify context, including from
@@ -525,9 +635,78 @@ async function prepareWorkspace(root, workspace, baseSha) {
   await git(workspace, ["remote", "remove", "origin"], { allowFailure: true });
 }
 
+// Register the Agentify MCP server in the workspace via a project-scoped
+// .mcp.json so Claude Code exposes its eight tools during the graded run. The
+// alias is the canonical "agentify" so #331's /agentify/i telemetry detector
+// attributes the calls. The server is the Agentify under test (`node <cli>
+// serve`), not whatever is on PATH, so the ablated description set is actually
+// the one served. Written only for agentify arms of an mcp_tools task, and
+// sealed into the arm-setup commit so it never appears in the graded diff.
+export const EVAL_MCP_SERVER_ALIAS = "agentify";
+
+function mcpServerEntry() {
+  return { command: process.execPath, args: [AGENTIFY_CLI_PATH, "serve"] };
+}
+
+async function registerMcpServer(workspace) {
+  const mcpConfigPath = path.join(workspace, ".mcp.json");
+  const existing = (await exists(mcpConfigPath))
+    ? await readJson(mcpConfigPath).catch(() => ({}))
+    : {};
+  const config = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
+  const servers = config.mcpServers && typeof config.mcpServers === "object" && !Array.isArray(config.mcpServers)
+    ? config.mcpServers
+    : {};
+  servers[EVAL_MCP_SERVER_ALIAS] = mcpServerEntry();
+  config.mcpServers = servers;
+  await writeText(mcpConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+  return mcpConfigPath;
+}
+
+// Build the structural index the query/risk tools read: both open the index
+// read-only and error when it is absent, so an mcp_tools arm without a scan
+// would advertise those tools but have them fail at call time. Built with the
+// Agentify under test (the same code that serves the tools) so the index and
+// the reader always match.
+async function buildWorkspaceIndex(workspace, env) {
+  const result = await runProcess(process.execPath, [AGENTIFY_CLI_PATH, "scan"], {
+    cwd: workspace,
+    env,
+    timeoutMs: SETUP_TIMEOUT_MS,
+  });
+  if (result.code !== 0 || result.timedOut) {
+    // The provider never ran, so this is an infrastructure failure, not a
+    // treatment outcome: flag it invalid so it is excluded from the pass-rate
+    // denominator rather than making the agentify arm look worse (#334).
+    const error = new Error(`agentify scan failed while preparing the MCP-tool workspace (exit ${result.code}${result.timedOut ? ", timed out" : ""}): ${tail(result.stderr)}`);
+    error.evalInvalid = true;
+    throw error;
+  }
+}
+
 async function prepareArm(root, workspace, arm, task) {
   if (isAgentifyArm(arm)) {
     await installIntegration(workspace, { provider: "claude" });
+    if (task.mcp_tools) {
+      await registerMcpServer(workspace);
+      // Strip Agentify's managed CLAUDE.md guidance for the tool ablation: that
+      // block names the `agentify query` / `agentify risk` CLI, which would
+      // both hint the agent to reach for the tools (defeating the "description
+      // alone" test) and let it satisfy the task via Bash CLI calls that are
+      // not mcp__agentify__* events and so go uncounted. Removing it leaves the
+      // MCP tool descriptions as the sole affordance under measurement. Hooks
+      // (settings.json) are left intact.
+      const memoryPath = path.join(workspace, "CLAUDE.md");
+      if (await exists(memoryPath)) {
+        const stripped = removeManagedBlock(await readText(memoryPath));
+        if (stripped.changed) {
+          await writeText(memoryPath, stripped.text);
+        }
+      }
+      // The structural index that query/risk read is built later, AFTER setup
+      // commands run (see runAttempt), so it reflects any files setup creates
+      // or edits — not a stale snapshot of the base checkout.
+    }
     const seedSource = path.join(root, ".agentify", "context");
     if (task.seed_context && await exists(seedSource)) {
       await fs.cp(seedSource, path.join(workspace, ".agentify", "context"), { recursive: true });
@@ -716,12 +895,147 @@ async function collectContextMetrics(workspace) {
   return metrics;
 }
 
+// Recover the Claude result envelope from provider stdout. Compact runs emit a
+// single JSON envelope; mcp_tools arms stream newline-delimited events whose
+// terminal line is the result envelope, so scan from the end for the last
+// parseable envelope.
+function extractResultEnvelope(stdout, streamed) {
+  if (!streamed) {
+    return parseClaudeJsonOutput(stdout);
+  }
+  const lines = String(stdout || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const parsed = parseClaudeJsonOutput(lines[index]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+// Best-effort read of Claude's own view of the Agentify MCP server from the
+// event stream. Claude's init event carries `mcp_servers: [{name, status}]`;
+// this confirms the model actually loaded the server we registered, closing
+// the gap that the pre-run handshake only proves the server process works, not
+// that Claude connected. Returns true/false when a matching entry is found,
+// null when the stream carries no such signal (indeterminate — never treated
+// as a failure, to avoid false invalids across Claude versions).
+function inspectClaudeMcpConnection(stream) {
+  for (const line of String(stream || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event;
+    try { event = JSON.parse(trimmed); } catch { continue; }
+    const servers = event && Array.isArray(event.mcp_servers) ? event.mcp_servers : null;
+    if (!servers) continue;
+    const entry = servers.find((server) => /agentify/i.test(String(server?.name || "")));
+    if (!entry) continue;
+    const status = String(entry.status || "").trim().toLowerCase();
+    if (["connected", "ready", "ok", "running"].includes(status)) return true;
+    if (["failed", "error", "disconnected", "pending", "needs-auth"].includes(status)) return false;
+    return null;
+  }
+  return null;
+}
+
+// Speak the MCP handshake to a configured stdio server and return the tools it
+// advertises. Bounded by a timeout so a hung or missing binary can never stall
+// a run; any failure resolves to an empty tool list (treated as unavailable).
+function probeMcpServer(command, args, { env, cwd, timeoutMs = 15000 } = {}) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, { env, cwd, stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      resolve({ ok: false, tools: [] });
+      return;
+    }
+    let buffer = "";
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ ok: false, tools: [] }), timeoutMs);
+    child.on("error", () => finish({ ok: false, tools: [] }));
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk;
+      for (const line of buffer.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let message;
+        try { message = JSON.parse(trimmed); } catch { continue; }
+        if (message && message.id === 2 && message.result && Array.isArray(message.result.tools)) {
+          finish({ ok: true, tools: message.result.tools });
+          return;
+        }
+      }
+    });
+    child.on("close", () => finish({ ok: false, tools: [] }));
+    try {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } })}\n`);
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`);
+      child.stdin.end();
+    } catch {
+      finish({ ok: false, tools: [] });
+    }
+  });
+}
+
+// Precondition for an mcp_tools attempt: the Agentify MCP server must be
+// registered under the canonical alias AND, when actually launched, expose a
+// non-empty tool set that HONORS the description switch. #331 showed the server
+// was never registered in any real session, so both arms would otherwise
+// silently measure zero tool calls; and a stale server that ignores
+// AGENTIFY_MCP_DESCRIPTIONS would serve set A to both arms, making the ablation
+// vacuous. Either failure means the run is INVALID, not a zero-call result.
+// This handshakes with the SAME command the graded run launches, rather than
+// trusting the harness's own imported code.
+export async function resolveMcpPrecondition(workspace, descriptionSet, env = process.env) {
+  const mcpConfigPath = path.join(workspace, ".mcp.json");
+  let server = null;
+  if (await exists(mcpConfigPath)) {
+    const config = await readJson(mcpConfigPath).catch(() => null);
+    server = config?.mcpServers?.[EVAL_MCP_SERVER_ALIAS] ?? null;
+  }
+  const registered = Boolean(server && server.command && Array.isArray(server.args) && server.args.includes("serve"));
+  const base = { alias: EVAL_MCP_SERVER_ALIAS, registered, description_set: descriptionSet ?? null };
+  if (!registered) {
+    return { ...base, tool_count: 0, description_switch_supported: false, available: false };
+  }
+  const set = descriptionSet ?? "a";
+  const other = set === "b" ? "a" : "b";
+  const probe = (value) => probeMcpServer(server.command, server.args, {
+    env: { ...env, AGENTIFY_MCP_DESCRIPTIONS: value },
+    cwd: workspace,
+  });
+  const mine = await probe(set);
+  const alt = await probe(other);
+  const toolCount = mine.tools.length;
+  // The served descriptions must actually change with the set, or A and B are
+  // the same experiment: compare a shared tool's text across the two sets.
+  const altByName = new Map(alt.tools.map((tool) => [tool.name, tool.description]));
+  const switchSupported = mine.tools.some(
+    (tool) => altByName.has(tool.name) && altByName.get(tool.name) !== tool.description,
+  );
+  return {
+    ...base,
+    tool_count: toolCount,
+    description_switch_supported: switchSupported,
+    available: registered && toolCount > 0 && switchSupported,
+  };
+}
+
 async function runAttempt(root, runDir, plan, attempt, options) {
   const attemptDir = path.join(runDir, "attempts", attempt.attempt_id);
   const workspace = path.join(attemptDir, "workspace");
   await ensureDir(attemptDir);
   const baseArm = attempt.base_arm || attempt.arm;
-  const env = childEnv(baseArm, options.env, attempt.context_ablation ?? null, plan.task.profile);
+  const descriptionSet = attempt.description_set ?? null;
+  const env = childEnv(baseArm, options.env, attempt.context_ablation ?? null, plan.task.profile, descriptionSet);
   const task = { ...plan.task, base_sha: plan.base_sha };
   const startedAt = Date.now();
 
@@ -732,6 +1046,7 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     arm: attempt.arm,
     base_arm: baseArm,
     context_ablation: attempt.context_ablation ?? null,
+    description_set: descriptionSet,
     repeat_index: attempt.repeat_index,
     task_id: plan.task.id,
     base_sha: plan.base_sha,
@@ -761,7 +1076,30 @@ async function runAttempt(root, runDir, plan, attempt, options) {
         throw new Error(`setup command failed (exit ${result.code}${result.timedOut ? ", timed out" : ""}): ${command}\n${tail(result.stderr)}`);
       }
     }
+    // Build the query/risk index AFTER setup so it includes any files setup
+    // created or edited, then seal — a pre-setup index would be stale (#334).
+    if (plan.task.mcp_tools && isAgentifyArm(baseArm)) {
+      await buildWorkspaceIndex(workspace, env);
+    }
     await sealArmSetup(workspace, plan.task.forbidden_paths);
+
+    // Gate mcp_tools agentify arms on an available server before spending: a
+    // run where the Agentify MCP server did not register is invalid (not a
+    // zero-call result), so fail it explicitly instead of grading a vacuous
+    // attempt. Baseline arms carry no server by construction and are skipped.
+    if (plan.task.mcp_tools && isAgentifyArm(baseArm)) {
+      record.mcp_precondition = await resolveMcpPrecondition(workspace, descriptionSet, env);
+      if (!record.mcp_precondition.available) {
+        const invalid = new Error(
+          `MCP precondition failed for arm ${attempt.arm}: server not usable `
+          + `(registered=${record.mcp_precondition.registered}, tools=${record.mcp_precondition.tool_count}, `
+          + `description_switch=${record.mcp_precondition.description_switch_supported}). `
+          + "A run without a working Agentify MCP server is invalid, not a zero-call result.",
+        );
+        invalid.evalInvalid = true;
+        throw invalid;
+      }
+    }
 
     const providerStart = Date.now();
     const providerResult = await runProcess(attempt.argv[0], attempt.argv.slice(1), {
@@ -770,7 +1108,26 @@ async function runAttempt(root, runDir, plan, attempt, options) {
       timeoutMs: plan.task.timeout_seconds * 1000,
     });
     const providerMs = Date.now() - providerStart;
-    const parsed = parseClaudeJsonOutput(providerResult.stdout);
+    // MCP-tool arms stream newline-delimited events; the terminal result line
+    // carries cost/usage, so parse that rather than the whole stream.
+    const parsed = extractResultEnvelope(providerResult.stdout, plan.task.mcp_tools === true);
+
+    // Confirm Claude itself loaded the server (not just that the process
+    // works). If Claude explicitly reported it disconnected/failed, the run is
+    // vacuous — mark it invalid rather than grade a zero-tool attempt.
+    if (plan.task.mcp_tools && isAgentifyArm(baseArm)) {
+      const connected = inspectClaudeMcpConnection(providerResult.stdout);
+      if (record.mcp_precondition) {
+        record.mcp_precondition.claude_connected = connected;
+      }
+      if (connected === false) {
+        const invalid = new Error(
+          `MCP server was registered and usable, but Claude reported it disconnected for arm ${attempt.arm}. A run where the model never loaded the tools is invalid, not a zero-call result.`,
+        );
+        invalid.evalInvalid = true;
+        throw invalid;
+      }
+    }
 
     const grade = await gradeAttempt(workspace, task, env);
     if (isAgentifyArm(baseArm)) {
@@ -780,6 +1137,12 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     }
     await writeText(path.join(attemptDir, "patch.diff"), redactSensitiveText(grade.patch));
     await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
+    // Persist the full event stream for mcp_tools arms so #331's telemetry can
+    // attribute mcp__agentify__* tool_use events per tool; the compact
+    // provider-stdout tail above is not a transcript.
+    if (plan.task.mcp_tools === true) {
+      await writeText(path.join(attemptDir, "provider-stream.jsonl"), redactSensitiveText(providerResult.stdout));
+    }
     if (providerResult.stderr.trim()) {
       await writeText(path.join(attemptDir, "provider-stderr.log"), tail(providerResult.stderr));
     }
@@ -803,11 +1166,17 @@ async function runAttempt(root, runDir, plan, attempt, options) {
       artifacts: {
         patch: path.join("attempts", attempt.attempt_id, "patch.diff"),
         provider_stdout: path.join("attempts", attempt.attempt_id, "provider-stdout.json"),
+        ...(plan.task.mcp_tools === true
+          ? { provider_stream: path.join("attempts", attempt.attempt_id, "provider-stream.jsonl") }
+          : {}),
       },
     });
   } catch (error) {
     Object.assign(record, {
-      status: "error",
+      // An unavailable MCP server is a distinct, non-gradeable outcome: label
+      // it "invalid" so it is never counted as a (misleading) zero-call pass or
+      // fail in the paired comparison.
+      status: error?.evalInvalid ? "invalid" : "error",
       error: redactSensitiveText(String(error.message || error)).slice(0, 2000),
       pass: false,
       duration_ms: Date.now() - startedAt,
@@ -862,8 +1231,16 @@ function summarizeAttempts(attempts) {
   const byArm = {};
   for (const attempt of attempts) {
     const bucket = byArm[attempt.arm] || (byArm[attempt.arm] = {
-      attempts: 0, passes: 0, cost_usd: 0, costed_attempts: 0, duration_ms: 0,
+      attempts: 0, passes: 0, invalid: 0, cost_usd: 0, costed_attempts: 0, duration_ms: 0,
     });
+    // An "invalid" attempt (e.g. the MCP server never registered) is an
+    // infrastructure failure, not an arm outcome: count it separately and keep
+    // it out of the pass-rate denominator so it never reads as a regression.
+    if (attempt.status === "invalid") {
+      bucket.invalid += 1;
+      bucket.duration_ms += attempt.duration_ms || 0;
+      continue;
+    }
     bucket.attempts += 1;
     if (attempt.pass) bucket.passes += 1;
     bucket.duration_ms += attempt.duration_ms || 0;
@@ -955,6 +1332,7 @@ export async function runEval(root, config, taskRef, options = {}) {
         arm,
         base_arm: variant.base_arm,
         context_ablation: variant.context_ablation,
+        description_set: variant.description_set ?? null,
         repeat_index: repeatIndex,
         argv: buildEvalArmCommand(variant.base_arm, task),
       };
@@ -1020,6 +1398,17 @@ export async function runEval(root, config, taskRef, options = {}) {
       setup: plan.task.setup,
       grader: plan.task.grader,
       forbidden_paths: plan.task.forbidden_paths,
+      // Surface the MCP-tool ablation config so a plan/dry-run makes the
+      // measurement contract explicit before any spend: which arms register the
+      // Agentify server, and that availability is a hard precondition.
+      mcp_tools: plan.task.mcp_tools,
+      ...(plan.task.mcp_tools
+        ? {
+          mcp_registration: { alias: EVAL_MCP_SERVER_ALIAS, command: "agentify", args: ["serve"] },
+          preconditions: ["agentify MCP server registered and exposing >0 tools (else the run is invalid, not a zero-call result)"],
+        }
+        : {}),
+      ...(plan.task.description_ablations ? { description_ablations: plan.task.description_ablations } : {}),
       attempts: pendingAttempts.map((attempt) => ({ ...attempt })),
       max_spend_usd: maxPendingSpend,
     };

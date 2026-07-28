@@ -1,0 +1,45 @@
+schema: eval-task-v1
+id: trivial-edit-no-lookup
+description: >-
+  Over-triggering control. A one-line, zero-blast-radius edit where consulting
+  the index, scoring impact, or reviewing prior decisions is unnecessary. A
+  description set that makes the agent reach for a tool here is over-triggering,
+  which is a regression — reported alongside under-calling, not ignored. Setup
+  plants the typo so the grader fails on an unchanged workspace; both sets
+  should complete this with few or no tool calls.
+base_ref: 5bf2bdcd2a32c2018e10bdf08a7e7d541436468b
+# Setup plants a self-contained file with a misspelling; nothing depends on it,
+# so no lookup is warranted. The instruction names no tool and implies none.
+setup:
+  - "printf '%s\\n' '// helper note - recieve the payload, then validate it' > ablation-scratch-note.js"
+prompt: >-
+  A tracked file in the working tree has a spelling mistake in a code comment:
+  the word "recieve" should be "receive". Find that comment and correct only
+  that one word. Change nothing else.
+model: claude-haiku-4-5-20251001
+max_budget_usd: 0.25
+max_turns: 6
+timeout_seconds: 300
+repeat: 3
+arms:
+  - agentify
+  - plain-safe
+mcp_tools: true
+description_ablations:
+  - a
+  - b
+grader:
+  # Fails on the unchanged (post-setup) workspace: the misspelling is present
+  # until the agent fixes exactly that word. The third check enforces "change
+  # nothing else" — the only edit versus the sealed setup commit must be the
+  # scratch file, so an attempt that touches other files does not pass.
+  commands:
+    - test -z "$(git grep -n 'recieve' -- ablation-scratch-note.js || true)"
+    # Exact expected contents: enforces the "change nothing else" instruction
+    # inside the file — only the one word may differ from the seeded line.
+    - "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'"
+    # And no other file may change versus the sealed setup commit.
+    - "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'"
+forbidden_paths:
+  - .claude/**
+  - CLAUDE.md
