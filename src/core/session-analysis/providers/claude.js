@@ -14,6 +14,7 @@ import {
   recordFileAccess,
 } from "../normalize.js";
 import { claudePromptText, createContentClassifier } from "../content-classify.js";
+import { matchAgentifyMcpTool, recordAgentifyToolCall, recordAgentifyToolOutcome } from "../agentify-tools.js";
 
 export function defaultClaudeRoot() {
   return path.join(os.homedir(), ".claude", "projects");
@@ -113,6 +114,9 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
   const models = new Set();
   const fileAccessSeen = new Map();
   const shellCallsById = new Map();
+  // tool_use_id -> canonical Agentify tool name, so a later tool_result can
+  // attribute a success/error to the specific Agentify tool that was called.
+  const agentifyCallsById = new Map();
   const outcome = createOutcomeTracker();
   const classifier = contentMode === "local-extractive" ? createContentClassifier() : null;
 
@@ -149,6 +153,11 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
         const name = String(item.name || "unknown");
         session.tools.calls += 1;
         session.tools.by_name[name] = (session.tools.by_name[name] || 0) + 1;
+        const agentifyTool = matchAgentifyMcpTool(name);
+        if (agentifyTool) {
+          recordAgentifyToolCall(session.agentify_tool_calls, agentifyTool);
+          if (item.id) agentifyCallsById.set(item.id, agentifyTool);
+        }
         const input = item.input && typeof item.input === "object" ? item.input : {};
 
         if (PATH_TOOL_OPERATIONS[name]) {
@@ -207,6 +216,10 @@ export async function parseClaudeSession(file, { root, contentMode = "metadata-o
         const failed = item.is_error === true;
         const shellCall = item.tool_use_id ? shellCallsById.get(item.tool_use_id) : null;
         outcome.record(shellCall?.kinds || [], !failed, { evidenceReliable: shellCall ? shellCall.evidenceReliable : true });
+        // A tool_result is a definitive outcome for the Agentify call: record
+        // success or error so the error rate reflects only observed outcomes.
+        const agentifyTool = item.tool_use_id ? agentifyCallsById.get(item.tool_use_id) : null;
+        if (agentifyTool) recordAgentifyToolOutcome(session.agentify_tool_calls, agentifyTool, !failed);
         if (!failed) continue;
         session.failed_tool_calls += 1;
         if (shellCall?.fingerprint) {

@@ -5,7 +5,9 @@ import path from "node:path";
 export const SESSION_ANALYSIS_SCHEMA_VERSION = "session-analysis-v1";
 export const RECOMMENDATION_SCHEMA_VERSION = "recommendation-v1";
 export const USAGE_SCORECARD_SCHEMA_VERSION = "usage-scorecard-v1";
-export const ANALYSIS_PARSER_VERSION = "analyze-parser-v8";
+// Bumped to v9 for #331: parsers now also carry per-session Agentify MCP
+// tool-call telemetry, so older cache entries must be re-parsed.
+export const ANALYSIS_PARSER_VERSION = "analyze-parser-v9";
 
 // null means "the provider never reported this dimension"; zero means an
 // observed zero. Adding a value to null promotes it to a number.
@@ -107,6 +109,10 @@ export function createSessionSkeleton(provider, filePath) {
     usage: emptyUsage(),
     cost: { reported_usd: null, estimated_usd: null, basis: "unavailable", coverage: 0 },
     tools: { calls: 0, by_name: {} },
+    // Agentify's own MCP tool calls (issue #331), a subset of tools.by_name
+    // attributed by name with per-tool success/error counts. Distinct from
+    // tool-inventory.js, which detects installed dev binaries.
+    agentify_tool_calls: { calls: 0, resolved: 0, errors: 0, by_name: {} },
     file_access: [],
     sidechain_events: 0,
     provider_session_id: null,

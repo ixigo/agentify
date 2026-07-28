@@ -24,6 +24,10 @@ function isUsableSession(session) {
     && typeof session === "object"
     && session.usage && typeof session.usage === "object"
     && session.tools && typeof session.tools.by_name === "object"
+    // #331 telemetry: a v9 entry must carry the mergeable agentify_tool_calls
+    // shape, or a sidechain merge into it would dereference undefined.
+    && session.agentify_tool_calls && typeof session.agentify_tool_calls === "object"
+    && typeof session.agentify_tool_calls.by_name === "object"
     && Array.isArray(session.file_access)
     && Array.isArray(session.models)
     && session.shell_patterns && typeof session.shell_patterns === "object"
