@@ -115,13 +115,18 @@ async function detectPackageManagerReadiness() {
   };
 }
 
-async function detectProviderReadiness(provider, root) {
+async function detectProviderReadiness(provider, root, { homeDir } = {}) {
   const definition = getProviderDefinition(provider);
   const bootstrap = definition?.bootstrap || {};
   const binary = bootstrap.bin || provider;
+  // When a caller isolates the home (e.g. `agentify install --home`), point
+  // auth probes at that home too so detection reads the same environment the
+  // registration targets rather than the real one.
+  const env = homeDir ? { ...process.env, HOME: homeDir } : process.env;
   const detection = await detectBinary(binary, {
     checkArgs: bootstrap.checkArgs || ["--version"],
     cwd: root,
+    env,
   });
 
   let auth = AUTH_SKIPPED_BINARY_MISSING;
@@ -129,8 +134,8 @@ async function detectProviderReadiness(provider, root) {
     try {
       auth = await definition.probeAuth({
         cwd: root,
-        env: process.env,
-        homeDir: process.env.HOME,
+        env,
+        homeDir: homeDir || process.env.HOME,
         exec: runCommandCapture,
       });
     } catch (error) {
@@ -173,7 +178,7 @@ export async function detectCapabilities(config = {}) {
   const tier1Ready = results.rg.available && results.fd.available;
   const tier2Ready = tier1Ready && results["ast-grep"].available && results["tree-sitter"].available;
   const providerEntries = await Promise.all(
-    EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root)])
+    EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root, { homeDir: config.homeDir })])
   );
 
   return {

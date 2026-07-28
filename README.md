@@ -238,6 +238,43 @@ claude mcp add agentify -- agentify serve
 
 Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the decision log before re-proposing a settled direction), `ctx_handoff` (leave a handoff at the end of a long task) — the persistent-context set — plus `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
 
+## One-command install and the first-run win
+
+`agentify install` does the whole setup in one pass and prints a **receipt** of what it did. It:
+
+1. **Detects** which provider CLIs are installed (Claude Code, Codex) and whether each is authenticated.
+2. **Registers the Agentify MCP server** with every installed provider — Claude Code in `~/.claude.json`, Codex in `~/.codex/config.toml` — so the tools are actually reachable. Registration is idempotent, backs up the config before writing, and preserves every unrelated key. Re-running never adds a second entry.
+3. **Wires guidance and hooks** (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
+4. **Builds the structural index** for `query` / `risk` / `test_select`.
+5. **Shows a first-run win** immediately: recent activity, hot files, and unresolved failed commands from your local sessions — or, on a repo with no Agentify history yet, a setup audit of your global provider config.
+
+```bash
+agentify install                       # detect + register + index, everything present
+agentify install --provider claude     # force a specific provider (registers even if the CLI is absent)
+agentify install --skip-mcp            # guidance + hooks only, no MCP registration
+agentify install --no-index            # skip the structural index build
+agentify install --home <dir>          # target a non-default home (used by tests; never touches your real config)
+```
+
+If a provider is installed but not authenticated, the install **warns and continues** — the MCP registration is written anyway (it is just config; auth is separate), and the receipt tells you which login command to run.
+
+**ACP clients** are handled conditionally: if this build carries no ACP registration path (it depends on a separate change), the receipt says so and skips it cleanly rather than assuming a client is present.
+
+### Manual fallback
+
+Every automated step has a manual equivalent, in case you prefer to do it by hand or the automation is skipped:
+
+| Automated step | Manual equivalent |
+| --- | --- |
+| Register MCP with Claude Code | `claude mcp add --scope user agentify -- agentify serve` (the automated path writes the user-scoped entry in `~/.claude.json`; Claude's default scope is project-local) |
+| Register MCP with Codex | `codex mcp add agentify -- agentify serve`, or add a `[mcp_servers.agentify]` table (`command = "agentify"`, `args = ["serve"]`) to `~/.codex/config.toml` |
+| Guidance + hooks | `agentify install --skip-mcp` |
+| Build the index | `agentify scan` |
+| See the first-run win later | `agentify ctx load` (session digest) or `agentify analyze --include-config` (setup audit) |
+| Undo everything | `agentify uninstall` removes guidance and hooks; the user-scoped MCP registration is shared across repos, so it is removed only with `agentify uninstall --global` or `--mcp`. Manually: `claude mcp remove agentify` / delete the `[mcp_servers.agentify]` table |
+
+Honest scope: Claude Code tracking is automatic via hooks; Codex is guidance-driven (`AGENTS.md`); hidden provider transcripts are never replayed. The install output does not claim otherwise.
+
 ## Model routing
 
 `agentify install` also configures **model routing**: a table mapping kinds of work to the model best suited for it, written into `.agentify.yaml`. The guidance block teaches the agent to shell work out instead of doing everything inline:

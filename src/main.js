@@ -1,15 +1,20 @@
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { loadConfig, writeDefaultConfig } from "./core/config.js";
-import { ensureBaselineArtifacts, runScan, runUpdate, runValidate } from "./core/commands.js";
+import { loadConfig } from "./core/config.js";
+import { runScan, runUpdate, runValidate } from "./core/commands.js";
 import { installHooks, removeHooks, statusHooks } from "./core/hooks.js";
 import {
-  installIntegration,
+  MCP_REGISTRABLE_PROVIDERS,
+  MCP_SERVER_ALIAS,
   integrationStatus,
+  mcpRegistrationStatus,
   resolveIntegrationProviders,
   uninstallIntegration,
+  unregisterMcpServer,
 } from "./core/integrations.js";
+import { runOneCommandInstall } from "./core/install.js";
 import { contextStatus, summarizeSession } from "./core/ctx.js";
 import { runCtxCommand, runCtxHook } from "./core/cli-ctx.js";
 import {
@@ -83,7 +88,7 @@ import { VERSION, printHelp } from "./core/cli-fast-paths.js";
 import { resolveAgentifyPaths } from "./core/project-store.js";
 import { writePrivateText } from "./core/fs.js";
 import { openInBrowser } from "./core/browser.js";
-import { withSilent, bold, dim, green, success, warn, log } from "./core/ui.js";
+import { withSilent, bold, dim, green, yellow, red, success, warn, log } from "./core/ui.js";
 
 export { parseArgs };
 
@@ -168,92 +173,218 @@ function throwWithIndexGuidance(error, root) {
   throw error;
 }
 
+function renderMcpAction(registration) {
+  if (registration.error) {
+    return red(`not registered — ${registration.error}`);
+  }
+  if (!registration.changed) {
+    return dim("already registered");
+  }
+  if (registration.dry_run) {
+    return yellow(`${registration.action} (dry run)`);
+  }
+  return green(registration.action);
+}
+
+function renderInstallReceipt(result, config) {
+  if (result.ok === false) {
+    warn(`Agentify installed with issues (${result.scope} scope) — one or more MCP registrations did not complete; see below.`);
+  } else {
+    success(`Agentify installed (${result.scope} scope)${result.dry_run ? " — dry run, nothing written" : ""}`);
+  }
+
+  log("");
+  log(bold("Detected"));
+  for (const info of result.detected.providers) {
+    const status = info.installed
+      ? green(`installed${info.version ? ` v${info.version}` : ""}`)
+      : dim("not installed");
+    let auth = "";
+    if (info.installed) {
+      auth = info.auth.state === "ready"
+        ? ` · ${green("authenticated")}`
+        : info.auth.state === "missing"
+          ? ` · ${yellow("login required")}`
+          : ` · ${dim(info.auth.state)}`;
+    }
+    log(`  ${bold(info.provider)}: ${status}${auth}`);
+  }
+  log(`  ACP clients: ${dim("none — " + result.acp.note)}`);
+
+  log("");
+  log(bold("Registered (MCP server)"));
+  if (result.mcp.skipped) {
+    log(`  ${dim("skipped (--skip-mcp)")}`);
+  } else if (result.mcp.registrations.length === 0) {
+    log(`  ${dim("no installed provider to register — pass --provider claude|codex to force")}`);
+  } else {
+    for (const registration of result.mcp.registrations) {
+      log(`  ${bold(registration.provider)} → ${dim(registration.path)}: ${renderMcpAction(registration)}`);
+      if (registration.backup) {
+        log(`    ${dim(`backup: ${registration.backup}`)}`);
+      }
+    }
+  }
+
+  log("");
+  log(bold("Guidance & hooks"));
+  for (const integration of result.integrations) {
+    log(`  ${bold(integration.provider)} guidance: ${dim(integration.memory.path)} (${integration.memory.action})`);
+    if (integration.settings.path) {
+      log(`  ${bold(integration.provider)} hooks:    ${dim(integration.settings.path)} (${integration.settings.changed ? "updated" : "already current"})`);
+    } else {
+      log(`  ${bold(integration.provider)} hooks:    ${dim("n/a — guidance-driven tracking")}`);
+    }
+  }
+
+  log("");
+  log(bold("Index"));
+  if (result.index.built) {
+    log(`  ${green(result.index.status)}${(result.index.wrote || []).length ? ` — ${dim((result.index.wrote || []).join(", "))}` : ""}`);
+  } else if (result.index.status === "error") {
+    log(`  ${yellow("not built")} — ${dim(result.index.error)}. Run ${dim("agentify scan")} to build it.`);
+  } else {
+    log(`  ${dim(result.index.status)} — run ${dim("agentify scan")} to build the structural index.`);
+  }
+
+  log("");
+  log(bold(result.first_run.headline));
+  if (result.first_run.source === "history") {
+    for (const line of result.first_run.digest.split("\n")) {
+      log(`  ${line}`);
+    }
+  } else {
+    const findings = result.first_run.findings || [];
+    if (findings.length === 0) {
+      log(`  ${dim("No setup issues found — your global config looks lean.")}`);
+    } else {
+      for (const finding of findings) {
+        log(`  ${yellow("•")} ${finding}`);
+      }
+    }
+    const tokens = result.first_run.always_loaded_token_estimate || {};
+    log(`  ${dim(`Always-loaded instruction cost — claude ~${tokens.claude || 0} tok, codex ~${tokens.codex || 0} tok (rough estimate).`)}`);
+  }
+
+  if (result.warnings.length > 0) {
+    log("");
+    for (const message of result.warnings) {
+      warn(message);
+    }
+  }
+
+  log("");
+  log(bold("Receipt"));
+  log(`  Read: ${dim(result.read.join(", "))}`);
+  log(`  Wrote: ${dim(result.wrote.length ? result.wrote.join(", ") : "nothing")}`);
+  log("");
+  log(`Re-running ${dim("agentify install")} is safe: existing registrations are detected and left unchanged.`);
+  if (result.scope !== "global") {
+    log(buildSkillInstallHint(config.provider, "project").message);
+  }
+}
+
 async function runInstall(root, config, args) {
   const isGlobal = args.global === true;
-  const providers = resolveIntegrationProviders(args.provider);
+  const homeDir = args.home ? path.resolve(String(args.home)) : os.homedir();
+  const requestedProviders = args.provider ? resolveIntegrationProviders(args.provider) : null;
+  const skipMcp = args.skipMcp === true || args.noMcp === true;
+  const buildIndex = args.noIndex !== true;
 
-  if (!isGlobal) {
-    await writeDefaultConfig(root, config, { dryRun: config.dryRun });
-    await ensureBaselineArtifacts(root, config);
-  }
-
-  const integrations = [];
-  for (const provider of providers) {
-    integrations.push(await installIntegration(root, {
-      provider,
-      global: isGlobal,
-      dryRun: config.dryRun,
-    }));
-  }
-
-  const result = {
-    command: "install",
-    root,
-    scope: isGlobal ? "global" : "project",
-    dry_run: Boolean(config.dryRun),
-    integrations,
-    wrote: isGlobal || config.dryRun ? [] : [".agentify.yaml", ".gitignore", ".agentignore", ".guardrails", ".agentify"],
-  };
+  const result = await runOneCommandInstall(root, config, {
+    homeDir,
+    global: isGlobal,
+    providers: requestedProviders,
+    skipMcp,
+    buildIndex,
+  });
 
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));
-    return;
+  } else {
+    renderInstallReceipt(result, config);
   }
 
-  success(`Agentify installed (${result.scope} scope)`);
-  for (const integration of integrations) {
-    log(`${bold(integration.provider)} guidance: ${dim(integration.memory.path)} (${integration.memory.action})`);
-    if (integration.settings.path) {
-      log(`${bold(integration.provider)} hooks:    ${dim(integration.settings.path)} (${integration.settings.changed ? "updated" : "already current"})`);
-    } else {
-      log(`${bold(integration.provider)} hooks:    ${dim("n/a — guidance-driven tracking")}`);
-    }
-  }
-  if (!isGlobal) {
-    log("");
-    if (providers.includes("claude")) {
-      log("Claude Code will now track context automatically in this repo.");
-    }
-    if (providers.includes("codex")) {
-      log("Codex will follow the AGENTS.md guidance to load and record context.");
-    }
-    log(`Model routing configured: small work → fast models, reviews → a different vendor. ${dim("agentify models")} shows the table.`);
-    log(`Optional: ${dim("agentify scan")} to build the structural index for query/risk commands.`);
-    log(buildSkillInstallHint(config.provider, "project").message);
+  // A registration that did not take is a failure of install's primary job:
+  // reflect it in the exit code so automation does not treat it as success.
+  if (result.ok === false) {
+    process.exitCode = 1;
   }
 }
 
 async function runUninstall(root, config, args) {
   const providers = resolveIntegrationProviders(args.provider, { fallback: "all" });
+  const homeDir = args.home ? path.resolve(String(args.home)) : os.homedir();
+  // The MCP registration is user-scoped and shared across every repo, so a
+  // project uninstall must NOT tear it down by default. Remove it only on an
+  // explicit --global (the scope that owns it) or an opt-in --mcp; --skip-mcp
+  // forces it off. Otherwise it is left in place and reported as such.
+  const removeMcp = (args.global === true || args.mcp === true) && args.skipMcp !== true && args.noMcp !== true;
   const results = [];
   for (const provider of providers) {
     results.push(await uninstallIntegration(root, {
       provider,
       global: args.global === true,
+      homeDir,
       dryRun: config.dryRun,
     }));
   }
+  const mcp = [];
+  if (removeMcp) {
+    for (const provider of providers) {
+      if (MCP_REGISTRABLE_PROVIDERS.includes(provider)) {
+        mcp.push(await unregisterMcpServer({ provider, root, homeDir, dryRun: config.dryRun }));
+      }
+    }
+  }
+  const mcpErrors = mcp.filter((entry) => entry.error);
+  const result = { command: "uninstall", integrations: results, mcp, mcp_removed: removeMcp };
   if (config.json) {
-    console.log(JSON.stringify({ command: "uninstall", integrations: results }, null, 2));
+    console.log(JSON.stringify(result, null, 2));
+    if (mcpErrors.length > 0) {
+      process.exitCode = 1;
+    }
     return;
   }
-  success(`Agentify integration removed (${results[0].scope} scope)`);
-  for (const result of results) {
-    log(`${bold(result.provider)} guidance: ${dim(result.memory.path)} (${result.memory.changed ? "cleaned" : "no managed block"})`);
-    if (result.settings.path) {
-      log(`${bold(result.provider)} hooks:    ${dim(result.settings.path)} (${result.settings.changed ? "cleaned" : "no managed hooks"})`);
+  const dry = config.dryRun === true;
+  success(`Agentify integration ${dry ? "would be removed" : "removed"} (${results[0].scope} scope)${dry ? " — dry run, nothing written" : ""}`);
+  for (const item of results) {
+    log(`${bold(item.provider)} guidance: ${dim(item.memory.path)} (${item.memory.changed ? (dry ? "would clean" : "cleaned") : "no managed block"})`);
+    if (item.settings.path) {
+      log(`${bold(item.provider)} hooks:    ${dim(item.settings.path)} (${item.settings.changed ? (dry ? "would clean" : "cleaned") : "no managed hooks"})`);
     }
+  }
+  if (removeMcp) {
+    for (const entry of mcp) {
+      const note = entry.error ? red(entry.error) : (entry.changed ? (dry ? "would unregister" : "unregistered") : "no registration");
+      log(`${bold(entry.provider)} MCP:      ${dim(entry.path)} (${note})`);
+    }
+  } else {
+    log(dim("MCP registration is user-scoped and shared across repos; left in place. Use `agentify uninstall --global` or `--mcp` to remove it."));
+  }
+  for (const message of mcpErrors) {
+    warn(`MCP unregister for ${message.provider} did not complete: ${message.error}`);
+  }
+  if (mcpErrors.length > 0) {
+    process.exitCode = 1;
   }
 }
 
 async function runStatus(root, config, args) {
   const providers = resolveIntegrationProviders(args.provider, { fallback: "all" });
+  const homeDir = args.home ? path.resolve(String(args.home)) : os.homedir();
   const integrations = [];
   for (const provider of providers) {
-    integrations.push(await integrationStatus(root, { provider, global: args.global === true }));
+    integrations.push(await integrationStatus(root, { provider, global: args.global === true, homeDir }));
+  }
+  const mcp = [];
+  for (const provider of providers) {
+    if (MCP_REGISTRABLE_PROVIDERS.includes(provider)) {
+      mcp.push(await mcpRegistrationStatus({ provider, root, homeDir }));
+    }
   }
   const context = await contextStatus(root);
-  const result = { command: "status", integrations, context };
+  const result = { command: "status", integrations, mcp, context };
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -268,6 +399,17 @@ async function runStatus(root, config, args) {
       ? dim("guidance-driven")
       : state(integration.settings.installed);
     log(`${bold(integration.provider)}: guidance ${state(integration.memory.installed)}${memoryNote}, hooks ${hooksNote}`);
+  }
+  for (const entry of mcp) {
+    // A non-current entry is one Agentify did not author; install preserves it
+    // rather than overwriting, so the fix is manual removal/edit, not a rerun.
+    const staleNote = entry.provider === "claude"
+      ? `registered (a different entry — \`claude mcp remove ${MCP_SERVER_ALIAS}\` or edit it, then rerun install)`
+      : "registered (a table Agentify did not author — edit ~/.codex/config.toml, then rerun install)";
+    const mcpState = entry.registered
+      ? (entry.current ? green("registered") : yellow(staleNote))
+      : dim("not registered");
+    log(`${bold(entry.provider)}: MCP server ${mcpState}`);
   }
   log(`Context: ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
 }
