@@ -1,6 +1,6 @@
 import readline from "node:readline";
 
-import { addNote, loadContextSnapshot, matchContext, renderContextDigest, renderMatchDigest } from "./ctx.js";
+import { addNote, listDecisions, loadContextSnapshot, matchContext, renderContextDigest, renderDecisions, renderMatchDigest, writeHandoff } from "./ctx.js";
 import {
   queryCallers,
   queryChanged,
@@ -18,6 +18,19 @@ import { VERSION } from "./cli-fast-paths.js";
 const PROTOCOL_VERSION = "2025-06-18";
 
 const QUERY_KINDS = ["search", "def", "refs", "callers", "impacts", "owner", "deps", "changed"];
+
+// Bounds the ctx_decisions response so a lookup on a mature repo cannot flood
+// the caller's context: at most 50 decisions and ~12k characters (~3k tokens),
+// whichever binds first — a note can be up to ~2000 chars, so the count cap
+// alone is not a size cap. renderDecisions keeps the most relevant/newest
+// entries and reports how many more were truncated.
+const MAX_RENDERED_DECISIONS = 50;
+const MAX_RENDERED_DECISION_CHARS = 12000;
+
+// A handoff renders the full context digest (up to 50 notes, each up to ~2000
+// chars), so the file can be large. The tool returns a bounded preview plus the
+// path; the complete handoff always lives on disk.
+const HANDOFF_PREVIEW_CHARS = 2000;
 
 export function buildMcpTools(root, config = {}) {
   const queryOptions = { config, artifactPaths: config._agentifyPaths };
@@ -145,6 +158,35 @@ export function buildMcpTools(root, config = {}) {
       async handler(args) {
         const selection = await buildTestSelection(root, { since: args.since || null, config, artifactPaths: config._agentifyPaths });
         return renderTestSelection(selection);
+      },
+    },
+    {
+      name: "ctx_decisions",
+      description: "Before you propose, endorse, or start implementing a technical direction that may already be settled — an architecture, a library or dependency, a data or file format, a naming or workflow convention — call this first to check whether a prior session already decided it. Previous sessions record durable decisions with rationale (\"chose X over Y because Z\"); read them before suggesting a direction so you do not re-propose or relitigate something already decided and rejected. Pass the topic you are about to weigh in on; omit it to review the decisions already on record. Returns matching decisions with their rationale, or a clear message when none are on record.",
+      inputSchema: {
+        type: "object",
+        properties: { topic: { type: "string", description: "Topic to look up (e.g. \"retry backoff\", \"state management\"); omit to review recorded decisions" } },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const result = await listDecisions(root, args.topic);
+        return renderDecisions(result, { limit: MAX_RENDERED_DECISIONS, maxChars: MAX_RENDERED_DECISION_CHARS });
+      },
+    },
+    {
+      name: "ctx_handoff",
+      description: "Call this when you are wrapping up a long or multi-step task, or ending a session with work still in flight, to persist a durable handoff summary before the context is lost. It captures recent activity, decisions on record, hot files, and commands that failed and were not fixed, and writes them to a Markdown file under the context store. Returns the saved path and a preview of the contents so you can point the next session (or a teammate) at the file.",
+      inputSchema: {
+        type: "object",
+        properties: { task: { type: "string", description: "Short description of the task being handed off" } },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const result = await writeHandoff(root, { task: args.task });
+        const preview = result.markdown.length > HANDOFF_PREVIEW_CHARS
+          ? `${result.markdown.slice(0, HANDOFF_PREVIEW_CHARS)}\n… (truncated; full handoff saved to ${result.relative_path})`
+          : result.markdown;
+        return `Handoff written to ${result.relative_path}:\n\n${preview}`;
       },
     },
   ];
