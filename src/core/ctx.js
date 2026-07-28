@@ -273,6 +273,65 @@ export async function listDecisions(root, query, options = {}) {
   return { decisions: matched.map((item) => item.decision), query: trimmedQuery };
 }
 
+// Renders a listDecisions() result as plain text, reusing the same per-decision
+// line format as the context digest so the surface reads identically whether a
+// decision arrives via `ctx load`, `ctx decisions`, or the MCP tool. Empty
+// results return a useful message instead of an empty string.
+//
+// Optional `limit` (item count) and `maxChars` (rendered size) bound the block
+// so neither a common topic (listDecisions admits a match on a single token),
+// an untargeted listing, nor a handful of very long notes can flood a caller's
+// context — a note may be up to ~2000 chars, so a count cap alone is not a size
+// cap. Entries are kept in priority order — most-relevant-then-newest for a
+// topic query, newest for an untargeted listing — so truncation only ever drops
+// the least useful decisions, and at least one is always shown. Any truncation
+// is reported. Display order stays relevance-first for a query and chronological
+// for a listing, matching `ctx load`.
+export function renderDecisions(result, options = {}) {
+  const decisions = result?.decisions || [];
+  const query = result?.query ? String(result.query).trim() : "";
+  // Clip the echoed topic so an oversized query string cannot itself blow the
+  // response budget through the heading or the empty-result message.
+  const shownQuery = clip(query, 120);
+  if (decisions.length === 0) {
+    return query
+      ? `No decisions recorded for "${shownQuery}".`
+      : "No decisions recorded yet.";
+  }
+  const maxItems = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : decisions.length;
+  const maxChars = Number.isInteger(options.maxChars) && options.maxChars > 0 ? options.maxChars : Infinity;
+
+  // A topic query already arrives relevance-ranked (ties newest-first); an
+  // untargeted listing is chronological, so newest is most important.
+  const byPriority = query ? decisions : [...decisions].reverse();
+  const chosen = [];
+  let usedChars = 0;
+  for (const decision of byPriority) {
+    if (chosen.length >= maxItems) {
+      break;
+    }
+    const lineChars = noteLine(decision).length + 1;
+    // Always keep the single most important decision, even if it alone exceeds
+    // the size budget — an empty body would be worse than one oversized line.
+    if (chosen.length > 0 && usedChars + lineChars > maxChars) {
+      break;
+    }
+    chosen.push(decision);
+    usedChars += lineChars;
+  }
+
+  const shown = query ? chosen : [...chosen].reverse();
+  const heading = query ? `Decisions matching "${shownQuery}":` : "Decisions on record:";
+  const lines = [heading, ...shown.map((decision) => noteLine(decision))];
+  const hidden = decisions.length - shown.length;
+  if (hidden > 0) {
+    lines.push(query
+      ? `… and ${hidden} more match; refine the topic to narrow.`
+      : `… and ${hidden} more not shown; pass a topic to narrow.`);
+  }
+  return lines.join("\n");
+}
+
 function summarizeEvents(events) {
   const editCounts = new Map();
   const commands = [];

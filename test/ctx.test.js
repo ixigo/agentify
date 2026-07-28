@@ -752,6 +752,44 @@ test("decision notes: typed storage, digest section, and queryable list", async 
   }
 });
 
+test("renderDecisions bounds output by count and character budget and reports truncation", async () => {
+  const { renderDecisions } = await import("../src/core/ctx.js");
+  const mk = (i, pad = 0) => ({
+    ts: `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+    type: "decision",
+    note: `d${i} ${"x".repeat(pad)}`.trim(),
+  });
+  const bodyLines = (text) => text.split("\n").filter((line) => line.startsWith("- "));
+
+  assert.equal(renderDecisions({ decisions: [], query: null }), "No decisions recorded yet.");
+  assert.equal(renderDecisions({ decisions: [], query: "cache" }), 'No decisions recorded for "cache".');
+
+  // Count cap on an untargeted listing: keeps the newest, drops the oldest,
+  // renders chronologically, and reports the remainder.
+  const listing = renderDecisions({ decisions: Array.from({ length: 8 }, (_, i) => mk(i)), query: null }, { limit: 5 });
+  assert.equal(bodyLines(listing).length, 5);
+  assert.match(listing, /and 3 more not shown; pass a topic to narrow\./);
+  assert.match(listing, /\bd7\b/);
+  assert.doesNotMatch(listing, /\bd0\b/);
+
+  // Character budget binds before the (larger) count cap for long notes.
+  const bounded = renderDecisions({ decisions: Array.from({ length: 5 }, (_, i) => mk(i, 100)), query: "x" }, { limit: 50, maxChars: 300 });
+  assert.ok(bodyLines(bounded).length >= 1 && bodyLines(bounded).length < 5);
+  assert.match(bounded, /more match; refine the topic to narrow\./);
+
+  // A single decision larger than the whole budget is still shown, not dropped.
+  const one = renderDecisions({ decisions: [mk(0, 1000)], query: null }, { limit: 50, maxChars: 10 });
+  assert.equal(bodyLines(one).length, 1);
+
+  // An oversized topic string is clipped in both the heading and the
+  // empty-result message so the echoed query cannot itself flood the response.
+  const longQuery = "q".repeat(500);
+  const clippedMiss = renderDecisions({ decisions: [], query: longQuery });
+  assert.ok(clippedMiss.length < 200, `empty-result message not clipped: ${clippedMiss.length}`);
+  const clippedHit = renderDecisions({ decisions: [mk(0)], query: longQuery }, { limit: 5 });
+  assert.ok(clippedHit.split("\n")[0].length < 200, "heading not clipped");
+});
+
 test("matchContext enforces the configured token budget on the rendered digest", async () => {
   const { matchContext } = await import("../src/core/ctx.js");
   const { estimateContextTokens } = await import("../src/core/value-telemetry.js");

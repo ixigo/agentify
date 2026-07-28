@@ -187,7 +187,7 @@ CLI reported no usage.</pre>
         <p><strong>How:</strong> register <code>agentify serve</code> as a stdio MCP server in your client. Real tool list from a live session:</p>
         <pre><span class="a">$ claude mcp add agentify -- agentify serve</span>   <span class="c"># or your client's equivalent</span>
 
-tools: ctx_load, ctx_note, ctx_match, query, risk, test_select</pre>
+tools: ctx_load, ctx_note, ctx_match, query, risk, test_select, ctx_decisions, ctx_handoff</pre>
         <p><strong>When to use hooks vs MCP:</strong> in Claude Code prefer hooks (automatic tracking, free per-prompt injection); use MCP everywhere else. Both together is fine. The server is part of the CLI — zero extra dependencies, no state between calls, backed by the same store and index.</p>
       </div>
     </section>

@@ -236,7 +236,7 @@ claude mcp add agentify -- agentify serve
 # Cursor/Zed/anything else: register `agentify serve` as a stdio MCP server
 ```
 
-Exposed tools: `ctx_load`, `ctx_note`, `ctx_match` (persistent context), `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
+Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the decision log before re-proposing a settled direction), `ctx_handoff` (leave a handoff at the end of a long task) — the persistent-context set — plus `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
 
 ## Model routing
 
