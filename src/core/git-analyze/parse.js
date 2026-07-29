@@ -38,6 +38,8 @@ const NON_ISSUE_PREFIXES = new Set([
   "GB", "MB", "KB", "TB", "PB", "H", "X", "CP",
   // Security identifiers that share the PREFIX-NUMBER shape but are not issues.
   "CVE", "CWE", "CAPEC", "GHSA",
+  // Timezone abbreviations (e.g. `UTC-05:00`, `GMT-8`).
+  "UTC", "GMT", "UT",
 ]);
 
 // BREAKING CHANGE trailer, per the conventional-commits spec: a line that starts

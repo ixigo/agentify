@@ -1421,7 +1421,7 @@ export async function runCli(argv, _runtime = {}) {
         const usedDeferred = DEFERRED_FLAGS.filter(([key]) => hasOwn(args, key));
         if (usedDeferred.length > 0) {
           const parts = usedDeferred.map(([, label, subsystem, issue]) => `${label} (${subsystem}, #${issue})`);
-          throw new Error(`git analyze does not support ${parts.join(", ")} yet; this slice implements the window and --dry-run only.`);
+          throw new Error(`git analyze does not support ${parts.join(", ")} yet; this build collects and reports the window's commits, but those options land in later slices.`);
         }
         // A single --root is the standard command root; repeating it invokes the
         // frozen "repeatable discovery roots" semantics, which land in #350.

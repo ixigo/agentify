@@ -33,6 +33,15 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+// Environment for every git call: enforce the no-network, read-only contract.
+// GIT_NO_LAZY_FETCH stops a blobless/partial clone from fetching missing objects
+// (which `--numstat` would otherwise trigger, hitting the network and writing
+// under .git); GIT_TERMINAL_PROMPT stops any credential prompt from blocking.
+// Built per call so a test's env (e.g. TZ) is respected.
+function gitEnv() {
+  return { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" };
+}
+
 // RECORD_SEP marks the start of each `git log` entry's header; FIELD_SEP
 // separates the header fields. The authoritative record boundary, though, is the
 // NUL byte git emits under `-z`: a well-formed commit message contains any byte
@@ -419,7 +428,7 @@ const HEADER_TOKEN = new RegExp(`^${RECORD_SEP}(?:[0-9a-f]{40}|[0-9a-f]{64})${FI
  * @returns {AsyncGenerator<{ headerToken: string, numstatTokens: string[] }>}
  */
 async function* streamRawRecords(root, gitArgs) {
-  const child = spawn("git", gitArgs, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("git", gitArgs, { cwd: root, env: gitEnv(), stdio: ["ignore", "pipe", "pipe"] });
 
   const stderrChunks = [];
   child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
@@ -599,7 +608,13 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
     // semantics rely on it) and the default myers algorithm (line counts differ
     // between algorithms). `-l0` lifts the rename-detection cap so a large diff
     // is not silently downgraded to add+delete by `diff.renameLimit`.
-    args.push("--numstat", "--find-renames", "-l0", "--diff-algorithm=myers");
+    // `--no-textconv`/`--no-ext-diff` disable configured textconv and external
+    // diff programs: those would run arbitrary commands (a side effect, and a
+    // textconv cache WRITE) and make numstat depend on the reader's config.
+    args.push(
+      "--numstat", "--find-renames", "-l0", "--diff-algorithm=myers",
+      "--no-textconv", "--no-ext-diff",
+    );
   }
   args.push(...dateArgs);
   if (range) {
@@ -626,7 +641,7 @@ export async function getBranchTable(root) {
     const { stdout } = await execFileAsync(
       "git",
       ["for-each-ref", `--format=${format}`, "refs/heads"],
-      { cwd: root, maxBuffer: 64 * 1024 * 1024 },
+      { cwd: root, env: gitEnv(), maxBuffer: 64 * 1024 * 1024 },
     );
     const branches = stdout
       .split("\n")
@@ -655,7 +670,7 @@ export async function getBranchTable(root) {
 // from a `--since <date>` (a date/relative expression git filters on).
 async function isCommittish(root, expr) {
   try {
-    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${expr}^{commit}`], { cwd: root });
+    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${expr}^{commit}`], { cwd: root, env: gitEnv() });
     return true;
   } catch {
     return false;
@@ -671,7 +686,7 @@ async function supportsSinceAsFilter() {
     return sinceAsFilterSupport;
   }
   try {
-    const { stdout } = await execFileAsync("git", ["--version"]);
+    const { stdout } = await execFileAsync("git", ["--version"], { env: gitEnv() });
     const match = stdout.match(/(\d+)\.(\d+)/);
     const major = match ? Number(match[1]) : 0;
     const minor = match ? Number(match[2]) : 0;

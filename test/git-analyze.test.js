@@ -257,7 +257,7 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
       () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", ...flags], { cwd: root }),
       (error) => {
         assert.match(error.stderr, pattern);
-        assert.match(error.stderr, /window and --dry-run only/);
+        assert.match(error.stderr, /land in later slices/);
         return true;
       },
     );
