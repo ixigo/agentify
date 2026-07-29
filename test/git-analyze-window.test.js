@@ -96,6 +96,16 @@ test("--quarter 1 --year 2028 handles the leap year (Q1 spans Jan-Mar)", () => {
   });
 });
 
+test("a large --months window resolves to the correct century, not a 1900s remap", () => {
+  withTZ("UTC", () => {
+    // From July 2026, 23712 months back is July 0050 — a year JS would remap to
+    // 1950 without an explicit setFullYear.
+    const win = resolveWindow({ months: 23712 }, { now: NOW });
+    assert.equal(new Date(win.since).getUTCFullYear(), 50);
+    assert.ok(win.since.startsWith("0050-07-29"), `unexpected since: ${win.since}`);
+  });
+});
+
 test("--year alone resolves to [Jan 1, Jan 1 next year)", () => {
   withTZ("UTC", () => {
     const win = resolveWindow({ year: 2025 }, { now: NOW });

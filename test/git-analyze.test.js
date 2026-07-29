@@ -150,6 +150,46 @@ test("git analyze --dry-run exits 0 and touches nothing in a repo with no Agenti
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("git analyze --dry-run ignores a stale .agentify/link.json (zero-install, no project store)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-staleklink-"));
+  await initGitRepo(root);
+  // A valid-schema link missing project_store makes resolveAgentifyPaths throw.
+  // git analyze must not consult the project store at all, so this must not fail.
+  await fs.mkdir(path.join(root, ".agentify"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, ".agentify", "link.json"),
+    JSON.stringify({ kind: "agentify-linked-project", schema_version: 2 }),
+    "utf8",
+  );
+
+  const result = await execFileAsync("node", [CLI, "git", "analyze", "--dry-run"], { cwd: root });
+  assert.match(result.stdout + result.stderr, /Agentify git analyze/);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("git analyze accepts a single --root but rejects repeated discovery roots", async () => {
+  const repo = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-oneroot-"));
+  await initGitRepo(repo);
+
+  // Single --root: the standard command root, analyzed from elsewhere.
+  const ok = await execFileAsync("node", [CLI, "git", "analyze", "--dry-run", "--root", repo, "--format", "json"], { cwd: os.tmpdir() });
+  const payload = JSON.parse(ok.stdout);
+  const topLevel = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: repo })).stdout.trim();
+  assert.equal(payload.repository.path, topLevel);
+
+  // Repeated --root: the (unimplemented) discovery-roots semantics.
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", "--root", "/tmp", "--root", repo], { cwd: os.tmpdir() }),
+    (error) => {
+      assert.match(error.stderr, /multiple --root values \(repeatable discovery roots, #350\)/);
+      return true;
+    },
+  );
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
 test("git analyze --format json emits clean machine-readable output on stdout", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-json-"));
   await initGitRepo(root);

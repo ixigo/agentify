@@ -470,7 +470,15 @@ export async function runCli(argv, _runtime = {}) {
   }
 
   const config = await loadConfig(root, args);
-  config._agentifyPaths = await resolveAgentifyPaths(root, config);
+  // Zero-install seam (#348): `git analyze` must not touch the project store.
+  // Reading .agentify.yaml for defaults (loadConfig) is allowed, but
+  // resolveAgentifyPaths reads .agentify/link.json and may run shared-store
+  // git-identity probes — and a stale link can even throw — so it is skipped
+  // for this command, mirroring the ctx --hook fast paths above. Nothing in the
+  // git-analyze dispatch reads config._agentifyPaths.
+  if (command !== "git") {
+    config._agentifyPaths = await resolveAgentifyPaths(root, config);
+  }
 
   if (args.json) {
     config.json = true;
@@ -1391,6 +1399,12 @@ export async function runCli(argv, _runtime = {}) {
         if (usedDeferred.length > 0) {
           const parts = usedDeferred.map(([, label, subsystem, issue]) => `${label} (${subsystem}, #${issue})`);
           throw new Error(`git analyze does not support ${parts.join(", ")} yet; this slice implements the window and --dry-run only.`);
+        }
+        // A single --root is the standard command root; repeating it invokes the
+        // frozen "repeatable discovery roots" semantics, which land in #350.
+        // Reject that rather than silently honouring only the last root.
+        if (Array.isArray(args.root)) {
+          throw new Error("git analyze does not support multiple --root values (repeatable discovery roots, #350) yet; pass a single --root or none.");
         }
         const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
         const format = config.json ? "json" : requestedFormat;

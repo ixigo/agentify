@@ -65,7 +65,14 @@ function daysInMonth(year, monthIndex) {
 }
 
 function localDate(year, monthIndex, day, hours = 0, minutes = 0, seconds = 0, ms = 0) {
-  return new Date(year, monthIndex, day, hours, minutes, seconds, ms);
+  const date = new Date(year, monthIndex, day, hours, minutes, seconds, ms);
+  // The Date constructor remaps years 0-99 to 1900-1999. A large `--months`
+  // window can legitimately land there (e.g. year 0050), so restore the literal
+  // year explicitly. setFullYear leaves month/day/time untouched.
+  if (year >= 0 && year <= 99) {
+    date.setFullYear(year);
+  }
+  return date;
 }
 
 function subtractDays(date, n) {
