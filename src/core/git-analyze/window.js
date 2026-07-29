@@ -170,8 +170,12 @@ export function resolveWindow(args = {}, options = {}) {
       const since = localDate(year, startMonth, 1);
       const until = localDate(year, startMonth + 3, 1);
       if (since.getTime() > now.getTime()) {
-        const priorQuarter = quarter > 1 ? `--quarter ${quarter - 1}` : `--quarter 4 --year ${year - 1}`;
-        throw new Error(`Q${quarter} ${year} has not started; use ${priorQuarter} or --year ${year - 1}`);
+        // Suggest the current (already-started) quarter, not the quarter before
+        // the requested one — a request several years ahead must not be told to
+        // use another future quarter.
+        const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
+        const currentYear = now.getFullYear();
+        throw new Error(`Q${quarter} ${year} has not started; use --quarter ${currentQuarter} --year ${currentYear} or --year ${currentYear}`);
       }
       return finalizeComputed({ form: "quarter", since, until, label: `Q${quarter} ${year}`, timezone });
     }
@@ -181,7 +185,9 @@ export function resolveWindow(args = {}, options = {}) {
       const since = localDate(year, 0, 1);
       const until = localDate(year + 1, 0, 1);
       if (since.getTime() > now.getTime()) {
-        throw new Error(`${year} has not started; use --year ${year - 1}`);
+        // Suggest the current (already-started) year, not the year before the
+        // requested one, which may still be in the future.
+        throw new Error(`${year} has not started; use --year ${now.getFullYear()}`);
       }
       return finalizeComputed({ form: "year", since, until, label: `${year}`, timezone });
     }

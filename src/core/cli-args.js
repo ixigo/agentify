@@ -61,6 +61,24 @@ const REPEATABLE_FLAGS = new Set([
   "issue",
 ]);
 
+// Flags whose value is a git ref, date, pattern, or comma-list and must be
+// preserved verbatim — never coerced by parseValue. Without this, a valid ref
+// like `007` becomes the number 7 and `true` becomes a boolean, silently
+// changing what git resolves (#348 --since/--until; #351 filters). Callers
+// already String()-ify these, so preserving the raw string is strictly safer.
+const STRING_FLAGS = new Set([
+  "since",
+  "until",
+  "grep",
+  "issue",
+  "branch",
+  "author",
+  "path",
+  "repo",
+  "type",
+  "scope",
+]);
+
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
@@ -127,7 +145,7 @@ export function parseArgs(argv) {
     const inlineValue = eqIndex === -1 ? undefined : token.slice(eqIndex + 1);
     const key = toCamelCaseFlag(rawKey);
     if (inlineValue !== undefined) {
-      assignFlag(args, key, parseValue(inlineValue));
+      assignFlag(args, key, STRING_FLAGS.has(key) ? inlineValue : parseValue(inlineValue));
       continue;
     }
     if (BOOLEAN_FLAGS.has(key)) {
@@ -143,7 +161,7 @@ export function parseArgs(argv) {
       continue;
     }
 
-    assignFlag(args, key, parseValue(next));
+    assignFlag(args, key, STRING_FLAGS.has(key) ? next : parseValue(next));
     index += 1;
   }
   return args;

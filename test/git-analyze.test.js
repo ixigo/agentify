@@ -166,6 +166,25 @@ test("git analyze --format json emits clean machine-readable output on stdout", 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("git analyze --since preserves ref-like values verbatim (no numeric/boolean coercion)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-refs-"));
+  await initGitRepo(root);
+
+  for (const [ref, expected] of [["007", "007"], ["true", "true"]]) {
+    const result = await execFileAsync(
+      "node",
+      [CLI, "git", "analyze", "--dry-run", "--since", ref, "--format", "json"],
+      { cwd: root },
+    );
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.window.form, "range");
+    assert.equal(payload.window.since, expected);
+    assert.equal(payload.window.since_kind, "expression");
+  }
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("git analyze rejects not-yet-implemented surface flags with the slice they land in", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);

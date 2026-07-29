@@ -205,21 +205,36 @@ test("--days with no value (parsed true) errors", () => {
   );
 });
 
-test("a quarter that has not started errors with an actionable message", () => {
+test("a quarter that has not started suggests the current started quarter", () => {
   withTZ("UTC", () => {
-    // Q4 2026 starts 1 Oct 2026; from July 2026 it has not started.
+    // Q4 2026 starts 1 Oct 2026; from July 2026 (Q3) it has not started.
     assert.throws(
       () => resolveWindow({ quarter: 4, year: 2026 }, { now: NOW }),
-      /Q4 2026 has not started; use --quarter 3 or --year 2025/,
+      /Q4 2026 has not started; use --quarter 3 --year 2026 or --year 2026/,
     );
   });
 });
 
-test("a year that has not started errors with an actionable message", () => {
+test("a far-future quarter suggests a started period, never another future one", () => {
+  withTZ("UTC", () => {
+    // From 2026, Q1 2028 must not be told to use Q4 2027 (also future).
+    assert.throws(
+      () => resolveWindow({ quarter: 1, year: 2028 }, { now: NOW }),
+      /use --quarter 3 --year 2026 or --year 2026/,
+    );
+  });
+});
+
+test("a year that has not started suggests the current year", () => {
   withTZ("UTC", () => {
     assert.throws(
       () => resolveWindow({ year: 2027 }, { now: NOW }),
       /2027 has not started; use --year 2026/,
+    );
+    // A far-future year still suggests the current (started) year.
+    assert.throws(
+      () => resolveWindow({ year: 2031 }, { now: NOW }),
+      /2031 has not started; use --year 2026/,
     );
   });
 });
