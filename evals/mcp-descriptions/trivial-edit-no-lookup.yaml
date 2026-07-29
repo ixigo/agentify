@@ -7,7 +7,9 @@ description: >-
   which is a regression — reported alongside under-calling, not ignored. Setup
   plants the typo so the grader fails on an unchanged workspace; both sets
   should complete this with few or no tool calls.
-base_ref: 5bf2bdcd2a32c2018e10bdf08a7e7d541436468b
+# Pinned to the main-v1 merge head, where #332 and #334 have both landed, so the
+# repo under test is the merged branch and the eight-tool server is present.
+base_ref: adebe135225db6f6c15c55b9efbedd4c4ec9f8a8
 # Setup plants a self-contained file with a misspelling; nothing depends on it,
 # so no lookup is warranted. The instruction names no tool and implies none.
 setup:

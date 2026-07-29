@@ -6,7 +6,9 @@ description: >-
   declaring the task done. Weighted toward that situation. The grader fails on
   an unchanged workspace (the old name is still present at base), so a no-op
   attempt cannot pass. Measures set a vs set b on tool-call rate and outcome.
-base_ref: 5bf2bdcd2a32c2018e10bdf08a7e7d541436468b
+# Pinned to the main-v1 merge head, where #332 and #334 have both landed, so the
+# repo under test is the merged branch and the eight-tool server is present.
+base_ref: adebe135225db6f6c15c55b9efbedd4c4ec9f8a8
 # Describes the finishing bar (no dependent left broken), never a tool. The
 # prompt promises only what the grader checks: no reference to the old name
 # left anywhere.

@@ -6,9 +6,9 @@ description: >-
   before touching code is the correct move. Measures whether trigger-condition
   descriptions (set b) raise the tool-call rate versus the shipped wording
   (set a) without regressing task outcome.
-# Pinned to the #332 tip so the eight-tool server is present and the run is
-# reproducible. Re-pin to the merge commit once #332 and #334 land on main.
-base_ref: 5bf2bdcd2a32c2018e10bdf08a7e7d541436468b
+# Pinned to the main-v1 merge head, where #332 and #334 have both landed, so the
+# repo under test is the merged branch and the eight-tool server is present.
+base_ref: adebe135225db6f6c15c55b9efbedd4c4ec9f8a8
 # The prompt describes the goal (a correct rename), never a tool or a lookup,
 # and promises only what the grader checks: a complete, consistent rename.
 prompt: >-
