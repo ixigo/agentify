@@ -11,6 +11,7 @@ import {
   streamCommitRecords,
   parseNumstat,
   createIgnoreMatcher,
+  getBranchTable,
 } from "../src/core/git-analyze/collect.js";
 
 const execFileAsync = promisify(execFile);
@@ -276,6 +277,53 @@ test("collectCommits is not fooled by a rename whose new path looks like a recor
   assert.equal(rename.type, "refactor");
   assert.deepEqual(rename.files, [forgedName]);
 
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("collectCommits keeps a subject intact when it contains the field-separator byte", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-subjsep-"));
+  const msgFile = path.join(os.tmpdir(), `agentify-subjsep-${process.pid}-${Date.now()}.txt`);
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  await fs.writeFile(path.join(root, "a.txt"), "x\n");
+  await git(root, ["add", "a.txt"]);
+  // Subject carries a U+001F field-separator byte; the whole message is one
+  // field (%B), so the subject must not be truncated into the body.
+  await fs.writeFile(msgFile, "feat: alpha\x1fbeta\n\nbody line");
+  await git(root, ["commit", "-F", msgFile]);
+
+  const collection = await collectCommits(root);
+  const record = collection.commits[0];
+  assert.equal(record.subject, "feat: alpha\x1fbeta");
+  assert.equal(record.type, "feat");
+  assert.equal(record.body, "body line");
+
+  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(msgFile, { force: true });
+});
+
+test("getBranchTable signals failure rather than reporting zero branches", async () => {
+  // A non-repository path makes for-each-ref fail; ok must be false, not an
+  // empty-but-successful table.
+  const notARepo = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-nobranch-"));
+  const failed = await getBranchTable(notARepo);
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.branches, []);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-branchok-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await fs.writeFile(path.join(root, "a.txt"), "x\n");
+  await git(root, ["add", "a.txt"]);
+  await git(root, ["commit", "-m", "feat: first"]);
+  const ok = await getBranchTable(root);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.branches.length, 1);
+
+  await fs.rm(notARepo, { recursive: true, force: true });
   await fs.rm(root, { recursive: true, force: true });
 });
 

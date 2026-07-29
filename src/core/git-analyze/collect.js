@@ -49,10 +49,16 @@ const RECORD_SEP = "\x01";
 const FIELD_SEP = "\x1f";
 
 // %H sha, %aI author date (strict ISO), %aN/%aE mailmap-resolved author name
-// and email, %s subject, %b body. The leading %x01 is the header marker; %x1f
+// and email, %B raw full message. The leading %x01 is the header marker; %x1f
 // the field separator. %aN (not %an) is used so the name is mailmapped to match
 // the mailmapped %aE, and #351 identity resolution sees canonical values.
-const LOG_FORMAT = `%x01%H%x1f%aI%x1f%aN%x1f%aE%x1f%s%x1f%b`;
+//
+// The whole message is a SINGLE trailing field (%B, not %s + %b): subject and
+// body are split in JS from the first line. This keeps a FIELD_SEP byte that
+// occurs anywhere in the message inside the last field (rejoined intact) instead
+// of shifting a subject into the body — only the author name/email fields, which
+// never carry that control byte, remain separator-delimited.
+const LOG_FORMAT = `%x01%H%x1f%aI%x1f%aN%x1f%aE%x1f%B`;
 
 // Git has no author-date filter, so a large repo is bounded by a COMMITTER-date
 // read bound (`--since-as-filter`), then the JS author-date filter refines it
@@ -69,6 +75,13 @@ const SINCE_SKEW_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 // A 400-line commit body must not blow the packet budget in #354, so bodies are
 // truncated on the way into the record with a flag.
 const BODY_MAX_CHARS = 2000;
+
+// Hard ceiling on a single NUL-delimited token held in the stream buffer. Far
+// larger than any real header (fields + a bounded body) or numstat entry, it
+// caps memory against a pathologically huge commit message: the token is
+// truncated to this length and the rest discarded, so the body still overflows
+// the 2000-char record limit and is flagged truncated.
+const MAX_TOKEN_CHARS = 256 * 1024;
 
 // Caps so a pathological repo (200k commits in-window) terminates instead of
 // growing the kept arrays without bound. Overridable for tests.
@@ -335,6 +348,23 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
   };
 }
 
+// Split a raw commit message (%B) into subject and body: the subject is the
+// first line, the body is the remainder with the single blank line that git
+// places between subject and body removed. Mirrors git's %s/%b split closely
+// enough for conventional (single-line-subject) commits.
+function splitMessage(message) {
+  const text = String(message || "");
+  const firstNewline = text.indexOf("\n");
+  if (firstNewline === -1) {
+    return { subject: text, body: "" };
+  }
+  const subject = text.slice(0, firstNewline);
+  // Drop the single blank line git puts between subject and body, and trailing
+  // whitespace (raw %B keeps a trailing newline that is a formatting artifact).
+  const body = text.slice(firstNewline + 1).replace(/^\n/, "").replace(/\s+$/, "");
+  return { subject, body };
+}
+
 /**
  * Parse one framed record (a header token plus its numstat tokens) into both
  * the frozen record and the numstat detail the aggregate rollup needs.
@@ -350,18 +380,17 @@ function parseRecord({ headerToken, numstatTokens }, { isMerge = false, ignoreMa
   const authoredAt = parts[1] || "";
   const authorName = parts[2] || "";
   const authorEmail = parts[3] || "";
-  const subject = parts[4] || "";
-  // The body is the final field; rejoin any FIELD_SEP past the fifth so a body
-  // containing the separator byte is reconstructed rather than truncated.
+  // The whole message is the final field; rejoin any FIELD_SEP past the fourth
+  // so a message containing the separator byte is reconstructed, not truncated.
   //
-  // Residual (accepted): a FIELD_SEP (U+001F UNIT SEPARATOR) inside an EARLIER
-  // field — the author name or the subject — would shift its tail into the body.
-  // This control byte does not occur in real commit metadata, and fully
-  // defending it would need per-field NUL framing that collides with the numstat
-  // NUL stream (a second git pass with its own SHA/filename-collision hazard).
-  // The realistic threats — separator bytes in the body, and forged record
-  // boundaries — are already defended by the NUL-based record framing above.
-  const body = parts.slice(5).join(FIELD_SEP);
+  // Residual (accepted): a FIELD_SEP (U+001F UNIT SEPARATOR) inside the author
+  // NAME or EMAIL would shift its tail forward. That control byte does not occur
+  // in real author metadata, and fully defending it would need per-field NUL
+  // framing that collides with the numstat NUL stream. The realistic threats —
+  // separators in the subject/body and forged boundaries — are fully handled:
+  // the entire message is one field, and records are NUL-framed.
+  const message = parts.slice(4).join(FIELD_SEP);
+  const { subject, body } = splitMessage(message);
 
   const numstat = parseNumstat(numstatTokens, ignoreMatcher);
   const record = buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, numstat, isMerge });
@@ -413,6 +442,13 @@ async function* streamRawRecords(root, gitArgs) {
   let buffer = "";
   let current = null; // { headerToken, numstatTokens } being assembled
   let pendingRenamePaths = 0; // old/new path tokens still owed to a rename entry
+  let skippingOversize = false; // discarding the tail of an over-cap token
+  // Decode as UTF-8. Commit messages are UTF-8 by git's default, and the record
+  // shape is string-typed. Accepted limitation: a non-UTF-8 filename (git emits
+  // raw bytes under -z) is decoded with replacement characters, so in rare byte
+  // patterns two such paths could coincide in `distinctFiles`. Carrying raw
+  // bytes through the frozen string record would render normal UTF-8 paths as
+  // mojibake; the UTF-8 assumption matches git tooling and the rest of Agentify.
   child.stdout.setEncoding("utf8");
 
   // A numstat entry line starts with two tab-separated count columns (digits or
@@ -459,13 +495,30 @@ async function* streamRawRecords(root, gitArgs) {
 
   try {
     for await (const chunk of child.stdout) {
-      buffer += chunk;
+      let piece = chunk;
+      // If a single token has blown past the cap, discard bytes until its
+      // terminating NUL so one giant commit message cannot grow memory without
+      // bound. The retained prefix (already capped in `buffer`) is still parsed;
+      // its body far exceeds the 2000-char record limit, so bodyTruncated is set.
+      if (skippingOversize) {
+        const nulInPiece = piece.indexOf("\0");
+        if (nulInPiece === -1) {
+          continue;
+        }
+        piece = piece.slice(nulInPiece); // resume from the NUL (kept for split)
+        skippingOversize = false;
+      }
+      buffer += piece;
       let nul = buffer.indexOf("\0");
       while (nul !== -1) {
         const token = buffer.slice(0, nul);
         buffer = buffer.slice(nul + 1);
         yield* consume(token);
         nul = buffer.indexOf("\0");
+      }
+      if (buffer.length > MAX_TOKEN_CHARS) {
+        buffer = buffer.slice(0, MAX_TOKEN_CHARS);
+        skippingOversize = true;
       }
     }
     // Any trailing bytes without a final NUL form a last token.
@@ -560,9 +613,12 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the local branch table via `git for-each-ref` (read-only).
+ * Read the local branch table via `git for-each-ref` (read-only). Distinguishes
+ * a genuinely branch-less repo (`ok: true`, empty list) from an enumeration
+ * FAILURE (`ok: false`) — ref corruption, permissions, or an oversized listing —
+ * so the caller can report the failure rather than a false "zero branches".
  * @param {string} root
- * @returns {Promise<Array<{name,tip,tipShort,committerDate,hasUpstream}>>}
+ * @returns {Promise<{ branches: Array<{name,tip,tipShort,committerDate,hasUpstream}>, ok: boolean }>}
  */
 export async function getBranchTable(root) {
   try {
@@ -572,7 +628,7 @@ export async function getBranchTable(root) {
       ["for-each-ref", `--format=${format}`, "refs/heads"],
       { cwd: root, maxBuffer: 64 * 1024 * 1024 },
     );
-    return stdout
+    const branches = stdout
       .split("\n")
       .filter((line) => line.length > 0)
       .map((line) => {
@@ -585,8 +641,9 @@ export async function getBranchTable(root) {
           hasUpstream: Boolean(upstream && upstream.length > 0),
         };
       });
+    return { branches, ok: true };
   } catch {
-    return [];
+    return { branches: [], ok: false };
   }
 }
 
@@ -840,13 +897,16 @@ export async function collectCommits(root, options = {}) {
     }
   }
 
-  const branches = await getBranchTable(root);
+  const { branches, ok: branchesOk } = await getBranchTable(root);
 
   if (truncated.commits) {
     notes.push(`Commit reading was capped at ${maxCommits}; counts reflect the cap, not the full window.`);
   }
   if (truncated.merges) {
     notes.push(`Merge reading was capped at ${maxMerges}.`);
+  }
+  if (!branchesOk) {
+    notes.push("Branch enumeration failed (git for-each-ref); the branch table is omitted, not empty.");
   }
   if (filesExcluded > 0) {
     notes.push(`${filesExcluded} generated/vendored file change(s) were excluded from file lists (line counts unaffected).`);
