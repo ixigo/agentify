@@ -426,7 +426,34 @@ test("collectCommits rejects a mistyped ref/date bound instead of a false empty 
   const ok = await collectCommits(root, { window: { since: "10 years ago", since_kind: "expression" } });
   assert.equal(ok.commits.length, 1);
 
+  // A legitimate near-now expression is NOT mistaken for a typo (it has date
+  // structure); it resolves and returns rather than throwing.
+  const near = await collectCommits(root, { window: { since: "now", since_kind: "expression" } });
+  assert.ok(Array.isArray(near.commits));
+
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("collectCommits notes a shallow clone rather than reporting truncated history as complete", async () => {
+  const origin = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-origin-"));
+  await git(origin, ["init", "-q"]);
+  await git(origin, ["config", "user.name", "Fix Ture"]);
+  await git(origin, ["config", "user.email", "fixture@example.com"]);
+  for (let i = 0; i < 3; i += 1) {
+    await fs.writeFile(path.join(origin, `f${i}.txt`), `${i}\n`);
+    await git(origin, ["add", "."]);
+    await git(origin, ["commit", "-m", `feat: commit ${i}`]);
+  }
+
+  const shallow = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-shallow-"));
+  await git(shallow, ["clone", "--depth", "1", "--no-local", `file://${origin}`, "repo"]);
+  const shallowRepo = path.join(shallow, "repo");
+
+  const collection = await collectCommits(shallowRepo);
+  assert.ok(collection.notes.some((note) => /shallow\/partial clone/i.test(note)));
+
+  await fs.rm(origin, { recursive: true, force: true });
+  await fs.rm(shallow, { recursive: true, force: true });
 });
 
 test("collectCommits caps an oversized subject and flags the record truncated", async () => {

@@ -95,6 +95,12 @@ const SUBJECT_MAX_CHARS = 1000;
 // the 2000-char record limit and is flagged truncated.
 const MAX_TOKEN_CHARS = 256 * 1024;
 
+// Ceiling on numstat entries retained for a SINGLE commit, so one pathological
+// commit touching millions of files cannot grow the per-commit token array
+// without bound before the commit-count cap can apply. Beyond it, further file
+// entries for that commit are dropped and the record is flagged.
+const MAX_NUMSTAT_ENTRIES = 200_000;
+
 // Caps so a pathological repo (200k commits in-window) terminates instead of
 // growing the kept arrays without bound. Overridable for tests.
 const DEFAULT_MAX_COMMITS = 50_000;
@@ -476,18 +482,25 @@ async function* streamRawRecords(root, gitArgs) {
   // entries emit an empty-path count token followed by two standalone path
   // tokens; those path tokens are consumed POSITIONALLY, so a filename that
   // happens to look like a header can never be misread as a record boundary.
+  // Retain a numstat token unless this commit has already hit the per-commit
+  // entry cap, in which case drop it and flag the record (bounded memory).
+  const retainNumstat = (token) => {
+    if (!current) return;
+    if (current.numstatTokens.length >= MAX_NUMSTAT_ENTRIES) {
+      current.numstatCapped = true;
+      return;
+    }
+    current.numstatTokens.push(token);
+  };
+
   const consume = function* (token) {
     if (pendingRenamePaths > 0) {
-      if (current) {
-        current.numstatTokens.push(token);
-      }
+      retainNumstat(token);
       pendingRenamePaths -= 1;
       return;
     }
     if (numstatEntry.test(token)) {
-      if (current) {
-        current.numstatTokens.push(token);
-      }
+      retainNumstat(token);
       const line = token.startsWith("\n") ? token.slice(1) : token;
       const tab2 = line.indexOf("\t", line.indexOf("\t") + 1);
       if (line.slice(tab2 + 1) === "") {
@@ -499,15 +512,13 @@ async function* streamRawRecords(root, gitArgs) {
       if (current) {
         yield current;
       }
-      current = { headerToken: token, numstatTokens: [] };
+      current = { headerToken: token, numstatTokens: [], numstatCapped: false };
       return;
     }
     // A token that is neither a numstat entry nor a header (only reachable via
     // unexpected output): attach it so nothing is dropped — parseNumstat ignores
     // tokens it cannot parse. A leading token before the first header is dropped.
-    if (current) {
-      current.numstatTokens.push(token);
-    }
+    retainNumstat(token);
   };
 
   try {
@@ -613,14 +624,15 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
   if (!merges) {
     // Pin diff behaviour so churn/rename metrics are deterministic and do not
     // depend on the reader's git config: force rename detection on (rename-once
-    // semantics rely on it) and the default myers algorithm (line counts differ
-    // between algorithms). `-l0` lifts the rename-detection cap so a large diff
-    // is not silently downgraded to add+delete by `diff.renameLimit`.
+    // semantics rely on it), the default myers algorithm (line counts differ
+    // between algorithms), and a fixed, generous rename limit `-l5000` — a pinned
+    // finite value stays config-independent AND bounds rename detection's
+    // O(files^2) cost (unlike `-l0`, which is unbounded).
     // `--no-textconv`/`--no-ext-diff` disable configured textconv and external
     // diff programs: those would run arbitrary commands (a side effect, and a
     // textconv cache WRITE) and make numstat depend on the reader's config.
     args.push(
-      "--numstat", "--find-renames", "-l0", "--diff-algorithm=myers",
+      "--numstat", "--find-renames", "-l5000", "--diff-algorithm=myers",
       "--no-textconv", "--no-ext-diff",
     );
   }
@@ -674,6 +686,17 @@ export async function getBranchTable(root) {
 // Window -> git args resolution.
 // ---------------------------------------------------------------------------
 
+// Whether the repository is a shallow/partial clone, so the caller can warn that
+// totals reflect only the available history. Unknown -> treated as not shallow.
+async function isShallowRepository(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--is-shallow-repository"], { cwd: root, env: gitEnv() });
+    return stdout.trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
 // Does `expr` resolve to a commit? Distinguishes a `--since <ref>` (a revision)
 // from a `--since <date>` (a date/relative expression git filters on).
 async function isCommittish(root, expr) {
@@ -705,13 +728,19 @@ async function supportsSinceAsFilter() {
   return sinceAsFilterSupport;
 }
 
+// A string with any date-like structure: a digit (dates, ISO, epochs,
+// "2 weeks ago"), or a temporal keyword / weekday / month name. git parses
+// UNRECOGNIZED input (a ref typo like "definitely-not-a-ref") to the current
+// time, and such garbage has none of this structure — so an expression that git
+// resolves to ~now AND has no date-like structure is treated as a typo, while a
+// legitimate near-now expression ("now", "today", "1 second ago") is kept.
+const DATE_LIKE = /\d|\b(now|today|yesterday|tomorrow|noon|midnight|ago|last|next|this|am|pm|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+
 // Resolve a date/relative EXPRESSION to an absolute instant (ms) using git's own
 // approxidate parser, so the interpretation and timezone match git's `--since`
-// exactly (no JS/UTC divergence). git parses unrecognized input as the current
-// time; a result within a tolerance of `nowMs` is therefore treated as a typo
-// (returns null) rather than a silently-empty window. `now`, `today`, and a
-// same-day date resolve to a real instant (git returns the actual value, not the
-// process clock), so they are not mistaken for typos.
+// exactly (no JS/UTC divergence). Returns null for a value git could only parse
+// as "now" AND that has no date-like structure — i.e. a ref/word typo — so it is
+// rejected instead of silently producing an empty window.
 const NOW_TOLERANCE_MS = 5000;
 async function resolveDateExpressionInstant(root, expr, nowMs) {
   const { stdout } = await execFileAsync("git", ["rev-parse", `--since=${expr}`], { cwd: root, env: gitEnv() });
@@ -720,18 +749,19 @@ async function resolveDateExpressionInstant(root, expr, nowMs) {
     return null;
   }
   const instant = Number(match[1]) * 1000;
-  if (Math.abs(instant - nowMs) <= NOW_TOLERANCE_MS) {
-    return null; // git fell back to "now" — the expression is not a real date
+  if (Math.abs(instant - nowMs) <= NOW_TOLERANCE_MS && !DATE_LIKE.test(expr)) {
+    return null; // git fell back to "now" for a non-date-like string — a typo
   }
   return instant;
 }
 
 /**
  * Whether the window's upper bound is the strict half-open (exclusive)
- * author-date bound. True for computed instants, an absent upper bound, and any
- * date/relative expression (resolved to an exact instant). False only for a
- * revision ref, which takes git's native (topological, boundary-inclusive)
- * semantics. One isCommittish probe, shared by the dry-run and real-run labels.
+ * author-date bound: true for computed instants, an absent bound, and any
+ * date/relative expression (resolved to an instant); false only for a revision
+ * ref (git-native range). Non-throwing (unlike resolveWindowBounds, it does not
+ * reject a typo), so a `--dry-run` preview — which per #348 passes expressions
+ * through unvalidated — can label the boundary the same as a real run.
  */
 export async function windowUpperExclusive(root, window) {
   if (!window.until) return true;
@@ -753,7 +783,7 @@ export async function windowUpperExclusive(root, window) {
 //     git's native semantics; reported via `untilExact=false`.
 //   - An expression that is neither a committish nor a date git recognises is a
 //     typo and throws, instead of git silently treating it as "now".
-async function resolveWindowBounds(root, window) {
+export async function resolveWindowBounds(root, window) {
   const dateArgs = [];
   const nowMs = Date.now();
   let sinceInstant = null;
@@ -882,13 +912,15 @@ export async function collectCommits(root, options = {}) {
 
   const ignoreMatcher = await buildIgnoreMatcher(root, options.ignorePatterns);
 
-  const bounds = await resolveWindowBounds(root, window);
+  // Bounds may be pre-resolved by the caller (so a dry run and a real run
+  // validate and label identically); otherwise resolve them here.
+  const bounds = options.bounds || await resolveWindowBounds(root, window);
   const { dateArgs, range } = bounds;
 
   const notes = [];
   const commits = [];
   const merges = [];
-  const truncated = { commits: false, merges: false };
+  const truncated = { commits: false, merges: false, files: false };
 
   // Aggregate rollups. Line/file totals are RAW (before generated-path
   // exclusion) so they match the reference measurement; `filesExcluded` records
@@ -922,6 +954,9 @@ export async function collectCommits(root, options = {}) {
       if (commits.length >= maxCommits) {
         truncated.commits = true;
         break;
+      }
+      if (raw.numstatCapped) {
+        truncated.files = true;
       }
       commits.push(record);
       authorEmails.add(record.authorEmail);
@@ -978,8 +1013,14 @@ export async function collectCommits(root, options = {}) {
   if (truncated.merges) {
     notes.push(`Merge reading was capped at ${maxMerges}.`);
   }
+  if (truncated.files) {
+    notes.push(`A commit touched more than ${MAX_NUMSTAT_ENTRIES} files; its file list and churn are truncated.`);
+  }
   if (!branchesOk) {
     notes.push("Branch enumeration failed (git for-each-ref); the branch table is omitted, not empty.");
+  }
+  if (await isShallowRepository(root)) {
+    notes.push("This is a shallow/partial clone; commit, churn, and issue totals reflect only the available history, not the full window.");
   }
   if (filesExcluded > 0) {
     notes.push(`${filesExcluded} generated/vendored file change(s) were excluded from file lists (line counts unaffected).`);

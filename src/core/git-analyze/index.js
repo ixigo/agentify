@@ -70,6 +70,15 @@ export async function runGitAnalyze(root, options = {}) {
     notes.push("Repository discovery for --global lands in #350; no repositories were scanned yet.");
   }
 
+  // Label the upper bound (exclusive vs git-native ref range) with a
+  // non-throwing probe, so a dry run and a real run agree. A dry run does NOT
+  // validate expression bounds: per #348 it passes `--since/--until` through
+  // unresolved (a value may be a ref only the real run will resolve); a mistyped
+  // bound is rejected on the real run, where the collector actually resolves it.
+  const untilExclusive = (scope === "local" && isRepo)
+    ? await windowUpperExclusive(repositoryPath, window)
+    : true;
+
   const report = {
     command: "git analyze",
     schema_version: GIT_ANALYZE_SCHEMA_VERSION,
@@ -88,12 +97,11 @@ export async function runGitAnalyze(root, options = {}) {
       repositories: scope === "global" ? 0 : (isRepo ? 1 : 0),
     },
     // Whether the upper bound is the strict half-open (exclusive) author-date
-    // bound. True for computed windows and date/relative bounds (resolved to an
-    // exact instant); false only for a revision ref, which takes git's native
-    // semantics. Computed by the same helper the collector uses, so a dry run and
-    // a real run label the boundary identically.
+    // bound. True for computed windows and date/relative bounds; false only for a
+    // revision ref, which takes git's native semantics. Same probe for dry-run
+    // and real runs, so the boundary is labeled identically.
     bounds: {
-      until_exclusive: await windowUpperExclusive(resolvedRoot, window),
+      until_exclusive: untilExclusive,
     },
     notes,
   };
@@ -107,7 +115,8 @@ export async function runGitAnalyze(root, options = {}) {
     return report;
   }
 
-  // Real local run: stream the window's commits.
+  // Real local run: stream the window's commits. The collector resolves and
+  // VALIDATES the bounds (a mistyped --since/--until throws here).
   const collection = await collect(repositoryPath, {
     window,
     maxCommits: options.maxCommits,
