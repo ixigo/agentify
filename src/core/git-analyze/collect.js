@@ -88,6 +88,18 @@ const SINCE_SKEW_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 const BODY_MAX_CHARS = 2000;
 const SUBJECT_MAX_CHARS = 1000;
 
+// Bound on the leading slice of a subject scanned for derived structure, and on
+// a derived string retained from it. A conventional prefix (`type(scope)!:`) and
+// a `Revert "..."` target both sit at the very start of a subject, so scanning
+// further buys nothing — while an unbounded scan would let a pathological
+// newline-less 256 KB subject yield a 256 KB `type` or `revertOf` and escape the
+// per-record caps that `subject`/`body` already respect.
+const DERIVED_SCAN_MAX_CHARS = 512;
+
+// Ceiling on issue keys retained per commit. A message citing thousands of keys
+// is not evidence, it is a payload; the record keeps the first N in order.
+const ISSUE_KEYS_MAX = 64;
+
 // Hard ceiling on a single NUL-delimited token held in the stream buffer. Far
 // larger than any real header (fields + a bounded body) or numstat entry, it
 // caps memory against a pathologically huge commit message: the token is
@@ -339,13 +351,21 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
   const storedSubject = truncateText(redactedSubject, SUBJECT_MAX_CHARS);
   const storedBody = truncateText(redactedBody, BODY_MAX_CHARS);
 
-  // Conventional/revert/issue parsing runs on the redacted values (bounded by
-  // the stream's per-token cap), before the stored fields are truncated, so a
-  // subject prefix or a trailer reference is not lost to length trimming.
-  const conventional = parseConventionalSubject(redactedSubject);
+  // Parse conventional type/scope and revert on a BOUNDED prefix of the subject:
+  // the type/scope/! all sit at the very start, so a pathological 250 KB subject
+  // cannot yield a 250 KB `type` or quoted revert target. Issue keys come from
+  // the (token-cap-bounded) full text but the retained list is capped, and the
+  // revert target is length-bounded — so no derived field escapes the record
+  // caps that the subject/body already respect.
+  const conventionalSource = redactedSubject.slice(0, DERIVED_SCAN_MAX_CHARS);
+  const conventional = parseConventionalSubject(conventionalSource);
   const breaking = conventional.breaking || detectBreakingChange(redactedBody);
+  // Revert DETECTION reads the full subject: `Revert "..."` needs the closing
+  // quote, which a bounded prefix would cut off on a long target — turning a
+  // real revert into a missed one. Only the retained target is bounded, below.
   const revert = detectRevert(redactedSubject, redactedBody);
-  const issueKeys = extractIssueKeys(`${redactedSubject}\n${redactedBody}`);
+  const issueKeys = extractIssueKeys(`${redactedSubject}\n${redactedBody}`).slice(0, ISSUE_KEYS_MAX);
+  const revertOf = revert.revertOf === null ? null : revert.revertOf.slice(0, DERIVED_SCAN_MAX_CHARS);
 
   return {
     sha,
@@ -361,7 +381,7 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
     issueKeys,
     isMerge: isMerge === true,
     isRevert: revert.isRevert,
-    revertOf: revert.revertOf,
+    revertOf,
     insertions: numstat.insertions,
     deletions: numstat.deletions,
     files: numstat.files,
@@ -728,13 +748,22 @@ async function supportsSinceAsFilter() {
   return sinceAsFilterSupport;
 }
 
-// A string with any date-like structure: a digit (dates, ISO, epochs,
-// "2 weeks ago"), or a temporal keyword / weekday / month name. git parses
-// UNRECOGNIZED input (a ref typo like "definitely-not-a-ref") to the current
-// time, and such garbage has none of this structure — so an expression that git
-// resolves to ~now AND has no date-like structure is treated as a typo, while a
-// legitimate near-now expression ("now", "today", "1 second ago") is kept.
-const DATE_LIKE = /\d|\b(now|today|yesterday|tomorrow|noon|midnight|ago|last|next|this|am|pm|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+// A string with actual date STRUCTURE: an ISO/slash date, a unix epoch, a
+// relative duration, or a temporal keyword / month / weekday. git parses
+// UNRECOGNIZED input (a ref typo like "PROJ-123" or "definitely-not-a-ref") to
+// the current time; such values lack this structure (a bare digit is NOT enough
+// — "PROJ-123" has digits but is not a date), so an expression git resolves to
+// ~now AND that lacks date structure is treated as a typo, while a legitimate
+// near-now expression ("now", "today", "1 second ago") is kept.
+const DATE_LIKE = new RegExp([
+  /\d{4}-\d{2}-\d{2}/.source,                                       // ISO date
+  /\d{1,2}[/.]\d{1,2}[/.]\d{2,4}/.source,                           // d/m/y or d.m.y
+  /@?\b\d{10,}\b/.source,                                           // unix epoch
+  /\b\d+\s*(?:second|minute|hour|day|week|month|year|fortnight)s?\b/.source, // "2 weeks"
+  /\b(?:now|today|yesterday|tomorrow|noon|midnight|ago|last|next|this)\b/.source,
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/.source, // month names
+  /\b(?:mon|tue|wed|thu|fri|sat|sun)\b/.source,                    // weekday names
+].join("|"), "i");
 
 // Resolve a date/relative EXPRESSION to an absolute instant (ms) using git's own
 // approxidate parser, so the interpretation and timezone match git's `--since`

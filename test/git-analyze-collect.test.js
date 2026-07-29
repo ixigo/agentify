@@ -567,6 +567,53 @@ test("parseNumstat handles normal, binary, and rename entries", () => {
   assert.deepEqual(result.excludedFiles, []);
 });
 
+// A subject is normally one short line, but nothing in git enforces that. An
+// unbounded derived field would let one pathological newline-less message carry
+// a huge `type`/`revertOf` into every downstream consumer, escaping the caps
+// that `subject` and `body` already respect.
+test("derived record fields stay bounded on a pathological commit message", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-bounds-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await git(root, ["config", "commit.gpgsign", "false"]);
+
+  // A revert subject whose quoted target is enormous, followed by far more issue
+  // keys than any real commit cites.
+  const giantTarget = "x".repeat(200_000);
+  const manyKeys = Array.from({ length: 500 }, (_, i) => `#${i + 1}`).join(" ");
+  const msgFile = path.join(root, "..", `agentify-bounds-msg-${process.pid}.txt`);
+  await fs.writeFile(msgFile, `Revert "feat(scope): ${giantTarget}"\n\n${manyKeys}\n`);
+
+  await fs.writeFile(path.join(root, "a.txt"), "a\n");
+  await git(root, ["add", "a.txt"]);
+  await git(root, ["commit", "-F", msgFile]);
+  await fs.rm(msgFile, { force: true });
+
+  const records = [];
+  for await (const record of streamCommitRecords(root, {})) records.push(record);
+  assert.equal(records.length, 1);
+  const [record] = records;
+
+  assert.equal(record.isRevert, true);
+  // The parse still succeeds — it is bounded, not disabled.
+  assert.ok(record.revertOf !== null);
+  assert.ok(
+    record.revertOf.length <= 512,
+    `revertOf grew to ${record.revertOf.length} chars`,
+  );
+  assert.ok(
+    record.issueKeys.length <= 64,
+    `issueKeys grew to ${record.issueKeys.length} entries`,
+  );
+  // Order is preserved: the retained keys are the first ones cited.
+  assert.equal(record.issueKeys[0], "#1");
+  // The stored subject respects its own cap regardless.
+  assert.ok(record.subject.length <= 1000);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("createIgnoreMatcher matches the default generated patterns", () => {
   const matcher = createIgnoreMatcher(["pnpm-lock.yaml", "dist/", "*.min.*", ".agentify/work/**"]);
   assert.equal(matcher("pnpm-lock.yaml"), true);
