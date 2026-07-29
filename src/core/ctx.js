@@ -319,16 +319,23 @@ export async function listDecisions(root, query, options = {}) {
   }
 
   const promptTokens = tokenizeForMatch(trimmedQuery);
-  const docs = decisions.map((decision) => ({ decision, counts: termCounts(decision.note) }));
+  const docs = decisions.map((decision, position) => ({ decision, position, counts: termCounts(decision.note) }));
   const index = buildBm25Index(docs.map((doc) => doc.counts));
   const matched = [];
   for (const doc of docs) {
     const { score, matched: matchedTerms } = bm25Match(promptTokens, doc.counts, index);
     if (matchedTerms.length >= 1) {
-      matched.push({ decision: doc.decision, score });
+      matched.push({ decision: doc.decision, position: doc.position, score });
     }
   }
-  matched.sort((left, right) => right.score - left.score);
+  // Relevance first, then NEWEST first. The tie-break is not cosmetic: a broad
+  // query (a match on a single token is enough) scores many decisions equally,
+  // and callers cap the list by taking the head — renderDecisions and the
+  // ctx_decisions MCP tool both do. `decisions` arrives in append order, so a
+  // stable score-only sort left ties oldest-first and the cap then dropped the
+  // newest, potentially superseding, decision. That is the opposite of the
+  // documented most-relevant-then-newest policy.
+  matched.sort((left, right) => right.score - left.score || right.position - left.position);
   return { decisions: matched.map((item) => item.decision), query: trimmedQuery };
 }
 

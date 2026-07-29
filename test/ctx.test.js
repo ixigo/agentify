@@ -752,6 +752,33 @@ test("decision notes: typed storage, digest section, and queryable list", async 
   }
 });
 
+// Callers cap a decisions list by taking the head, so the order of EQUAL-scoring
+// matches decides which survive. A score-only sort is stable, which preserved
+// append order and put the oldest tie first — so a broad topic hid newer,
+// potentially superseding decisions behind older ones.
+test("decision matches with equal relevance are ordered newest first", async () => {
+  const { listDecisions } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-decision-ties-"));
+  try {
+    // Same wording each time, so every decision scores identically on the topic
+    // below and ONLY the tie-break can order them.
+    for (const n of [1, 2, 3]) {
+      await addNote(dir, `chose the caching layer approach ${n} over the alternative because of latency`, { type: "decision" });
+    }
+    const matched = await listDecisions(dir, "caching layer approach alternative latency");
+    assert.equal(matched.decisions.length, 3, "all three tie on this topic");
+    assert.match(matched.decisions[0].note, /approach 3\b/, "newest tie ranks first");
+    assert.match(matched.decisions[2].note, /approach 1\b/, "oldest tie ranks last");
+
+    // An untargeted listing stays chronological (the renderer reverses it), so
+    // the two surfaces are not in conflict.
+    const all = await listDecisions(dir, "");
+    assert.match(all.decisions[0].note, /approach 1\b/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("renderDecisions bounds output by count and character budget and reports truncation", async () => {
   const { renderDecisions } = await import("../src/core/ctx.js");
   const mk = (i, pad = 0) => ({

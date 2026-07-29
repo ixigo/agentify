@@ -486,13 +486,16 @@ test("ctx_decisions caps both an untargeted listing and a broad topic query, and
     assert.match(hitText, /Decisions matching "approach alternative reason":/);
     assert.match(hitText, /and 10 more match; refine the topic to narrow\./);
     assert.equal(hitText.split("\n").filter((line) => line.startsWith("- ")).length, 50);
-    // listDecisions ranks by relevance and keeps ties in append order (left
-    // unchanged by #332); every decision ties here, so the renderer keeps the
-    // head — the first 50 (0…49) — and drops the last 10 (50…59).
-    assert.match(hitText, /approach number 0\b/);
-    assert.match(hitText, /approach number 49\b/);
-    assert.doesNotMatch(hitText, /approach number 59\b/);
-    assert.doesNotMatch(hitText, /approach number 50\b/);
+    // listDecisions ranks by relevance and breaks ties NEWEST first, so the cap
+    // drops the least useful entries rather than the most recent ones. Every
+    // decision ties on this deliberately broad topic, which is exactly the case
+    // where a score-only sort would have preserved append order and dropped the
+    // newest, potentially superseding, decisions. Kept 59…10, dropped 9…0 —
+    // consistent with the untargeted listing above.
+    assert.match(hitText, /approach number 59\b/);
+    assert.match(hitText, /approach number 10\b/);
+    assert.doesNotMatch(hitText, /approach number 9\b/);
+    assert.doesNotMatch(hitText, /approach number 0\b/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
