@@ -20,8 +20,10 @@ const CONVENTIONAL_SUBJECT = /^([a-zA-Z]+)(?:\(([^()\r\n]+)\))?(!)?:\s/;
 const GITHUB_REF = /(?<![\w&])#(\d+)\b/g;
 
 // Jira-style key: 2-10 char uppercase project key, a dash, then digits.
-// `[A-Z][A-Z0-9]{1,9}` requires a leading letter and total length 2-10.
-const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)\b/g;
+// `[A-Z][A-Z0-9]{1,9}` requires a leading letter and total length 2-10. The
+// trailing `(?![-\d])` rejects multi-group hyphenated identifiers (e.g.
+// `CVE-2024-12345`, `CWE-79`), so only single-group `PROJ-123` keys match.
+const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)(?![-\d])/g;
 
 // Well-known technical tokens that share the Jira key shape (PREFIX-NUMBER) but
 // are standards/versions, not issue references. The acceptance set (UTF-8,
@@ -34,6 +36,8 @@ const NON_ISSUE_PREFIXES = new Set([
   "ISO", "RFC", "ASCII", "ANSI", "BASE64", "OAUTH", "OAUTH2", "PBKDF2",
   "IPV4", "IPV6", "EC2", "S3", "AES", "RSA", "DES", "ECMA", "ES",
   "GB", "MB", "KB", "TB", "PB", "H", "X", "CP",
+  // Security identifiers that share the PREFIX-NUMBER shape but are not issues.
+  "CVE", "CWE", "CAPEC", "GHSA",
 ]);
 
 // BREAKING CHANGE trailer, per the conventional-commits spec: a line that starts

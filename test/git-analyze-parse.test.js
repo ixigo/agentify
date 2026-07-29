@@ -55,6 +55,13 @@ test("extractIssueKeys does not treat standards tokens as issue keys", () => {
   assert.deepEqual(extractIssueKeys("UTF-8 handling for PROJ-123"), ["PROJ-123"]);
 });
 
+test("extractIssueKeys does not treat security identifiers as issue keys", () => {
+  // Multi-group hyphenated ids (CVE-YYYY-NNNN) and denylisted security prefixes.
+  assert.deepEqual(extractIssueKeys("patch for CVE-2024-12345 and CWE-79"), []);
+  // A real Jira key next to a CVE: only the Jira key survives, not "CVE-2024".
+  assert.deepEqual(extractIssueKeys("PROJ-9 fixes CVE-2024-12345"), ["PROJ-9"]);
+});
+
 test("extractIssueKeys ignores refs glued to a word or an HTML entity", () => {
   assert.deepEqual(extractIssueKeys("commit abc#5 is not a ref"), []);
   assert.deepEqual(extractIssueKeys("entity &#123; is not a ref"), []);

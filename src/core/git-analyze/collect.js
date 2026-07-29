@@ -35,11 +35,16 @@ const execFileAsync = promisify(execFile);
 
 // RECORD_SEP marks the start of each `git log` entry's header; FIELD_SEP
 // separates the header fields. The authoritative record boundary, though, is the
-// NUL byte git emits under `-z`: a commit message can contain any byte EXCEPT
-// NUL, so records are framed on NUL-delimited tokens and a header token is
+// NUL byte git emits under `-z`: a well-formed commit message contains any byte
+// EXCEPT NUL, so records are framed on NUL-delimited tokens and a header token is
 // recognised by its `RECORD_SEP + %H + FIELD_SEP` prefix. This means a body (or
 // filename) that happens to contain those separator bytes cannot forge a record
 // boundary, because it cannot contain the NUL that delimits the token.
+//
+// Accepted limitation: a MALFORMED object with a literal NUL in its message
+// (git fsck flags this as `nulInCommit`; normal git never produces it) has its
+// body captured only up to that NUL. The record and every following record stay
+// intact; only the post-NUL tail of that one body is not represented.
 const RECORD_SEP = "\x01";
 const FIELD_SEP = "\x1f";
 
@@ -536,7 +541,12 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
     `--format=${LOG_FORMAT}`,
   ];
   if (!merges) {
-    args.push("--numstat");
+    // Pin diff behaviour so churn/rename metrics are deterministic and do not
+    // depend on the reader's git config: force rename detection on (rename-once
+    // semantics rely on it) and the default myers algorithm (line counts differ
+    // between algorithms). `-l0` lifts the rename-detection cap so a large diff
+    // is not silently downgraded to add+delete by `diff.renameLimit`.
+    args.push("--numstat", "--find-renames", "-l0", "--diff-algorithm=myers");
   }
   args.push(...dateArgs);
   if (range) {
