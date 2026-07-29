@@ -6,9 +6,15 @@ description: >-
   declaring the task done. Weighted toward that situation. The grader fails on
   an unchanged workspace (the old name is still present at base), so a no-op
   attempt cannot pass. Measures set a vs set b on tool-call rate and outcome.
-# Pinned to the main-v1 merge head, where #332 and #334 have both landed, so the
-# repo under test is the merged branch and the eight-tool server is present.
-base_ref: adebe135225db6f6c15c55b9efbedd4c4ec9f8a8
+# Pinned to the last main-v1 commit that satisfies both constraints this task
+# needs: #332 and #334 have landed (so the eight-tool server and both
+# description arms are present), and firstString is still confined to
+# src/core/harbor.js at 16 references. The later merge head adebe13 also carries
+# #337, which adds an unrelated local firstString helper to src/core/acp/
+# capture.js; that pushes the symbol to 24 references across two modules, makes
+# the prompt's "used throughout that module" false, and makes the first grader
+# command reject a correct harbor-only rename. See the grader note below.
+base_ref: ee5011578c11ed46385388fafa7a6eb5e7994c40
 # Describes the finishing bar (no dependent left broken), never a tool. The
 # prompt promises only what the grader checks: no reference to the old name
 # left anywhere.
@@ -33,6 +39,12 @@ description_ablations:
 grader:
   # The old name must be gone everywhere and the new definition must exist:
   # both fail on the unchanged base, so an empty edit cannot pass.
+  #
+  # The first command is repo-wide on purpose — that is what makes "left no
+  # dangling reference" the finishing bar. It only grades what the prompt asks
+  # for while base_ref keeps firstString confined to src/core/harbor.js. Any
+  # future re-pin must re-check that; a base where an unrelated module defines
+  # its own firstString fails every correct attempt.
   commands:
     - test -z "$(git grep -n 'firstString' -- src test || true)"
     - git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js
