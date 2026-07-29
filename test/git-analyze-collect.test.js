@@ -253,6 +253,85 @@ test("collectCommits is not fooled by a stray record-marker byte in a commit bod
   await fs.rm(msgFile, { force: true });
 });
 
+test("collectCommits is not fooled by a rename whose new path looks like a record header", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-renameforge-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  await fs.writeFile(path.join(root, "plain.txt"), "one\n");
+  await git(root, ["add", "plain.txt"]);
+  await git(root, ["commit", "-m", "feat: add plain"]);
+
+  // Rename the file to a name that IS a forged header prefix (\x01 + 40 hex +
+  // \x1f). It arrives as a standalone rename path token; positional consumption
+  // must keep it out of header classification (no phantom commit).
+  const forgedName = `\x01${"a".repeat(40)}\x1fforged`;
+  await git(root, ["mv", "plain.txt", forgedName]);
+  await git(root, ["commit", "-m", "refactor: rename to a header-shaped path"]);
+
+  const collection = await collectCommits(root);
+  assert.equal(collection.commits.length, 2, "exactly two real commits, no phantom");
+  const rename = findBySubject(collection.commits, "header-shaped path");
+  assert.equal(rename.type, "refactor");
+  assert.deepEqual(rename.files, [forgedName]);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("collectCommits passes an expression window to git verbatim (no JS UTC reinterpretation)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-expr-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  for (const [file, date] of [["a.txt", "2026-03-01T12:00:00"], ["b.txt", "2026-06-01T12:00:00"]]) {
+    await fs.writeFile(path.join(root, file), `${file}\n`);
+    await git(root, ["add", file]);
+    await git(root, ["commit", "-m", `feat: ${file}`], {
+      env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+  }
+
+  // An expression --since must reproduce git's own count exactly (same tz, same
+  // inclusive semantics), not a JS-reinterpreted window.
+  const since = "2026-05-01";
+  const gitCount = (await git(root, ["log", "--no-merges", `--since=${since}`, "--format=%H"]))
+    .stdout.split("\n").filter(Boolean).length;
+  const collection = await collectCommits(root, {
+    window: { since, until: "", since_kind: "expression", until_kind: "expression" },
+  });
+  assert.equal(collection.commits.length, gitCount);
+  assert.equal(collection.commits.length, 1);
+  assert.equal(collection.commits[0].subject, "feat: b.txt");
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("collectCommits interprets .agentignore with Agentify's path-anchored convention", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-ignore-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await fs.writeFile(path.join(root, ".agentignore"), "generated.js\n");
+
+  await fs.writeFile(path.join(root, "generated.js"), "root\n");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "generated.js"), "nested\n");
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "chore: add both generated files"]);
+
+  const collection = await collectCommits(root);
+  const commit = collection.commits[0];
+  // Anchored: only the root-level `generated.js` is excluded; the nested one is
+  // NOT (matching fs.js, unlike a gitignore basename-anywhere rule).
+  assert.ok(commit.files.includes("src/generated.js"));
+  assert.ok(!commit.files.includes("generated.js"));
+  assert.equal(commit.filesExcluded, 1);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("collectCommits keeps a commit authored in-window even if it was committed after `until`", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-authordate-"));
   await git(root, ["init", "-q"]);

@@ -23,6 +23,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { redactSensitiveText } from "../redact.js";
+import { compileAgentignorePattern } from "../fs.js";
 import {
   parseConventionalSubject,
   detectBreakingChange,
@@ -156,18 +157,38 @@ export function createIgnoreMatcher(patterns) {
   };
 }
 
-// Read the repo's `.agentignore` if present. Never required: any read failure
-// (absent file, unreadable) yields no extra patterns.
-async function loadAgentignorePatterns(root) {
+// Read the repo's `.agentignore` if present and compile each pattern with the
+// SAME path-anchored convention Agentify uses elsewhere (see fs.js), so a user's
+// ignore file behaves identically for `git analyze` as for the rest of the tool.
+// Never required: any read failure (absent file, unreadable) yields no patterns.
+async function loadAgentignoreMatchers(root) {
   try {
     const content = await fs.readFile(path.join(root, ".agentignore"), "utf8");
     return content
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#"));
+      .filter((line) => line.trim() && !line.startsWith("#"))
+      .map((pattern) => compileAgentignorePattern(pattern.trim()));
   } catch {
     return [];
   }
+}
+
+// Build the per-commit file-exclusion predicate: the curated generated-path
+// defaults (gitignore-style) OR the repo's `.agentignore` (path-anchored, per
+// Agentify's convention). A test-supplied pattern list overrides both.
+async function buildIgnoreMatcher(root, overridePatterns) {
+  if (Array.isArray(overridePatterns)) {
+    return createIgnoreMatcher(overridePatterns);
+  }
+  const defaultMatcher = createIgnoreMatcher(DEFAULT_IGNORE_PATTERNS);
+  const agentignore = await loadAgentignoreMatchers(root);
+  return (filePath) => {
+    const normalized = String(filePath || "").replace(/^\/+/, "");
+    if (!normalized) {
+      return false;
+    }
+    return defaultMatcher(normalized) || agentignore.some((regex) => regex.test(normalized));
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +338,14 @@ function parseRecord({ headerToken, numstatTokens }, { isMerge = false, ignoreMa
   const subject = parts[4] || "";
   // The body is the final field; rejoin any FIELD_SEP past the fifth so a body
   // containing the separator byte is reconstructed rather than truncated.
+  //
+  // Residual (accepted): a FIELD_SEP (U+001F UNIT SEPARATOR) inside an EARLIER
+  // field — the author name or the subject — would shift its tail into the body.
+  // This control byte does not occur in real commit metadata, and fully
+  // defending it would need per-field NUL framing that collides with the numstat
+  // NUL stream (a second git pass with its own SHA/filename-collision hazard).
+  // The realistic threats — separator bytes in the body, and forged record
+  // boundaries — are already defended by the NUL-based record framing above.
   const body = parts.slice(5).join(FIELD_SEP);
 
   const numstat = parseNumstat(numstatTokens, ignoreMatcher);
@@ -368,20 +397,49 @@ async function* streamRawRecords(root, gitArgs) {
 
   let buffer = "";
   let current = null; // { headerToken, numstatTokens } being assembled
+  let pendingRenamePaths = 0; // old/new path tokens still owed to a rename entry
   child.stdout.setEncoding("utf8");
 
-  // Route one complete NUL-delimited token: a header token starts a new record
-  // (emitting the previous one), any other token is numstat for the current one.
+  // A numstat entry line starts with two tab-separated count columns (digits or
+  // `-` for binary). The first entry of a commit carries git's leading newline.
+  const numstatEntry = /^\n?[-0-9]+\t[-0-9]+\t/;
+
+  // Route one complete NUL-delimited token through the record grammar. Rename
+  // entries emit an empty-path count token followed by two standalone path
+  // tokens; those path tokens are consumed POSITIONALLY, so a filename that
+  // happens to look like a header can never be misread as a record boundary.
   const consume = function* (token) {
+    if (pendingRenamePaths > 0) {
+      if (current) {
+        current.numstatTokens.push(token);
+      }
+      pendingRenamePaths -= 1;
+      return;
+    }
+    if (numstatEntry.test(token)) {
+      if (current) {
+        current.numstatTokens.push(token);
+      }
+      const line = token.startsWith("\n") ? token.slice(1) : token;
+      const tab2 = line.indexOf("\t", line.indexOf("\t") + 1);
+      if (line.slice(tab2 + 1) === "") {
+        pendingRenamePaths = 2; // rename: the next two tokens are old/new paths
+      }
+      return;
+    }
     if (HEADER_TOKEN.test(token)) {
       if (current) {
         yield current;
       }
       current = { headerToken: token, numstatTokens: [] };
-    } else if (current) {
+      return;
+    }
+    // A token that is neither a numstat entry nor a header (only reachable via
+    // unexpected output): attach it so nothing is dropped — parseNumstat ignores
+    // tokens it cannot parse. A leading token before the first header is dropped.
+    if (current) {
       current.numstatTokens.push(token);
     }
-    // A token before the first header (there is none in practice) is ignored.
   };
 
   try {
@@ -448,7 +506,7 @@ async function* streamRawRecords(root, gitArgs) {
  */
 export async function* streamCommitRecords(root, options = {}) {
   const isMerge = options.merges === true;
-  const gitArgs = buildLogArgs({ merges: isMerge, dateArgs: options.gitArgs || [] });
+  const gitArgs = buildLogArgs({ merges: isMerge, dateArgs: options.gitArgs || [], range: options.range });
   for await (const raw of streamRawRecords(root, gitArgs)) {
     yield parseRecord(raw, { isMerge, ignoreMatcher: options.ignoreMatcher }).record;
   }
@@ -456,8 +514,9 @@ export async function* streamCommitRecords(root, options = {}) {
 
 // Assemble the `git log` argument array. Non-merge collection carries numstat;
 // merge collection does not (merge numstat is first-parent noise and merges are
-// excluded from churn counts).
-function buildLogArgs({ merges, dateArgs = [] }) {
+// excluded from churn counts). A `--` before the range is not needed: no
+// pathspec is passed here (path filtering lands in #351).
+function buildLogArgs({ merges, dateArgs = [], range = null }) {
   const args = [
     "log",
     merges ? "--merges" : "--no-merges",
@@ -470,6 +529,9 @@ function buildLogArgs({ merges, dateArgs = [] }) {
     args.push("--numstat");
   }
   args.push(...dateArgs);
+  if (range) {
+    args.push(range);
+  }
   return args;
 }
 
@@ -512,33 +574,14 @@ export async function getBranchTable(root) {
 // Window -> git args resolution.
 // ---------------------------------------------------------------------------
 
-// Resolve a window bound to an absolute instant (ms since epoch) for author-date
-// filtering, or null when it cannot be resolved. Instant bounds parse directly;
-// an expression is tried as a date first, then as a ref (whose author date is
-// used, keeping the window a date range even for ref bounds); an unresolvable
-// relative expression ("2 weeks ago") returns null.
-async function resolveBoundInstant(root, value, kind) {
-  if (!value) {
-    return null;
-  }
-  if (kind === "instant") {
-    const t = Date.parse(value);
-    return Number.isNaN(t) ? null : t;
-  }
-  const asDate = Date.parse(value);
-  if (!Number.isNaN(asDate)) {
-    return asDate;
-  }
+// Does `expr` resolve to a commit? Distinguishes a `--since <ref>` (a revision)
+// from a `--since <date>` (a date/relative expression git filters on).
+async function isCommittish(root, expr) {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["log", "-1", "--format=%aI", `${value}^{commit}`],
-      { cwd: root },
-    );
-    const t = Date.parse(stdout.trim());
-    return Number.isNaN(t) ? null : t;
+    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${expr}^{commit}`], { cwd: root });
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -562,48 +605,79 @@ async function supportsSinceAsFilter() {
   return sinceAsFilterSupport;
 }
 
-// Translate the resolved window into git date args plus the author-date instants
-// the JS filter enforces, and whether the bounds are enforced exactly.
+// Translate the resolved window into git args plus the author-date instants the
+// JS filter enforces.
 //
-// Only a lower bound is handed to git, never `--until`: git's date filters act
-// on COMMIT date, and a commit authored inside the window but committed after it
-// (a rebased/late-merged commit) would be dropped by `--until` before the
-// author-date filter could keep it. The lower bound is a read optimization, set
-// a skew margin BEFORE `since` (committer date is normally >= author date; the
-// margin absorbs clock skew) and applied with `--since-as-filter` when available
-// so traversal is not cut short. The exact half-open bounds are enforced in JS.
+// Two bound kinds, handled per the frozen window contract (#348):
+//   - INSTANT (computed --days/--months/--quarter/--year): the exact half-open
+//     `[since, until)` is enforced in JS on AUTHOR date. git gets only a lower
+//     read bound (never `--until`, whose committer-date inclusivity would drop a
+//     commit authored in-window but committed after it). That lower bound uses
+//     `--since-as-filter` when available (no early traversal stop) with a skew
+//     margin; on older git it is omitted entirely so nothing is wrongly dropped.
+//   - EXPRESSION (user `--since/--until` dates/refs): passed to git verbatim, so
+//     git's native semantics and timezone apply exactly as the contract says. A
+//     date/relative expression becomes `--since=`/`--until=`; a committish
+//     becomes a revision range. No JS date reinterpretation, so a date-only
+//     string is not silently shifted to UTC. An expression `until` is git's
+//     inclusive committer-date bound, reported honestly via `untilExact=false`.
 async function resolveWindowBounds(root, window) {
   const dateArgs = [];
-  const sinceInstant = await resolveBoundInstant(root, window.since, window.since_kind);
-  const untilInstant = await resolveBoundInstant(root, window.until, window.until_kind);
+  let sinceInstant = null;
+  let untilInstant = null;
+  let sinceRef = null;
+  let untilRef = null;
 
-  const sinceFlag = (await supportsSinceAsFilter()) ? "--since-as-filter" : "--since";
-  if (sinceInstant !== null) {
-    const bounded = new Date(sinceInstant - SINCE_SKEW_MARGIN_MS).toISOString();
-    dateArgs.push(`${sinceFlag}=${bounded}`);
+  // --- lower bound ---
+  if (window.since_kind === "instant" && window.since) {
+    sinceInstant = Date.parse(window.since);
+    if (Number.isNaN(sinceInstant)) {
+      sinceInstant = null;
+    } else if (await supportsSinceAsFilter()) {
+      dateArgs.push(`--since-as-filter=${new Date(sinceInstant - SINCE_SKEW_MARGIN_MS).toISOString()}`);
+    }
+    // Older git: no lower read bound; the JS author-date filter is authoritative.
   } else if (window.since) {
-    // Unresolvable relative expression: hand the raw value to git so the read is
-    // still bounded (git parses "2 weeks ago" etc.). The JS filter cannot refine
-    // a lower bound it could not resolve to an instant.
-    dateArgs.push(`${sinceFlag}=${window.since}`);
+    if (await isCommittish(root, window.since)) {
+      sinceRef = window.since;
+    } else {
+      dateArgs.push(`--since=${window.since}`);
+    }
   }
 
-  // When the upper bound is an unresolvable relative expression there is no
-  // instant to filter against; fall back to git's own (inclusive, committer
-  // date) `--until` so the window is still bounded above. This is the ONLY path
-  // where the upper bound is not strictly half-open author-date, and only a
-  // user-supplied relative expression can reach it — reported via `untilExact`.
-  const untilExact = untilInstant !== null || !window.until;
-  if (!untilExact) {
-    dateArgs.push(`--until=${window.until}`);
+  // --- upper bound ---
+  if (window.until_kind === "instant" && window.until) {
+    untilInstant = Date.parse(window.until);
+    if (Number.isNaN(untilInstant)) {
+      untilInstant = null;
+    }
+    // Never `--until` for instants: the exclusive bound is enforced in JS.
+  } else if (window.until) {
+    if (await isCommittish(root, window.until)) {
+      untilRef = window.until;
+    } else {
+      dateArgs.push(`--until=${window.until}`);
+    }
   }
 
-  return { dateArgs, sinceInstant, untilInstant, untilExact };
+  // Ref bounds become a revision range (topological), consistent with "since a
+  // ref". `A..B` excludes A and includes B; A..HEAD is history after the ref.
+  let range = null;
+  if (sinceRef && untilRef) {
+    range = `${sinceRef}..${untilRef}`;
+  } else if (sinceRef) {
+    range = `${sinceRef}..HEAD`;
+  } else if (untilRef) {
+    range = untilRef;
+  }
+
+  const untilExact = window.until_kind === "instant" || !window.until;
+  return { dateArgs, range, sinceInstant, untilInstant, untilExact };
 }
 
 // Enforce the half-open author-date window `[since, until)` using the resolved
-// instants. A bound that could not be resolved to an instant is left to git's
-// own filtering (see resolveWindowBounds).
+// instants. Expression bounds resolve to null here and are left to git's own
+// (verbatim) filtering — see resolveWindowBounds.
 function isAuthoredInWindow(authoredAt, bounds) {
   const t = Date.parse(authoredAt);
   if (Number.isNaN(t)) {
@@ -656,13 +730,10 @@ export async function collectCommits(root, options = {}) {
   const maxCommits = Number.isInteger(options.maxCommits) ? options.maxCommits : DEFAULT_MAX_COMMITS;
   const maxMerges = Number.isInteger(options.maxMerges) ? options.maxMerges : DEFAULT_MAX_MERGES;
 
-  const patterns = Array.isArray(options.ignorePatterns)
-    ? options.ignorePatterns
-    : [...DEFAULT_IGNORE_PATTERNS, ...(await loadAgentignorePatterns(root))];
-  const ignoreMatcher = createIgnoreMatcher(patterns);
+  const ignoreMatcher = await buildIgnoreMatcher(root, options.ignorePatterns);
 
   const bounds = await resolveWindowBounds(root, window);
-  const { dateArgs } = bounds;
+  const { dateArgs, range } = bounds;
 
   const notes = [];
   const commits = [];
@@ -689,7 +760,7 @@ export async function collectCommits(root, options = {}) {
 
   // --- non-merge commits (the counted set, with numstat) ---
   try {
-    const gitArgs = buildLogArgs({ merges: false, dateArgs });
+    const gitArgs = buildLogArgs({ merges: false, dateArgs, range });
     for await (const raw of streamRawRecords(root, gitArgs)) {
       const { record, numstat } = parseRecord(raw, { isMerge: false, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
@@ -728,7 +799,7 @@ export async function collectCommits(root, options = {}) {
 
   // --- merge commits (delivery evidence; excluded from churn counts) ---
   try {
-    const gitArgs = buildLogArgs({ merges: true, dateArgs });
+    const gitArgs = buildLogArgs({ merges: true, dateArgs, range });
     for await (const raw of streamRawRecords(root, gitArgs)) {
       const { record } = parseRecord(raw, { isMerge: true, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
@@ -761,7 +832,7 @@ export async function collectCommits(root, options = {}) {
     notes.push(`${filesExcluded} generated/vendored file change(s) were excluded from file lists (line counts unaffected).`);
   }
   if (!bounds.untilExact) {
-    notes.push("The upper bound is a relative expression git filters by committer date (inclusive); it is not the strict half-open author-date bound.");
+    notes.push("The upper bound is a user-supplied expression git filters by committer date (inclusive); it is not the strict half-open author-date bound.");
   }
 
   return {

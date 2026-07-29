@@ -40,7 +40,7 @@ function escapeRegexLiteral(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function compileAgentignorePattern(pattern) {
+export function compileAgentignorePattern(pattern) {
   let regexStr = "";
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
