@@ -22,10 +22,12 @@ const MAX_YEAR = 9999;
 // both are present, and a standalone form otherwise.
 const WINDOW_FLAGS = ["days", "months", "quarter", "since"];
 
-function resolveTimeZone(explicit) {
-  if (explicit) {
-    return explicit;
-  }
+// The calendar arithmetic below runs in the process timezone (Node honours a
+// runtime `process.env.TZ` change for both `new Date(y, m, d)` and the Intl
+// resolver), so the recorded zone is always the one the boundaries were built
+// in. There is deliberately no timezone override: labelling a window with a
+// zone the arithmetic did not use would silently move commits between reports.
+function resolveTimeZone() {
   try {
     return new Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
@@ -113,13 +115,15 @@ function selectedForms(args) {
  * @param {object} args - parsed flags: { days, months, quarter, year, since, until }
  * @param {object} [options]
  * @param {Date}   [options.now] - the "now" instant (injectable for tests)
- * @param {string} [options.timeZone] - IANA zone override (injectable for tests)
  * @returns {{ form: string, since: string, until: string, label: string,
- *             timezone: string, since_is_ref: boolean, until_is_ref: boolean }}
+ *             timezone: string, since_kind: string, until_kind: string }}
+ *   `since_kind`/`until_kind` are "instant" (an absolute ISO timestamp, ready
+ *   to hand to git as-is) or "expression" (a user-supplied date/ref string the
+ *   git-reading layer (#349) must resolve).
  */
 export function resolveWindow(args = {}, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const timezone = resolveTimeZone(options.timeZone);
+  const timezone = resolveTimeZone();
 
   if (has(args, "until") && !has(args, "since")) {
     throw new Error("git analyze --until requires --since");
@@ -191,9 +195,11 @@ export function resolveWindow(args = {}, options = {}) {
         since,
         until,
         // `--since`/`--until` accept dates or refs verbatim; they are passed to
-        // git as given (#349), so they are not normalized to instants here.
-        since_is_ref: true,
-        until_is_ref: untilGiven,
+        // git as given (#349), so they are not normalized to instants here and
+        // are marked "expression" for the git-reading layer to resolve. A
+        // defaulted `--until` is the concrete `now` instant, not an expression.
+        since_kind: "expression",
+        until_kind: untilGiven ? "expression" : "instant",
         label: untilGiven ? `${since} .. ${until}` : `Since ${since}`,
         timezone,
       };
@@ -210,8 +216,9 @@ function finalizeComputed({ form, since, until, label, timezone }) {
     form,
     since: since.toISOString(),
     until: until.toISOString(),
-    since_is_ref: false,
-    until_is_ref: false,
+    // Computed windows are absolute instants, ready to hand to git as-is.
+    since_kind: "instant",
+    until_kind: "instant",
     label,
     timezone,
   };

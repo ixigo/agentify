@@ -12,6 +12,22 @@ import { runGitAnalyze, resolveScope, GIT_ANALYZE_SCHEMA_VERSION } from "../src/
 const execFileAsync = promisify(execFile);
 const CLI = fileURLToPath(new URL("../src/cli.js", import.meta.url));
 
+// The window resolver reads the process timezone for its calendar arithmetic,
+// so pin it around assertions that check absolute instants.
+async function withTZ(tz, fn) {
+  const previous = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = previous;
+    }
+  }
+}
+
 async function initGitRepo(root) {
   await execFileAsync("git", ["init"], { cwd: root });
   await execFileAsync("git", ["config", "user.name", "Agentify Tests"], { cwd: root });
@@ -48,13 +64,12 @@ test("runGitAnalyze returns a zero-count report for a git repo without reading c
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-analyze-"));
   await initGitRepo(root);
 
-  const report = await runGitAnalyze(root, {
+  const report = await withTZ("UTC", () => runGitAnalyze(root, {
     window: { days: 14 },
     scope: "local",
     dryRun: true,
     now: new Date("2026-07-29T12:00:00.000Z"),
-    timeZone: "UTC",
-  });
+  }));
 
   assert.equal(report.command, "git analyze");
   assert.equal(report.schema_version, GIT_ANALYZE_SCHEMA_VERSION);
@@ -90,10 +105,25 @@ test("runGitAnalyze --global does not require a git repo and notes discovery is 
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("resolveScope maps --global to global and defaults to local", () => {
+test("resolveScope maps --global to global, defaults to local, and rejects the conflict", () => {
   assert.equal(resolveScope({}), "local");
   assert.equal(resolveScope({ global: true }), "global");
   assert.equal(resolveScope({ local: true }), "local");
+  assert.throws(() => resolveScope({ local: true, global: true }), /mutually exclusive/);
+});
+
+test("runGitAnalyze echoes requested-but-unapplied filters instead of dropping them", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-filters-"));
+  await initGitRepo(root);
+  const report = await runGitAnalyze(root, {
+    window: {},
+    scope: "local",
+    dryRun: true,
+    pendingFilters: ["--author", "--path"],
+  });
+  assert.deepEqual(report.requested_filters, ["--author", "--path"]);
+  assert.ok(report.notes.some((note) => /#351/.test(note) && /--author/.test(note)));
+  await fs.rm(root, { recursive: true, force: true });
 });
 
 test("git analyze --dry-run exits 0 and touches nothing in a repo with no Agentify install", async () => {
@@ -126,7 +156,7 @@ test("git analyze --format json emits clean machine-readable output on stdout", 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-json-"));
   await initGitRepo(root);
 
-  const result = await execFileAsync("node", [CLI, "git", "analyze", "--quarter", "1", "--year", "2024", "--format", "json"], {
+  const result = await execFileAsync("node", [CLI, "git", "analyze", "--quarter", "1", "--year", "2024", "--dry-run", "--format", "json"], {
     cwd: root,
     env: { ...process.env, TZ: "UTC" },
   });
@@ -135,6 +165,20 @@ test("git analyze --format json emits clean machine-readable output on stdout", 
   assert.equal(payload.window.since, "2024-01-01T00:00:00.000Z");
   assert.equal(payload.window.until, "2024-04-01T00:00:00.000Z");
 
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("git analyze without --dry-run fails clearly rather than returning an empty success", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-nodry-"));
+  await initGitRepo(root);
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "--days", "7"], { cwd: root }),
+    (error) => {
+      assert.match(error.stderr, /only --dry-run/);
+      assert.match(error.stderr, /#349/);
+      return true;
+    },
+  );
   await fs.rm(root, { recursive: true, force: true });
 });
 

@@ -114,7 +114,7 @@ export async function printHelp() {
     `    ${d("$")} agentify analyze --days 30 --yes`,
     `    ${d("$")} agentify analyze --days 30 --yes --no-open`,
     `    ${d("$")} agentify git analyze --dry-run`,
-    `    ${d("$")} agentify git analyze --quarter 1 --year 2028 --format json`,
+    `    ${d("$")} agentify git analyze --quarter 1 --year 2025 --dry-run --format json`,
     `    ${d("$")} agentify workflow install`,
     `    ${d("$")} agentify workflow install azure --provider claude`,
     `    ${d("$")} agentify scan`,

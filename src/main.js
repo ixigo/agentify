@@ -1364,6 +1364,12 @@ export async function runCli(argv, _runtime = {}) {
               : `git requires a subcommand. Available subcommands: ${available}`,
           );
         }
+        // Commit reading lands in #349. Until then, a non-dry-run invocation
+        // would return a plausible-looking success with zero commits, so this
+        // slice only supports --dry-run and says so rather than misleading.
+        if (config.dryRun !== true) {
+          throw new Error("git analyze currently supports only --dry-run; commit reading lands in #349. Re-run with --dry-run.");
+        }
         const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
         const format = config.json ? "json" : requestedFormat;
         if (format === "html" || format === "md") {
@@ -1380,10 +1386,19 @@ export async function runCli(argv, _runtime = {}) {
             windowInput[key] = args[key];
           }
         }
+        // Echo any filter/narrowing flags the frozen surface accepts but this
+        // slice does not apply yet, so they are never silently discarded.
+        const gitFilterFlags = [
+          ["me", "--me"], ["author", "--author"], ["branch", "--branch"], ["grep", "--grep"],
+          ["path", "--path"], ["type", "--type"], ["scope", "--scope"], ["issue", "--issue"],
+          ["includeMerges", "--include-merges"], ["repo", "--repo"],
+        ];
+        const pendingFilters = gitFilterFlags.filter(([key]) => hasOwn(args, key)).map(([, label]) => label);
         const report = await runGitAnalyze(root, {
           window: windowInput,
           scope: resolveScope(args),
-          dryRun: config.dryRun === true,
+          dryRun: true,
+          pendingFilters,
         });
         if (format === "json") {
           console.log(JSON.stringify(report, null, 2));

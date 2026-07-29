@@ -11,8 +11,12 @@ export { resolveWindow };
 
 // Scope of the analysis. Repo discovery for `--global` lands in #350; this
 // skeleton only distinguishes the two so the resolved value is echoed in the
-// report header from day one.
+// report header from day one. `--local` and `--global` conflict rather than
+// silently broadening to global.
 export function resolveScope(args = {}) {
+  if (args.local === true && args.global === true) {
+    throw new Error("git analyze: --local and --global are mutually exclusive");
+  }
   return args.global === true ? "global" : "local";
 }
 
@@ -29,15 +33,16 @@ export function resolveScope(args = {}) {
  * @param {object} [options.window] - window flags { days, months, quarter, year, since, until }
  * @param {string} [options.scope] - "local" (default) or "global"
  * @param {boolean} [options.dryRun] - whether this is a --dry-run invocation
+ * @param {string[]} [options.pendingFilters] - filter flags the caller supplied
+ *   that this slice does not yet apply; echoed so they are never silently dropped
  * @param {Date}    [options.now] - "now" instant (injectable for tests)
- * @param {string}  [options.timeZone] - IANA zone override (injectable for tests)
  * @param {function} [options.isGitRepository] - override for tests
  * @returns {Promise<object>} the report object
  */
 export async function runGitAnalyze(root, options = {}) {
   const scope = options.scope || "local";
   const now = options.now instanceof Date ? options.now : new Date();
-  const window = resolveWindow(options.window || {}, { now, timeZone: options.timeZone });
+  const window = resolveWindow(options.window || {}, { now });
 
   const resolvedRoot = path.resolve(root);
   const detectRepo = options.isGitRepository || isGitRepository;
@@ -50,9 +55,14 @@ export async function runGitAnalyze(root, options = {}) {
     );
   }
 
+  const pendingFilters = Array.isArray(options.pendingFilters) ? options.pendingFilters : [];
+
   const notes = [];
   if (scope === "global") {
     notes.push("Repository discovery for --global lands in #350; no repositories were scanned yet.");
+  }
+  if (pendingFilters.length > 0) {
+    notes.push(`Requested filters (${pendingFilters.join(", ")}) are not applied yet; filtering lands in #351.`);
   }
   if (options.dryRun) {
     notes.push("Dry run: the window is resolved but no commit history has been read.");
@@ -69,6 +79,7 @@ export async function runGitAnalyze(root, options = {}) {
       is_git_repository: isRepo,
     },
     window,
+    requested_filters: pendingFilters,
     // No commits are read in this slice; downstream slices populate these.
     commits_read: false,
     counts: {
