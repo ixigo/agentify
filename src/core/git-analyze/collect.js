@@ -353,27 +353,39 @@ async function* streamRawRecords(root, gitArgs) {
     });
   });
 
+  // A record boundary is RECORD_SEP immediately followed by a %H commit hash
+  // (40 hex for sha1, 64 for sha256) and FIELD_SEP. Anchoring on that shape,
+  // rather than a bare RECORD_SEP, means an accidental control byte in a commit
+  // body or filename cannot be mistaken for a record boundary.
+  const boundary = new RegExp(`${RECORD_SEP}(?:[0-9a-f]{40}|[0-9a-f]{64})${FIELD_SEP}`, "g");
+  const nextBoundary = (text, from) => {
+    boundary.lastIndex = from;
+    const match = boundary.exec(text);
+    return match ? match.index : -1;
+  };
+
   let buffer = "";
   child.stdout.setEncoding("utf8");
 
   try {
     for await (const chunk of child.stdout) {
       buffer += chunk;
-      // Emit every record whose terminating (next) RECORD_SEP has arrived.
-      while (true) {
-        const first = buffer.indexOf(RECORD_SEP);
-        if (first === -1) break;
-        const second = buffer.indexOf(RECORD_SEP, first + 1);
-        if (second === -1) break;
-        const raw = buffer.slice(first + 1, second);
-        buffer = buffer.slice(second);
-        yield raw;
+      // Emit each record once the START of the next record has arrived, so a
+      // record is only cut at a confirmed boundary. A boundary split across
+      // chunks stays buffered until it completes.
+      let start = nextBoundary(buffer, 0);
+      while (start !== -1) {
+        const end = nextBoundary(buffer, start + 1);
+        if (end === -1) break;
+        yield buffer.slice(start + 1, end);
+        buffer = buffer.slice(end);
+        start = 0;
       }
     }
-    // Flush the final record (from the last RECORD_SEP to EOF).
-    const first = buffer.indexOf(RECORD_SEP);
-    if (first !== -1) {
-      const raw = buffer.slice(first + 1);
+    // Flush the final record (from its boundary to EOF).
+    const start = nextBoundary(buffer, 0);
+    if (start !== -1) {
+      const raw = buffer.slice(start + 1);
       if (raw.length > 0) {
         yield raw;
       }
@@ -383,9 +395,18 @@ async function* streamRawRecords(root, gitArgs) {
     if (spawnError) {
       throw spawnError;
     }
-    // A signal (closeSignal set) means we killed it deliberately (cap reached);
-    // that is not an error. A non-zero exit without a signal is a real failure.
-    if (closeCode !== 0 && closeSignal === null) {
+    // Reaching here means the stream ended on its own (a cap breaks out of the
+    // consumer, which runs the finally below instead of this code). So a signal
+    // here is an EXTERNAL termination (kill / resource pressure): the output is
+    // incomplete and must fail rather than pass partial data off as whole.
+    if (closeSignal !== null) {
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+      const error = new Error(stderr || `git log terminated by signal ${closeSignal}`);
+      error.gitSignal = closeSignal;
+      error.gitStderr = stderr;
+      throw error;
+    }
+    if (closeCode !== 0) {
       const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
       const error = new Error(stderr || `git log exited with code ${closeCode}`);
       error.gitExitCode = closeCode;
@@ -414,7 +435,7 @@ async function* streamRawRecords(root, gitArgs) {
  */
 export async function* streamCommitRecords(root, options = {}) {
   const isMerge = options.merges === true;
-  const gitArgs = buildLogArgs({ merges: isMerge, dateArgs: options.gitArgs || [], range: options.range });
+  const gitArgs = buildLogArgs({ merges: isMerge, dateArgs: options.gitArgs || [] });
   for await (const raw of streamRawRecords(root, gitArgs)) {
     yield parseRecord(raw, { isMerge, ignoreMatcher: options.ignoreMatcher }).record;
   }
@@ -423,7 +444,7 @@ export async function* streamCommitRecords(root, options = {}) {
 // Assemble the `git log` argument array. Non-merge collection carries numstat;
 // merge collection does not (merge numstat is first-parent noise and merges are
 // excluded from churn counts).
-function buildLogArgs({ merges, dateArgs = [], range = null }) {
+function buildLogArgs({ merges, dateArgs = [] }) {
   const args = [
     "log",
     merges ? "--merges" : "--no-merges",
@@ -436,9 +457,6 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
     args.push("--numstat");
   }
   args.push(...dateArgs);
-  if (range) {
-    args.push(range);
-  }
   return args;
 }
 
@@ -481,66 +499,85 @@ export async function getBranchTable(root) {
 // Window -> git args resolution.
 // ---------------------------------------------------------------------------
 
-// Does `expr` resolve to a commit in this repo? Distinguishes a `--since <ref>`
-// from a `--since <date>` (a date string will not rev-parse to a commit).
-async function isCommittish(root, expr) {
+// Resolve a window bound to an absolute instant (ms since epoch) for author-date
+// filtering, or null when it cannot be resolved. Instant bounds parse directly;
+// an expression is tried as a date first, then as a ref (whose author date is
+// used, keeping the window a date range even for ref bounds); an unresolvable
+// relative expression ("2 weeks ago") returns null.
+async function resolveBoundInstant(root, value, kind) {
+  if (!value) {
+    return null;
+  }
+  if (kind === "instant") {
+    const t = Date.parse(value);
+    return Number.isNaN(t) ? null : t;
+  }
+  const asDate = Date.parse(value);
+  if (!Number.isNaN(asDate)) {
+    return asDate;
+  }
   try {
-    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${expr}^{commit}`], { cwd: root });
-    return true;
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", "-1", "--format=%aI", `${value}^{commit}`],
+      { cwd: root },
+    );
+    const t = Date.parse(stdout.trim());
+    return Number.isNaN(t) ? null : t;
   } catch {
-    return false;
+    return null;
   }
 }
 
-// Translate the resolved window into git args. Instant bounds and date-shaped
-// expressions become `--since`/`--until`; ref-shaped expressions become a
-// revision range. Returns the date args and an optional range positional.
-async function resolveWindowGitArgs(root, window) {
+// Translate the resolved window into git date args plus the author-date instants
+// the JS filter enforces.
+//
+// Only `--since` is handed to git, never `--until`: git's date filters act on
+// COMMIT date, and a commit authored inside the window but committed after it
+// (a rebased/late-merged commit) would be dropped by `--until` before the
+// author-date filter could keep it. `--since` is safe as a read bound because a
+// commit's commit date is >= its author date, so nothing author-in-window is
+// excluded by it. The exclusive upper bound is enforced in JS.
+async function resolveWindowBounds(root, window) {
   const dateArgs = [];
-  let sinceRef = null;
-  let untilRef = null;
+  const sinceInstant = await resolveBoundInstant(root, window.since, window.since_kind);
+  const untilInstant = await resolveBoundInstant(root, window.until, window.until_kind);
 
-  if (window.since) {
-    if (window.since_kind === "expression" && (await isCommittish(root, window.since))) {
-      sinceRef = window.since;
-    } else {
-      dateArgs.push(`--since=${window.since}`);
-    }
-  }
-  if (window.until) {
-    if (window.until_kind === "expression" && (await isCommittish(root, window.until))) {
-      untilRef = window.until;
-    } else {
-      dateArgs.push(`--until=${window.until}`);
-    }
+  if (sinceInstant !== null) {
+    dateArgs.push(`--since=${new Date(sinceInstant).toISOString()}`);
+  } else if (window.since) {
+    // Unresolvable relative expression: hand the raw value to git so the read is
+    // still bounded (git parses "2 weeks ago" etc.).
+    dateArgs.push(`--since=${window.since}`);
   }
 
-  let range = null;
-  if (sinceRef && untilRef) {
-    range = `${sinceRef}..${untilRef}`;
-  } else if (sinceRef) {
-    range = `${sinceRef}..HEAD`;
-  } else if (untilRef) {
-    range = untilRef;
+  // When the upper bound is an unresolvable relative expression there is no
+  // instant to filter against; fall back to git's own (inclusive) `--until` so
+  // the window is still bounded above. This is the only path where the upper
+  // bound is not strictly half-open, and only user-supplied relative
+  // expressions can reach it.
+  const untilFallback = untilInstant === null && Boolean(window.until);
+  if (untilFallback) {
+    dateArgs.push(`--until=${window.until}`);
   }
 
-  return { dateArgs, range };
+  return { dateArgs, sinceInstant, untilInstant };
 }
 
-// Enforce the half-open author-date window for INSTANT bounds. Expression bounds
-// (raw dates/refs) are left to git's own filtering, so this only refines the
-// computed windows whose contract is half-open `[since, until)`.
-function isAuthoredInWindow(authoredAt, window) {
+// Enforce the half-open author-date window `[since, until)` using the resolved
+// instants. A bound that could not be resolved to an instant is left to git's
+// own filtering (see resolveWindowBounds).
+function isAuthoredInWindow(authoredAt, bounds) {
   const t = Date.parse(authoredAt);
   if (Number.isNaN(t)) {
     // Unparseable author date: keep it rather than silently drop a real commit.
     return true;
   }
-  if (window.since_kind === "instant" && window.since) {
-    if (t < Date.parse(window.since)) return false;
+  if (bounds.sinceInstant !== null && t < bounds.sinceInstant) {
+    return false;
   }
-  if (window.until_kind === "instant" && window.until) {
-    if (t >= Date.parse(window.until)) return false;
+  if (bounds.untilInstant !== null && t >= bounds.untilInstant) {
+    return false;
   }
   return true;
 }
@@ -587,7 +624,8 @@ export async function collectCommits(root, options = {}) {
     : [...DEFAULT_IGNORE_PATTERNS, ...(await loadAgentignorePatterns(root))];
   const ignoreMatcher = createIgnoreMatcher(patterns);
 
-  const { dateArgs, range } = await resolveWindowGitArgs(root, window);
+  const bounds = await resolveWindowBounds(root, window);
+  const { dateArgs } = bounds;
 
   const notes = [];
   const commits = [];
@@ -614,11 +652,18 @@ export async function collectCommits(root, options = {}) {
 
   // --- non-merge commits (the counted set, with numstat) ---
   try {
-    const gitArgs = buildLogArgs({ merges: false, dateArgs, range });
+    const gitArgs = buildLogArgs({ merges: false, dateArgs });
     for await (const raw of streamRawRecords(root, gitArgs)) {
       const { record, numstat } = parseRecord(raw, { isMerge: false, ignoreMatcher });
-      if (!isAuthoredInWindow(record.authoredAt, window)) {
+      if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
+      }
+      // Check the cap BEFORE retaining, so a window that lands exactly on the
+      // cap is not falsely reported as truncated: truncation is set only when a
+      // further in-window commit actually exists beyond the cap.
+      if (commits.length >= maxCommits) {
+        truncated.commits = true;
+        break;
       }
       commits.push(record);
       authorEmails.add(record.authorEmail);
@@ -635,10 +680,6 @@ export async function collectCommits(root, options = {}) {
         rawDistinctFiles.add(file);
         fileChanges += 1;
       }
-      if (commits.length >= maxCommits) {
-        truncated.commits = true;
-        break;
-      }
     }
   } catch (error) {
     if (isEmptyHistoryError(error)) {
@@ -650,20 +691,20 @@ export async function collectCommits(root, options = {}) {
 
   // --- merge commits (delivery evidence; excluded from churn counts) ---
   try {
-    const gitArgs = buildLogArgs({ merges: true, dateArgs, range });
+    const gitArgs = buildLogArgs({ merges: true, dateArgs });
     for await (const raw of streamRawRecords(root, gitArgs)) {
       const { record } = parseRecord(raw, { isMerge: true, ignoreMatcher });
-      if (!isAuthoredInWindow(record.authoredAt, window)) {
+      if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
+      }
+      if (merges.length >= maxMerges) {
+        truncated.merges = true;
+        break;
       }
       merges.push(record);
       // Merge issue refs count toward the distinct total (a merge subject like
       // "Merge pull request #340" is real delivery evidence).
       addIssueRefs(record);
-      if (merges.length >= maxMerges) {
-        truncated.merges = true;
-        break;
-      }
     }
   } catch (error) {
     if (!isEmptyHistoryError(error)) {

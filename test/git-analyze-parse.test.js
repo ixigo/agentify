@@ -42,6 +42,12 @@ test("extractIssueKeys pulls GitHub refs and Jira keys, distinct and in order", 
   assert.deepEqual(extractIssueKeys("no refs here"), []);
 });
 
+test("extractIssueKeys orders keys by first appearance across kinds", () => {
+  // A Jira key before a GitHub ref must come first (not "all # then all Jira").
+  assert.deepEqual(extractIssueKeys("PROJ-7 before #12"), ["PROJ-7", "#12"]);
+  assert.deepEqual(extractIssueKeys("#12 then PROJ-7"), ["#12", "PROJ-7"]);
+});
+
 test("extractIssueKeys does not treat standards tokens as issue keys", () => {
   // The acceptance false-positive set.
   assert.deepEqual(extractIssueKeys("encode as UTF-8 with SHA-256 over HTTP-2"), []);

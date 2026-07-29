@@ -81,26 +81,30 @@ export function detectBreakingChange(body) {
  */
 export function extractIssueKeys(text) {
   const source = String(text || "");
-  const seen = new Set();
-  const keys = [];
 
-  const push = (key) => {
-    if (!seen.has(key)) {
-      seen.add(key);
-      keys.push(key);
-    }
-  };
-
+  // Collect matches from both patterns WITH their positions, so the returned
+  // order is true first-seen across kinds (`PROJ-7 before #12` -> Jira first),
+  // not "all GitHub refs, then all Jira keys".
+  const found = [];
   for (const match of source.matchAll(GITHUB_REF)) {
-    push(`#${match[1]}`);
+    found.push({ index: match.index, key: `#${match[1]}` });
   }
   for (const match of source.matchAll(JIRA_KEY)) {
     if (NON_ISSUE_PREFIXES.has(match[1])) {
       continue;
     }
-    push(`${match[1]}-${match[2]}`);
+    found.push({ index: match.index, key: `${match[1]}-${match[2]}` });
   }
+  found.sort((a, b) => a.index - b.index);
 
+  const seen = new Set();
+  const keys = [];
+  for (const { key } of found) {
+    if (!seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+    }
+  }
   return keys;
 }
 

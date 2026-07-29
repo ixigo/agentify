@@ -206,6 +206,82 @@ test("collectCommits reports a cap instead of silently truncating", async () => 
   await fs.rm(msgFile, { force: true });
 });
 
+test("collectCommits does not report truncation when the window lands exactly on the cap", async () => {
+  const { root, msgFile } = await buildFixtureRepo();
+  // First learn the true count, then cap at exactly that.
+  const full = await collectCommits(root);
+  const exact = await collectCommits(root, { maxCommits: full.commits.length });
+
+  assert.equal(exact.commits.length, full.commits.length);
+  assert.equal(exact.truncated.commits, false);
+  assert.ok(!exact.notes.some((note) => /capped/.test(note)));
+
+  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(msgFile, { force: true });
+});
+
+test("collectCommits is not fooled by a stray record-marker byte in a commit body", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-ctrl-"));
+  const msgFile = path.join(os.tmpdir(), `agentify-ctrl-${process.pid}-${Date.now()}.txt`);
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  await fs.writeFile(path.join(root, "a.txt"), "one\n");
+  await git(root, ["add", "a.txt"]);
+  // Body carries a bare RECORD_SEP (\x01) not followed by a commit hash — it must
+  // not be mistaken for a record boundary.
+  await fs.writeFile(msgFile, "feat: has \x01 stray marker and \x02 bytes\n\nmore body");
+  await git(root, ["commit", "-F", msgFile]);
+
+  await fs.writeFile(path.join(root, "b.txt"), "two\n");
+  await git(root, ["add", "b.txt"]);
+  await git(root, ["commit", "-m", "fix: the following record must be intact"]);
+
+  const collection = await collectCommits(root);
+  assert.equal(collection.commits.length, 2);
+  const stray = findBySubject(collection.commits, "stray marker");
+  assert.equal(stray.type, "feat");
+  const following = findBySubject(collection.commits, "must be intact");
+  assert.equal(following.type, "fix");
+  assert.deepEqual(following.files, ["b.txt"]);
+
+  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(msgFile, { force: true });
+});
+
+test("collectCommits keeps a commit authored in-window even if it was committed after `until`", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-authordate-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  // Authored inside the window, committed well after it (a rebased/late-merged
+  // commit). A commit-date filter would drop it; author-date must keep it.
+  await fs.writeFile(path.join(root, "late.txt"), "late\n");
+  await git(root, ["add", "late.txt"]);
+  await git(root, ["commit", "-m", "feat: authored in window"], {
+    env: {
+      ...process.env,
+      GIT_AUTHOR_DATE: "2026-06-01T12:00:00+00:00",
+      GIT_COMMITTER_DATE: "2026-09-01T12:00:00+00:00",
+    },
+  });
+
+  const collection = await collectCommits(root, {
+    window: {
+      since: "2026-05-01T00:00:00.000Z",
+      until: "2026-07-01T00:00:00.000Z",
+      since_kind: "instant",
+      until_kind: "instant",
+    },
+  });
+  assert.equal(collection.commits.length, 1);
+  assert.equal(collection.commits[0].subject, "feat: authored in window");
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("collectCommits reads the branch table via for-each-ref", async () => {
   const { root, msgFile } = await buildFixtureRepo();
   const collection = await collectCommits(root);
