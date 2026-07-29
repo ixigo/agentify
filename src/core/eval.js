@@ -1125,16 +1125,11 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     // ledger, and discards the one artifact needed to diagnose why the attempt
     // was invalid. The catch only overwrites status/error/pass/duration_ms, so
     // everything set here survives an invalid or failed attempt.
-    await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
-    // Persist the full event stream for mcp_tools arms so #331's telemetry can
-    // attribute mcp__agentify__* tool_use events per tool; the compact
-    // provider-stdout tail above is not a transcript.
-    if (plan.task.mcp_tools === true) {
-      await writeText(path.join(attemptDir, "provider-stream.jsonl"), redactSensitiveText(providerResult.stdout));
-    }
-    if (providerResult.stderr.trim()) {
-      await writeText(path.join(attemptDir, "provider-stderr.log"), tail(providerResult.stderr));
-    }
+    // Spend first, and before ANY await that could throw: an artifact write can
+    // fail (full or read-only disk) just as easily as the gate below can reject,
+    // and either way the money is already gone. Assigning this synchronously
+    // ahead of the writes means no failure path after the provider ran can lose
+    // the cost.
     record.provider = {
       exit_code: providerResult.code,
       timed_out: providerResult.timedOut,
@@ -1145,6 +1140,16 @@ async function runAttempt(root, runDir, plan, attempt, options) {
       cost_usd: parsed?.cost_usd ?? null,
       usage: parsed?.usage ?? null,
     };
+    await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
+    // Persist the full event stream for mcp_tools arms so #331's telemetry can
+    // attribute mcp__agentify__* tool_use events per tool; the compact
+    // provider-stdout tail above is not a transcript.
+    if (plan.task.mcp_tools === true) {
+      await writeText(path.join(attemptDir, "provider-stream.jsonl"), redactSensitiveText(providerResult.stdout));
+    }
+    if (providerResult.stderr.trim()) {
+      await writeText(path.join(attemptDir, "provider-stderr.log"), tail(providerResult.stderr));
+    }
     record.artifacts = {
       provider_stdout: path.join("attempts", attempt.attempt_id, "provider-stdout.json"),
       ...(plan.task.mcp_tools === true
