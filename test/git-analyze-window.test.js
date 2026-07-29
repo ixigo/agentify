@@ -215,6 +215,14 @@ test("--days with no value (parsed true) errors", () => {
   );
 });
 
+test("an absurdly large --days is rejected, not resolved to an invalid Date", () => {
+  // Number.isInteger(1e21) is true, but the boundary would be an invalid Date.
+  assert.throws(
+    () => resolveWindow({ days: 1e21 }, { now: NOW }),
+    /--days must be a positive integer/,
+  );
+});
+
 test("a quarter that has not started suggests the current started quarter", () => {
   withTZ("UTC", () => {
     // Q4 2026 starts 1 Oct 2026; from July 2026 (Q3) it has not started.

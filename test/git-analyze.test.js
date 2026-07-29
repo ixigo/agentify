@@ -250,6 +250,28 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("git analyze rejects unknown flags and stray positionals instead of defaulting", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-strict-"));
+  await initGitRepo(root);
+
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", "--dayss", "7"], { cwd: root }),
+    (error) => {
+      assert.match(error.stderr, /unknown flag\(s\) --dayss/);
+      return true;
+    },
+  );
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "extra-positional", "--dry-run"], { cwd: root }),
+    (error) => {
+      assert.match(error.stderr, /takes no positional arguments; got extra-positional/);
+      return true;
+    },
+  );
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("git analyze without --dry-run fails clearly rather than returning an empty success", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-nodry-"));
   await initGitRepo(root);

@@ -77,6 +77,9 @@ const STRING_FLAGS = new Set([
   "repo",
   "type",
   "scope",
+  // A path can legitimately be "0", "false", or all-digits; coercing it would
+  // corrupt the target directory or fall back to cwd.
+  "root",
 ]);
 
 function toCamelCaseFlag(key) {

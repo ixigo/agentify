@@ -16,6 +16,11 @@
 
 const MIN_YEAR = 1970;
 const MAX_YEAR = 9999;
+// Generous ceilings (~10,000 years) that keep the computed boundary a valid
+// Date. Without them a value like 1e21 passes Number.isInteger, produces an
+// invalid Date, and crashes at toISOString().
+const MAX_DAYS = 3_650_000;
+const MAX_MONTHS = 120_000;
 
 // Every window form the command surface accepts, keyed by the primary flag
 // that selects it. `--year` is special: it is a modifier of `--quarter` when
@@ -146,7 +151,7 @@ export function resolveWindow(args = {}, options = {}) {
   switch (form) {
     case "--days": {
       const n = has(args, "days")
-        ? requireInteger(args, "days", { min: 1, message: "git analyze --days must be a positive integer (e.g. --days 30)" })
+        ? requireInteger(args, "days", { min: 1, max: MAX_DAYS, message: `git analyze --days must be a positive integer (1-${MAX_DAYS})` })
         : 30;
       return finalizeComputed({
         form: "days",
@@ -158,7 +163,7 @@ export function resolveWindow(args = {}, options = {}) {
     }
 
     case "--months": {
-      const n = requireInteger(args, "months", { min: 1, message: "git analyze --months must be a positive integer (e.g. --months 3)" });
+      const n = requireInteger(args, "months", { min: 1, max: MAX_MONTHS, message: `git analyze --months must be a positive integer (1-${MAX_MONTHS})` });
       return finalizeComputed({
         form: "months",
         since: subtractMonths(now, n),

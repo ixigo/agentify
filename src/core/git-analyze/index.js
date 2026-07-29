@@ -42,10 +42,9 @@ export async function runGitAnalyze(root, options = {}) {
   const isRepo = await detectRepo(resolvedRoot);
 
   if (scope === "local" && !isRepo) {
-    throw new Error(
-      `git analyze --local needs a git repository; ${resolvedRoot} is not one. `
-        + "Run it from inside a repository, or use --global to scan discovered repos.",
-    );
+    // Only suggest what actually works today: --global discovery lands in #350,
+    // so recommending it here would point at a flag the #348 CLI rejects.
+    throw new Error(`git analyze needs a git repository; ${resolvedRoot} is not one. Run it from inside a repository.`);
   }
 
   // Identify the repository by its work-tree top-level, not the cwd, so running

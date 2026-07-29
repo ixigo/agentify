@@ -98,7 +98,9 @@ export { parseArgs };
 // pre-#348 behaviour of a repeated `--root`.
 function resolveCommandRoot(args) {
   const flag = Array.isArray(args.root) ? args.root[args.root.length - 1] : args.root;
-  return path.resolve(String(flag || process.cwd()));
+  // Nullish (not truthy) fallback: `--root 0` / `--root false` are valid paths,
+  // not a reason to silently use the current directory.
+  return path.resolve(String(flag ?? process.cwd()));
 }
 
 // Human rendering shared by `route explain` and `delegate --dry-run`: the
@@ -1371,6 +1373,28 @@ export async function runCli(argv, _runtime = {}) {
               ? `git: unknown subcommand "${subcommand}". Available subcommands: ${available}`
               : `git requires a subcommand. Available subcommands: ${available}`,
           );
+        }
+        // `git analyze` is a new command, so it validates its input strictly:
+        // an unknown flag or a stray positional is a typo, not something to
+        // silently ignore and resolve with defaults. The allowlist is the whole
+        // frozen surface (later slices add no new flags) plus the global flags.
+        const extraPositionals = args._.slice(2);
+        if (extraPositionals.length > 0) {
+          throw new Error(`git analyze takes no positional arguments; got ${extraPositionals.join(", ")}.`);
+        }
+        const GIT_ANALYZE_KNOWN_FLAGS = new Set([
+          "days", "months", "quarter", "year", "since", "until",
+          "local", "global", "repo",
+          "me", "author", "branch", "grep", "path", "type", "scope", "issue", "includeMerges",
+          "ai", "provider", "depth", "maxBudgetUsd", "jira",
+          "format", "output", "noOpen", "yes",
+          "json", "root", "ghost", "strict", "languages", "dryRun", "help", "version",
+        ]);
+        const unknownFlags = Object.keys(args)
+          .filter((key) => key !== "_" && !GIT_ANALYZE_KNOWN_FLAGS.has(key))
+          .map((key) => `--${key.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`)}`);
+        if (unknownFlags.length > 0) {
+          throw new Error(`git analyze: unknown flag(s) ${unknownFlags.join(", ")}.`);
         }
         // Commit reading lands in #349. Until then, a non-dry-run invocation
         // would return a plausible-looking success with zero commits, so this
