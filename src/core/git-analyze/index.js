@@ -6,7 +6,10 @@ import { collectCommits } from "./collect.js";
 
 // Bump when the shape returned by runGitAnalyze changes in a way downstream
 // slices (#349–#356) or report renderers must notice.
-export const GIT_ANALYZE_SCHEMA_VERSION = 1;
+//   1 (#348) — window-only skeleton, no commit history read.
+//   2 (#349) — a real run adds totals, truncated, commits, merges, branches;
+//              consumers must distinguish it from the skeleton contract.
+export const GIT_ANALYZE_SCHEMA_VERSION = 2;
 
 export { resolveWindow };
 
@@ -121,6 +124,10 @@ export async function runGitAnalyze(root, options = {}) {
     branches: collection.stats.branches,
   };
   report.truncated = collection.truncated;
+  // Whether the upper bound was enforced as the strict half-open author-date
+  // bound (true) or fell back to git's inclusive committer-date filter for an
+  // unresolvable relative expression (false). Keeps the rendered label honest.
+  report.bounds = collection.bounds;
   // The frozen commit records and their delivery evidence, for downstream
   // slices (#351 filtering, #352 clustering) to consume.
   report.commits = collection.commits;
@@ -139,7 +146,10 @@ export function renderGitAnalyzeText(report) {
   lines.push(`  scope:      ${report.scope}`);
   lines.push(`  repository: ${report.repository.path}${report.repository.is_git_repository ? "" : " (not a git repository)"}`);
   lines.push(`  since:      ${report.window.since}`);
-  lines.push(`  until:      ${report.window.until} (exclusive)`);
+  // The upper bound is half-open (exclusive) unless a real run fell back to
+  // git's inclusive committer-date filter for an unresolvable relative bound.
+  const upperExclusive = !report.bounds || report.bounds.until_exclusive !== false;
+  lines.push(`  until:      ${report.window.until} ${upperExclusive ? "(exclusive)" : "(git committer-date filter, inclusive)"}`);
   lines.push(`  timezone:   ${report.window.timezone}`);
   if (report.commits_read && report.totals) {
     const t = report.totals;

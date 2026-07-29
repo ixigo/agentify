@@ -229,9 +229,12 @@ test("collectCommits is not fooled by a stray record-marker byte in a commit bod
 
   await fs.writeFile(path.join(root, "a.txt"), "one\n");
   await git(root, ["add", "a.txt"]);
-  // Body carries a bare RECORD_SEP (\x01) not followed by a commit hash — it must
-  // not be mistaken for a record boundary.
-  await fs.writeFile(msgFile, "feat: has \x01 stray marker and \x02 bytes\n\nmore body");
+  // Body carries a bare RECORD_SEP (\x01), a control byte, AND a fully-forged
+  // header sequence (\x01 + 40 hex + \x1f) — none may be mistaken for a real
+  // record boundary, because NUL (which git cannot emit inside a message) is the
+  // true frame delimiter.
+  const forged = `\x01${"a".repeat(40)}\x1ffake@author\x1fnot a real commit`;
+  await fs.writeFile(msgFile, `feat: has \x01 stray marker and \x02 bytes\n\n${forged}\nmore body`);
   await git(root, ["commit", "-F", msgFile]);
 
   await fs.writeFile(path.join(root, "b.txt"), "two\n");
@@ -327,9 +330,10 @@ test("collectCommits on a repo with no commits degrades to an empty result with 
 });
 
 test("parseNumstat handles normal, binary, and rename entries", () => {
-  // Normal + rename (empty path, then two NUL path tokens) + binary.
-  const rest = "\n5\t2\tsrc/a.js\0" + "3\t1\t\0old/b.js\0new/b.js\0" + "-\t-\timg.png\0";
-  const result = parseNumstat(rest);
+  // Normal + rename (empty path, then two path tokens) + binary. The first token
+  // carries git's leading newline; rename splits into three tokens.
+  const tokens = ["\n5\t2\tsrc/a.js", "3\t1\t", "old/b.js", "new/b.js", "-\t-\timg.png"];
+  const result = parseNumstat(tokens);
   assert.equal(result.insertions, 8);
   assert.equal(result.deletions, 3);
   assert.deepEqual(result.files, ["src/a.js", "new/b.js", "img.png"]);

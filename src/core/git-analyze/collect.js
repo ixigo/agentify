@@ -32,14 +32,25 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-// Separators chosen so they cannot appear in a commit message. RECORD_SEP marks
-// the start of each `git log` entry; FIELD_SEP separates the header fields.
+// RECORD_SEP marks the start of each `git log` entry's header; FIELD_SEP
+// separates the header fields. The authoritative record boundary, though, is the
+// NUL byte git emits under `-z`: a commit message can contain any byte EXCEPT
+// NUL, so records are framed on NUL-delimited tokens and a header token is
+// recognised by its `RECORD_SEP + %H + FIELD_SEP` prefix. This means a body (or
+// filename) that happens to contain those separator bytes cannot forge a record
+// boundary, because it cannot contain the NUL that delimits the token.
 const RECORD_SEP = "\x01";
 const FIELD_SEP = "\x1f";
 
 // %H sha, %aI author date (strict ISO), %an/%aE mailmapped author, %s subject,
-// %b body. The leading %x01 is the record marker; %x1f the field separator.
+// %b body. The leading %x01 is the header marker; %x1f the field separator.
 const LOG_FORMAT = `%x01%H%x1f%aI%x1f%an%x1f%aE%x1f%s%x1f%b`;
+
+// How much earlier a commit's committer date may be than its author date and
+// still be caught by the git-side `--since` read bound. Committer date is
+// normally >= author date; this margin absorbs clock skew so a skewed but
+// author-in-window commit is not dropped before the JS author-date filter runs.
+const SINCE_SKEW_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A 400-line commit body must not blow the packet budget in #354, so bodies are
 // truncated on the way into the record with a flag.
@@ -164,32 +175,29 @@ async function loadAgentignorePatterns(root) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the `--numstat -z` region that follows a commit's header.
- *
- * Layout (after the header's terminating NUL, a leading `\n` git inserts, then
- * NUL-terminated entries):
+ * Parse the `--numstat -z` entries that follow a commit's header. Each entry is
+ * one NUL-delimited token (git prefixes the first with a newline):
  *   - normal:  `<ins>\t<del>\t<path>`
  *   - binary:  `-\t-\t<path>`            (counts the file, contributes 0 lines)
- *   - rename:  `<ins>\t<del>\t` followed by two NUL tokens `<old>` `<new>`
+ *   - rename:  `<ins>\t<del>\t` followed by two tokens `<old>` `<new>`
  *              (counted once, against the new path)
  *
- * @param {string} rest - bytes after the header's terminating NUL
+ * @param {string[]} rawTokens - NUL-delimited tokens after the header
  * @param {(path: string) => boolean} [ignoreMatcher]
  * @returns {{ insertions: number, deletions: number, files: string[],
  *             excludedFiles: string[], binaryFiles: number }}
  */
-export function parseNumstat(rest, ignoreMatcher) {
+export function parseNumstat(rawTokens, ignoreMatcher) {
   const result = { insertions: 0, deletions: 0, files: [], excludedFiles: [], binaryFiles: 0 };
-  if (!rest) {
-    return result;
-  }
-  // git prefixes the stat block with a newline; drop exactly one.
-  const region = rest.startsWith("\n") ? rest.slice(1) : rest;
-  if (!region) {
+  if (!rawTokens || rawTokens.length === 0) {
     return result;
   }
 
-  const tokens = region.split("\0").filter((token) => token !== "");
+  // git prefixes the stat block with a newline on the first entry; strip it.
+  const tokens = rawTokens
+    .map((token, index) => (index === 0 && token.startsWith("\n") ? token.slice(1) : token))
+    .filter((token) => token !== "");
+
   let i = 0;
   while (i < tokens.length) {
     const token = tokens[i];
@@ -292,28 +300,26 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
 }
 
 /**
- * Parse one raw record string (the bytes between two RECORD_SEP markers) into
- * both the frozen record and the numstat detail the aggregate rollup needs.
+ * Parse one framed record (a header token plus its numstat tokens) into both
+ * the frozen record and the numstat detail the aggregate rollup needs.
+ * @param {{ headerToken: string, numstatTokens: string[] }} record
  * @returns {{ record: object, numstat: object }}
  */
-function parseRecord(raw, { isMerge = false, ignoreMatcher = null } = {}) {
-  // The first NUL terminates the formatted header (git's -z record terminator);
-  // commit messages cannot contain NUL, so this split is unambiguous.
-  const nulIndex = raw.indexOf("\0");
-  const header = nulIndex === -1 ? raw : raw.slice(0, nulIndex);
-  const rest = nulIndex === -1 ? "" : raw.slice(nulIndex + 1);
-
+function parseRecord({ headerToken, numstatTokens }, { isMerge = false, ignoreMatcher = null } = {}) {
+  // Drop the leading header marker, then split the fields. A commit message
+  // cannot contain NUL, so the header token holds exactly one commit's fields.
+  const header = headerToken.startsWith(RECORD_SEP) ? headerToken.slice(1) : headerToken;
   const parts = header.split(FIELD_SEP);
   const sha = parts[0] || "";
   const authoredAt = parts[1] || "";
   const authorName = parts[2] || "";
   const authorEmail = parts[3] || "";
   const subject = parts[4] || "";
-  // Rejoin any FIELD_SEP that somehow appears past the fifth field into the body
-  // rather than dropping it (defensive; the separator cannot occur in practice).
+  // The body is the final field; rejoin any FIELD_SEP past the fifth so a body
+  // containing the separator byte is reconstructed rather than truncated.
   const body = parts.slice(5).join(FIELD_SEP);
 
-  const numstat = parseNumstat(rest, ignoreMatcher);
+  const numstat = parseNumstat(numstatTokens, ignoreMatcher);
   const record = buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, numstat, isMerge });
   return { record, numstat };
 }
@@ -322,15 +328,22 @@ function parseRecord(raw, { isMerge = false, ignoreMatcher = null } = {}) {
 // Streaming.
 // ---------------------------------------------------------------------------
 
+// A header token is one that begins with the header marker, a %H hash (40 hex
+// for sha1, 64 for sha256), and the field separator. Because tokens are split on
+// NUL — a byte that cannot occur in a commit message — a body cannot masquerade
+// as a header token, so this classification is not forgeable by message bytes.
+const HEADER_TOKEN = new RegExp(`^${RECORD_SEP}(?:[0-9a-f]{40}|[0-9a-f]{64})${FIELD_SEP}`);
+
 /**
- * Spawn `git log` with the given args and yield each raw record string as the
- * output arrives. Records are delimited by RECORD_SEP; the final record runs to
- * EOF. Yields incrementally (backpressure via `for await`), so a large history
- * is never buffered whole.
+ * Spawn `git log` with the given args and yield each framed record as the output
+ * arrives. Records are framed on NUL-delimited tokens: a header token starts a
+ * record, and the numstat tokens that follow (until the next header token)
+ * belong to it. Yields incrementally (backpressure via `for await`), so a large
+ * history is never buffered whole.
  *
  * @param {string} root
  * @param {string[]} gitArgs - args after `git`
- * @returns {AsyncGenerator<string>}
+ * @returns {AsyncGenerator<{ headerToken: string, numstatTokens: string[] }>}
  */
 async function* streamRawRecords(root, gitArgs) {
   const child = spawn("git", gitArgs, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
@@ -353,42 +366,42 @@ async function* streamRawRecords(root, gitArgs) {
     });
   });
 
-  // A record boundary is RECORD_SEP immediately followed by a %H commit hash
-  // (40 hex for sha1, 64 for sha256) and FIELD_SEP. Anchoring on that shape,
-  // rather than a bare RECORD_SEP, means an accidental control byte in a commit
-  // body or filename cannot be mistaken for a record boundary.
-  const boundary = new RegExp(`${RECORD_SEP}(?:[0-9a-f]{40}|[0-9a-f]{64})${FIELD_SEP}`, "g");
-  const nextBoundary = (text, from) => {
-    boundary.lastIndex = from;
-    const match = boundary.exec(text);
-    return match ? match.index : -1;
-  };
-
   let buffer = "";
+  let current = null; // { headerToken, numstatTokens } being assembled
   child.stdout.setEncoding("utf8");
+
+  // Route one complete NUL-delimited token: a header token starts a new record
+  // (emitting the previous one), any other token is numstat for the current one.
+  const consume = function* (token) {
+    if (HEADER_TOKEN.test(token)) {
+      if (current) {
+        yield current;
+      }
+      current = { headerToken: token, numstatTokens: [] };
+    } else if (current) {
+      current.numstatTokens.push(token);
+    }
+    // A token before the first header (there is none in practice) is ignored.
+  };
 
   try {
     for await (const chunk of child.stdout) {
       buffer += chunk;
-      // Emit each record once the START of the next record has arrived, so a
-      // record is only cut at a confirmed boundary. A boundary split across
-      // chunks stays buffered until it completes.
-      let start = nextBoundary(buffer, 0);
-      while (start !== -1) {
-        const end = nextBoundary(buffer, start + 1);
-        if (end === -1) break;
-        yield buffer.slice(start + 1, end);
-        buffer = buffer.slice(end);
-        start = 0;
+      let nul = buffer.indexOf("\0");
+      while (nul !== -1) {
+        const token = buffer.slice(0, nul);
+        buffer = buffer.slice(nul + 1);
+        yield* consume(token);
+        nul = buffer.indexOf("\0");
       }
     }
-    // Flush the final record (from its boundary to EOF).
-    const start = nextBoundary(buffer, 0);
-    if (start !== -1) {
-      const raw = buffer.slice(start + 1);
-      if (raw.length > 0) {
-        yield raw;
-      }
+    // Any trailing bytes without a final NUL form a last token.
+    if (buffer.length > 0) {
+      yield* consume(buffer);
+    }
+    // Emit the final assembled record.
+    if (current) {
+      yield current;
     }
 
     await closed;
@@ -529,39 +542,63 @@ async function resolveBoundInstant(root, value, kind) {
   }
 }
 
+// Whether this git supports `--since-as-filter` (git >= 2.37), which filters by
+// date WITHOUT stopping history traversal at the first old commit the way plain
+// `--since` does. Probed once per process and cached.
+let sinceAsFilterSupport = null;
+async function supportsSinceAsFilter() {
+  if (sinceAsFilterSupport !== null) {
+    return sinceAsFilterSupport;
+  }
+  try {
+    const { stdout } = await execFileAsync("git", ["--version"]);
+    const match = stdout.match(/(\d+)\.(\d+)/);
+    const major = match ? Number(match[1]) : 0;
+    const minor = match ? Number(match[2]) : 0;
+    sinceAsFilterSupport = major > 2 || (major === 2 && minor >= 37);
+  } catch {
+    sinceAsFilterSupport = false;
+  }
+  return sinceAsFilterSupport;
+}
+
 // Translate the resolved window into git date args plus the author-date instants
-// the JS filter enforces.
+// the JS filter enforces, and whether the bounds are enforced exactly.
 //
-// Only `--since` is handed to git, never `--until`: git's date filters act on
-// COMMIT date, and a commit authored inside the window but committed after it
+// Only a lower bound is handed to git, never `--until`: git's date filters act
+// on COMMIT date, and a commit authored inside the window but committed after it
 // (a rebased/late-merged commit) would be dropped by `--until` before the
-// author-date filter could keep it. `--since` is safe as a read bound because a
-// commit's commit date is >= its author date, so nothing author-in-window is
-// excluded by it. The exclusive upper bound is enforced in JS.
+// author-date filter could keep it. The lower bound is a read optimization, set
+// a skew margin BEFORE `since` (committer date is normally >= author date; the
+// margin absorbs clock skew) and applied with `--since-as-filter` when available
+// so traversal is not cut short. The exact half-open bounds are enforced in JS.
 async function resolveWindowBounds(root, window) {
   const dateArgs = [];
   const sinceInstant = await resolveBoundInstant(root, window.since, window.since_kind);
   const untilInstant = await resolveBoundInstant(root, window.until, window.until_kind);
 
+  const sinceFlag = (await supportsSinceAsFilter()) ? "--since-as-filter" : "--since";
   if (sinceInstant !== null) {
-    dateArgs.push(`--since=${new Date(sinceInstant).toISOString()}`);
+    const bounded = new Date(sinceInstant - SINCE_SKEW_MARGIN_MS).toISOString();
+    dateArgs.push(`${sinceFlag}=${bounded}`);
   } else if (window.since) {
     // Unresolvable relative expression: hand the raw value to git so the read is
-    // still bounded (git parses "2 weeks ago" etc.).
-    dateArgs.push(`--since=${window.since}`);
+    // still bounded (git parses "2 weeks ago" etc.). The JS filter cannot refine
+    // a lower bound it could not resolve to an instant.
+    dateArgs.push(`${sinceFlag}=${window.since}`);
   }
 
   // When the upper bound is an unresolvable relative expression there is no
-  // instant to filter against; fall back to git's own (inclusive) `--until` so
-  // the window is still bounded above. This is the only path where the upper
-  // bound is not strictly half-open, and only user-supplied relative
-  // expressions can reach it.
-  const untilFallback = untilInstant === null && Boolean(window.until);
-  if (untilFallback) {
+  // instant to filter against; fall back to git's own (inclusive, committer
+  // date) `--until` so the window is still bounded above. This is the ONLY path
+  // where the upper bound is not strictly half-open author-date, and only a
+  // user-supplied relative expression can reach it — reported via `untilExact`.
+  const untilExact = untilInstant !== null || !window.until;
+  if (!untilExact) {
     dateArgs.push(`--until=${window.until}`);
   }
 
-  return { dateArgs, sinceInstant, untilInstant };
+  return { dateArgs, sinceInstant, untilInstant, untilExact };
 }
 
 // Enforce the half-open author-date window `[since, until)` using the resolved
@@ -723,11 +760,15 @@ export async function collectCommits(root, options = {}) {
   if (filesExcluded > 0) {
     notes.push(`${filesExcluded} generated/vendored file change(s) were excluded from file lists (line counts unaffected).`);
   }
+  if (!bounds.untilExact) {
+    notes.push("The upper bound is a relative expression git filters by committer date (inclusive); it is not the strict half-open author-date bound.");
+  }
 
   return {
     commits,
     merges,
     branches,
+    bounds: { until_exclusive: bounds.untilExact },
     stats: {
       commits: commits.length,
       merges: merges.length,

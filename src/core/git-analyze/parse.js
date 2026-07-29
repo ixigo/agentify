@@ -108,8 +108,10 @@ export function extractIssueKeys(text) {
   return keys;
 }
 
-// Body trailer left by `git revert`: `This reverts commit <sha>.`
-const REVERT_TRAILER = /This reverts commit ([0-9a-f]{7,40})/;
+// Body trailer left by `git revert`: `This reverts commit <sha>.`. The hash may
+// be sha1 (40) or sha256 (64); the trailing lookahead stops the capture at the
+// full object id rather than truncating a 64-char sha256 to 40 chars.
+const REVERT_TRAILER = /This reverts commit ([0-9a-f]{7,64})(?![0-9a-f])/;
 // Default `git revert` subject: `Revert "<original subject>"`.
 const REVERT_SUBJECT = /^Revert "(.*)"\s*$/;
 // Conventional revert type: `revert: ...` or `revert(scope): ...`.
