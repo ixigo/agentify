@@ -165,7 +165,12 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
       // Privacy: only inject when a session's working directory is the same repo
       // the proxy reads context from. A session established elsewhere (a
       // long-lived proxy reused across repos) must not receive this root's notes.
-      isSameWorkspace: (cwd) => typeof cwd === "string" && path.resolve(cwd) === path.resolve(root),
+      // Uses the same root-or-descendant test as capture (withinRoot) rather than
+      // exact equality: a session legitimately rooted in a subdirectory (a
+      // monorepo's `<root>/packages/app`) is still this workspace, and because
+      // enabling injection suppresses the downstream Agentify hooks, rejecting it
+      // here left such sessions with no context injected by either path.
+      isSameWorkspace: withinRoot,
     });
     // The proxy observes the injector (clientReadable), not `input`. So the
     // ways `input` can terminate must reach the injector: a clean EOF is
@@ -285,10 +290,22 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
     // stuck filesystem). By now the stream has ended, so every observed message
     // has already been enqueued.
     if (captureEngine) {
-      await Promise.race([
-        captureEngine.flush(),
-        new Promise((resolve) => { const t = setTimeout(resolve, 2000); t.unref?.(); }),
-      ]);
+      // The bounding timer is deliberately NOT unref'd, for the same reason as
+      // withTimeout() in inject.js: it is the recovery path for a flush that
+      // never settles, and by this point the streams and the child are already
+      // closed, so an unref'd timer could never fire — the loop would drain and
+      // the process could exit with the flush still pending, which is precisely
+      // the case the bound exists for. It is cleared on both paths below, so a
+      // normal shutdown neither waits the full 2s nor wedges a clean exit.
+      let timer;
+      try {
+        await Promise.race([
+          captureEngine.flush(),
+          new Promise((resolve) => { timer = setTimeout(resolve, 2000); }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
     }
   }
 
