@@ -12,6 +12,7 @@ import {
   AGENTIFY_CONTEXT_OPEN,
   buildInjectionDigest,
   createFirstTurnInjector,
+  establishesOutsideRoot,
   extractTopLevelRawId,
   injectIntoPromptMessage,
   markInjectedBlock,
@@ -244,6 +245,42 @@ test("the injector refuses to inject when a session declares a foreign additiona
       assert.equal(called, 0, `buildDigest must not run for a foreign ${label}`);
     }
   }
+});
+
+// An empty array is truthy, so coalescing the two spellings with `||` would
+// check the empty one and wave the foreign roots through.
+test("both additionalDirectories spellings are checked independently, even when one is empty", async () => {
+  let called = 0;
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => { called += 1; return "D"; },
+    isSameWorkspace: (dir) => dir === "/root",
+  });
+  const establish = line({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "session/new",
+    params: { cwd: "/root", additionalDirectories: [], additional_directories: ["/other-repo"], mcpServers: [] },
+  });
+  const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [establish, prompt]);
+  assert.equal(out, `${establish}${prompt}`, "an empty camelCase array must not mask foreign snake_case roots");
+  assert.equal(called, 0);
+});
+
+// Both halves of the proxy share one implementation, so assert the rule itself.
+test("establishesOutsideRoot judges cwd and both additionalDirectories spellings", () => {
+  const inRoot = (dir) => dir === "/root" || dir.startsWith("/root/");
+  assert.equal(establishesOutsideRoot({ cwd: "/root" }, inRoot), false);
+  assert.equal(establishesOutsideRoot({ cwd: "/root/packages/app" }, inRoot), false);
+  assert.equal(establishesOutsideRoot({ cwd: "/elsewhere" }, inRoot), true);
+  // Either spelling, either entry shape, and one empty array never masks the other.
+  assert.equal(establishesOutsideRoot({ cwd: "/root", additionalDirectories: ["/elsewhere"] }, inRoot), true);
+  assert.equal(establishesOutsideRoot({ cwd: "/root", additional_directories: [{ path: "/elsewhere" }] }, inRoot), true);
+  assert.equal(establishesOutsideRoot({ cwd: "/root", additionalDirectories: [], additional_directories: ["/elsewhere"] }, inRoot), true);
+  assert.equal(establishesOutsideRoot({ cwd: "/root", additionalDirectories: ["/root/pkg"], additional_directories: [] }, inRoot), false);
+  // Malformed input is not a mismatch (nothing was declared).
+  assert.equal(establishesOutsideRoot(null, inRoot), false);
+  assert.equal(establishesOutsideRoot({ additionalDirectories: "nope" }, inRoot), false);
 });
 
 test("additionalDirectories inside the launch root still allow injection", async () => {
@@ -649,6 +686,43 @@ test("runAcpProxyCommand does NOT inject for a session rooted outside the launch
     input.end();
     await commandPromise;
     await fs.rm(foreign, { recursive: true, force: true });
+  });
+});
+
+// The containment check is a privacy boundary, so it must resolve symlinks: a
+// lexically-inside path like `<root>/external -> /other-repo` would otherwise
+// pass and receive this root's notes while operating in a different repo.
+test("runAcpProxyCommand does NOT inject for a session rooted at a symlink that escapes the root", async () => {
+  await withEchoAgent(async (dir, scriptPath) => {
+    await addNote(dir, "payment retries must reuse an idempotency key so a retry never double-charges");
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-acp-outside-"));
+    const link = path.join(dir, "external");
+    await fs.symlink(outside, link, "dir");
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const outLines = [];
+    collectLines(output, outLines);
+
+    const commandPromise = runAcpProxyCommand(
+      dir,
+      { context: { acpInjection: "relevant" } },
+      { command: scriptPath, provider: null },
+      { input, output, log: () => {}, handleSignals: false, setExitCode: false, env: { PATH: process.env.PATH } },
+    );
+
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } })}\n`);
+    // Lexically inside the root, actually outside it.
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: link } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: "sess", prompt: [{ type: "text", text: "fix the payment retries" }] } })}\n`);
+
+    await waitUntil(() => outLines.some((m) => m.id === 3), { timeout: 5000 });
+    const promptResult = outLines.find((m) => m.id === 3).result;
+    assert.equal(promptResult.received.length, 1, "a symlink escaping the root must not receive context");
+    assert.equal(promptResult.received[0].text, "fix the payment retries");
+
+    input.end();
+    await commandPromise;
+    await fs.rm(outside, { recursive: true, force: true });
   });
 });
 

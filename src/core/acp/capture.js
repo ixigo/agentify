@@ -19,7 +19,7 @@
 import { Transform } from "node:stream";
 
 import { getProviderDefinition } from "../provider-registry.js";
-import { extractTopLevelRawId } from "./inject.js";
+import { establishesOutsideRoot, extractTopLevelRawId } from "./inject.js";
 
 export const ACP_CAPTURE_MODES = ["off", "auto", "all", "compare"];
 
@@ -449,33 +449,17 @@ export function createCaptureEngine({ record, onEvent, isSameWorkspace } = {}) {
 
   // A session established (new/load/resume/fork) whose cwd — or any of its
   // additional workspace roots — is outside the launch root disables capture
-  // connection-wide (privacy: never record another repo's activity here).
+  // connection-wide (privacy: never record another repo's activity here). The
+  // rule itself lives in inject.js and is shared with the injector so the two
+  // halves of the proxy cannot disagree about what counts as this workspace.
   //
-  // Known limitation: verifyWorkspace (and the ctx.js path-escape backstop) are
-  // LEXICAL — a symlink inside the repo that points outside is not resolved, so
-  // a session rooted at `<repo>/linked-dir` could still record external paths.
+  // Known limitation: the ctx.js path-escape backstop is LEXICAL, so a symlink
+  // inside the repo that points outside is not resolved for every recorded path.
   // Resolving realpath on every path in the byte-hot path was judged not worth
-  // the async cost for this threat (the #336 injector shares the same lexical
-  // posture); the primary cross-repo case — a long-lived proxy reused across
-  // real, separate repositories — is covered.
-  const establishesOutsideRoot = (params) => {
-    if (!params || typeof params !== "object") {
-      return false;
-    }
-    if (typeof params.cwd === "string" && !verifyWorkspace(params.cwd)) {
-      return true;
-    }
-    const extra = params.additionalDirectories || params.additional_directories;
-    if (Array.isArray(extra)) {
-      for (const entry of extra) {
-        const dir = typeof entry === "string" ? entry : (entry && typeof entry === "object" ? entry.path : null);
-        if (typeof dir === "string" && !verifyWorkspace(dir)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
+  // the async cost for that threat. The workspace roots checked HERE are
+  // real-path resolved once per session by withinRoot in index.js, so a session
+  // rooted at `<repo>/linked-dir -> /other-repo` no longer establishes capture.
+  const outsideRoot = (params) => establishesOutsideRoot(params, verifyWorkspace);
 
     // Correlate a request to its response by the EXACT raw id text (the tap
     // supplies it), so a JSON-RPC id beyond 2^53 — which JSON.parse would round,
@@ -505,7 +489,7 @@ export function createCaptureEngine({ record, onEvent, isSameWorkspace } = {}) {
       if (!message || typeof message !== "object" || Array.isArray(message)) {
         return;
       }
-      if (SESSION_ESTABLISHING_METHODS.has(message.method) && establishesOutsideRoot(message.params)) {
+      if (SESSION_ESTABLISHING_METHODS.has(message.method) && outsideRoot(message.params)) {
         workspaceMismatch = true;
       }
       if (message.method === PROMPT_METHOD && message.id !== undefined && message.id !== null) {

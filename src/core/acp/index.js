@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import { recordCapturedEvent } from "../ctx.js";
@@ -25,6 +26,7 @@ export {
   AGENTIFY_CONTEXT_OPEN,
   buildInjectionDigest,
   createFirstTurnInjector,
+  establishesOutsideRoot,
   extractPromptText,
   extractTopLevelRawId,
   injectIntoPromptMessage,
@@ -119,11 +121,30 @@ export async function runAcpProxyCommand(root, config, args, options = {}) {
   // A session is in-workspace when its directory is the launch root OR any
   // subdirectory of it (a monorepo package under the repo is still this repo);
   // only a directory that escapes the root disables capture.
+  // Resolve symlinks before comparing, on BOTH sides. A lexical check alone is
+  // not a privacy boundary: `<root>/external -> /other-repo` is lexically inside
+  // the root, so a session rooted there would pass and receive this root's notes
+  // while actually operating in another repo. This runs once per
+  // session-establishing message (not per recorded path), so the realpath cost
+  // the byte-hot backstop in ctx.js avoids does not apply here.
+  //
+  // realpathSync throws for a path that does not exist yet; fall back to the
+  // lexical comparison there, since a path with nothing at it cannot be a
+  // symlink escape. Resolving the root too is what makes this correct on macOS,
+  // where /var is itself a symlink to /private/var.
+  const realOrResolved = (dir) => {
+    const resolved = path.resolve(dir);
+    try {
+      return fs.realpathSync(resolved);
+    } catch {
+      return resolved;
+    }
+  };
   const withinRoot = (dir) => {
     if (typeof dir !== "string") {
       return false;
     }
-    const rel = path.relative(root, path.resolve(dir));
+    const rel = path.relative(realOrResolved(root), realOrResolved(dir));
     // Segment-aware: only a leading ".." SEGMENT (or an absolute rel, i.e. a
     // different drive) escapes the root — a name like "..config" stays inside.
     return rel === "" || (rel.split(/[/\\]/)[0] !== ".." && !path.isAbsolute(rel));
