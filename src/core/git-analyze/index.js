@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { isGitRepository } from "../git.js";
+import { getRepoTopLevel, isGitRepository } from "../git.js";
 import { resolveWindow } from "./window.js";
 
 // Bump when the shape returned by runGitAnalyze changes in a way downstream
@@ -33,10 +33,14 @@ export function resolveScope(args = {}) {
  * @param {object} [options.window] - window flags { days, months, quarter, year, since, until }
  * @param {string} [options.scope] - "local" (default) or "global"
  * @param {boolean} [options.dryRun] - whether this is a --dry-run invocation
- * @param {string[]} [options.pendingFilters] - filter flags the caller supplied
- *   that this slice does not yet apply; echoed so they are never silently dropped
+ * @param {string[]} [options.discoveryRoots] - `--root` values for --global,
+ *   echoed so repeatable roots are never collapsed away (discovery is #350)
+ * @param {object} [options.requested] - map of provided-but-unapplied surface
+ *   flags (label -> value), echoed so no advertised option is silently dropped
+ * @param {string[]} [options.pendingNotes] - subsystem "not applied yet" notes
  * @param {Date}    [options.now] - "now" instant (injectable for tests)
  * @param {function} [options.isGitRepository] - override for tests
+ * @param {function} [options.getRepoTopLevel] - override for tests
  * @returns {Promise<object>} the report object
  */
 export async function runGitAnalyze(root, options = {}) {
@@ -46,6 +50,7 @@ export async function runGitAnalyze(root, options = {}) {
 
   const resolvedRoot = path.resolve(root);
   const detectRepo = options.isGitRepository || isGitRepository;
+  const topLevelOf = options.getRepoTopLevel || getRepoTopLevel;
   const isRepo = await detectRepo(resolvedRoot);
 
   if (scope === "local" && !isRepo) {
@@ -55,15 +60,20 @@ export async function runGitAnalyze(root, options = {}) {
     );
   }
 
-  const pendingFilters = Array.isArray(options.pendingFilters) ? options.pendingFilters : [];
+  // Identify the repository by its work-tree top-level, not the cwd, so running
+  // from a subdirectory does not misreport the repository path.
+  const repositoryPath = isRepo ? ((await topLevelOf(resolvedRoot)) || resolvedRoot) : resolvedRoot;
+
+  const discoveryRoots = Array.isArray(options.discoveryRoots) ? options.discoveryRoots : [];
+  const requested = options.requested && typeof options.requested === "object" ? options.requested : {};
+  const pendingNotes = Array.isArray(options.pendingNotes) ? options.pendingNotes : [];
 
   const notes = [];
   if (scope === "global") {
-    notes.push("Repository discovery for --global lands in #350; no repositories were scanned yet.");
+    const rootNote = discoveryRoots.length > 0 ? ` Discovery roots: ${discoveryRoots.join(", ")}.` : "";
+    notes.push(`Repository discovery for --global lands in #350; no repositories were scanned yet.${rootNote}`);
   }
-  if (pendingFilters.length > 0) {
-    notes.push(`Requested filters (${pendingFilters.join(", ")}) are not applied yet; filtering lands in #351.`);
-  }
+  notes.push(...pendingNotes);
   if (options.dryRun) {
     notes.push("Dry run: the window is resolved but no commit history has been read.");
   }
@@ -75,11 +85,14 @@ export async function runGitAnalyze(root, options = {}) {
     scope,
     dry_run: options.dryRun === true,
     repository: {
-      path: resolvedRoot,
+      path: repositoryPath,
       is_git_repository: isRepo,
     },
     window,
-    requested_filters: pendingFilters,
+    // Full echo of what was requested, so the dry-run faithfully reflects the
+    // (frozen) CLI surface even though most subsystems land in later slices.
+    discovery_roots: discoveryRoots,
+    requested,
     // No commits are read in this slice; downstream slices populate these.
     commits_read: false,
     counts: {

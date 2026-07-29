@@ -176,6 +176,18 @@ export async function isGitRepository(root) {
   }
 }
 
+// Read-only resolution of the working tree's top-level directory, so a command
+// invoked from a subdirectory identifies the repository, not the cwd. Returns
+// null when `root` is not inside a git work tree.
+export async function getRepoTopLevel(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: root });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // Returns true if `relPath` is git-ignored, false if git would track it, and
 // null if the ignore status cannot be determined (not a git repository, or git
 // is unavailable/errored). Works on paths that do not exist yet, since it only

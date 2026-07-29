@@ -1386,19 +1386,46 @@ export async function runCli(argv, _runtime = {}) {
             windowInput[key] = args[key];
           }
         }
-        // Echo any filter/narrowing flags the frozen surface accepts but this
-        // slice does not apply yet, so they are never silently discarded.
-        const gitFilterFlags = [
-          ["me", "--me"], ["author", "--author"], ["branch", "--branch"], ["grep", "--grep"],
-          ["path", "--path"], ["type", "--type"], ["scope", "--scope"], ["issue", "--issue"],
-          ["includeMerges", "--include-merges"], ["repo", "--repo"],
+        const scope = resolveScope(args);
+        // `--root` is the (repeatable) discovery root for --global; echo every
+        // value so repeated roots are not collapsed away before #350 lands.
+        const discoveryRoots = scope === "global" && hasOwn(args, "root")
+          ? (Array.isArray(args.root) ? args.root : [args.root]).map(String)
+          : [];
+        // Echo every frozen-surface flag the caller supplied but this slice
+        // does not apply yet — with its value — plus one note per pending
+        // subsystem, so no advertised option is silently discarded.
+        const GIT_SURFACE = [
+          ["me", "--me", "filter", 351], ["author", "--author", "filter", 351],
+          ["branch", "--branch", "filter", 351], ["grep", "--grep", "filter", 351],
+          ["path", "--path", "filter", 351], ["type", "--type", "filter", 351],
+          ["scope", "--scope", "filter", 351], ["issue", "--issue", "filter", 351],
+          ["includeMerges", "--include-merges", "filter", 351], ["repo", "--repo", "filter", 351],
+          ["ai", "--ai", "narration", 354], ["provider", "--provider", "narration", 354],
+          ["depth", "--depth", "narration", 354], ["maxBudgetUsd", "--max-budget-usd", "narration", 354],
+          ["yes", "--yes", "narration", 354], ["jira", "--jira", "tracker", 355],
+          ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
         ];
-        const pendingFilters = gitFilterFlags.filter(([key]) => hasOwn(args, key)).map(([, label]) => label);
+        const requested = {};
+        const pendingSubsystems = new Map();
+        for (const [key, label, subsystem, issue] of GIT_SURFACE) {
+          if (hasOwn(args, key)) {
+            requested[label] = args[key];
+            if (!pendingSubsystems.has(subsystem)) {
+              pendingSubsystems.set(subsystem, issue);
+            }
+          }
+        }
+        const pendingNotes = [...pendingSubsystems].map(
+          ([subsystem, issue]) => `Requested ${subsystem} options are acknowledged but not applied yet (lands in #${issue}).`,
+        );
         const report = await runGitAnalyze(root, {
           window: windowInput,
-          scope: resolveScope(args),
+          scope,
           dryRun: true,
-          pendingFilters,
+          discoveryRoots,
+          requested,
+          pendingNotes,
         });
         if (format === "json") {
           console.log(JSON.stringify(report, null, 2));
