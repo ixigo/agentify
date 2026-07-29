@@ -154,6 +154,16 @@ test("month clamping uses real Gregorian leap rules for year 0000 (Feb has 29 da
   });
 });
 
+test("month clamping is correct for a NON-leap year 1-99 February (Feb 28, never Feb 1)", () => {
+  withTZ("UTC", () => {
+    // 23717 months before 2026-07-29 lands in Feb 0050; 0050 is not a leap year,
+    // so day 29 must clamp to Feb 28 — not roll to Feb 1 or Mar 1.
+    const win = resolveWindow({ months: 23717 }, { now: NOW });
+    assert.equal(new Date(win.since).getUTCFullYear(), 50);
+    assert.ok(win.since.startsWith("0050-02-28"), `unexpected since: ${win.since}`);
+  });
+});
+
 test("Q1/Q2 boundary is identical and does not overlap under UTC", () => {
   withTZ("UTC", () => {
     const q1 = resolveWindow({ quarter: 1, year: 2026 }, { now: NOW });

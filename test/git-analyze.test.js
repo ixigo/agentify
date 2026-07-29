@@ -250,6 +250,21 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("git analyze rejects a falsey explicit --format instead of defaulting to text", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-fmt-"));
+  await initGitRepo(root);
+  for (const value of ["", "0", "false", "bogus"]) {
+    await assert.rejects(
+      () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", `--format=${value}`], { cwd: root }),
+      (error) => {
+        assert.match(error.stderr, /--format must be one of: text, json/);
+        return true;
+      },
+    );
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("git analyze rejects unknown flags and stray positionals instead of defaulting", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-strict-"));
   await initGitRepo(root);

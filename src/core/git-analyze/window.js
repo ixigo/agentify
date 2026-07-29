@@ -96,11 +96,22 @@ function localDate(year, monthIndex, day, hours = 0, minutes = 0, seconds = 0, m
   return new Date(year, monthIndex, day, hours, minutes, seconds, ms);
 }
 
+const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
 function daysInMonth(year, monthIndex) {
-  // Day 0 of the next month is the last day of this month. Routed through
-  // localDate so year 0-99 leap rules are the real Gregorian ones (year 0000 is
-  // divisible by 400 and has Feb 29), not year 1900+year's.
-  return localDate(year, monthIndex + 1, 0).getDate();
+  // Computed directly from the Gregorian leap rule rather than via Date, which
+  // remaps years 0-99 to 1900-1999 (wrong leap-ness) and rolls Feb 29 over in a
+  // non-leap year. Normalize any month carry into the year first.
+  const y = year + Math.floor(monthIndex / 12);
+  const m = ((monthIndex % 12) + 12) % 12;
+  if (m === 1) {
+    return isLeapYear(y) ? 29 : 28;
+  }
+  return DAYS_PER_MONTH[m];
 }
 
 function subtractDays(date, n) {

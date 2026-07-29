@@ -1437,7 +1437,11 @@ export async function runCli(argv, _runtime = {}) {
         if (hasOwn(args, "root") && (args.root === true || String(args.root).trim() === "")) {
           throw new Error("git analyze --root requires a directory path.");
         }
-        const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
+        // Detect presence explicitly: `--format=`/`--format=0`/`--format=false`
+        // must reach the validator, not fall back to text via a falsey `||`.
+        const requestedFormat = hasOwn(args, "format")
+          ? String(args.format).toLowerCase()
+          : (config.json ? "json" : "text");
         const format = config.json ? "json" : requestedFormat;
         if (format === "html" || format === "md") {
           throw new Error(
