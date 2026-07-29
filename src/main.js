@@ -48,7 +48,7 @@ import {
   resolveContentMode,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
-import { runGitAnalyze, renderGitAnalyzeText, resolveScope } from "./core/git-analyze/index.js";
+import { runGitAnalyze, renderGitAnalyzeText } from "./core/git-analyze/index.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import {
@@ -1370,6 +1370,28 @@ export async function runCli(argv, _runtime = {}) {
         if (config.dryRun !== true) {
           throw new Error("git analyze currently supports only --dry-run; commit reading lands in #349. Re-run with --dry-run.");
         }
+        // Flags whose BEHAVIOUR lands in later slices. They are registered in
+        // cli-args so they parse (and later slices need no re-edit), but this
+        // skeleton implements only the window + local dry-run. Using one now is
+        // a clear "not available yet" — never a silent no-op, and never a
+        // misleading acknowledgement of an option the command cannot honour.
+        const DEFERRED_FLAGS = [
+          ["global", "--global", "repository discovery", 350], ["repo", "--repo", "repository discovery", 350],
+          ["me", "--me", "filtering", 351], ["author", "--author", "filtering", 351],
+          ["branch", "--branch", "filtering", 351], ["grep", "--grep", "filtering", 351],
+          ["path", "--path", "filtering", 351], ["type", "--type", "filtering", 351],
+          ["scope", "--scope", "filtering", 351], ["issue", "--issue", "filtering", 351],
+          ["includeMerges", "--include-merges", "filtering", 351],
+          ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
+          ["ai", "--ai", "provider narration", 354], ["provider", "--provider", "provider narration", 354],
+          ["depth", "--depth", "provider narration", 354], ["maxBudgetUsd", "--max-budget-usd", "provider narration", 354],
+          ["yes", "--yes", "provider narration", 354], ["jira", "--jira", "tracker enrichment", 355],
+        ];
+        const usedDeferred = DEFERRED_FLAGS.filter(([key]) => hasOwn(args, key));
+        if (usedDeferred.length > 0) {
+          const parts = usedDeferred.map(([, label, subsystem, issue]) => `${label} (${subsystem}, #${issue})`);
+          throw new Error(`git analyze does not support ${parts.join(", ")} yet; this slice implements the window and --dry-run only.`);
+        }
         const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
         const format = config.json ? "json" : requestedFormat;
         if (format === "html" || format === "md") {
@@ -1386,46 +1408,10 @@ export async function runCli(argv, _runtime = {}) {
             windowInput[key] = args[key];
           }
         }
-        const scope = resolveScope(args);
-        // `--root` is the (repeatable) discovery root for --global; echo every
-        // value so repeated roots are not collapsed away before #350 lands.
-        const discoveryRoots = scope === "global" && hasOwn(args, "root")
-          ? (Array.isArray(args.root) ? args.root : [args.root]).map(String)
-          : [];
-        // Echo every frozen-surface flag the caller supplied but this slice
-        // does not apply yet — with its value — plus one note per pending
-        // subsystem, so no advertised option is silently discarded.
-        const GIT_SURFACE = [
-          ["me", "--me", "filter", 351], ["author", "--author", "filter", 351],
-          ["branch", "--branch", "filter", 351], ["grep", "--grep", "filter", 351],
-          ["path", "--path", "filter", 351], ["type", "--type", "filter", 351],
-          ["scope", "--scope", "filter", 351], ["issue", "--issue", "filter", 351],
-          ["includeMerges", "--include-merges", "filter", 351], ["repo", "--repo", "filter", 351],
-          ["ai", "--ai", "narration", 354], ["provider", "--provider", "narration", 354],
-          ["depth", "--depth", "narration", 354], ["maxBudgetUsd", "--max-budget-usd", "narration", 354],
-          ["yes", "--yes", "narration", 354], ["jira", "--jira", "tracker", 355],
-          ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
-        ];
-        const requested = {};
-        const pendingSubsystems = new Map();
-        for (const [key, label, subsystem, issue] of GIT_SURFACE) {
-          if (hasOwn(args, key)) {
-            requested[label] = args[key];
-            if (!pendingSubsystems.has(subsystem)) {
-              pendingSubsystems.set(subsystem, issue);
-            }
-          }
-        }
-        const pendingNotes = [...pendingSubsystems].map(
-          ([subsystem, issue]) => `Requested ${subsystem} options are acknowledged but not applied yet (lands in #${issue}).`,
-        );
         const report = await runGitAnalyze(root, {
           window: windowInput,
-          scope,
+          scope: "local",
           dryRun: true,
-          discoveryRoots,
-          requested,
-          pendingNotes,
         });
         if (format === "json") {
           console.log(JSON.stringify(report, null, 2));

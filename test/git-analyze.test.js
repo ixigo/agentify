@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { runGitAnalyze, resolveScope, GIT_ANALYZE_SCHEMA_VERSION } from "../src/core/git-analyze/index.js";
+import { runGitAnalyze, GIT_ANALYZE_SCHEMA_VERSION } from "../src/core/git-analyze/index.js";
 
 const execFileAsync = promisify(execFile);
 const CLI = fileURLToPath(new URL("../src/cli.js", import.meta.url));
@@ -99,25 +99,15 @@ test("runGitAnalyze --local errors with one actionable line outside a git repo",
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("runGitAnalyze --global does not require a git repo and echoes pending discovery roots", async () => {
+test("runGitAnalyze scope=global is a valid downstream contract that does not require a repo", async () => {
+  // The #348 CLI never reaches this path (global is deferred to #350), but the
+  // report shape is frozen here so #350 can build on it.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-global-"));
-  const report = await runGitAnalyze(root, {
-    window: {},
-    scope: "global",
-    discoveryRoots: ["/a", "/b"],
-  });
+  const report = await runGitAnalyze(root, { window: {}, scope: "global" });
   assert.equal(report.scope, "global");
   assert.equal(report.counts.repositories, 0);
-  assert.deepEqual(report.discovery_roots, ["/a", "/b"]);
-  assert.ok(report.notes.some((note) => /#350/.test(note) && /\/a, \/b/.test(note)));
+  assert.ok(report.notes.some((note) => /#350/.test(note)));
   await fs.rm(root, { recursive: true, force: true });
-});
-
-test("resolveScope maps --global to global, defaults to local, and rejects the conflict", () => {
-  assert.equal(resolveScope({}), "local");
-  assert.equal(resolveScope({ global: true }), "global");
-  assert.equal(resolveScope({ local: true }), "local");
-  assert.throws(() => resolveScope({ local: true, global: true }), /mutually exclusive/);
 });
 
 test("runGitAnalyze reports the git top-level when run from a subdirectory", async () => {
@@ -176,35 +166,29 @@ test("git analyze --format json emits clean machine-readable output on stdout", 
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("git analyze --dry-run echoes provided surface flags with values and notes pending subsystems", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-surface-"));
+test("git analyze rejects not-yet-implemented surface flags with the slice they land in", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);
 
-  const result = await execFileAsync(
-    "node",
-    [CLI, "git", "analyze", "--dry-run", "--author", "alice", "--author", "bob", "--ai", "--provider", "claude", "--format", "json"],
-    { cwd: root },
-  );
-  const payload = JSON.parse(result.stdout);
-  // Repeated --author keeps both values rather than collapsing to a name.
-  assert.deepEqual(payload.requested["--author"], ["alice", "bob"]);
-  assert.equal(payload.requested["--ai"], true);
-  assert.equal(payload.requested["--provider"], "claude");
-  assert.ok(payload.notes.some((note) => /#351/.test(note)), "filter subsystem note");
-  assert.ok(payload.notes.some((note) => /#354/.test(note)), "narration subsystem note");
+  const cases = [
+    [["--global"], /--global \(repository discovery, #350\)/],
+    [["--author", "alice"], /--author \(filtering, #351\)/],
+    [["--provider", "claude"], /--provider \(provider narration, #354\)/],
+    [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
+    [["--output", "/tmp/x.html"], /--output \(report output, #353\)/],
+  ];
+  for (const [flags, pattern] of cases) {
+    await assert.rejects(
+      () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", ...flags], { cwd: root }),
+      (error) => {
+        assert.match(error.stderr, pattern);
+        assert.match(error.stderr, /window and --dry-run only/);
+        return true;
+      },
+    );
+  }
 
   await fs.rm(root, { recursive: true, force: true });
-});
-
-test("git analyze --dry-run --global echoes repeatable discovery roots", async () => {
-  const result = await execFileAsync(
-    "node",
-    [CLI, "git", "analyze", "--dry-run", "--global", "--root", "/tmp/a", "--root", "/tmp/b", "--format", "json"],
-    { cwd: os.tmpdir() },
-  );
-  const payload = JSON.parse(result.stdout);
-  assert.equal(payload.scope, "global");
-  assert.deepEqual(payload.discovery_roots, ["/tmp/a", "/tmp/b"]);
 });
 
 test("git analyze without --dry-run fails clearly rather than returning an empty success", async () => {

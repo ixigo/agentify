@@ -9,42 +9,30 @@ export const GIT_ANALYZE_SCHEMA_VERSION = 1;
 
 export { resolveWindow };
 
-// Scope of the analysis. Repo discovery for `--global` lands in #350; this
-// skeleton only distinguishes the two so the resolved value is echoed in the
-// report header from day one. `--local` and `--global` conflict rather than
-// silently broadening to global.
-export function resolveScope(args = {}) {
-  if (args.local === true && args.global === true) {
-    throw new Error("git analyze: --local and --global are mutually exclusive");
-  }
-  return args.global === true ? "global" : "local";
-}
-
 /**
  * Orchestration entry for `agentify git analyze`.
  *
  * For this slice it resolves the window, confirms the cwd is a git repository
  * (for `--local`), and returns a report with counts of nothing — no commit is
- * ever read here. It writes nothing anywhere: the only git call is a read-only
- * `rev-parse --is-inside-work-tree`.
+ * ever read here. It writes nothing anywhere: the only git calls are read-only
+ * `rev-parse` probes.
+ *
+ * The `scope` param is honoured ("local" default, "global" for #350) so the
+ * report shape is frozen for downstream slices, but the #348 CLI only ever
+ * invokes the local path; global discovery lands in #350.
  *
  * @param {string} root - resolved repository root (the command cwd)
  * @param {object} [options]
  * @param {object} [options.window] - window flags { days, months, quarter, year, since, until }
  * @param {string} [options.scope] - "local" (default) or "global"
  * @param {boolean} [options.dryRun] - whether this is a --dry-run invocation
- * @param {string[]} [options.discoveryRoots] - `--root` values for --global,
- *   echoed so repeatable roots are never collapsed away (discovery is #350)
- * @param {object} [options.requested] - map of provided-but-unapplied surface
- *   flags (label -> value), echoed so no advertised option is silently dropped
- * @param {string[]} [options.pendingNotes] - subsystem "not applied yet" notes
  * @param {Date}    [options.now] - "now" instant (injectable for tests)
  * @param {function} [options.isGitRepository] - override for tests
  * @param {function} [options.getRepoTopLevel] - override for tests
  * @returns {Promise<object>} the report object
  */
 export async function runGitAnalyze(root, options = {}) {
-  const scope = options.scope || "local";
+  const scope = options.scope === "global" ? "global" : "local";
   const now = options.now instanceof Date ? options.now : new Date();
   const window = resolveWindow(options.window || {}, { now });
 
@@ -64,16 +52,10 @@ export async function runGitAnalyze(root, options = {}) {
   // from a subdirectory does not misreport the repository path.
   const repositoryPath = isRepo ? ((await topLevelOf(resolvedRoot)) || resolvedRoot) : resolvedRoot;
 
-  const discoveryRoots = Array.isArray(options.discoveryRoots) ? options.discoveryRoots : [];
-  const requested = options.requested && typeof options.requested === "object" ? options.requested : {};
-  const pendingNotes = Array.isArray(options.pendingNotes) ? options.pendingNotes : [];
-
   const notes = [];
   if (scope === "global") {
-    const rootNote = discoveryRoots.length > 0 ? ` Discovery roots: ${discoveryRoots.join(", ")}.` : "";
-    notes.push(`Repository discovery for --global lands in #350; no repositories were scanned yet.${rootNote}`);
+    notes.push("Repository discovery for --global lands in #350; no repositories were scanned yet.");
   }
-  notes.push(...pendingNotes);
   if (options.dryRun) {
     notes.push("Dry run: the window is resolved but no commit history has been read.");
   }
@@ -89,10 +71,6 @@ export async function runGitAnalyze(root, options = {}) {
       is_git_repository: isRepo,
     },
     window,
-    // Full echo of what was requested, so the dry-run faithfully reflects the
-    // (frozen) CLI surface even though most subsystems land in later slices.
-    discovery_roots: discoveryRoots,
-    requested,
     // No commits are read in this slice; downstream slices populate these.
     commits_read: false,
     counts: {
