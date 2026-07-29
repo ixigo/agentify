@@ -1396,14 +1396,11 @@ export async function runCli(argv, _runtime = {}) {
         if (unknownFlags.length > 0) {
           throw new Error(`git analyze: unknown flag(s) ${unknownFlags.join(", ")}.`);
         }
-        // Commit reading lands in #349. Until then, a non-dry-run invocation
-        // would return a plausible-looking success with zero commits, so this
-        // slice only supports --dry-run and says so rather than misleading.
-        // Check the FLAG, not merged config: a repo `.agentify.yaml` carrying
-        // `dryRun: true` must not silently satisfy this requirement.
-        if (args.dryRun !== true) {
-          throw new Error("git analyze currently supports only --dry-run; commit reading lands in #349. Re-run with --dry-run.");
-        }
+        // Dry run is opt-in via the FLAG, not merged config: a repo
+        // `.agentify.yaml` carrying `dryRun: true` must not silently downgrade a
+        // real analysis to a window-only resolution. A non-dry-run local run now
+        // streams commits (#349).
+        const dryRun = args.dryRun === true;
         // Flags whose BEHAVIOUR lands in later slices. They are registered in
         // cli-args so they parse (and later slices need no re-edit), but this
         // skeleton implements only the window + local dry-run. Using one now is
@@ -1460,7 +1457,7 @@ export async function runCli(argv, _runtime = {}) {
         const report = await runGitAnalyze(root, {
           window: windowInput,
           scope: "local",
-          dryRun: true,
+          dryRun,
         });
         if (format === "json") {
           console.log(JSON.stringify(report, null, 2));

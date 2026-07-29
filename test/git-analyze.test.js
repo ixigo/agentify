@@ -287,31 +287,35 @@ test("git analyze rejects unknown flags and stray positionals instead of default
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("git analyze without --dry-run fails clearly rather than returning an empty success", async () => {
+test("git analyze without --dry-run reads commits and reports actual counts", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-nodry-"));
   await initGitRepo(root);
-  await assert.rejects(
-    () => execFileAsync("node", [CLI, "git", "analyze", "--days", "7"], { cwd: root }),
-    (error) => {
-      assert.match(error.stderr, /only --dry-run/);
-      assert.match(error.stderr, /#349/);
-      return true;
-    },
-  );
+
+  const result = await execFileAsync("node", [CLI, "git", "analyze", "--days", "7", "--format", "json"], { cwd: root });
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.dry_run, false);
+  assert.equal(payload.commits_read, true);
+  // The fixture's single "feat: initial commit" is in the window.
+  assert.equal(payload.counts.commits, 1);
+  assert.equal(payload.counts.authors, 1);
+  assert.ok(Array.isArray(payload.commits) && payload.commits.length === 1);
+  assert.equal(payload.commits[0].type, "feat");
+
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("a repo .agentify.yaml with dryRun:true does NOT satisfy the required --dry-run flag", async () => {
+test("a repo .agentify.yaml with dryRun:true does NOT downgrade a real run to window-only", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-cfgdry-"));
   await initGitRepo(root);
   await fs.writeFile(path.join(root, ".agentify.yaml"), "dryRun: true\n", "utf8");
-  await assert.rejects(
-    () => execFileAsync("node", [CLI, "git", "analyze", "--days", "7"], { cwd: root }),
-    (error) => {
-      assert.match(error.stderr, /only --dry-run/);
-      return true;
-    },
-  );
+
+  // No --dry-run flag: config dryRun:true must not silently skip commit reading.
+  const result = await execFileAsync("node", [CLI, "git", "analyze", "--days", "7", "--format", "json"], { cwd: root });
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.dry_run, false);
+  assert.equal(payload.commits_read, true);
+  assert.equal(payload.counts.commits, 1);
+
   await fs.rm(root, { recursive: true, force: true });
 });
 
