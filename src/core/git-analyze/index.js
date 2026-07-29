@@ -88,12 +88,12 @@ export async function runGitAnalyze(root, options = {}) {
       repositories: scope === "global" ? 0 : (isRepo ? 1 : 0),
     },
     // Whether the upper bound is the strict half-open (exclusive) author-date
-    // bound. True for computed windows and explicit date bounds (resolved to an
-    // exact instant); false only for a revision ref or a relative expression,
-    // which take git's native semantics. Computed by the same pure helper the
-    // collector uses, so a dry run and a real run label the boundary identically.
+    // bound. True for computed windows and date/relative bounds (resolved to an
+    // exact instant); false only for a revision ref, which takes git's native
+    // semantics. Computed by the same helper the collector uses, so a dry run and
+    // a real run label the boundary identically.
     bounds: {
-      until_exclusive: windowUpperExclusive(window),
+      until_exclusive: await windowUpperExclusive(resolvedRoot, window),
     },
     notes,
   };

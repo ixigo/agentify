@@ -399,12 +399,13 @@ function parseRecord({ headerToken, numstatTokens }, { isMerge = false, ignoreMa
   // The whole message is the final field; rejoin any FIELD_SEP past the fourth
   // so a message containing the separator byte is reconstructed, not truncated.
   //
-  // Residual (accepted): a FIELD_SEP (U+001F UNIT SEPARATOR) inside the author
-  // NAME or EMAIL would shift its tail forward. That control byte does not occur
-  // in real author metadata, and fully defending it would need per-field NUL
-  // framing that collides with the numstat NUL stream. The realistic threats —
-  // separators in the subject/body and forged boundaries — are fully handled:
-  // the entire message is one field, and records are NUL-framed.
+  // Residual (accepted): git PERMITS a FIELD_SEP (U+001F UNIT SEPARATOR) in an
+  // author name or email, and such a byte there would shift the split forward.
+  // No normal git workflow produces a U+001F in author metadata, and fully
+  // defending it would need per-field NUL framing that collides with the numstat
+  // NUL stream. The realistic threats — separators in the subject/body and
+  // forged record boundaries — are fully handled: the whole message is a single
+  // field, and records are framed on NUL (which a message cannot contain).
   const message = parts.slice(4).join(FIELD_SEP);
   const { subject, body } = splitMessage(message);
 
@@ -704,51 +705,57 @@ async function supportsSinceAsFilter() {
   return sinceAsFilterSupport;
 }
 
-// A date-shaped expression git and JS interpret identically: a bare date is
-// local midnight; a datetime without an offset is local; one with an offset/Z
-// is absolute. Parsing these ourselves (in the SAME local timezone git uses, so
-// no UTC shift) lets an explicit `--since/--until` date still be enforced as the
-// exact half-open AUTHOR-date bound the window contract (#348) promises.
-const DATE_EXPRESSION = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
-
-function parseLocalInstant(value) {
-  const v = String(value || "").trim();
-  if (!DATE_EXPRESSION.test(v)) {
+// Resolve a date/relative EXPRESSION to an absolute instant (ms) using git's own
+// approxidate parser, so the interpretation and timezone match git's `--since`
+// exactly (no JS/UTC divergence). git parses unrecognized input as the current
+// time; a result within a tolerance of `nowMs` is therefore treated as a typo
+// (returns null) rather than a silently-empty window. `now`, `today`, and a
+// same-day date resolve to a real instant (git returns the actual value, not the
+// process clock), so they are not mistaken for typos.
+const NOW_TOLERANCE_MS = 5000;
+async function resolveDateExpressionInstant(root, expr, nowMs) {
+  const { stdout } = await execFileAsync("git", ["rev-parse", `--since=${expr}`], { cwd: root, env: gitEnv() });
+  const match = /--max-age=(\d+)/.exec(stdout);
+  if (!match) {
     return null;
   }
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00` : v.replace(" ", "T");
-  const t = Date.parse(normalized);
-  return Number.isNaN(t) ? null : t;
+  const instant = Number(match[1]) * 1000;
+  if (Math.abs(instant - nowMs) <= NOW_TOLERANCE_MS) {
+    return null; // git fell back to "now" — the expression is not a real date
+  }
+  return instant;
 }
 
 /**
  * Whether the window's upper bound is the strict half-open (exclusive)
  * author-date bound. True for computed instants, an absent upper bound, and any
- * date-shaped expression (resolvable to an exact instant). False only for a
- * revision ref or a relative expression, which take git's native semantics.
- * Pure and git-free, so a dry run and a real run label the boundary identically.
+ * date/relative expression (resolved to an exact instant). False only for a
+ * revision ref, which takes git's native (topological, boundary-inclusive)
+ * semantics. One isCommittish probe, shared by the dry-run and real-run labels.
  */
-export function windowUpperExclusive(window) {
+export async function windowUpperExclusive(root, window) {
   if (!window.until) return true;
   if (window.until_kind === "instant") return true;
-  return parseLocalInstant(window.until) !== null;
+  return !(await isCommittish(root, window.until));
 }
 
 // Translate the resolved window into git args plus the author-date instants the
 // JS filter enforces.
 //
-//   - INSTANT (computed windows) and DATE expressions: resolved to an exact
-//     instant and enforced as the half-open `[since, until)` AUTHOR-date window
-//     in JS. git gets only a lower read bound (never `--until`, whose
-//     committer-date inclusivity would drop a commit authored in-window but
-//     committed later); it uses `--since-as-filter` when available (no early
-//     traversal stop) with a skew margin, and is omitted on older git.
+//   - INSTANT (computed windows) and DATE/RELATIVE expressions: resolved to an
+//     exact instant (expressions via git's own parser) and enforced as the
+//     half-open `[since, until)` AUTHOR-date window in JS. git gets only a lower
+//     read bound (never `--until`, whose committer-date inclusivity would drop a
+//     commit authored in-window but committed later); it uses `--since-as-filter`
+//     when available (no early traversal stop) with a skew margin, and is omitted
+//     on older git.
 //   - REF expressions: a committish becomes a revision range (topological),
 //     git's native semantics; reported via `untilExact=false`.
-//   - RELATIVE expressions ("2 weeks ago"): handed to git verbatim as a coarse
-//     bound; also `untilExact=false`.
+//   - An expression that is neither a committish nor a date git recognises is a
+//     typo and throws, instead of git silently treating it as "now".
 async function resolveWindowBounds(root, window) {
   const dateArgs = [];
+  const nowMs = Date.now();
   let sinceInstant = null;
   let untilInstant = null;
   let sinceRef = null;
@@ -771,32 +778,34 @@ async function resolveWindowBounds(root, window) {
       pushLowerReadBound(t);
     }
   } else if (window.since) {
-    const dateInstant = parseLocalInstant(window.since);
-    if (dateInstant !== null) {
-      sinceInstant = dateInstant;
-      pushLowerReadBound(dateInstant);
-    } else if (await isCommittish(root, window.since)) {
+    if (await isCommittish(root, window.since)) {
       sinceRef = window.since;
     } else {
-      dateArgs.push(`--since=${window.since}`); // relative expression, verbatim
+      const instant = await resolveDateExpressionInstant(root, window.since, nowMs);
+      if (instant === null) {
+        throw new Error(`git analyze --since "${window.since}" is not a recognized date or ref.`);
+      }
+      sinceInstant = instant;
+      pushLowerReadBound(instant);
     }
   }
 
-  // --- upper bound (never handed to git as `--until` when we have an instant;
-  //     the exclusive bound is enforced in JS) ---
+  // --- upper bound (never handed to git as `--until`; the exclusive bound is
+  //     enforced in JS from the resolved instant) ---
   if (window.until_kind === "instant" && window.until) {
     const t = Date.parse(window.until);
     if (!Number.isNaN(t)) {
       untilInstant = t;
     }
   } else if (window.until) {
-    const dateInstant = parseLocalInstant(window.until);
-    if (dateInstant !== null) {
-      untilInstant = dateInstant;
-    } else if (await isCommittish(root, window.until)) {
+    if (await isCommittish(root, window.until)) {
       untilRef = window.until;
     } else {
-      dateArgs.push(`--until=${window.until}`); // relative expression, verbatim
+      const instant = await resolveDateExpressionInstant(root, window.until, nowMs);
+      if (instant === null) {
+        throw new Error(`git analyze --until "${window.until}" is not a recognized date or ref.`);
+      }
+      untilInstant = instant;
     }
   }
 
@@ -811,7 +820,9 @@ async function resolveWindowBounds(root, window) {
     range = untilRef;
   }
 
-  return { dateArgs, range, sinceInstant, untilInstant, untilExact: windowUpperExclusive(window) };
+  // Exclusive unless the upper bound is a ref (a range, git-native inclusive).
+  const untilExact = untilRef === null;
+  return { dateArgs, range, sinceInstant, untilInstant, untilExact };
 }
 
 // Enforce the half-open author-date window `[since, until)` using the resolved

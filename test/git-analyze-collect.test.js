@@ -408,6 +408,27 @@ test("collectCommits enforces the author-date half-open window for explicit DATE
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("collectCommits rejects a mistyped ref/date bound instead of a false empty report", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-typo-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await fs.writeFile(path.join(root, "a.txt"), "x\n");
+  await git(root, ["add", "a.txt"]);
+  await git(root, ["commit", "-m", "feat: first"]);
+
+  // git parses this as "now" (silent empty window); we must error instead.
+  await assert.rejects(
+    () => collectCommits(root, { window: { since: "definitely-not-a-ref-or-date", since_kind: "expression" } }),
+    /not a recognized date or ref/,
+  );
+  // A real relative date still works and resolves to a real instant.
+  const ok = await collectCommits(root, { window: { since: "10 years ago", since_kind: "expression" } });
+  assert.equal(ok.commits.length, 1);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("collectCommits caps an oversized subject and flags the record truncated", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-bigsubj-"));
   const msgFile = path.join(os.tmpdir(), `agentify-bigsubj-${process.pid}-${Date.now()}.txt`);
