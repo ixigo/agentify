@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { getRepoTopLevel, isGitRepository } from "../git.js";
 import { resolveWindow } from "./window.js";
-import { collectCommits } from "./collect.js";
+import { collectCommits, windowUpperExclusive } from "./collect.js";
 
 // Bump when the shape returned by runGitAnalyze changes in a way downstream
 // slices (#349–#356) or report renderers must notice.
@@ -88,12 +88,12 @@ export async function runGitAnalyze(root, options = {}) {
       repositories: scope === "global" ? 0 : (isRepo ? 1 : 0),
     },
     // Whether the upper bound is the strict half-open (exclusive) author-date
-    // bound. It is, unless the user supplied an explicit expression `--until`
-    // (a date or ref), which git applies with its own — possibly inclusive —
-    // semantics. Derived from the window kind so a dry run and a real run label
-    // the boundary identically (the collector computes the same value).
+    // bound. True for computed windows and explicit date bounds (resolved to an
+    // exact instant); false only for a revision ref or a relative expression,
+    // which take git's native semantics. Computed by the same pure helper the
+    // collector uses, so a dry run and a real run label the boundary identically.
     bounds: {
-      until_exclusive: window.until_kind === "instant" || !window.until,
+      until_exclusive: windowUpperExclusive(window),
     },
     notes,
   };

@@ -82,8 +82,11 @@ const LOG_FORMAT = `%x01%H%x1f%aI%x1f%aN%x1f%aE%x1f%B`;
 const SINCE_SKEW_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A 400-line commit body must not blow the packet budget in #354, so bodies are
-// truncated on the way into the record with a flag.
+// truncated on the way into the record with a flag. Subjects are one line and
+// normally short; the cap bounds a pathological newline-less giant message so
+// each retained record stays small (subject + body), not up to the token cap.
 const BODY_MAX_CHARS = 2000;
+const SUBJECT_MAX_CHARS = 1000;
 
 // Hard ceiling on a single NUL-delimited token held in the stream buffer. Far
 // larger than any real header (fields + a bounded body) or numstat entry, it
@@ -310,28 +313,32 @@ export function parseNumstat(rawTokens, ignoreMatcher) {
 // Record building.
 // ---------------------------------------------------------------------------
 
-function truncateBody(body) {
-  if (body.length <= BODY_MAX_CHARS) {
-    return { body, bodyTruncated: false };
+function truncateText(text, max) {
+  if (text.length <= max) {
+    return { text, truncated: false };
   }
-  return { body: body.slice(0, BODY_MAX_CHARS), bodyTruncated: true };
+  return { text: text.slice(0, max), truncated: true };
 }
 
 /**
  * Build a frozen commit record from decoded fields and a parsed numstat.
  * Redaction runs on the way in, so nothing downstream has to remember to redact.
- * The returned object is the frozen shape (#349) plus `bodyTruncated`.
+ * The returned object is the frozen shape (#349) plus `bodyTruncated`, which
+ * flags truncation of EITHER the (normally short, one-line) subject or the body,
+ * keeping each record bounded regardless of an oversized message.
  */
 function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, numstat, isMerge }) {
   const redactedSubject = redactSensitiveText(subject);
   const redactedBody = redactSensitiveText(body);
-  const { body: truncatedBody, bodyTruncated } = truncateBody(redactedBody);
+  const storedSubject = truncateText(redactedSubject, SUBJECT_MAX_CHARS);
+  const storedBody = truncateText(redactedBody, BODY_MAX_CHARS);
 
+  // Conventional/revert/issue parsing runs on the redacted values (bounded by
+  // the stream's per-token cap), before the stored fields are truncated, so a
+  // subject prefix or a trailer reference is not lost to length trimming.
   const conventional = parseConventionalSubject(redactedSubject);
   const breaking = conventional.breaking || detectBreakingChange(redactedBody);
   const revert = detectRevert(redactedSubject, redactedBody);
-  // Issue keys come from the full (untruncated) redacted subject + body so a
-  // trailer reference near the end of a long body is not lost to truncation.
   const issueKeys = extractIssueKeys(`${redactedSubject}\n${redactedBody}`);
 
   return {
@@ -340,8 +347,8 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
     authoredAt,
     authorName,
     authorEmail,
-    subject: redactedSubject,
-    body: truncatedBody,
+    subject: storedSubject.text,
+    body: storedBody.text,
     type: conventional.type,
     scope: conventional.scope,
     breaking,
@@ -353,7 +360,7 @@ function buildRecord({ sha, authoredAt, authorName, authorEmail, subject, body, 
     deletions: numstat.deletions,
     files: numstat.files,
     filesExcluded: numstat.excludedFiles.length,
-    bodyTruncated,
+    bodyTruncated: storedSubject.truncated || storedBody.truncated,
   };
 }
 
@@ -697,22 +704,49 @@ async function supportsSinceAsFilter() {
   return sinceAsFilterSupport;
 }
 
+// A date-shaped expression git and JS interpret identically: a bare date is
+// local midnight; a datetime without an offset is local; one with an offset/Z
+// is absolute. Parsing these ourselves (in the SAME local timezone git uses, so
+// no UTC shift) lets an explicit `--since/--until` date still be enforced as the
+// exact half-open AUTHOR-date bound the window contract (#348) promises.
+const DATE_EXPRESSION = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function parseLocalInstant(value) {
+  const v = String(value || "").trim();
+  if (!DATE_EXPRESSION.test(v)) {
+    return null;
+  }
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00` : v.replace(" ", "T");
+  const t = Date.parse(normalized);
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Whether the window's upper bound is the strict half-open (exclusive)
+ * author-date bound. True for computed instants, an absent upper bound, and any
+ * date-shaped expression (resolvable to an exact instant). False only for a
+ * revision ref or a relative expression, which take git's native semantics.
+ * Pure and git-free, so a dry run and a real run label the boundary identically.
+ */
+export function windowUpperExclusive(window) {
+  if (!window.until) return true;
+  if (window.until_kind === "instant") return true;
+  return parseLocalInstant(window.until) !== null;
+}
+
 // Translate the resolved window into git args plus the author-date instants the
 // JS filter enforces.
 //
-// Two bound kinds, handled per the frozen window contract (#348):
-//   - INSTANT (computed --days/--months/--quarter/--year): the exact half-open
-//     `[since, until)` is enforced in JS on AUTHOR date. git gets only a lower
-//     read bound (never `--until`, whose committer-date inclusivity would drop a
-//     commit authored in-window but committed after it). That lower bound uses
-//     `--since-as-filter` when available (no early traversal stop) with a skew
-//     margin; on older git it is omitted entirely so nothing is wrongly dropped.
-//   - EXPRESSION (user `--since/--until` dates/refs): passed to git verbatim, so
-//     git's native semantics and timezone apply exactly as the contract says. A
-//     date/relative expression becomes `--since=`/`--until=`; a committish
-//     becomes a revision range. No JS date reinterpretation, so a date-only
-//     string is not silently shifted to UTC. An expression `until` is git's
-//     inclusive committer-date bound, reported honestly via `untilExact=false`.
+//   - INSTANT (computed windows) and DATE expressions: resolved to an exact
+//     instant and enforced as the half-open `[since, until)` AUTHOR-date window
+//     in JS. git gets only a lower read bound (never `--until`, whose
+//     committer-date inclusivity would drop a commit authored in-window but
+//     committed later); it uses `--since-as-filter` when available (no early
+//     traversal stop) with a skew margin, and is omitted on older git.
+//   - REF expressions: a committish becomes a revision range (topological),
+//     git's native semantics; reported via `untilExact=false`.
+//   - RELATIVE expressions ("2 weeks ago"): handed to git verbatim as a coarse
+//     bound; also `untilExact=false`.
 async function resolveWindowBounds(root, window) {
   const dateArgs = [];
   let sinceInstant = null;
@@ -720,35 +754,49 @@ async function resolveWindowBounds(root, window) {
   let sinceRef = null;
   let untilRef = null;
 
+  const sinceFlag = (await supportsSinceAsFilter()) ? "--since-as-filter" : "--since";
+  const pushLowerReadBound = (instant) => {
+    // Only modern git gets a committer-date read bound; older git relies purely
+    // on the authoritative JS author-date filter (no traversal-stop risk).
+    if (sinceFlag === "--since-as-filter") {
+      dateArgs.push(`--since-as-filter=${new Date(instant - SINCE_SKEW_MARGIN_MS).toISOString()}`);
+    }
+  };
+
   // --- lower bound ---
   if (window.since_kind === "instant" && window.since) {
-    sinceInstant = Date.parse(window.since);
-    if (Number.isNaN(sinceInstant)) {
-      sinceInstant = null;
-    } else if (await supportsSinceAsFilter()) {
-      dateArgs.push(`--since-as-filter=${new Date(sinceInstant - SINCE_SKEW_MARGIN_MS).toISOString()}`);
+    const t = Date.parse(window.since);
+    if (!Number.isNaN(t)) {
+      sinceInstant = t;
+      pushLowerReadBound(t);
     }
-    // Older git: no lower read bound; the JS author-date filter is authoritative.
   } else if (window.since) {
-    if (await isCommittish(root, window.since)) {
+    const dateInstant = parseLocalInstant(window.since);
+    if (dateInstant !== null) {
+      sinceInstant = dateInstant;
+      pushLowerReadBound(dateInstant);
+    } else if (await isCommittish(root, window.since)) {
       sinceRef = window.since;
     } else {
-      dateArgs.push(`--since=${window.since}`);
+      dateArgs.push(`--since=${window.since}`); // relative expression, verbatim
     }
   }
 
-  // --- upper bound ---
+  // --- upper bound (never handed to git as `--until` when we have an instant;
+  //     the exclusive bound is enforced in JS) ---
   if (window.until_kind === "instant" && window.until) {
-    untilInstant = Date.parse(window.until);
-    if (Number.isNaN(untilInstant)) {
-      untilInstant = null;
+    const t = Date.parse(window.until);
+    if (!Number.isNaN(t)) {
+      untilInstant = t;
     }
-    // Never `--until` for instants: the exclusive bound is enforced in JS.
   } else if (window.until) {
-    if (await isCommittish(root, window.until)) {
+    const dateInstant = parseLocalInstant(window.until);
+    if (dateInstant !== null) {
+      untilInstant = dateInstant;
+    } else if (await isCommittish(root, window.until)) {
       untilRef = window.until;
     } else {
-      dateArgs.push(`--until=${window.until}`);
+      dateArgs.push(`--until=${window.until}`); // relative expression, verbatim
     }
   }
 
@@ -763,8 +811,7 @@ async function resolveWindowBounds(root, window) {
     range = untilRef;
   }
 
-  const untilExact = window.until_kind === "instant" || !window.until;
-  return { dateArgs, range, sinceInstant, untilInstant, untilExact };
+  return { dateArgs, range, sinceInstant, untilInstant, untilExact: windowUpperExclusive(window) };
 }
 
 // Enforce the half-open author-date window `[since, until)` using the resolved

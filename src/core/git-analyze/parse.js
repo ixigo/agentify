@@ -21,9 +21,10 @@ const GITHUB_REF = /(?<![\w&])#(\d+)\b/g;
 
 // Jira-style key: 2-10 char uppercase project key, a dash, then digits.
 // `[A-Z][A-Z0-9]{1,9}` requires a leading letter and total length 2-10. The
-// trailing `(?![-\d])` rejects multi-group hyphenated identifiers (e.g.
-// `CVE-2024-12345`, `CWE-79`), so only single-group `PROJ-123` keys match.
-const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)(?![-\d])/g;
+// trailing `(?![\w-])` rejects a key glued to more identifier text: a multi-group
+// hyphenated id (`CVE-2024-12345`), or a trailing letter/digit/underscore
+// (`PROJ-123abc`, `PROJ-123_suffix`), so only a standalone `PROJ-123` matches.
+const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)(?![\w-])/g;
 
 // Well-known technical tokens that share the Jira key shape (PREFIX-NUMBER) but
 // are standards/versions, not issue references. The acceptance set (UTF-8,

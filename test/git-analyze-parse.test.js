@@ -62,6 +62,14 @@ test("extractIssueKeys does not treat security identifiers as issue keys", () =>
   assert.deepEqual(extractIssueKeys("PROJ-9 fixes CVE-2024-12345"), ["PROJ-9"]);
 });
 
+test("extractIssueKeys does not match a Jira key glued to identifier text", () => {
+  assert.deepEqual(extractIssueKeys("see PROJ-123abc"), []);
+  assert.deepEqual(extractIssueKeys("var PROJ-123_suffix"), []);
+  // A cleanly-delimited key still matches.
+  assert.deepEqual(extractIssueKeys("done PROJ-123."), ["PROJ-123"]);
+  assert.deepEqual(extractIssueKeys("(PROJ-123)"), ["PROJ-123"]);
+});
+
 test("extractIssueKeys does not treat timezone offsets as issue keys", () => {
   assert.deepEqual(extractIssueKeys("window ran in UTC-05:00 and GMT-8"), []);
   assert.deepEqual(extractIssueKeys("PROJ-4 in UTC-05:00"), ["PROJ-4"]);

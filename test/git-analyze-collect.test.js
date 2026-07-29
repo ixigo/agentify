@@ -380,6 +380,57 @@ test("collectCommits interprets .agentignore with Agentify's path-anchored conve
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("collectCommits enforces the author-date half-open window for explicit DATE bounds", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-exprdate-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  // Authored inside [2026-05-01, 2026-07-01) but committed far after it. An
+  // explicit date --until must still keep it (author date), and the exclusive
+  // upper bound is reported for a date expression.
+  await fs.writeFile(path.join(root, "late.txt"), "late\n");
+  await git(root, ["add", "late.txt"]);
+  await git(root, ["commit", "-m", "feat: authored in window"], {
+    env: {
+      ...process.env,
+      GIT_AUTHOR_DATE: "2026-06-01T12:00:00+00:00",
+      GIT_COMMITTER_DATE: "2026-10-01T12:00:00+00:00",
+    },
+  });
+
+  const collection = await collectCommits(root, {
+    window: { since: "2026-05-01", until: "2026-07-01", since_kind: "expression", until_kind: "expression" },
+  });
+  assert.equal(collection.commits.length, 1);
+  assert.equal(collection.bounds.until_exclusive, true);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("collectCommits caps an oversized subject and flags the record truncated", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-bigsubj-"));
+  const msgFile = path.join(os.tmpdir(), `agentify-bigsubj-${process.pid}-${Date.now()}.txt`);
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+
+  await fs.writeFile(path.join(root, "a.txt"), "x\n");
+  await git(root, ["add", "a.txt"]);
+  // A single line with no newline, far larger than the subject cap.
+  await fs.writeFile(msgFile, `feat: ${"z".repeat(5000)}`);
+  await git(root, ["commit", "-F", msgFile]);
+
+  const collection = await collectCommits(root);
+  const record = collection.commits[0];
+  assert.ok(record.subject.length <= 1000, "subject is capped");
+  assert.equal(record.bodyTruncated, true);
+  assert.equal(record.type, "feat");
+
+  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(msgFile, { force: true });
+});
+
 test("collectCommits keeps a commit authored in-window even if it was committed after `until`", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-authordate-"));
   await git(root, ["init", "-q"]);
