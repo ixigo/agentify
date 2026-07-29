@@ -12,6 +12,7 @@ import {
   EVAL_TASK_SCHEMA_VERSION,
   buildEvalArmCommand,
   initEvalTask,
+  inspectClaudeMcpConnection,
   listEvals,
   loadEvalTask,
   matchesForbiddenPath,
@@ -371,6 +372,126 @@ test("an attempt invalidated after the provider ran still records its spend and 
     assert.equal(entry.cost_source, "provider");
     assert.equal(entry.output_tokens, 10);
     assert.equal(entry.tokens_estimated, false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(fake.binDir, { recursive: true, force: true });
+  }
+});
+
+// #357: the connection gate used to return on the FIRST event carrying
+// mcp_servers and to treat `pending` as a definitive disconnection, so a server
+// that was still connecting (or connected moments later) invalidated an
+// otherwise valid attempt and silently shrank the mcp_tools sample.
+function mcpStatusEvent(status) {
+  return { type: "system", subtype: "init", mcp_servers: [{ name: "agentify", status }] };
+}
+
+function agentifyToolEvent(name = "mcp__agentify__ctx_load", id = "toolu_1") {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id, name, input: {} }] } };
+}
+
+function toolResultEvent(id, isError = false) {
+  return { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, is_error: isError, content: "x" }] } };
+}
+
+function eventStream(...events) {
+  return events.map((event) => JSON.stringify(event)).join("\n");
+}
+
+test("a non-terminal MCP pending status is indeterminate, not a disconnection", () => {
+  const pending = inspectClaudeMcpConnection(eventStream(mcpStatusEvent("pending")));
+  assert.equal(pending.connected, null, "pending alone settles nothing");
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.tool_calls, 0);
+
+  // An unrecognized spelling from a future Claude version is indeterminate too.
+  assert.equal(inspectClaudeMcpConnection(eventStream(mcpStatusEvent("warming-up"))).connected, null);
+  // And a stream with no mcp_servers signal at all stays indeterminate.
+  assert.equal(inspectClaudeMcpConnection(eventStream({ type: "result", subtype: "success" })).connected, null);
+});
+
+test("a reported MCP connection is sticky: the whole stream is scanned, teardown does not retract it", () => {
+  // The init event's pending is not consulted alone — a later connected counts.
+  const settled = inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("pending"),
+    mcpStatusEvent("connected"),
+  ));
+  assert.equal(settled.connected, true, "a later connected outvotes the init event's pending");
+  assert.deepEqual(settled.statuses, ["pending", "connected"]);
+
+  // A trailing pending does not undo a real connection...
+  assert.equal(inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("connected"),
+    mcpStatusEvent("pending"),
+  )).connected, true);
+  // ...and neither does an end-of-run teardown. Invalidating a zero-call run on
+  // teardown would bias the zero-call sample the gate exists to protect.
+  const dropped = inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("connected"),
+    mcpStatusEvent("disconnected"),
+  ));
+  assert.equal(dropped.connected, true, "the tools were available even if never called");
+  assert.equal(dropped.status, "disconnected", "the raw transition is still reported");
+
+  // A server that was only ever unusable is what invalidates (#331).
+  assert.equal(inspectClaudeMcpConnection(eventStream(mcpStatusEvent("failed"))).connected, false);
+  assert.equal(inspectClaudeMcpConnection(eventStream(mcpStatusEvent("needs-auth"))).connected, false);
+  assert.equal(inspectClaudeMcpConnection(eventStream(mcpStatusEvent("disabled"))).connected, false);
+});
+
+test("an Agentify tool call corroborates a connection an unusable status denies", () => {
+  const used = inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("disconnected"),
+    agentifyToolEvent("mcp__agentify__ctx_load", "toolu_1"),
+    agentifyToolEvent("mcp__agentify__query", "toolu_2"),
+    toolResultEvent("toolu_1"),
+  ));
+  assert.equal(used.connected, true, "the model demonstrably used the tools, so the run is not vacuous");
+  assert.equal(used.tool_calls, 2);
+  assert.equal(used.tool_errors, 0);
+
+  // MCP isError is a tool-execution outcome from a server that answered, so an
+  // errored call is still evidence of availability — the count is kept as a
+  // diagnostic rather than used to invalidate the attempt.
+  const errored = inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("disconnected"),
+    agentifyToolEvent("mcp__agentify__ctx_load", "toolu_1"),
+    toolResultEvent("toolu_1", true),
+  ));
+  assert.equal(errored.connected, true);
+  assert.equal(errored.tool_calls, 1);
+  assert.equal(errored.tool_errors, 1, "the failure is recorded for auditing, not gated on");
+
+  // A non-Agentify MCP server's tools prove nothing about ours.
+  const other = inspectClaudeMcpConnection(eventStream(
+    mcpStatusEvent("disconnected"),
+    agentifyToolEvent("mcp__other__query"),
+  ));
+  assert.equal(other.connected, false);
+  assert.equal(other.tool_calls, 0);
+});
+
+test("an attempt whose MCP server was still pending is graded, not invalidated", async () => {
+  const { dir } = await makeRepo();
+  // Claude reports the server as still connecting in its init event, then does
+  // the work — exactly the shape that used to be recorded invalid.
+  const fake = await makeFakeClaude(
+    "echo done > solution.txt\n"
+    + `echo '${JSON.stringify(mcpStatusEvent("pending"))}'`,
+  );
+  try {
+    await writeTask(dir, baseTask({ arms: ["agentify", "plain-safe"], mcp_tools: true }));
+    const result = await runEval(dir, {}, "sample", { env: fake.env, runtime });
+    const runDir = path.join(dir, result.artifacts_root);
+
+    const agentify = result.attempts.find((a) => a.arm === "agentify");
+    assert.equal(agentify.status, "ok", "a pending server must not invalidate the attempt");
+    assert.equal(agentify.pass, true, "the work it actually did is graded normally");
+
+    const record = JSON.parse(await fs.readFile(path.join(runDir, "attempts", agentify.attempt_id, "result.json"), "utf8"));
+    assert.equal(record.mcp_precondition.claude_connected, null, "pending is recorded as indeterminate");
+    assert.equal(record.mcp_precondition.claude_status, "pending", "the observed status is kept for diagnosis");
+    assert.equal(record.mcp_precondition.claude_tool_calls, 0);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
     await fs.rm(fake.binDir, { recursive: true, force: true });

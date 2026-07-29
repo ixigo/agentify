@@ -31,6 +31,7 @@ import { PROFILE_NAMES } from "./profiles.js";
 import { ensureDir, exists, readJson, readText, writeJson, writeText } from "./fs.js";
 import { installIntegration, removeManagedBlock, stripManagedHooks } from "./integrations.js";
 import { detectDelegateProviders, parseClaudeJsonOutput } from "./models.js";
+import { matchAgentifyMcpTool } from "./session-analysis/agentify-tools.js";
 import { recordDelegation } from "./stats.js";
 import { redactSensitiveText } from "./redact.js";
 import { VERSION } from "./cli-fast-paths.js";
@@ -917,29 +918,109 @@ function extractResultEnvelope(stdout, streamed) {
   return null;
 }
 
+// Claude's status vocabulary for an MCP server entry, split by what a status
+// actually settles about "were the tools available to the model" (#357):
+// - AVAILABLE is positive evidence the model held the tools.
+// - UNUSABLE is evidence it could not use them: failed/disconnected, needs-auth
+//   (registered but unauthorized), disabled (switched off in settings).
+// - `pending` is in NEITHER list. Claude supports servers that are still
+//   connecting and waits for them before tool use, so a server reported
+//   `pending` in the init event may have been connected and used for the whole
+//   run. Treating it as a disconnection silently shrank the valid sample of
+//   mcp_tools attempts and could bias a description-ablation arm if `pending`
+//   showed up unevenly across arms.
+// Anything unrecognized is likewise neither, so a new Claude spelling costs an
+// indeterminate (attempt graded normally) rather than a false invalid.
+const MCP_STATUS_AVAILABLE = ["connected", "ready", "ok", "running"];
+const MCP_STATUS_UNUSABLE = ["failed", "error", "disconnected", "needs-auth", "disabled"];
+
+// Tallies Agentify MCP tool activity in one Claude stream event, into the
+// caller's accumulator. Claude's stream-json carries tool calls as
+// `message.content[]` entries of type tool_use and their outcomes as later
+// tool_result entries keyed by tool_use_id; the bare `content[]` spelling is
+// tolerated defensively so a shape change costs a missed corroboration, not a
+// crash. Errors are counted for the record but are NOT subtracted from the
+// connection evidence: MCP defines isError as a tool-EXECUTION outcome
+// (validation, business logic) returned BY a reachable server, so an errored
+// call still says the server answered. They stay visible in the attempt record
+// so an arm whose calls all failed can be audited rather than silently dropped.
+function tallyAgentifyToolUse(event, tally) {
+  const content = Array.isArray(event?.message?.content)
+    ? event.message.content
+    : Array.isArray(event?.content) ? event.content : null;
+  if (!content) return;
+  for (const item of content) {
+    if (item?.type === "tool_use") {
+      if (matchAgentifyMcpTool(item.name)) {
+        tally.calls += 1;
+        if (item.id) tally.pendingIds.add(String(item.id));
+      }
+      continue;
+    }
+    // A tool_result carries no tool name, so it is attributed by the id of the
+    // Agentify tool_use it answers — ids are collected above, and a result
+    // always follows its call in the stream.
+    if (item?.type === "tool_result" && tally.pendingIds.has(String(item.tool_use_id))) {
+      tally.pendingIds.delete(String(item.tool_use_id));
+      if (item.is_error === true || item.isError === true) tally.errors += 1;
+    }
+  }
+}
+
 // Best-effort read of Claude's own view of the Agentify MCP server from the
 // event stream. Claude's init event carries `mcp_servers: [{name, status}]`;
 // this confirms the model actually loaded the server we registered, closing
 // the gap that the pre-run handshake only proves the server process works, not
-// that Claude connected. Returns true/false when a matching entry is found,
-// null when the stream carries no such signal (indeterminate — never treated
-// as a failure, to avoid false invalids across Claude versions).
-function inspectClaudeMcpConnection(stream) {
+// that Claude connected.
+//
+// The whole stream is scanned, not just the first event carrying mcp_servers
+// (#357), and the verdict is evidence-of-availability rather than last-status:
+// - Any AVAILABLE status, or any `mcp__agentify__*` tool call, means the model
+//   held the tools => true. A call counts because the model can only invoke
+//   tools Claude enumerated from a server that connected. Both signals are
+//   STICKY: a later teardown `disconnected`, or a trailing `pending`, cannot
+//   retract them. Otherwise a legitimately zero-call run would be invalidated
+//   by end-of-run teardown while tool-using runs survived — biasing the very
+//   zero-call sample this gate exists to protect.
+// - Failing that, an UNUSABLE status with no tool call at all means the tools
+//   were never available => false (the attempt is invalid, not a zero-call
+//   result). This is the #331 case: a server that was never really there.
+// - Anything else — only `pending`, only unrecognized statuses, or no
+//   mcp_servers signal at all — is indeterminate (null) and never a failure.
+//
+// Returns { connected, status, statuses, tool_calls, tool_errors }: connected is
+// tri-state (true / false / null), status is the last status the stream reported
+// (which may be the non-terminal `pending`), and statuses is the deduplicated
+// sequence of transitions. The diagnostics are persisted with the attempt so a
+// disputed verdict can be re-read without the raw stream.
+export function inspectClaudeMcpConnection(stream) {
+  let available = false;
+  let unusable = false;
+  const tally = { calls: 0, errors: 0, pendingIds: new Set() };
+  const statuses = [];
   for (const line of String(stream || "").split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let event;
     try { event = JSON.parse(trimmed); } catch { continue; }
+    tallyAgentifyToolUse(event, tally);
     const servers = event && Array.isArray(event.mcp_servers) ? event.mcp_servers : null;
     if (!servers) continue;
     const entry = servers.find((server) => /agentify/i.test(String(server?.name || "")));
     if (!entry) continue;
     const status = String(entry.status || "").trim().toLowerCase();
-    if (["connected", "ready", "ok", "running"].includes(status)) return true;
-    if (["failed", "error", "disconnected", "pending", "needs-auth"].includes(status)) return false;
-    return null;
+    if (statuses[statuses.length - 1] !== status) statuses.push(status);
+    if (MCP_STATUS_AVAILABLE.includes(status)) available = true;
+    else if (MCP_STATUS_UNUSABLE.includes(status)) unusable = true;
   }
-  return null;
+  const connected = available || tally.calls > 0 ? true : unusable ? false : null;
+  return {
+    connected,
+    status: statuses.length ? statuses[statuses.length - 1] : null,
+    statuses,
+    tool_calls: tally.calls,
+    tool_errors: tally.errors,
+  };
 }
 
 // Speak the MCP handshake to a configured stdio server and return the tools it
@@ -1158,16 +1239,24 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     };
 
     // Confirm Claude itself loaded the server (not just that the process
-    // works). If Claude explicitly reported it disconnected/failed, the run is
-    // vacuous — mark it invalid rather than grade a zero-tool attempt.
+    // works). Only a stream with no evidence the tools were ever available —
+    // an unusable status, never a connected one, and no Agentify call at all —
+    // invalidates the attempt; a merely `pending` server, a teardown
+    // disconnect, or no status signal at all is graded normally.
     if (plan.task.mcp_tools && isAgentifyArm(baseArm)) {
-      const connected = inspectClaudeMcpConnection(providerResult.stdout);
+      const inspected = inspectClaudeMcpConnection(providerResult.stdout);
       if (record.mcp_precondition) {
-        record.mcp_precondition.claude_connected = connected;
+        record.mcp_precondition.claude_connected = inspected.connected;
+        record.mcp_precondition.claude_status = inspected.status;
+        record.mcp_precondition.claude_statuses = inspected.statuses;
+        record.mcp_precondition.claude_tool_calls = inspected.tool_calls;
+        record.mcp_precondition.claude_tool_errors = inspected.tool_errors;
       }
-      if (connected === false) {
+      if (inspected.connected === false) {
         const invalid = new Error(
-          `MCP server was registered and usable, but Claude reported it disconnected for arm ${attempt.arm}. A run where the model never loaded the tools is invalid, not a zero-call result.`,
+          `MCP server was registered and usable, but Claude never reported it connected for arm ${attempt.arm} `
+          + `(statuses: ${inspected.statuses.join(" -> ") || "none"}) and the model never called an Agentify tool. `
+          + "A run where the model never loaded the tools is invalid, not a zero-call result.",
         );
         invalid.evalInvalid = true;
         throw invalid;
