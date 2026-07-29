@@ -87,6 +87,14 @@ export async function runGitAnalyze(root, options = {}) {
       authors: 0,
       repositories: scope === "global" ? 0 : (isRepo ? 1 : 0),
     },
+    // Whether the upper bound is the strict half-open (exclusive) author-date
+    // bound. It is, unless the user supplied an explicit expression `--until`
+    // (a date or ref), which git applies with its own — possibly inclusive —
+    // semantics. Derived from the window kind so a dry run and a real run label
+    // the boundary identically (the collector computes the same value).
+    bounds: {
+      until_exclusive: window.until_kind === "instant" || !window.until,
+    },
     notes,
   };
 
@@ -124,10 +132,6 @@ export async function runGitAnalyze(root, options = {}) {
     branches: collection.stats.branches,
   };
   report.truncated = collection.truncated;
-  // Whether the upper bound was enforced as the strict half-open author-date
-  // bound (true) or fell back to git's inclusive committer-date filter for an
-  // unresolvable relative expression (false). Keeps the rendered label honest.
-  report.bounds = collection.bounds;
   // The frozen commit records and their delivery evidence, for downstream
   // slices (#351 filtering, #352 clustering) to consume.
   report.commits = collection.commits;
@@ -146,10 +150,11 @@ export function renderGitAnalyzeText(report) {
   lines.push(`  scope:      ${report.scope}`);
   lines.push(`  repository: ${report.repository.path}${report.repository.is_git_repository ? "" : " (not a git repository)"}`);
   lines.push(`  since:      ${report.window.since}`);
-  // The upper bound is half-open (exclusive) unless a real run fell back to
-  // git's inclusive committer-date filter for an unresolvable relative bound.
+  // The upper bound is half-open (exclusive) unless the user gave an explicit
+  // expression `--until`, which git applies with its own (possibly inclusive)
+  // semantics — as a date filter or a revision range.
   const upperExclusive = !report.bounds || report.bounds.until_exclusive !== false;
-  lines.push(`  until:      ${report.window.until} ${upperExclusive ? "(exclusive)" : "(git committer-date filter, inclusive)"}`);
+  lines.push(`  until:      ${report.window.until} ${upperExclusive ? "(exclusive)" : "(git-native bound; may include the boundary)"}`);
   lines.push(`  timezone:   ${report.window.timezone}`);
   if (report.commits_read && report.totals) {
     const t = report.totals;

@@ -43,14 +43,22 @@ const execFileAsync = promisify(execFile);
 const RECORD_SEP = "\x01";
 const FIELD_SEP = "\x1f";
 
-// %H sha, %aI author date (strict ISO), %an/%aE mailmapped author, %s subject,
-// %b body. The leading %x01 is the header marker; %x1f the field separator.
-const LOG_FORMAT = `%x01%H%x1f%aI%x1f%an%x1f%aE%x1f%s%x1f%b`;
+// %H sha, %aI author date (strict ISO), %aN/%aE mailmap-resolved author name
+// and email, %s subject, %b body. The leading %x01 is the header marker; %x1f
+// the field separator. %aN (not %an) is used so the name is mailmapped to match
+// the mailmapped %aE, and #351 identity resolution sees canonical values.
+const LOG_FORMAT = `%x01%H%x1f%aI%x1f%aN%x1f%aE%x1f%s%x1f%b`;
 
-// How much earlier a commit's committer date may be than its author date and
-// still be caught by the git-side `--since` read bound. Committer date is
-// normally >= author date; this margin absorbs clock skew so a skewed but
-// author-in-window commit is not dropped before the JS author-date filter runs.
+// Git has no author-date filter, so a large repo is bounded by a COMMITTER-date
+// read bound (`--since-as-filter`), then the JS author-date filter refines it
+// exactly. That read bound could in principle drop a commit whose committer date
+// precedes its author date — but committer date >= author date for every commit
+// produced by normal git (commit/amend/rebase/cherry-pick/merge); a committer
+// date earlier than the author date requires a deliberately future-dated
+// GIT_AUTHOR_DATE. This margin covers ordinary clock skew on top of that; the
+// bound is dropped entirely on git < 2.37 (see resolveWindowBounds). Trading an
+// unbounded full-history read for this well-defined edge is deliberate: the epic
+// requires the command to terminate on a 200k-commit repo in seconds.
 const SINCE_SKEW_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A 400-line commit body must not blow the packet budget in #354, so bodies are
@@ -164,10 +172,12 @@ export function createIgnoreMatcher(patterns) {
 async function loadAgentignoreMatchers(root) {
   try {
     const content = await fs.readFile(path.join(root, ".agentignore"), "utf8");
+    // Mirror fs.js exactly (same filter, and compile the ORIGINAL line without
+    // trimming) so a whitespace-bearing pattern behaves identically here.
     return content
       .split(/\r?\n/)
       .filter((line) => line.trim() && !line.startsWith("#"))
-      .map((pattern) => compileAgentignorePattern(pattern.trim()));
+      .map((line) => compileAgentignorePattern(line));
   } catch {
     return [];
   }
@@ -832,7 +842,7 @@ export async function collectCommits(root, options = {}) {
     notes.push(`${filesExcluded} generated/vendored file change(s) were excluded from file lists (line counts unaffected).`);
   }
   if (!bounds.untilExact) {
-    notes.push("The upper bound is a user-supplied expression git filters by committer date (inclusive); it is not the strict half-open author-date bound.");
+    notes.push("The upper bound is a user-supplied expression applied with git's own semantics (a committer-date filter or a revision range); it is not the strict half-open author-date bound.");
   }
 
   return {

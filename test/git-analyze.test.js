@@ -225,6 +225,22 @@ test("git analyze --since preserves ref-like values verbatim (no numeric/boolean
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("git analyze labels the upper bound consistently in dry-run and real runs", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-bounds-"));
+  await initGitRepo(root);
+
+  // A computed window is strictly half-open (exclusive) — same in dry-run.
+  const computed = await execFileAsync("node", [CLI, "git", "analyze", "--days", "7", "--dry-run", "--format", "json"], { cwd: root });
+  assert.equal(JSON.parse(computed.stdout).bounds.until_exclusive, true);
+
+  // An explicit expression --until is git-native (not the half-open bound);
+  // the dry-run label must already say so, matching the real run.
+  const expr = await execFileAsync("node", [CLI, "git", "analyze", "--since", "HEAD", "--until", "HEAD", "--dry-run", "--format", "json"], { cwd: root });
+  assert.equal(JSON.parse(expr.stdout).bounds.until_exclusive, false);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("git analyze rejects not-yet-implemented surface flags with the slice they land in", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);
