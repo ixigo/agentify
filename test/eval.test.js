@@ -331,6 +331,52 @@ test("failing grader and forbidden-path edits fail the attempt despite provider 
   }
 });
 
+// An attempt invalidated AFTER the provider ran has still cost real money. The
+// MCP-connection gate used to throw before provider cost/usage was assigned and
+// before the event stream was written, so the fail-closed rolling-budget ledger
+// recorded a full Claude invocation as zero spend ("unreported", 0 tokens) and
+// the stream needed to diagnose the invalidity was discarded.
+test("an attempt invalidated after the provider ran still records its spend and stream", async () => {
+  const { dir } = await makeRepo();
+  // Claude runs and bills, but reports the Agentify server as disconnected.
+  const fake = await makeFakeClaude(
+    "echo done > solution.txt\n"
+    + `echo '${JSON.stringify({ type: "system", subtype: "init", mcp_servers: [{ name: "agentify", status: "disconnected" }] })}'`,
+  );
+  try {
+    await writeTask(dir, baseTask({ arms: ["agentify", "plain-safe"], mcp_tools: true }));
+    const result = await runEval(dir, {}, "sample", { env: fake.env, runtime });
+    const runDir = path.join(dir, result.artifacts_root);
+
+    const agentify = result.attempts.find((a) => a.arm === "agentify");
+    assert.equal(agentify.status, "invalid", "a disconnected server invalidates the attempt");
+
+    const record = JSON.parse(await fs.readFile(path.join(runDir, "attempts", agentify.attempt_id, "result.json"), "utf8"));
+    // The spend the provider actually incurred is preserved, not dropped.
+    assert.equal(record.provider.cost_usd, 0.01, "real spend must survive invalidation");
+    assert.equal(record.provider.usage.output_tokens, 10);
+    assert.equal(record.provider.exit_code, 0, "the provider itself exited cleanly");
+    // And the diagnostic stream is on disk.
+    assert.ok(record.artifacts.provider_stream, "the stream artifact must be referenced");
+    const stream = await fs.readFile(path.join(runDir, "attempts", agentify.attempt_id, "provider-stream.jsonl"), "utf8");
+    assert.match(stream, /"status":"disconnected"/, "the stream showing why it was invalid is kept");
+
+    // The rolling-budget ledger sees the cost as provider-reported, not unreported.
+    const ledger = await fs.readFile(path.join(dir, ".agentify", "context", "delegations.jsonl"), "utf8");
+    const entry = ledger.split("\n").filter(Boolean).map((l) => JSON.parse(l))
+      .find((e) => String(e.run_id).endsWith(agentify.attempt_id));
+    assert.ok(entry, "the invalid attempt must still reach the ledger");
+    assert.equal(entry.status, "invalid");
+    assert.equal(entry.cost_usd, 0.01, "the ledger must charge the real spend");
+    assert.equal(entry.cost_source, "provider");
+    assert.equal(entry.output_tokens, 10);
+    assert.equal(entry.tokens_estimated, false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(fake.binDir, { recursive: true, force: true });
+  }
+});
+
 test("forbidden-path edits are caught even when .gitignore hides them", async () => {
   const { dir } = await makeRepo({ gitignore: "secrets/\n" });
   // The fake writes into an ignored, forbidden directory and also does the

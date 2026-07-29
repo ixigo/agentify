@@ -1116,6 +1116,42 @@ async function runAttempt(root, runDir, plan, attempt, options) {
     // carries cost/usage, so parse that rather than the whole stream.
     const parsed = extractResultEnvelope(providerResult.stdout, plan.task.mcp_tools === true);
 
+    // Record what the provider actually did — and keep its raw stream — BEFORE
+    // any gate below can invalidate the attempt. The provider has already run
+    // and already cost real money at this point, and recordDelegation() after
+    // the catch reads spend solely from record.provider: leaving it unset for an
+    // invalid attempt reports a full Claude invocation as zero spend
+    // (cost_source "unreported", 0 tokens) in the fail-closed rolling-budget
+    // ledger, and discards the one artifact needed to diagnose why the attempt
+    // was invalid. The catch only overwrites status/error/pass/duration_ms, so
+    // everything set here survives an invalid or failed attempt.
+    await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
+    // Persist the full event stream for mcp_tools arms so #331's telemetry can
+    // attribute mcp__agentify__* tool_use events per tool; the compact
+    // provider-stdout tail above is not a transcript.
+    if (plan.task.mcp_tools === true) {
+      await writeText(path.join(attemptDir, "provider-stream.jsonl"), redactSensitiveText(providerResult.stdout));
+    }
+    if (providerResult.stderr.trim()) {
+      await writeText(path.join(attemptDir, "provider-stderr.log"), tail(providerResult.stderr));
+    }
+    record.provider = {
+      exit_code: providerResult.code,
+      timed_out: providerResult.timedOut,
+      duration_ms: providerMs,
+      subtype: parsed?.subtype ?? null,
+      num_turns: parsed?.num_turns ?? null,
+      resolved_model: parsed?.resolved_model ?? null,
+      cost_usd: parsed?.cost_usd ?? null,
+      usage: parsed?.usage ?? null,
+    };
+    record.artifacts = {
+      provider_stdout: path.join("attempts", attempt.attempt_id, "provider-stdout.json"),
+      ...(plan.task.mcp_tools === true
+        ? { provider_stream: path.join("attempts", attempt.attempt_id, "provider-stream.jsonl") }
+        : {}),
+    };
+
     // Confirm Claude itself loaded the server (not just that the process
     // works). If Claude explicitly reported it disconnected/failed, the run is
     // vacuous — mark it invalid rather than grade a zero-tool attempt.
@@ -1140,39 +1176,16 @@ async function runAttempt(root, runDir, plan, attempt, options) {
       record.context_metrics = await collectContextMetrics(workspace).catch(() => null);
     }
     await writeText(path.join(attemptDir, "patch.diff"), redactSensitiveText(grade.patch));
-    await writeText(path.join(attemptDir, "provider-stdout.json"), tail(providerResult.stdout));
-    // Persist the full event stream for mcp_tools arms so #331's telemetry can
-    // attribute mcp__agentify__* tool_use events per tool; the compact
-    // provider-stdout tail above is not a transcript.
-    if (plan.task.mcp_tools === true) {
-      await writeText(path.join(attemptDir, "provider-stream.jsonl"), redactSensitiveText(providerResult.stdout));
-    }
-    if (providerResult.stderr.trim()) {
-      await writeText(path.join(attemptDir, "provider-stderr.log"), tail(providerResult.stderr));
-    }
     delete grade.patch;
 
     Object.assign(record, {
       status: providerResult.timedOut ? "timeout" : providerResult.code === 0 ? "ok" : "provider_error",
-      provider: {
-        exit_code: providerResult.code,
-        timed_out: providerResult.timedOut,
-        duration_ms: providerMs,
-        subtype: parsed?.subtype ?? null,
-        num_turns: parsed?.num_turns ?? null,
-        resolved_model: parsed?.resolved_model ?? null,
-        cost_usd: parsed?.cost_usd ?? null,
-        usage: parsed?.usage ?? null,
-      },
       grade,
       pass: grade.pass,
       duration_ms: Date.now() - startedAt,
       artifacts: {
+        ...record.artifacts,
         patch: path.join("attempts", attempt.attempt_id, "patch.diff"),
-        provider_stdout: path.join("attempts", attempt.attempt_id, "provider-stdout.json"),
-        ...(plan.task.mcp_tools === true
-          ? { provider_stream: path.join("attempts", attempt.attempt_id, "provider-stream.jsonl") }
-          : {}),
       },
     });
   } catch (error) {
