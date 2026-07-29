@@ -32,12 +32,30 @@ const WINDOW_FLAGS = ["days", "months", "quarter", "since"];
 // resolver), so the recorded zone is always the one the boundaries were built
 // in. There is deliberately no timezone override: labelling a window with a
 // zone the arithmetic did not use would silently move commits between reports.
-function resolveTimeZone() {
+//
+// When Intl cannot name the zone (e.g. a POSIX `TZ=UTC+5`, where Intl returns
+// undefined but Date still applies the offset), fall back to the actual UTC
+// offset at `now` rather than a flat "UTC" that would misstate the boundary.
+function resolveTimeZone(now) {
   try {
-    return new Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const name = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (name) {
+      return name;
+    }
   } catch {
-    return "UTC";
+    // fall through to the offset label
   }
+  return formatUtcOffset(now instanceof Date ? now : new Date());
+}
+
+function formatUtcOffset(date) {
+  // getTimezoneOffset is minutes the local zone is behind UTC (west = positive).
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `UTC${sign}${hh}:${mm}`;
 }
 
 function has(args, key) {
@@ -63,21 +81,26 @@ function requireString(args, key, flag) {
   return String(raw).trim();
 }
 
-function daysInMonth(year, monthIndex) {
-  // Day 0 of the next month is the last day of this month, so this also
-  // normalizes monthIndex 12 into January of the next year.
-  return new Date(year, monthIndex + 1, 0).getDate();
+function localDate(year, monthIndex, day, hours = 0, minutes = 0, seconds = 0, ms = 0) {
+  // The Date constructor remaps years 0-99 to 1900-1999, and any day/month
+  // rollover (e.g. a day-0 or Feb-29 request) then resolves in that wrong,
+  // leap-different calendar before we could correct it. So for those years
+  // construct in a safe leap year (2000, which accepts Feb 29) and shift to the
+  // literal year with setFullYear, which applies no remap and preserves the
+  // month/day/time exactly.
+  if (year >= 0 && year <= 99) {
+    const date = new Date(2000, monthIndex, day, hours, minutes, seconds, ms);
+    date.setFullYear(year);
+    return date;
+  }
+  return new Date(year, monthIndex, day, hours, minutes, seconds, ms);
 }
 
-function localDate(year, monthIndex, day, hours = 0, minutes = 0, seconds = 0, ms = 0) {
-  const date = new Date(year, monthIndex, day, hours, minutes, seconds, ms);
-  // The Date constructor remaps years 0-99 to 1900-1999. A large `--months`
-  // window can legitimately land there (e.g. year 0050), so restore the literal
-  // year explicitly. setFullYear leaves month/day/time untouched.
-  if (year >= 0 && year <= 99) {
-    date.setFullYear(year);
-  }
-  return date;
+function daysInMonth(year, monthIndex) {
+  // Day 0 of the next month is the last day of this month. Routed through
+  // localDate so year 0-99 leap rules are the real Gregorian ones (year 0000 is
+  // divisible by 400 and has Feb 29), not year 1900+year's.
+  return localDate(year, monthIndex + 1, 0).getDate();
 }
 
 function subtractDays(date, n) {
@@ -140,7 +163,7 @@ function selectedForms(args) {
  */
 export function resolveWindow(args = {}, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const timezone = resolveTimeZone();
+  const timezone = resolveTimeZone(now);
 
   if (has(args, "until") && !has(args, "since")) {
     throw new Error("git analyze --until requires --since");

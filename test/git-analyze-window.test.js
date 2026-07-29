@@ -134,6 +134,26 @@ test("--since without --until defaults until to now", () => {
   assert.equal(win.label, "Since v1.0.0");
 });
 
+test("a POSIX TZ with no IANA name records the real UTC offset, not a flat UTC", () => {
+  withTZ("UTC+5", () => {
+    // POSIX UTC+5 is 5h west, so local midnight 1 Jan is 05:00Z. Intl cannot
+    // name this zone, so the label must reflect the offset the arithmetic used.
+    const win = resolveWindow({ quarter: 1, year: 2025 }, { now: NOW });
+    assert.equal(win.since, "2025-01-01T05:00:00.000Z");
+    assert.equal(win.timezone, "UTC-05:00");
+  });
+});
+
+test("month clamping uses real Gregorian leap rules for year 0000 (Feb has 29 days)", () => {
+  withTZ("UTC", () => {
+    // 24317 months before 2026-07-29 lands in Feb 0000; year 0000 is divisible
+    // by 400 and is a leap year, so the day-29 start must not clamp to Feb 28.
+    const win = resolveWindow({ months: 24317 }, { now: NOW });
+    assert.equal(new Date(win.since).getUTCFullYear(), 0);
+    assert.ok(win.since.startsWith("0000-02-29"), `unexpected since: ${win.since}`);
+  });
+});
+
 test("Q1/Q2 boundary is identical and does not overlap under UTC", () => {
   withTZ("UTC", () => {
     const q1 = resolveWindow({ quarter: 1, year: 2026 }, { now: NOW });
