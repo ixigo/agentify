@@ -48,6 +48,7 @@ import {
   resolveContentMode,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
+import { runGitAnalyze, renderGitAnalyzeText, resolveScope } from "./core/git-analyze/index.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import {
@@ -91,6 +92,14 @@ import { openInBrowser } from "./core/browser.js";
 import { withSilent, bold, dim, green, yellow, red, success, warn, log } from "./core/ui.js";
 
 export { parseArgs };
+
+// `--root` is repeatable (git analyze discovery roots, #348), so it can arrive
+// as an array. For the single command cwd we keep last-one-wins, matching the
+// pre-#348 behaviour of a repeated `--root`.
+function resolveCommandRoot(args) {
+  const flag = Array.isArray(args.root) ? args.root[args.root.length - 1] : args.root;
+  return path.resolve(String(flag || process.cwd()));
+}
 
 // Human rendering shared by `route explain` and `delegate --dry-run`: the
 // full routing decision — profile, signals, tier, limits, fallback chain,
@@ -429,7 +438,7 @@ export async function runCli(argv, _runtime = {}) {
   }
 
   if (command === "completion") {
-    const root = path.resolve(String(args.root || process.cwd()));
+    const root = resolveCommandRoot(args);
     if (subcommand === "values") {
       const kind = args._[2];
       if (!kind) {
@@ -442,7 +451,7 @@ export async function runCli(argv, _runtime = {}) {
     return;
   }
 
-  const root = path.resolve(String(args.root || process.cwd()));
+  const root = resolveCommandRoot(args);
 
   // Hook-invoked ctx commands run before config loading so they stay fast and
   // never fail, even outside an initialized repo.
@@ -1338,6 +1347,48 @@ export async function runCli(argv, _runtime = {}) {
           console.log(JSON.stringify(report, null, 2));
         } else {
           log(renderAnalysisText(report));
+        }
+        return;
+      }
+
+      case "git": {
+        // Zero-install by construction: this path reads no index, opens no
+        // store, and creates nothing inside the analysed repository. The only
+        // git call in this slice is a read-only `rev-parse` repo check.
+        const GIT_SUBCOMMANDS = ["analyze"];
+        if (subcommand !== "analyze") {
+          const available = GIT_SUBCOMMANDS.join(", ");
+          throw new Error(
+            subcommand
+              ? `git: unknown subcommand "${subcommand}". Available subcommands: ${available}`
+              : `git requires a subcommand. Available subcommands: ${available}`,
+          );
+        }
+        const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
+        const format = config.json ? "json" : requestedFormat;
+        if (format === "html" || format === "md") {
+          throw new Error(
+            `git analyze --format ${format} is not available yet (lands in #${format === "html" ? "353" : "352"}); use text or json`,
+          );
+        }
+        if (format !== "text" && format !== "json") {
+          throw new Error("git analyze --format must be one of: text, json (html and md land in later slices)");
+        }
+        const windowInput = {};
+        for (const key of ["days", "months", "quarter", "year", "since", "until"]) {
+          if (hasOwn(args, key)) {
+            windowInput[key] = args[key];
+          }
+        }
+        const report = await runGitAnalyze(root, {
+          window: windowInput,
+          scope: resolveScope(args),
+          dryRun: config.dryRun === true,
+        });
+        if (format === "json") {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          log(renderGitAnalyzeText(report));
         }
         return;
       }

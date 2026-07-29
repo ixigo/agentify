@@ -39,11 +39,27 @@ const BOOLEAN_FLAGS = new Set([
   "skipMcp",
   "noMcp",
   "noIndex",
+  // git analyze (#348): scope, identity, narration, and merge-inclusion flags.
+  "local",
+  "me",
+  "ai",
+  "includeMerges",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array
-// instead of last-one-wins.
-const REPEATABLE_FLAGS = new Set(["failOn", "sourceRoot"]);
+// instead of last-one-wins. `root`, `branch`, `repo`, `grep`, `path`,
+// `author`, and `issue` are repeatable for `git analyze` (#348).
+const REPEATABLE_FLAGS = new Set([
+  "failOn",
+  "sourceRoot",
+  "root",
+  "branch",
+  "repo",
+  "grep",
+  "path",
+  "author",
+  "issue",
+]);
 
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
