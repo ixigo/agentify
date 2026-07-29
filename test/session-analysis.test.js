@@ -16,6 +16,7 @@ import {
 } from "../src/core/session-analysis/scorecard.js";
 import { createProgressRenderer } from "../src/core/session-analysis/progress.js";
 import {
+  AGENTIFY_MCP_TOOLS,
   AGENTIFY_TOOL_TELEMETRY_VERSION,
   OUTCOME_ERROR,
   OUTCOME_SUCCESS,
@@ -26,6 +27,7 @@ import {
   matchAgentifyMcpTool,
   matchAgentifyServerTool,
 } from "../src/core/session-analysis/agentify-tools.js";
+import { buildMcpTools } from "../src/core/mcp-server.js";
 import { runCli } from "../src/main.js";
 
 const SECRET_COMMAND = "export API_KEY=supersecret123 && curl -s https://internal.example.com";
@@ -1368,13 +1370,32 @@ test("cli: analyze --dry-run needs no consent", async () => {
 
 // --- #331: Agentify MCP tool-call telemetry ---------------------------------
 
+// AGENTIFY_MCP_TOOLS is a hand-maintained copy of the server's tool names, so
+// it can drift when the server gains a tool: #332 added ctx_decisions and
+// ctx_handoff and telemetry kept counting six, which silently dropped every
+// call to either and reported sessions using only those two as zero-call. That
+// skews the #331 baseline the #334 description ablation is measured against.
+// Pin the two lists together so the next added tool fails here instead.
+test("the telemetry tool list matches the tools the MCP server actually exposes (#332 drift)", () => {
+  const served = buildMcpTools({}).map((tool) => tool.name);
+  assert.deepEqual([...AGENTIFY_MCP_TOOLS].sort(), [...served].sort());
+  // And the two tools #332 added resolve end to end, in both call shapes.
+  for (const tool of ["ctx_decisions", "ctx_handoff"]) {
+    assert.ok(served.includes(tool), `${tool} should be served`);
+    assert.equal(matchAgentifyMcpTool(`mcp__agentify__${tool}`), tool);
+    assert.equal(matchAgentifyServerTool("agentify", tool), tool);
+    // Still no false positives under an unrelated alias.
+    assert.equal(matchAgentifyMcpTool(`mcp__memory__${tool}`), null);
+  }
+});
+
 test("matchAgentifyMcpTool matches only when the server alias identifies Agentify", () => {
   assert.equal(matchAgentifyMcpTool("mcp__agentify__ctx_load"), "ctx_load");
   assert.equal(matchAgentifyMcpTool("mcp__agentify__test_select"), "test_select");
   // Alias may carry extra qualifiers as long as it matches /agentify/i.
   assert.equal(matchAgentifyMcpTool("mcp__local_agentify__ctx_note"), "ctx_note");
   assert.equal(matchAgentifyMcpTool("mcp__Agentify__query"), "query");
-  // The six tool names are not globally reserved: under a non-Agentify alias
+  // The eight tool names are not globally reserved: under a non-Agentify alias
   // they must NOT be counted, distinctive names included (no false positives).
   assert.equal(matchAgentifyMcpTool("mcp__memory__ctx_note"), null);
   assert.equal(matchAgentifyMcpTool("mcp__repo-tools__ctx_load"), null);
@@ -1452,7 +1473,10 @@ test("aggregateAgentifyToolCalls zero-fills tools and never reports confirmed un
   assert.equal(agg.calls_per_session_all, 0.75);
   assert.equal(agg.calls_per_session_when_registered, 1.5);
   // Every known tool present, unused ones zero-filled.
-  assert.deepEqual(Object.keys(agg.by_tool).sort(), ["ctx_load", "ctx_match", "ctx_note", "query", "risk", "test_select"]);
+  assert.deepEqual(
+    Object.keys(agg.by_tool).sort(),
+    ["ctx_decisions", "ctx_handoff", "ctx_load", "ctx_match", "ctx_note", "query", "risk", "test_select"],
+  );
   assert.deepEqual(agg.by_tool.query, { calls: 2, resolved: 2, errors: 1 });
   assert.deepEqual(agg.by_tool.ctx_load, { calls: 0, resolved: 0, errors: 0 });
   // Honesty guarantees.

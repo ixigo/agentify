@@ -10,7 +10,7 @@
 // serverInfo.name is "agentify" and which the docs register with
 // `claude mcp add agentify -- agentify serve`. In transcripts an Agentify
 // call is one whose MCP server matches /agentify/i and whose tool is one of
-// the six known names. That identity surfaces in more than one shape, so both
+// the eight known names. That identity surfaces in more than one shape, so both
 // are matched (verified against the real local Codex store):
 //   1. A flat `mcp__<server>__<tool>` name — Claude tool_use, and Codex
 //      function_call / custom_tool_call whose `name` carries the full form.
@@ -28,10 +28,24 @@ export const AGENTIFY_TOOL_TELEMETRY_VERSION = "agentify-tool-telemetry-v1";
 
 // The tools buildMcpTools() in mcp-server.js exposes. Kept as a literal list
 // (not imported) so telemetry never depends on constructing the live server.
-export const AGENTIFY_MCP_TOOLS = ["ctx_load", "ctx_note", "ctx_match", "query", "risk", "test_select"];
+// Because it is a copy, it can drift when the server gains a tool — #332 added
+// ctx_decisions and ctx_handoff without updating it here, so calls to either
+// were silently uncounted and sessions using only those two were reported as
+// zero-call. test/session-analysis.test.js asserts this list equals
+// buildMcpTools()'s names so the next added tool fails a test instead.
+export const AGENTIFY_MCP_TOOLS = [
+  "ctx_load",
+  "ctx_note",
+  "ctx_match",
+  "query",
+  "risk",
+  "test_select",
+  "ctx_decisions",
+  "ctx_handoff",
+];
 
 // A call counts as Agentify only when the MCP server alias matches
-// /agentify/i AND the tool is one of the six. None of the six tool names are
+// /agentify/i AND the tool is one of the eight. None of the eight tool names are
 // globally reserved (another context/memory MCP server could expose
 // `ctx_note`, `query`, etc.), so keying on the alias is what prevents
 // misclassifying an unrelated server as Agentify. `claude mcp add <alias> --
@@ -46,7 +60,7 @@ function isAgentifyServer(server) {
 }
 
 // Decides whether (server, tool) is an Agentify call: the tool must be one of
-// the six and the server alias must identify Agentify.
+// the eight and the server alias must identify Agentify.
 function resolveAgentifyTool(server, tool) {
   if (!AGENTIFY_MCP_TOOLS.includes(tool)) return null;
   return isAgentifyServer(server) ? tool : null;
@@ -182,7 +196,7 @@ export function mergeAgentifyToolCalls(target, source) {
 
 const DETECTION_RULE = "An MCP call whose server alias matches /agentify/i AND whose tool is one of "
   + `${AGENTIFY_MCP_TOOLS.join(", ")} (the server registered via \`claude mcp add <alias> -- agentify serve\`; `
-  + "the canonical alias is `agentify`). None of the six tool names are globally reserved, so the alias — not "
+  + "the canonical alias is `agentify`). None of the eight tool names are globally reserved, so the alias — not "
   + "the tool name alone — is what identifies Agentify and prevents counting an unrelated context/memory server. "
   + "Matched from two transcript shapes: a flat mcp__<server>__<tool> name (Claude tool_use and Codex "
   + "function_call/custom_tool_call), and Codex mcp_tool_call_end events carrying invocation.server/tool. Codex "
@@ -191,7 +205,7 @@ const DETECTION_RULE = "An MCP call whose server alias matches /agentify/i AND w
 const DETECTION_LIMITATIONS = [
   "Detection requires the MCP server alias to match /agentify/i. If Agentify is registered under an unrelated "
     + "alias (e.g. `claude mcp add repo-tools -- agentify serve`), its calls are not counted and the baseline is "
-    + "a lower bound. Requiring the alias is deliberate: the six tool names are not globally reserved, so matching "
+    + "a lower bound. Requiring the alias is deliberate: the eight tool names are not globally reserved, so matching "
     + "on the tool alone would false-positive on other context/memory MCP servers — a worse error than this "
     + "disclosed under-count.",
   "Transcripts do not record MCP server registration, so a session with no Agentify call cannot be proven to "
@@ -246,7 +260,7 @@ export function aggregateAgentifyToolCalls(sessions) {
       byProvider[provider].sessions_with_calls += 1;
     }
     for (const [tool, entry] of Object.entries(agg.by_name || {})) {
-      // Only the six known tools are tracked; matchAgentifyMcpTool already
+      // Only the eight known tools are tracked; matchAgentifyMcpTool already
       // guarantees this, but guard so an unexpected key cannot appear.
       if (!byTool[tool]) continue;
       byTool[tool].calls += entry.calls || 0;
