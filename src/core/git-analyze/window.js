@@ -129,9 +129,14 @@ function selectedForms(args) {
  * @param {Date}   [options.now] - the "now" instant (injectable for tests)
  * @returns {{ form: string, since: string, until: string, label: string,
  *             timezone: string, since_kind: string, until_kind: string }}
- *   `since_kind`/`until_kind` are "instant" (an absolute ISO timestamp, ready
- *   to hand to git as-is) or "expression" (a user-supplied date/ref string the
- *   git-reading layer (#349) must resolve).
+ *   The window is half-open `[since, until)`: `since` is inclusive, `until` is
+ *   EXCLUSIVE. NOTE for the history reader (#349): git's own date filters
+ *   (`--since`/`--until`, `--before`/`--after`) are INCLUSIVE on both ends, so
+ *   `until` must be enforced as `author_time < until` in code — do not rely on
+ *   passing it to `git log --until`, or a commit on the boundary is counted by
+ *   two adjacent windows. `since_kind`/`until_kind` are "instant" (an absolute
+ *   ISO timestamp) or "expression" (a user-supplied date/ref string #349 must
+ *   resolve).
  */
 export function resolveWindow(args = {}, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
@@ -234,7 +239,8 @@ function finalizeComputed({ form, since, until, label, timezone }) {
     form,
     since: since.toISOString(),
     until: until.toISOString(),
-    // Computed windows are absolute instants, ready to hand to git as-is.
+    // Computed windows are absolute ISO instants (no ref resolution needed).
+    // `until` is still exclusive — see the resolveWindow note on git filters.
     since_kind: "instant",
     until_kind: "instant",
     label,

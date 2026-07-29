@@ -1399,7 +1399,9 @@ export async function runCli(argv, _runtime = {}) {
         // Commit reading lands in #349. Until then, a non-dry-run invocation
         // would return a plausible-looking success with zero commits, so this
         // slice only supports --dry-run and says so rather than misleading.
-        if (config.dryRun !== true) {
+        // Check the FLAG, not merged config: a repo `.agentify.yaml` carrying
+        // `dryRun: true` must not silently satisfy this requirement.
+        if (args.dryRun !== true) {
           throw new Error("git analyze currently supports only --dry-run; commit reading lands in #349. Re-run with --dry-run.");
         }
         // Flags whose BEHAVIOUR lands in later slices. They are registered in
@@ -1429,6 +1431,11 @@ export async function runCli(argv, _runtime = {}) {
         // Reject that rather than silently honouring only the last root.
         if (Array.isArray(args.root)) {
           throw new Error("git analyze does not support multiple --root values (repeatable discovery roots, #350) yet; pass a single --root or none.");
+        }
+        // A blank --root (e.g. `--root=` or an empty env expansion) resolves to
+        // the cwd, silently targeting the wrong repository; reject it.
+        if (hasOwn(args, "root") && (args.root === true || String(args.root).trim() === "")) {
+          throw new Error("git analyze --root requires a directory path.");
         }
         const requestedFormat = String(args.format || (config.json ? "json" : "text")).toLowerCase();
         const format = config.json ? "json" : requestedFormat;

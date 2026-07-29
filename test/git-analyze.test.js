@@ -286,6 +286,33 @@ test("git analyze without --dry-run fails clearly rather than returning an empty
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("a repo .agentify.yaml with dryRun:true does NOT satisfy the required --dry-run flag", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-cfgdry-"));
+  await initGitRepo(root);
+  await fs.writeFile(path.join(root, ".agentify.yaml"), "dryRun: true\n", "utf8");
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "--days", "7"], { cwd: root }),
+    (error) => {
+      assert.match(error.stderr, /only --dry-run/);
+      return true;
+    },
+  );
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("git analyze rejects a blank --root instead of silently using the cwd", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-blankroot-"));
+  await initGitRepo(root);
+  await assert.rejects(
+    () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", "--root="], { cwd: root }),
+    (error) => {
+      assert.match(error.stderr, /--root requires a directory path/);
+      return true;
+    },
+  );
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("git with an unknown subcommand lists the available subcommands", async () => {
   await assert.rejects(
     () => execFileAsync("node", [CLI, "git", "badsubcommand"], { cwd: os.tmpdir() }),
