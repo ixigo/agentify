@@ -468,6 +468,29 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
   // session.
   const verifyWorkspace = typeof isSameWorkspace === "function" ? isSameWorkspace : () => true;
   const SESSION_ESTABLISHING_METHODS = new Set(["session/new", "session/load", "session/resume", "session/fork"]);
+  // True when a session's declared roots are not all inside the launch root.
+  // Kept byte-for-byte equivalent to capture.js's establishesOutsideRoot so the
+  // two halves of the proxy cannot disagree about what counts as this workspace;
+  // it inherits the same documented LEXICAL limitation (an in-repo symlink
+  // pointing outside is not resolved).
+  const establishesOutsideRoot = (params) => {
+    if (!params || typeof params !== "object") {
+      return false;
+    }
+    if (typeof params.cwd === "string" && !verifyWorkspace(params.cwd)) {
+      return true;
+    }
+    const extra = params.additionalDirectories || params.additional_directories;
+    if (Array.isArray(extra)) {
+      for (const entry of extra) {
+        const dir = typeof entry === "string" ? entry : (entry && typeof entry === "object" ? entry.path : null);
+        if (typeof dir === "string" && !verifyWorkspace(dir)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
   let workspaceMismatch = false;
 
   let buffer = EMPTY;
@@ -506,9 +529,12 @@ export function createFirstTurnInjector({ buildDigest, onInject, isSameWorkspace
     }
     // A session established (new/load/resume/fork) with a working directory
     // outside the launch root disables injection connection-wide (privacy — no
-    // cross-repo leak).
-    if (SESSION_ESTABLISHING_METHODS.has(message?.method)
-      && typeof message.params?.cwd === "string" && !verifyWorkspace(message.params.cwd)) {
+    // cross-repo leak). `cwd` is not the only root a session can declare:
+    // additionalDirectories (camel and snake case) are workspace roots too, so a
+    // session with cwd inside the repo but an extra root in an unrelated repo
+    // would otherwise still receive this root's notes and decisions. Mirrors
+    // establishesOutsideRoot in capture.js, which already checks both.
+    if (SESSION_ESTABLISHING_METHODS.has(message?.method) && establishesOutsideRoot(message.params)) {
       workspaceMismatch = true;
     }
     const isPrompt = message && typeof message === "object" && !Array.isArray(message)

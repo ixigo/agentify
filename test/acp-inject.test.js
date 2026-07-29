@@ -218,6 +218,51 @@ test("the workspace guard covers every session-establishing method (resume, fork
   }
 });
 
+// `cwd` is not the only workspace root a session can declare. capture.js has
+// always rejected a foreign additionalDirectories entry; the injector checked
+// only cwd, so a session rooted in this repo but carrying an extra root in an
+// unrelated repo still received this repo's notes and decisions.
+test("the injector refuses to inject when a session declares a foreign additionalDirectories root", async () => {
+  for (const key of ["additionalDirectories", "additional_directories"]) {
+    for (const entry of ["/other-repo", { path: "/other-repo" }]) {
+      let called = 0;
+      const injector = createFirstTurnInjector({
+        buildDigest: async () => { called += 1; return "D"; },
+        isSameWorkspace: (dir) => dir === "/root",
+      });
+      const establish = line({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "session/new",
+        // cwd itself is fine — only the extra root escapes.
+        params: { cwd: "/root", [key]: [entry], mcpServers: [] },
+      });
+      const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+      const out = await runInjector(injector, [establish, prompt]);
+      const label = `${key} as ${typeof entry === "string" ? "string" : "object"}`;
+      assert.equal(out, `${establish}${prompt}`, `a foreign ${label} must disable injection`);
+      assert.equal(called, 0, `buildDigest must not run for a foreign ${label}`);
+    }
+  }
+});
+
+test("additionalDirectories inside the launch root still allow injection", async () => {
+  const injector = createFirstTurnInjector({
+    buildDigest: async () => "D",
+    isSameWorkspace: (dir) => dir === "/root" || dir.startsWith("/root/"),
+  });
+  const establish = line({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "session/new",
+    params: { cwd: "/root", additionalDirectories: ["/root/packages/app"], mcpServers: [] },
+  });
+  const prompt = line({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s", prompt: [{ type: "text", text: "hi" }] } });
+  const out = await runInjector(injector, [establish, prompt]);
+  const outLines = out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.ok(outLines[1].params.prompt[0].text.includes(AGENTIFY_CONTEXT_OPEN), "extra roots inside the launch root are this workspace");
+});
+
 test("a read-only session/list with a cwd filter does NOT disable injection", async () => {
   const injector = createFirstTurnInjector({
     buildDigest: async () => "D",
@@ -533,6 +578,77 @@ test("runAcpProxyCommand injects into the first turn and suppresses downstream h
 
     input.end();
     await commandPromise;
+  });
+});
+
+// Enabling injection suppresses the downstream agent's own Agentify hook
+// injection (AGENTIFY_CTX_INJECTION=off). The proxy therefore has to accept
+// every session that really is this workspace, or the session ends up with no
+// context from either path. An exact cwd == root test rejected a monorepo
+// session rooted at `<root>/packages/app`; capture already used a
+// root-or-descendant test, and injection now uses the same one.
+test("runAcpProxyCommand injects for a session rooted in a subdirectory of the launch root", async () => {
+  await withEchoAgent(async (dir, scriptPath) => {
+    await addNote(dir, "payment retries must reuse an idempotency key so a retry never double-charges");
+    const subdir = path.join(dir, "packages", "app");
+    await fs.mkdir(subdir, { recursive: true });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const outLines = [];
+    collectLines(output, outLines);
+
+    const commandPromise = runAcpProxyCommand(
+      dir,
+      { context: { acpInjection: "relevant" } },
+      { command: scriptPath, provider: null },
+      { input, output, log: () => {}, handleSignals: false, setExitCode: false, env: { PATH: process.env.PATH } },
+    );
+
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: subdir } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: "sess", prompt: [{ type: "text", text: "fix the payment retries" }] } })}\n`);
+
+    await waitUntil(() => outLines.some((m) => m.id === 3), { timeout: 5000 });
+    const promptResult = outLines.find((m) => m.id === 3).result;
+    assert.equal(promptResult.received.length, 2, "a subdirectory session is still this workspace");
+    assert.ok(promptResult.received[0].text.includes(AGENTIFY_CONTEXT_OPEN));
+    assert.ok(/idempotency key/.test(promptResult.received[0].text));
+
+    input.end();
+    await commandPromise;
+  });
+});
+
+test("runAcpProxyCommand does NOT inject for a session rooted outside the launch root", async () => {
+  await withEchoAgent(async (dir, scriptPath) => {
+    await addNote(dir, "payment retries must reuse an idempotency key so a retry never double-charges");
+    // A sibling directory, not a descendant: the privacy guard must still hold
+    // after the switch from exact equality to containment.
+    const foreign = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-acp-foreign-"));
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const outLines = [];
+    collectLines(output, outLines);
+
+    const commandPromise = runAcpProxyCommand(
+      dir,
+      { context: { acpInjection: "relevant" } },
+      { command: scriptPath, provider: null },
+      { input, output, log: () => {}, handleSignals: false, setExitCode: false, env: { PATH: process.env.PATH } },
+    );
+
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: foreign } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: "sess", prompt: [{ type: "text", text: "fix the payment retries" }] } })}\n`);
+
+    await waitUntil(() => outLines.some((m) => m.id === 3), { timeout: 5000 });
+    const promptResult = outLines.find((m) => m.id === 3).result;
+    assert.equal(promptResult.received.length, 1, "a foreign-root session must receive the prompt unchanged");
+    assert.equal(promptResult.received[0].text, "fix the payment retries");
+
+    input.end();
+    await commandPromise;
+    await fs.rm(foreign, { recursive: true, force: true });
   });
 });
 
