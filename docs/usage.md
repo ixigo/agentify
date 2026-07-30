@@ -65,14 +65,16 @@ agentify stats                   # what the delegate traffic cost this month
 
 Unlike everything else in this document, `agentify git analyze` needs **no**
 install, no config, no index, and no store. Run it inside any git repository and
-it turns local commit history into a filtered summary (printed to your terminal
-by default; `--format html` writes a shareable report instead):
+it turns local commit history into a filtered summary. By default it writes a
+shareable HTML report outside your repository and opens it; `--format text|md|json`
+prints to the terminal instead and writes nothing:
 
 ```bash
-agentify git analyze                            # last 30 days, text summary
+agentify git analyze                            # last 30 days, HTML report
 agentify git analyze --months 3 --me            # your last three months
+agentify git analyze --months 3 --no-open       # write the report, skip the browser
 agentify git analyze --quarter 1 --year 2026 --format json
-agentify git analyze --months 3 --format html   # shareable HTML report
+agentify git analyze --days 30 --format text    # terminal summary, no file
 agentify git analyze --dry-run                  # preview the resolved window only
 ```
 

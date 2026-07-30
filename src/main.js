@@ -1480,11 +1480,21 @@ export async function runCli(argv, _runtime = {}) {
           throw new Error("git analyze --root requires a directory path.");
         }
         // Detect presence explicitly: `--format=`/`--format=0`/`--format=false`
-        // must reach the validator, not fall back to text via a falsey `||`.
+        // must reach the validator, not fall back via a falsey `||`.
+        //
+        // The frozen surface in #347 defaults to `html`: the report is the
+        // thing a first-time user is meant to keep, so a bare
+        // `agentify git analyze --months 3` must produce one. A DRY RUN is the
+        // exception — it reads no history, so there is no report to render and
+        // an html default would make `--dry-run` (the documented way to preview
+        // a window) fail out of the box. It falls back to text.
+        const defaultFormat = config.json ? "json" : (dryRun ? "text" : "html");
         const requestedFormat = hasOwn(args, "format")
           ? String(args.format).toLowerCase()
-          : (config.json ? "json" : "text");
-        const format = config.json ? "json" : requestedFormat;
+          : defaultFormat;
+        // `--json` is a global flag and wins, except that an explicit
+        // `--format html` names an artifact `--json` cannot express.
+        const format = config.json && requestedFormat !== "html" ? "json" : requestedFormat;
         if (format !== "text" && format !== "json" && format !== "md" && format !== "html") {
           throw new Error("git analyze --format must be one of: text, json, md, html");
         }

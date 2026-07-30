@@ -16,12 +16,15 @@ network calls.
 You do **not** need to have run `agentify install`, `agentify scan`, or anything
 else first. If this is the first Agentify command you have ever run, it works.
 
-> **Output format.** The default output is a text summary printed to your
-> terminal. Choose another with `--format`: `text` (default), `json`, `md`, or
-> `html`. Only `--format html` writes a **report** file (and offers to open a
-> browser); the other formats print to stdout/terminal. Separately, `--global`
-> may write a small discovery cache under `~/.cache/agentify/` — never inside a
-> repository — regardless of format; `--no-cache` disables it.
+> **Output format.** The default is `html`: the command writes a self-contained
+> report outside your repository and opens it in a browser. Choose another with
+> `--format`: `html` (default), `text`, `json`, or `md` — those three print to
+> stdout/terminal and write nothing. `--no-open` writes the report without
+> launching a browser, and `--output <path>` puts it where you want it.
+> `--dry-run` reads no history, so it prints a text preview of the resolved
+> window instead. Separately, `--global` may write a small discovery cache under
+> `~/.cache/agentify/` — never inside a repository — regardless of format;
+> `--no-cache` disables it.
 
 ## What you get
 
@@ -89,7 +92,7 @@ tracker
   --jira-project <key>   limit tracker lookups to these keys, repeatable
 
 output
-  --format text|json|md|html                                         (default text)
+  --format html|md|text|json                                         (default html)
   --output <path> | --no-open | --dry-run | --yes
   --no-cache             bypass the discovery/tracker caches for this run
 ```
