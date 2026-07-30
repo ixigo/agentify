@@ -148,7 +148,9 @@ function themeTitle(kind, value) {
 // sum/union over the group's own records, so a theme's figures always reconcile
 // against its cited SHAs.
 function rollupTheme({ id, repository, kind, value, commits, mergesByIssue }) {
-  const typeHistogram = {};
+  // Null-prototype: a valid conventional type is `[a-zA-Z]+`, so "constructor"
+  // or "toString" are real types; a plain object would read inherited members.
+  const typeHistogram = Object.create(null);
   const issueKeys = new Set();
   const branches = new Set();
   const scopes = new Set();
@@ -231,7 +233,9 @@ function buildBucket(repository, groups) {
   const commits = groups.reduce((total, group) => total + group.commits.length, 0);
   if (commits === 0) return null;
 
-  const typeHistogram = {};
+  // Null-prototype histogram (see rollupTheme): a type like "constructor" must
+  // not read an inherited object member.
+  const typeHistogram = Object.create(null);
   const shas = [];
   let insertions = 0;
   let deletions = 0;
@@ -478,11 +482,12 @@ function buildLimitationsAndEvidence(report, sections) {
 
   const includeMerges = Boolean(report.filters && report.filters.include_merges);
   if (mergesExcluded > 0) {
-    // #351 keeps merges out of the commit/churn counts even under
-    // --include-merges (they are reported separately as delivery evidence), so
-    // only suggest the flag when it was not already given.
-    const remediation = includeMerges ? "" : " (pass --include-merges to count them)";
-    add(`${mergesExcluded} merge commit(s) are reported as delivery evidence but excluded from commit and churn counts${remediation}.`);
+    // Merges are always retained as delivery evidence; --include-merges decides
+    // whether they also COUNT. Say which of the two is in force, so the merge
+    // figure in the headline is never ambiguous.
+    add(includeMerges
+      ? `${mergesExcluded} merge commit(s) are counted toward commit totals (--include-merges); churn figures still come from non-merge commits only.`
+      : `${mergesExcluded} merge commit(s) are reported as delivery evidence but excluded from commit and churn counts (pass --include-merges to count them).`);
   }
   if (report.scope === "global") {
     add("Branch-based clustering is not computed under --global (to bound the cross-repository sweep); themes there cluster by issue key, conventional scope, and directory only.");

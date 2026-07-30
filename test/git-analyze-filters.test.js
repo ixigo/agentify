@@ -375,6 +375,36 @@ test("--include-merges keeps merges and a --type filter never silently drops the
   await cleanup(root);
 });
 
+test("merges stay visible as delivery evidence under a filter; --include-merges makes them count", async () => {
+  const { root, defaultBranch } = await buildFixture();
+  await git(root, ["merge", "--no-ff", "-m", "Merge branch feat/a (#42)", "feat/a"], {
+    GIT_AUTHOR_NAME: ALICE.name,
+    GIT_AUTHOR_EMAIL: ALICE.email,
+    GIT_COMMITTER_NAME: ALICE.name,
+    GIT_COMMITTER_EMAIL: ALICE.email,
+  });
+  assert.equal((await git(root, ["branch", "--show-current"])).stdout.trim(), defaultBranch);
+
+  const unfiltered = await analyze(root, {});
+  assert.equal(unfiltered.totals.merges, 1, "baseline: the merge is evidence");
+
+  // A filter must not make Alice's own merge disappear. Reporting "0 merges
+  // landed" to someone who landed one — while the unfiltered report beside it
+  // counts it — is the exact reconciliation failure the epic forbids.
+  const filtered = await analyze(root, { me: true });
+  assert.equal(filtered.totals.merges, 1, "the identity's own merge survives --me");
+  assert.equal(filtered.merges.length, 1);
+
+  // Evidence only: it is not folded into the commit count...
+  const withoutFlag = filtered.counts.commits;
+  // ...until --include-merges opts it in.
+  const counted = await analyze(root, { me: true, includeMerges: true });
+  assert.equal(counted.counts.commits, withoutFlag + 1);
+  assert.equal(counted.totals.merges, 1);
+
+  await cleanup(root);
+});
+
 // ---------------------------------------------------------------------------
 // Injection safety.
 // ---------------------------------------------------------------------------

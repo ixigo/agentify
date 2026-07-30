@@ -548,7 +548,11 @@ function anyOf(predicates) {
 //     excluded names are not kept per record (only their count is).
 //   - binary_files is null: the per-commit binary-file tally is not on the
 //     record, so it cannot be summed post-filter.
-function summarizeRecords(commits, merges, branchCount) {
+function summarizeRecords(commits, merges, branchCount, includeMerges = false) {
+  // `--include-merges` folds merges INTO the counted set (the epic's "opt merges
+  // back into counts"); without it they stay evidence-only. Either way they are
+  // present and reported, so `merges` is never a misleading zero.
+  const counted = includeMerges ? [...commits, ...merges] : commits;
   const authorEmails = new Set();
   const distinctFiles = new Set();
   const issueRefs = new Set();
@@ -557,7 +561,7 @@ function summarizeRecords(commits, merges, branchCount) {
   let fileChanges = 0;
   let filesExcluded = 0;
 
-  for (const record of commits) {
+  for (const record of counted) {
     authorEmails.add(record.authorEmail);
     insertions += record.insertions || 0;
     deletions += record.deletions || 0;
@@ -580,7 +584,7 @@ function summarizeRecords(commits, merges, branchCount) {
   }
 
   return {
-    commits: commits.length,
+    commits: counted.length,
     merges: merges.length,
     authors: authorEmails.size,
     insertions,
@@ -617,7 +621,13 @@ export function applyFilters(collection, filterSet, context = {}) {
   const branchResolution = context.branchResolution || null;
 
   const baseCommits = collection.commits || [];
-  const baseMerges = filterSet.includeMerges ? (collection.merges || []) : [];
+  // Merges are ALWAYS retained (narrowed by the filters that are meaningful for
+  // them) as delivery evidence, matching the unfiltered collection. Dropping
+  // them unless --include-merges made a filtered report claim "0 merges landed"
+  // for someone who had in fact landed dozens — the unfiltered report right
+  // beside it counted them. --include-merges decides whether merges COUNT (see
+  // summarizeRecords), not whether they exist.
+  const baseMerges = collection.merges || [];
 
   // Build the active predicates per kind. `--me` and `--author` are one kind
   // (identity/author), OR-ed together.
@@ -756,7 +766,7 @@ export function applyFilters(collection, filterSet, context = {}) {
     appliedFilters.push({ kind: "include-merges", flag: "--include-merges", values: [], matched: merges.length, unit: "merges" });
   }
 
-  const stats = summarizeRecords(commits, merges, (collection.branches || []).length);
+  const stats = summarizeRecords(commits, merges, (collection.branches || []).length, filterSet.includeMerges);
 
   const filters = {
     applied: appliedFilters.length > 0,
