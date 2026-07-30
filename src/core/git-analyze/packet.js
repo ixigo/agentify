@@ -186,7 +186,7 @@ export function buildNarrationPacket(report, options = {}) {
   }
 
   const identities = summary.identities && Array.isArray(summary.identities.emails)
-    ? { emails: summary.identities.emails }
+    ? { emails: summary.identities.emails.map(redactString) }
     : null;
 
   const repositories = (summary.repositories || []).map((repo) => ({
@@ -224,10 +224,10 @@ export function buildNarrationPacket(report, options = {}) {
     scope: summary.scope,
     window: summary.window
       ? {
-        label: summary.window.label,
-        since: summary.window.since,
-        until: summary.window.until,
-        timezone: summary.window.timezone,
+        label: redactString(summary.window.label),
+        since: redactString(summary.window.since),
+        until: redactString(summary.window.until),
+        timezone: redactString(summary.window.timezone),
       }
       : null,
     identities,
@@ -292,6 +292,17 @@ function enforceTokenCeiling(packet, tokenCeiling) {
   }
   // Report drops in the summary's headline-first order (most commits first).
   packet.dropped_themes = dropped.sort((a, b) => (b.commits - a.commits) || (a.id < b.id ? -1 : 1));
+
+  // Themes are the bulk of the packet, but they are not the only unbounded
+  // field: a pathological limitations list or smaller-changes tail could keep
+  // the packet over the ceiling on its own. Trim those next so the ceiling is a
+  // real bound, not a themes-only one. The headline totals always survive.
+  while (estimateTokens(packet) > tokenCeiling && packet.smaller_changes.length > 0) {
+    packet.smaller_changes.pop();
+  }
+  while (estimateTokens(packet) > tokenCeiling && packet.limitations.length > 0) {
+    packet.limitations.pop();
+  }
   return packet;
 }
 
@@ -308,7 +319,10 @@ const DIFF_MAX_TOTAL_BYTES = 60000;
 // generated-stripped) paths on its record. `--format=` drops the commit
 // message (subjects travel separately and redacted); `-U1` keeps hunks small.
 async function showCommitDiff(root, sha, files, exec) {
-  const args = ["show", "--format=", "--unified=1", "--no-color", sha, "--", ...files];
+  // --literal-pathspecs disables pathspec magic, so a file literally named
+  // "*.env" or ":(glob)…" cannot widen the diff beyond the record's own paths
+  // (which already exclude generated/vendored files).
+  const args = ["--literal-pathspecs", "show", "--format=", "--unified=1", "--no-color", sha, "--", ...files];
   const { stdout } = await exec("git", args, { cwd: root, maxBuffer: 8 * 1024 * 1024 });
   return String(stdout || "");
 }

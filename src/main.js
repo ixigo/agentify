@@ -1538,7 +1538,11 @@ export async function runCli(argv, _runtime = {}) {
             let diffHunksByTheme = null;
             let diffBytes = 0;
             if (narrationDepth === "diff" && report.scope === "local") {
-              const diffs = await collectThemeDiffs(root, report);
+              // Record file paths are repository-relative, so `git show` must run
+              // from the repository top-level, not the (possibly sub-directory)
+              // command cwd — otherwise the pathspecs miss and the diff is empty.
+              const repoRoot = (report.repository && report.repository.path) || root;
+              const diffs = await collectThemeDiffs(repoRoot, report);
               diffHunksByTheme = diffs.hunksByTheme;
               diffBytes = diffs.bytes;
             }

@@ -172,7 +172,7 @@ test("--depth diff adds bounded redacted hunks; --depth metadata never does", as
   const { hunksByTheme, bytes, themesWithDiff } = await collectThemeDiffs(path.sep, report, { exec });
   assert.ok(themesWithDiff >= 1);
   assert.ok(bytes > 0);
-  assert.ok(calls.every((call) => call[0] === "git" && call[1] === "show"), "diff depth only ever runs git show");
+  assert.ok(calls.every((call) => call[0] === "git" && call.includes("show") && call.includes("--literal-pathspecs")), "diff depth only ever runs git show with literal pathspecs");
 
   const diffPacket = buildNarrationPacket(report, { depth: "diff", diffHunksByTheme: hunksByTheme });
   assert.ok(Array.isArray(diffPacket.themes[0].diff_hunks) && diffPacket.themes[0].diff_hunks.length > 0);
@@ -211,6 +211,52 @@ test("the packet token ceiling drops the lowest-value themes and names them", ()
 // ---------------------------------------------------------------------------
 // The no-invented-number validator and placeholder substitution.
 // ---------------------------------------------------------------------------
+
+test("a placeholder in title or evidence_gap is substituted, never left raw", () => {
+  const packet = buildNarrationPacket(syntheticReport(), { depth: "metadata" });
+  const result = assembleNarration({
+    entries: [{ title: "Shipped {{theme.commits}} commits", what: "did work", how_it_helped: "reduced risk", theme_ids: ["t1"], confidence: "high", evidence_gap: "only {{theme.files}} files seen" }],
+  }, packet);
+  const entry = result.entries[0];
+  assert.equal(entry.source, "model");
+  assert.equal(entry.title, "Shipped 3 commits");
+  assert.equal(entry.evidence_gap, "only 4 files seen");
+  assert.ok(!JSON.stringify(entry).includes("{{"), "no raw placeholder survives anywhere in the entry");
+});
+
+test("a malformed narrative field is rejected to the deterministic template, not coerced", () => {
+  const packet = buildNarrationPacket(syntheticReport(), { depth: "metadata" });
+  const result = assembleNarration({
+    entries: [
+      { title: "Nully", what: null, how_it_helped: "x", theme_ids: ["t1"], confidence: "high" },
+      { title: "Objecty", what: "ok", how_it_helped: { nested: true }, theme_ids: ["t1"], confidence: "high" },
+    ],
+  }, packet);
+  assert.ok(result.entries.every((entry) => entry.source === "deterministic"));
+  assert.ok(!JSON.stringify(result.entries).includes("[object Object]"), "an object field is never stringified into the entry");
+  assert.ok(result.rejections.every((rej) => /invalid narrative field/.test(rej.reason)));
+});
+
+test("the token ceiling bounds non-theme fields too (limitations, smaller changes)", () => {
+  const report = syntheticReport();
+  report.summary.themes = [];
+  report.summary.smaller_changes = [];
+  report.summary.limitations = [Array.from({ length: 200 }, () => "a very long limitation line that repeats").join(" ")];
+  const packet = buildNarrationPacket(report, { depth: "metadata", tokenCeiling: 100 });
+  assert.ok(packetPreview(packet).token_estimate <= 100 || packet.limitations.length === 0, "the ceiling trims limitations, not only themes");
+  // The headline totals always survive the ceiling.
+  assert.equal(packet.totals.commits, 4);
+});
+
+test("identity emails and window strings are redacted like every other packet field", () => {
+  const report = syntheticReport();
+  report.summary.identities = { emails: ["TOKEN=abcdef0123456789@example.com"] };
+  report.summary.window.label = "since TOKEN=abcdef0123456789";
+  const packet = buildNarrationPacket(report, { depth: "metadata" });
+  const json = JSON.stringify(packet);
+  assert.ok(!json.includes("abcdef0123456789"), "a secret-shaped value never survives in identities or window");
+  assert.ok(json.includes("[REDACTED]"));
+});
 
 test("containsBareNumber rejects a literal figure but allows placeholders and spelled-out words", () => {
   assert.equal(containsBareNumber("improved performance by 40%"), true);

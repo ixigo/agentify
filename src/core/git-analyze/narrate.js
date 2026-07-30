@@ -349,6 +349,16 @@ export function assembleNarration(parsed, packet) {
     const themes = ids.map((id) => themeById.get(id));
     const agg = aggregateThemes(themes);
 
+    // The two narrative fields are required strings; a null/number/object here
+    // is a schema violation, not something to coerce into "" or "[object
+    // Object]". Reject to the deterministic template rather than repair.
+    if (typeof entry.what !== "string" || !entry.what.trim() || typeof entry.how_it_helped !== "string" || !entry.how_it_helped.trim()) {
+      rejections.push({ entry: label, reason: "missing/invalid narrative field; used deterministic text", theme_ids: ids });
+      entries.push(deterministicEntry(themes, { reason: "malformed_field" }));
+      for (const id of ids) covered.add(id);
+      continue;
+    }
+
     const title = typeof entry.title === "string" && entry.title.trim() ? entry.title.trim() : themes[0].title;
     const confidence = ["high", "medium", "low"].includes(entry.confidence) ? entry.confidence : "low";
     const evidenceGap = typeof entry.evidence_gap === "string" && entry.evidence_gap.trim()
@@ -366,9 +376,17 @@ export function assembleNarration(parsed, packet) {
       continue;
     }
 
+    // Substitute EVERY model-authored string, so a placeholder in the title or
+    // evidence_gap can never survive as raw `{{theme.*}}` in a report. An
+    // unresolved placeholder anywhere is a defect → deterministic template.
     const what = substitutePlaceholders(entry.what, agg);
     const how = substitutePlaceholders(entry.how_it_helped, agg);
-    if (what === null || how === null) {
+    const titleResolved = substitutePlaceholders(title, agg);
+    const gapResolved = evidenceGap === null ? null : substitutePlaceholders(evidenceGap, agg);
+    // A missing evidence_gap is fine (null); only a gap that had an unresolved
+    // placeholder is a defect.
+    const gapFailed = evidenceGap !== null && gapResolved === null;
+    if (what === null || how === null || titleResolved === null || gapFailed) {
       rejections.push({ entry: label, reason: "unresolved placeholder; used deterministic text", theme_ids: ids });
       entries.push(deterministicEntry(themes, { reason: "unresolved_placeholder" }));
       for (const id of ids) covered.add(id);
@@ -376,12 +394,12 @@ export function assembleNarration(parsed, packet) {
     }
 
     entries.push({
-      title,
+      title: titleResolved,
       what,
       how_it_helped: how,
       theme_ids: ids,
       confidence,
-      ...(evidenceGap ? { evidence_gap: evidenceGap } : {}),
+      ...(gapResolved ? { evidence_gap: gapResolved } : {}),
       source: "model",
     });
     for (const id of ids) covered.add(id);
