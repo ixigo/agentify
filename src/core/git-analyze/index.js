@@ -245,24 +245,45 @@ export async function runGitAnalyze(root, options = {}) {
   // scope/directory clustering. Bounded and read-only; a capped or failed scan
   // makes no attribution rather than a wrong one.
   const branchNames = (collection.branches || []).map((branch) => branch.name).filter(Boolean);
-  let candidateNames;
-  let mainlineBranch = null;
-  if (filterSet.branchGlobs.length > 0) {
-    candidateNames = branchResolution ? branchResolution.matchedNames : [];
-  } else {
-    candidateNames = branchNames;
-    mainlineBranch = await getMainlineBranch(repositoryPath, branchNames);
-  }
-  const windowShas = new Set(report.commits.map((record) => record.sha));
-  const { ownership: branchOwnership, incomplete: branchIncomplete } = await computeBranchOwnership(repositoryPath, {
-    candidateNames,
-    windowShas,
-    dateArgs: bounds.dateArgs,
-    range: bounds.range,
-    mainlineBranch,
-  });
-  if (branchIncomplete) {
-    notes.push("Branch-based clustering was skipped (too many branches, or a branch listing could not be read); themes cluster by issue key, conventional scope, and directory only.");
+  let branchOwnership = new Map();
+  // Issue keys are tier 1, so a commit that cites one never needs branch
+  // attribution. Only pay for the rev-list sweep when some commit lacks an issue
+  // key and could actually reach the branch tier.
+  const needsBranchClustering = report.commits.some(
+    (record) => !(Array.isArray(record.issueKeys) && record.issueKeys.length > 0),
+  );
+  if (needsBranchClustering) {
+    let candidateNames = [];
+    let mainlineBranch = null;
+    if (filterSet.branchGlobs.length > 0) {
+      // Explicit --branch: the user chose the scope; attribute across exactly
+      // those branches (even a single one), with no trunk exclusion.
+      candidateNames = branchResolution ? branchResolution.matchedNames : [];
+    } else {
+      // Auto mode: branch clustering needs a known trunk to tell feature
+      // branches from trunk history. Without one (no main/master/origin HEAD)
+      // skip it entirely rather than mislabel trunk commits as a branch theme.
+      mainlineBranch = await getMainlineBranch(repositoryPath, branchNames);
+      if (mainlineBranch) {
+        candidateNames = branchNames;
+      } else if (branchNames.length > 1) {
+        notes.push("Branch-based clustering was skipped: no mainline branch (main, master, or origin's default) could be identified to separate feature branches from trunk history.");
+      }
+    }
+    if (candidateNames.length > 0) {
+      const windowShas = new Set(report.commits.map((record) => record.sha));
+      const { ownership, incomplete } = await computeBranchOwnership(repositoryPath, {
+        candidateNames,
+        windowShas,
+        dateArgs: bounds.dateArgs,
+        range: bounds.range,
+        mainlineBranch,
+      });
+      branchOwnership = ownership;
+      if (incomplete) {
+        notes.push("Branch-based clustering was skipped (too many branches, or a branch listing could not be read); themes cluster by issue key, conventional scope, and directory only.");
+      }
+    }
   }
 
   // #352: the deterministic theme summary (headline, distributions, themes,

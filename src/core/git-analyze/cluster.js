@@ -618,7 +618,11 @@ export function buildGitAnalyzeSummary(report, options = {}) {
     last_commit: lastCommit,
     repositories: repositories.length,
     merges: reportTotals.merges || 0,
-    authors: (report.counts && report.counts.authors) || authorEmails.size,
+    // Distinct authors over the SAME clustered set and the SAME (lower-cased
+    // email) normalization the by_author distribution uses, so the headline
+    // author count and the distribution always reconcile — and merge authors are
+    // counted under --include-merges (allCommits includes merges there).
+    authors: authorEmails.size,
   };
 
   const denominator = totals.commits;

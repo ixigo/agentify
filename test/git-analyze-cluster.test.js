@@ -406,27 +406,38 @@ test("computeBranchOwnership attributes commits unique to one branch", async () 
   }
 });
 
-test("computeBranchOwnership makes no attribution for a lone branch with no trunk", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lone-"));
+test("no branch themes form when the mainline cannot be identified (correctness over completeness)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-notrunk-"));
   try {
-    // A repo on a non-standard default branch with nothing to compare against:
-    // every commit is trivially 'unique' to it, so attributing would label the
-    // whole repo one branch theme. The lone-candidate guard must prevent that.
+    // A non-standard default branch (no main/master, no origin HEAD) plus a
+    // feature branch. Without a known trunk we cannot tell feature from trunk,
+    // so branch clustering must be skipped entirely — never mislabel trunk
+    // commits as a "Branch develop" theme.
     await git(root, ["init", "-q", "-b", "develop"]);
     await git(root, ["config", "user.name", "Alice"]);
     await git(root, ["config", "user.email", "alice@work.com"]);
-    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    for (const f of ["a.txt", "b.txt"]) {
+      await fs.writeFile(path.join(root, f), "x\n");
+      await git(root, ["add", "."]);
+      await git(root, ["commit", "-q", "-m", `work ${f}`]);
+    }
+    await git(root, ["checkout", "-q", "-b", "feat/x"]);
+    await fs.writeFile(path.join(root, "c.txt"), "y\n");
     await git(root, ["add", "."]);
-    await git(root, ["commit", "-q", "-m", "work"]);
-    const sha = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+    await git(root, ["commit", "-q", "-m", "feature"]);
+    // Make a develop-only commit after the fork (the one prior code mislabeled).
+    await git(root, ["checkout", "-q", "develop"]);
+    await fs.writeFile(path.join(root, "d.txt"), "z\n");
+    await git(root, ["add", "."]);
+    await git(root, ["commit", "-q", "-m", "more trunk"]);
 
-    // mainlineBranch null (no main/master/origin-HEAD), single candidate.
-    const { ownership } = await computeBranchOwnership(root, {
-      candidateNames: ["develop"],
-      windowShas: new Set([sha]),
-      mainlineBranch: null,
-    });
-    assert.equal(ownership.size, 0, "no branch attribution for a lone trunk-like branch");
+    const report = await runGitAnalyze(root, { window: { days: 3650 }, scope: "local" });
+    const branchThemes = report.summary.themes.filter((t) => t.key_kind === "branch");
+    assert.equal(branchThemes.length, 0, "no branch themes without an identifiable trunk");
+    assert.ok(
+      report.notes.some((n) => /no mainline branch/i.test(n)),
+      "the skip is disclosed as a limitation",
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

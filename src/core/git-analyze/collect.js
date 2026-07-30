@@ -863,13 +863,6 @@ export async function computeBranchOwnership(root, params = {}) {
     // lives on an unscanned branch, so make no attribution at all.
     return { ownership: new Map(), capped: true, incomplete: true };
   }
-  // With no identifiable trunk to exclude AND only one candidate branch, that
-  // branch is the de-facto trunk: attributing to it would label the whole
-  // repository "Branch <name>". Skip branch clustering and let those commits
-  // fall through to scope/directory (they are never dropped).
-  if (!mainlineBranch && names.length <= 1) {
-    return { ownership: new Map(), capped: false, incomplete: false };
-  }
   // Iterate in a stable order so the single owner of a commit is deterministic.
   const considered = [...names].sort();
 
