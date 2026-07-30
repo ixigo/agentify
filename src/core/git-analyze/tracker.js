@@ -359,12 +359,14 @@ async function resolveViaAcli(keys, ctx) {
     budget.spend();
     ctx.requests += 1;
     const result = await exec("acli", ["jira", "workitem", "view", key, "--json"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
-    if (isAuthFailure(result.code, result.stderr)) {
-      ctx.disableTier("acli", "the Atlassian CLI is not authenticated (run `acli jira auth login`)");
-      break;
-    }
     if (result.code !== 0) {
-      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "acli" }));
+      const kind = classifyCliFailure(result.code, result.stderr);
+      if (kind === "auth") {
+        ctx.disableTier("acli", "the Atlassian CLI is not authenticated (run `acli jira auth login`)");
+        break;
+      }
+      if (kind === "transient") ctx.softErrors += 1;
+      ctx.entries.set(key, unresolvedEntry({ key, reason: kind === "transient" ? "unavailable" : kind, source: "acli" }));
       continue;
     }
     let parsed = null;
@@ -469,25 +471,29 @@ async function resolveViaRest(keys, ctx) {
 }
 
 // One `gh issue view` per GitHub key. gh operates in the repository's own
-// context, so the cache is scoped to the repository remote (or path) — two
-// checkouts never share a `#123`.
+// context; the cache is scoped to the repository remote AND the authenticated
+// gh account (ctx.ghScope, set after the auth probe), so switching accounts —
+// or losing access — never surfaces another account's cached private title. The
+// cache is READ here (after the auth probe), not prefilled before it.
 async function resolveViaGh(keys, ctx) {
   const { exec, budget, cacheDir, cache } = ctx;
   for (const key of keys) {
     if (ctx.entries.get(key)?.resolved) continue;
-    if (!budget.canSpend()) { ctx.exhausted = true; break; }
     const number = key.replace(/^#/, "");
     const cached = await maybeCached(ctx, ctx.ghScope, key);
     if (cached) { ctx.entries.set(key, cached); continue; }
+    if (!budget.canSpend()) { ctx.exhausted = true; break; }
     budget.spend();
     ctx.requests += 1;
     const result = await exec("gh", ["issue", "view", number, "--json", "number,title,state,url"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
-    if (isAuthFailure(result.code, result.stderr)) {
-      ctx.disableTier("gh", "the GitHub CLI is not authenticated (run `gh auth login`)");
-      break;
-    }
     if (result.code !== 0) {
-      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "gh" }));
+      const kind = classifyCliFailure(result.code, result.stderr);
+      if (kind === "auth") {
+        ctx.disableTier("gh", "the GitHub CLI is not authenticated (run `gh auth login`)");
+        break;
+      }
+      if (kind === "transient") ctx.softErrors += 1;
+      ctx.entries.set(key, unresolvedEntry({ key, reason: kind === "transient" ? "unavailable" : kind, source: "gh" }));
       continue;
     }
     let parsed = null;
@@ -514,13 +520,38 @@ async function maybeCached(ctx, scope, key) {
   return entry;
 }
 
-// A gh/acli auth failure is a distinct, whole-tier-disabling condition; a plain
-// non-zero exit (e.g. issue not found) is per-key. Classify conservatively on
-// the stderr text both CLIs emit.
-function isAuthFailure(code, stderr) {
+// The authenticated GitHub login from `gh auth status` output (which gh writes
+// to stdout or stderr depending on version). Handles both "account <login>" and
+// the older "as <login>" phrasings; returns "unknown" when unparseable, which
+// still partitions the cache away from a differently-parseable account.
+function parseGhAccount(stdout, stderr) {
+  const text = `${stdout || ""}\n${stderr || ""}`;
+  const m = /\baccount\s+([A-Za-z0-9-]+)/i.exec(text) || /\bas\s+([A-Za-z0-9-]+)/i.exec(text);
+  return m ? m[1].toLowerCase() : "unknown";
+}
+
+// Classify a CLI (acli/gh) failure from its exit code and stderr:
+//   "auth"      — a credential problem; disables the whole tier for the run.
+//   "not_found" — the issue genuinely does not exist / is inaccessible; per-key,
+//                 cacheable, definitive.
+//   "transient" — a timeout, spawn error, DNS/network failure, or server error;
+//                 per-key, NOT cacheable, and surfaced as a transient limitation.
+// A timeout (code 124) or a spawn failure (127) is never a "not found"; and a
+// DNS error ("no such host") is transient, not an auth problem.
+function classifyCliFailure(code, stderr) {
   const text = String(stderr || "").toLowerCase();
-  if (/\b(401|403)\b/.test(text)) return true;
-  return /not logged|authenticate|authentication|unauthor|no such host|login required|gh auth login|acli .*auth/.test(text);
+  if (/\b(401|403)\b/.test(text) || /not logged|authenticat|unauthor|login required|gh auth login|acli .*auth/.test(text)) {
+    return "auth";
+  }
+  if (code === 124 || code === 127 || /timed out|no such host|could not resolve host|econn|etimedout|network|dial tcp|\b5\d\d\b/.test(text)) {
+    return "transient";
+  }
+  if (/\b404\b|not found|could not resolve to|does not exist|no (such )?issue/.test(text)) {
+    return "not_found";
+  }
+  // An unclassifiable non-zero exit is treated as transient (safer than caching a
+  // wrong "not found"): it is reported without a title and not persisted.
+  return "transient";
 }
 
 // ---------------------------------------------------------------------------
@@ -643,41 +674,34 @@ export async function resolveTracker(params = {}) {
     if (missing.length > 0) {
       throw new Error(`git analyze --jira rest needs ${REST_ENV_VARS.join(", ")} in the environment; missing: ${missing.join(", ")}.`);
     }
-    throw new Error(`git analyze --jira rest needs JIRA_BASE_URL to be an https:// URL (credentials must not travel in cleartext); got "${env.JIRA_BASE_URL}".`);
+    // Show a userinfo-STRIPPED form of the URL — the raw value may embed
+    // `user:pass@host`, and an error message must never echo a credential.
+    const shown = jiraBaseUrl(env) || "(not a valid URL)";
+    throw new Error(`git analyze --jira rest needs JIRA_BASE_URL to be an https:// URL (credentials must not travel in cleartext); got "${shown}".`);
   }
   if (mode === "acli" && !jiraTier.order.includes("acli")) {
     limitations.push("git analyze --jira acli found no Atlassian CLI on PATH; Jira titles are unavailable and keys are reported without them.");
   }
 
-  // Warm-cache PREFILL (no network): fill resolved entries straight from the
-  // cache first, so a fully-warm re-run makes ZERO requests — not even a gh auth
-  // probe. The jira cache is host-scoped and written only by REST, so it is
-  // trusted only when REST is a configured tier (acli's authenticated site may
-  // differ from JIRA_BASE_URL, so an acli-only run must not read the REST cache).
-  // gh results are repo-scoped and always valid to prefill.
-  if (ctx.cache) {
-    if (jiraTier.order.includes("rest")) {
-      for (const key of jiraKeys) {
-        const cached = await readCacheEntry(ctx.cacheDir, ctx.jiraScope, key, ctx);
-        if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
-      }
-    }
-    // Only prefill GitHub titles when GitHub resolution is allowed. Under
-    // --global a `#NNN` is repository-relative, so a cache hit from THIS cwd
-    // would wrongly label another repository's identically-numbered issue.
-    if (allowGithub) {
-      for (const key of githubKeys) {
-        const cached = await readCacheEntry(ctx.cacheDir, ctx.ghScope, key, ctx);
-        if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
-      }
+  // Warm-cache PREFILL for JIRA only (no network): the REST cache is host+account
+  // scoped and written only by REST, so it is trusted only when REST is a
+  // configured tier (acli's site may differ from JIRA_BASE_URL, so an acli-only
+  // run must not read the REST cache). GitHub is NOT prefilled here: its cache is
+  // scoped by the authenticated gh account, which is known only after the auth
+  // probe, so a cached private title is never surfaced without confirming the
+  // current account still holds access.
+  if (ctx.cache && jiraTier.order.includes("rest")) {
+    for (const key of jiraKeys) {
+      const cached = await readCacheEntry(ctx.cacheDir, ctx.jiraScope, key, ctx);
+      if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
     }
   }
   const jiraNeedsWork = jiraKeys.some((key) => !ctx.entries.has(key));
-  const githubNeedsWork = githubKeys.some((key) => !ctx.entries.has(key));
+  const githubNeedsWork = githubKeys.length > 0;
 
   // gh PRESENCE is a local `which` (no network) — safe to check before the
-  // disclosure, and only when a GitHub key still needs resolving. The auth probe
-  // (which may contact a host) is deferred until after the disclosure below.
+  // disclosure. The auth probe (which may contact a host) is deferred until
+  // after the disclosure below.
   const ghPresent = allowGithub && githubNeedsWork ? await hasBinary("gh") : false;
   if (!allowGithub && githubKeys.length > 0) {
     limitations.push("GitHub issue titles are not resolved under --global (a #NNN is repository-relative and cannot be resolved from one working directory); Jira keys are still resolved.");
@@ -724,7 +748,13 @@ export async function resolveTracker(params = {}) {
       // undisclosed host).
       const status = await exec("gh", ["auth", "status", "--hostname", githubHost], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
       ghAvailable = status.code === 0;
-      if (!ghAvailable) {
+      if (ghAvailable) {
+        // Qualify the GitHub cache scope with the AUTHENTICATED account (parsed
+        // from the probe output), so a warm cache written under one account is
+        // never surfaced to another — the parallel of the Jira account scoping.
+        const account = parseGhAccount(status.stdout, status.stderr);
+        ctx.ghScope = `${ctx.ghScope}:acct:${account}`;
+      } else {
         limitations.push("git analyze --jira: the GitHub CLI (gh) is installed but not authenticated (run `gh auth login`); GitHub issue titles are unavailable.");
       }
     }
@@ -759,8 +789,25 @@ export async function resolveTracker(params = {}) {
   if (ctx.softErrors > 0) {
     limitations.push(`${ctx.softErrors} tracker request(s) failed transiently (rate limit or server error); the affected keys are reported without titles.`);
   }
-  if (mode === "auto" && jiraTier.order.length === 0 && !ghAvailable && (jiraKeys.length > 0 || githubKeys.length > 0)) {
-    limitations.push("git analyze --jira auto found no tracker configured (no acli on PATH, no Jira REST env vars, no authenticated gh); issue keys are grouped and linked but not titled.");
+  // PER-PROVIDER limitations: emit one whenever that provider left keys
+  // untitled because it was not configured/authenticated — so a partial setup
+  // (e.g. gh works but Jira is unconfigured, or vice versa) is never silent.
+  // Explicit acli/rest modes already stated their own limitation above; only add
+  // the generic Jira note for `auto` with no Jira tier configured.
+  const jiraUntitled = jiraKeys.some((key) => !ctx.entries.get(key)?.resolved);
+  const githubUntitled = allowGithub && githubKeys.some((key) => !ctx.entries.get(key)?.resolved);
+  if (mode === "auto" && jiraTier.order.length === 0 && jiraKeys.length > 0) {
+    limitations.push("git analyze --jira: no Jira tracker is configured (no acli on PATH and no Jira REST env vars); Jira keys are grouped and linked but not titled.");
+  }
+  if (githubUntitled && !ghAvailable && !disabledTiers.includes("gh")) {
+    // gh not present at all (a disabled/unauthenticated gh already stated its own
+    // limitation above). Only note when there is genuinely no gh to use.
+    limitations.push("git analyze --jira: no authenticated GitHub CLI (gh) is available; GitHub issue titles are not resolved.");
+  }
+  // A safety net: if, after everything, some keys remain untitled and NOTHING
+  // above explained it, say so once rather than leaving an unexplained gap.
+  if ((jiraUntitled || githubUntitled) && limitations.length === 0) {
+    limitations.push("Some issue keys could not be titled; they are grouped and linked but shown without a tracker title.");
   }
 
   const entries = {};

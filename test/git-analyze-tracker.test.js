@@ -146,7 +146,7 @@ test("mode off returns null and makes zero requests", async () => {
   assert.equal(http.calls.length, 0);
 });
 
-test("auto with nothing configured behaves like the default plus one limitation", async () => {
+test("auto with nothing configured makes no requests and states per-provider limitations", async () => {
   const http = mockHttp(() => ({ statusCode: 200, body: "{}" }));
   const { env } = await tmpCacheEnv();
   const result = await resolveTracker({
@@ -158,8 +158,9 @@ test("auto with nothing configured behaves like the default plus one limitation"
   assert.equal(http.calls.length, 0);
   assert.equal(result.tier, "offline");
   assert.equal(result.network_requests, 0);
-  assert.equal(result.limitations.length, 1);
-  assert.match(result.limitations[0], /no tracker configured/);
+  // Both providers are unconfigured, and each unresolved kind states its own note.
+  assert.ok(result.limitations.some((l) => /no Jira tracker is configured/.test(l)));
+  assert.ok(result.limitations.some((l) => /no authenticated GitHub CLI/.test(l)));
 });
 
 // ---------------------------------------------------------------------------
@@ -637,10 +638,10 @@ test("cache files and directory are created owner-only (0700/0600)", async () =>
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-test("a warm GitHub cache makes zero requests, including no auth probe", async () => {
+test("a warm GitHub cache serves titles from cache with no issue-view request (auth still confirmed)", async () => {
   const { dir, env } = await tmpCacheEnv();
   const okExec = async (command, args) => {
-    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: "", stderr: "" };
+    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: "Logged in to github.com account octocat", stderr: "" };
     if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 7, title: "Cached GH", state: "OPEN", url: "https://github.com/o/r/issues/7" }), stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
   };
@@ -648,14 +649,15 @@ test("a warm GitHub cache makes zero requests, including no auth probe", async (
   const cold = await resolveTracker(opts);
   assert.equal(cold.entries["#7"].title, "Cached GH");
 
-  // Warm run: any gh invocation (auth or issue) would be a request; there must
-  // be none.
-  let ghCalls = 0;
-  const countingExec = async (command, ...rest) => { if (command === "gh") ghCalls += 1; return okExec(command, ...rest); };
+  // Warm run: the title comes from cache, so NO `gh issue view` runs. The auth
+  // probe DOES run — it is what confirms the current account still has access
+  // before a cached private title is surfaced (a deliberate security trade).
+  let issueCalls = 0;
+  const countingExec = async (command, ...rest) => { if (command === "gh" && rest[0][0] === "issue") issueCalls += 1; return okExec(command, ...rest); };
   const warm = await resolveTracker({ ...opts, deps: { exec: countingExec, hasBinary: async (n) => n === "gh" } });
   assert.equal(warm.entries["#7"].title, "Cached GH");
-  assert.equal(ghCalls, 0, "a warm gh cache must not even run the auth probe");
-  assert.equal(warm.network_requests, 0);
+  assert.equal(issueCalls, 0, "a warm gh cache must not issue a per-key gh request");
+  assert.ok(warm.cache_hits >= 1);
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -888,6 +890,33 @@ test("a REST 429 stops the tier instead of firing the remaining batches", async 
   assert.equal(http.calls.length, 1, "a 429 must halt the tier, not trigger the second batch");
   assert.equal(result.entries["PROJ-1"].reason, "rate_limited");
   assert.equal(result.entries["PROJ-60"].reason, "rate_limited");
+});
+
+test("the GitHub cache is partitioned by authenticated account", async () => {
+  const { dir, env } = await tmpCacheEnv();
+  const makeExec = (account, title) => async (command, args) => {
+    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: `Logged in to github.com account ${account}`, stderr: "" };
+    if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 7, title, state: "OPEN", url: "https://github.com/o/r/issues/7" }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const base = { keys: ["#7"], mode: "auto", env: { ...env, JIRA_BASE_URL: "" }, ghScope: "https://github.com/o/r" };
+  const a = await resolveTracker({ ...base, deps: { exec: makeExec("alice", "Alice sees this"), hasBinary: async (n) => n === "gh" } });
+  const b = await resolveTracker({ ...base, deps: { exec: makeExec("bob", "Bob sees this"), hasBinary: async (n) => n === "gh" } });
+  assert.equal(a.entries["#7"].title, "Alice sees this");
+  assert.equal(b.entries["#7"].title, "Bob sees this", "a different gh account must not reuse the first account's cached title");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a transient acli failure is reported as unavailable, not not_found, and noted", async () => {
+  const { env } = await tmpCacheEnv();
+  const exec = async (command, args) => {
+    if (command === "acli" && args[0] === "jira") return { code: 124, stdout: "", stderr: "timed out" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const result = await resolveTracker({ keys: ["PROJ-1"], mode: "acli", env, cache: false, deps: { exec, hasBinary: async () => true } });
+  assert.equal(result.entries["PROJ-1"].resolved, false);
+  assert.equal(result.entries["PROJ-1"].reason, "unavailable");
+  assert.ok(result.limitations.some((l) => /transiently/.test(l)));
 });
 
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
