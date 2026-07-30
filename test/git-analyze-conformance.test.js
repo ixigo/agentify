@@ -561,6 +561,16 @@ ctest("proof: the footprint assertion FAILS on a write inside the repo (incl. a 
     await fs.writeFile(readme, flipped);
     await fs.utimes(readme, st.atime, st.mtime); // restore the timestamp
     const after4 = await snapshotTree(repo.root);
+    // Assert the CONTENT HASH specifically changed — not merely the mtime (which
+    // fs.utimes may not restore to sub-ms precision). The entry is
+    // `size:mode:mtimeMs:sha256`; compare only the trailing hash so this proves
+    // the hash, independent of any timestamp jitter.
+    const hashOf = (entry) => String(entry).split(":").pop();
+    assert.notEqual(
+      hashOf(after4.entries["README.md"]),
+      hashOf(before4.entries["README.md"]),
+      "content hash did not change on a same-size write — the hash is not what caught it",
+    );
     diffs = diffSnapshots(before4, after4);
     assert.ok(diffs.some((d) => d.includes("modified: README.md")), "content hash failed to catch a same-size mtime-restored write");
     await fs.writeFile(readme, original); // restore
@@ -592,6 +602,7 @@ ctest("proof: the git allowlist FAILS on mutating subcommands", () => {
     ["log", "--output", "/tmp/leak"],                // write: --output writes a file
     ["show", "--ext-diff", "HEAD"],                  // exec: runs an external diff program
     ["log", "--textconv"],                           // exec: runs a configured filter
+    ["cat-file", "--filters", "HEAD:f"],             // exec: runs configured clean/smudge filters
   ];
   const violations = findGitViolations(denied);
   assert.equal(violations.length, denied.length, `every denied call must be flagged; got:\n${violations.join("\n")}`);

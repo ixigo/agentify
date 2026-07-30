@@ -118,10 +118,10 @@ agentify git analyze --months 3 --author ranveer.kumar@travenues.com --author ra
 printf 'Ranveer <ranveer.kumar@travenues.com> <ranveersequeira@gmail.com>\n' >> .mailmap
 ```
 
-A missing `.mailmap` is never an error. When it would actually change the result
-— i.e. some of your commits are authored under an identity `--me` did not match —
-the report states that limitation; when every identity already resolves, there is
-nothing to note.
+A missing `.mailmap` is never an error. Whenever you pass `--me` and no
+`.mailmap` is present, the report states this limitation — it cannot know whether
+you have a second identity, so it always points you at `--author`/`.mailmap` in
+case a first run is under-reporting.
 
 ## Worked example (this repository)
 

@@ -671,14 +671,16 @@ export function gitSubcommand(argv) {
 // Flags that make an otherwise read-only subcommand write a file or run an
 // external program, regardless of subcommand: `--output[=<file>]` (diff/log/
 // format-patch write to a file), `--ext-diff` (runs a configured external diff
-// program — a side effect), and `--textconv` (runs a configured filter and can
-// populate a textconv cache). The command deliberately uses the negated
-// `--no-ext-diff`/`--no-textconv`, which are safe and NOT matched here.
+// program), `--textconv` (runs a configured textconv filter and can populate a
+// textconv cache), and `--filters` (`cat-file --filters` runs configured
+// clean/smudge filters — arbitrary process execution). The command deliberately
+// uses the negated `--no-ext-diff`/`--no-textconv`, which are safe and NOT
+// matched here.
 function hasWriteOrExecFlag(argv) {
   // Note: `-O<orderfile>` READS an order file (not a write) and is not flagged.
   return argv.some((tok) =>
     tok === "--output" || tok.startsWith("--output=") ||
-    tok === "--ext-diff" || tok === "--textconv");
+    tok === "--ext-diff" || tok === "--textconv" || tok === "--filters");
 }
 
 export function findGitViolations(calls) {
