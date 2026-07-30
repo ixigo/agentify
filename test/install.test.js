@@ -104,7 +104,56 @@ test("runOneCommandInstall reports an updated .gitignore in the receipt", async 
   const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
   // The user's line is preserved and the file changed, so it must be reported.
   assert.match(gitignore, /node_modules/);
+  for (const generatedPath of [
+    "/.agentify.yaml",
+    "/.agentignore",
+    "/.guardrails",
+    "/.claude/settings.json",
+    "/.claude/hooks/plan-to-html.mjs",
+    "plans/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.html",
+  ]) {
+    assert.ok(gitignore.split("\n").includes(generatedPath), `expected ${generatedPath} to be ignored`);
+  }
+  assert.ok(!gitignore.split("\n").includes("CLAUDE.md"));
+  assert.ok(!gitignore.split("\n").includes("AGENTS.md"));
+  assert.ok(!gitignore.split("\n").includes(".agentify.yaml"));
+  assert.ok(!gitignore.split("\n").includes(".agentignore"));
+  assert.ok(!gitignore.split("\n").includes(".guardrails"));
+  assert.ok(!gitignore.split("\n").includes(".claude/settings.json"));
+  assert.ok(!gitignore.split("\n").includes(".claude/hooks/plan-to-html.mjs"));
   assert.ok(result.wrote.includes(".gitignore"), `expected .gitignore in wrote: ${JSON.stringify(result.wrote)}`);
+});
+
+test("runOneCommandInstall does not ignore pre-existing mixed-ownership files", async () => {
+  const root = await tmpDir("agentify-install-existing-");
+  const home = await tmpDir("agentify-install-existing-home-");
+  await fs.mkdir(path.join(root, ".claude", "hooks"), { recursive: true });
+  await fs.writeFile(path.join(root, ".agentify.yaml"), "{}\n", "utf8");
+  await fs.writeFile(path.join(root, ".agentignore"), "custom-cache/\n", "utf8");
+  await fs.writeFile(path.join(root, ".guardrails"), "# Team guardrails\n", "utf8");
+  await fs.writeFile(
+    path.join(root, ".claude", "settings.json"),
+    `${JSON.stringify({ permissions: { allow: ["Bash"] } }, null, 2)}\n`,
+    "utf8",
+  );
+  await fs.writeFile(path.join(root, ".claude", "hooks", "plan-to-html.mjs"), "// custom renderer\n", "utf8");
+
+  await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
+  });
+
+  const lines = (await fs.readFile(path.join(root, ".gitignore"), "utf8")).split("\n");
+  assert.ok(!lines.includes(".agentify.yaml"));
+  assert.ok(!lines.includes("/.agentify.yaml"));
+  assert.ok(!lines.includes(".agentignore"));
+  assert.ok(!lines.includes("/.agentignore"));
+  assert.ok(!lines.includes(".guardrails"));
+  assert.ok(!lines.includes("/.guardrails"));
+  assert.ok(!lines.includes(".claude/settings.json"));
+  assert.ok(!lines.includes("/.claude/settings.json"));
+  assert.ok(!lines.includes("/.claude/hooks/plan-to-html.mjs"));
 });
 
 test("runOneCommandInstall reports ok:false when a registration cannot complete", async () => {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureDir, exists } from "./fs.js";
+import { ensureAgentifyGitignore } from "./gitignore.js";
 import { SKILL_INSTALL_PROVIDER_NAMES } from "./provider-registry.js";
 
 const BUILTIN_SKILL_ROOT = fileURLToPath(new URL("../../skills", import.meta.url));
@@ -397,12 +398,20 @@ export async function installBuiltinSkill(rootDir, options = {}) {
     });
   }
 
+  const installedPatterns = results
+    .filter((result) => ["installed", "replaced", "would_install", "would_replace"].includes(result.status))
+    .map((result) => `/${path.relative(rootDir, result.target_dir).split(path.sep).join("/")}/`);
+  const gitignore = scope === "project" && installedPatterns.length > 0
+    ? await ensureAgentifyGitignore(rootDir, { dryRun, additionalPatterns: installedPatterns })
+    : null;
+
   return {
     command: "skill install",
     scope,
     providers,
     dry_run: dryRun,
     force,
+    gitignore,
     skill: {
       requested_name: skill.requestedName,
       name: skill.name,

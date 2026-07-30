@@ -290,14 +290,15 @@ async function buildPlanRendererResult(planRendererPath, { dryRun = false } = {}
     return null;
   }
   const source = await fs.readFile(PLAN_RENDERER_SOURCE_PATH, "utf8");
-  const current = (await exists(planRendererPath)) ? await readText(planRendererPath) : "";
+  const existed = await exists(planRendererPath);
+  const current = existed ? await readText(planRendererPath) : "";
   const changed = current !== source;
   if (changed && !dryRun) {
     await ensureDir(path.dirname(planRendererPath));
     await fs.writeFile(planRendererPath, source, { encoding: "utf8", mode: 0o755 });
     await fs.chmod(planRendererPath, 0o755);
   }
-  return { path: planRendererPath, changed };
+  return { path: planRendererPath, existed, changed };
 }
 
 async function removePlanRenderer(planRendererPath, { dryRun = false } = {}) {
@@ -328,7 +329,9 @@ export async function installIntegration(root, options = {}) {
   const targets = resolveIntegrationTargets(root, { ...options, provider });
   const dryRun = options.dryRun === true;
 
-  const memoryBefore = (await exists(targets.memoryPath)) ? await readText(targets.memoryPath) : "";
+  const memoryExisted = await exists(targets.memoryPath);
+  const settingsExisted = targets.settingsPath ? await exists(targets.settingsPath) : false;
+  const memoryBefore = memoryExisted ? await readText(targets.memoryPath) : "";
   const memoryResult = applyManagedBlock(memoryBefore, buildManagedBlock(provider));
 
   let settingsResult = null;
@@ -356,12 +359,14 @@ export async function installIntegration(root, options = {}) {
     dry_run: dryRun,
     memory: {
       path: targets.memoryPath,
+      existed: memoryExisted,
       action: memoryResult.action,
       changed: memoryResult.changed,
     },
     settings: targets.settingsPath
       ? {
         path: targets.settingsPath,
+        existed: settingsExisted,
         changed: settingsResult.changed || planRendererResult.changed,
         events: Object.keys(buildManagedHooks(targets)),
         renderer: planRendererResult,
