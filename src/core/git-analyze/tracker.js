@@ -675,9 +675,10 @@ export async function resolveTracker(params = {}) {
       }
     }
   }
+  const githubHost = typeof params.githubHost === "string" && params.githubHost.trim() ? params.githubHost.trim() : "github.com";
   if (ghPresent) {
     const ghCount = githubKeys.filter((key) => !ctx.entries.has(key)).length;
-    disclosures.push(`git analyze --jira: resolving ${ghCount} GitHub issue title(s) via the local gh CLI against github.com.`);
+    disclosures.push(`git analyze --jira: resolving ${ghCount} GitHub issue title(s) via the local gh CLI against ${githubHost}.`);
   }
   if (disclosures.length > 0 && typeof params.disclose === "function") {
     params.disclose(disclosures);
@@ -693,7 +694,11 @@ export async function resolveTracker(params = {}) {
     } else {
       budget.spend();
       ctx.requests += 1;
-      const status = await exec("gh", ["auth", "status"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
+      // Scope the auth probe to the repository's own host: an unqualified
+      // `gh auth status` checks EVERY configured GitHub host (and can fail
+      // because an unrelated GHE host has stale credentials, or contact an
+      // undisclosed host).
+      const status = await exec("gh", ["auth", "status", "--hostname", githubHost], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
       ghAvailable = status.code === 0;
       if (!ghAvailable) {
         limitations.push("git analyze --jira: the GitHub CLI (gh) is installed but not authenticated (run `gh auth login`); GitHub issue titles are unavailable.");

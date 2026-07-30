@@ -372,10 +372,23 @@ export function clusterCommits(commits, options = {}) {
  * @param {object|null} tracker - the `report.tracker` block (or null when off)
  * @returns {object} the same summary
  */
+// Collapse whitespace/control characters in a remote label to a single line, so
+// a title used as a one-line theme label cannot break a text table or terminal
+// row. Not an escape — renderers still escape (HTML) or md-escape as needed.
+function normalizeLabel(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
 export function applyTrackerTitles(summary, tracker) {
   if (!summary || !tracker || !tracker.entries) return summary;
   const entries = tracker.entries;
   const lookup = (key) => (Object.prototype.hasOwnProperty.call(entries, key) ? entries[key] : null);
+
+  // Mark the summary as tracker-enriched with the tracker's own schema, so a
+  // consumer validating the summary ALONE can detect that theme.title semantics
+  // were changed and tracker/tracker_refs may be present — even though the
+  // base SUMMARY_SCHEMA (what buildGitAnalyzeSummary emits) is unchanged.
+  summary.tracker_schema = tracker.schema || null;
 
   for (const theme of summary.themes || []) {
     if (theme.key_kind === "issue" && theme.key) {
@@ -384,8 +397,10 @@ export function applyTrackerTitles(summary, tracker) {
         theme.tracker = entry;
         if (entry.resolved && entry.title) {
           // Keep the key in the label so a figure still reconciles to its key;
-          // the title is what makes the theme readable.
-          theme.title = `${theme.key} — ${entry.title}`;
+          // the title is what makes the theme readable. Newlines/tabs in a remote
+          // title are collapsed so the one-line label cannot break a table or a
+          // terminal row (the full raw title stays on theme.tracker for JSON).
+          theme.title = `${theme.key} — ${normalizeLabel(entry.title)}`;
         }
       }
     }

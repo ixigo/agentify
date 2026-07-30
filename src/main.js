@@ -177,6 +177,22 @@ function isMissingIndexError(error) {
   return error instanceof Error && /missing index database at /.test(error.message);
 }
 
+// The GitHub host of a git remote URL (github.com or a GitHub Enterprise host),
+// used to scope the tracker's `gh` probe and disclosure to the repository's own
+// host. Handles both URL forms (https://host/… , ssh://git@host/…) and the
+// scp-like shorthand (git@host:owner/repo). Returns null when undeterminable.
+function parseGithubHost(remoteUrl) {
+  const raw = String(remoteUrl || "").trim();
+  if (!raw) return null;
+  const scp = /^[^@/]+@([^:/]+):/.exec(raw);
+  if (scp) return scp[1];
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `ssh://${raw}`).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
 function isInvalidIndexDatabaseError(error) {
   return error instanceof Error && (
     error.code === "AGENTIFY_INDEX_DATABASE_INVALID"
@@ -1591,18 +1607,28 @@ export async function runCli(argv, _runtime = {}) {
           // before emit so all four formats render the same titles. Fully
           // fail-soft: a per-key miss annotates that key; only an explicit
           // `--jira rest` with the env unset throws (an actionable misconfig).
-          if (trackerMode !== "off" && !dryRun && report.summary) {
+          // Runs on real runs AND under `--ai --dry-run`: the AI dry-run promises
+          // the EXACT packet, and a resolved title replaces theme.title before it
+          // reaches the provider — so the preview must resolve titles too. A plain
+          // (non-AI) --dry-run reads no history, so report.summary is absent and
+          // this is skipped.
+          if (trackerMode !== "off" && report.summary && (!dryRun || aiRequested)) {
             // Scope the GitHub cache by the repository's canonical remote URL when
             // there is one (it survives a checkout being moved), falling back to
             // the repo path. Read-only; a repo with no remote just uses its path.
             const repoRoot = report.repository?.path || root;
-            const ghScope = report.scope === "global" ? null : (await getRemoteUrl(repoRoot)) || repoRoot;
+            const remoteUrl = report.scope === "global" ? null : await getRemoteUrl(repoRoot);
+            const ghScope = report.scope === "global" ? null : (remoteUrl || repoRoot);
             const tracker = await resolveTracker({
               keys: collectIssueKeys(report.summary),
               mode: trackerMode,
               projects: jiraProjects,
               cwd: repoRoot,
               ghScope,
+              // Scope the gh probe/disclosure to the repository's own GitHub host
+              // (github.com or a GHE host), so an unqualified `gh auth status`
+              // cannot contact an unrelated, undisclosed host.
+              githubHost: parseGithubHost(remoteUrl),
               // A GitHub `#NNN` is repository-relative; under --global one cwd
               // cannot resolve it across repos, so gh is disabled there (Jira,
               // being site-global, still resolves).

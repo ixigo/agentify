@@ -796,6 +796,54 @@ test("the GitHub disclosure names the host and key count", async () => {
   assert.match(gh, /\b2\b/);
 });
 
+test("Markdown escapes untrusted tracker titles (no raw HTML / link injection)", () => {
+  const report = fixtureReport(["PROJ-1"]);
+  for (const theme of report.summary.themes) {
+    if (theme.key === "PROJ-1") theme.issue_keys = ["PROJ-1", "PROJ-2"];
+  }
+  const tracker = {
+    schema: TRACKER_SCHEMA,
+    entries: {
+      "PROJ-1": { key: "PROJ-1", resolved: true, title: "<img src=x onerror=alert(1)>", status: "Done", type: "Story", url: "https://x/browse/PROJ-1", source: "rest" },
+      "PROJ-2": { key: "PROJ-2", resolved: true, title: "[click](http://evil)", status: "Open", type: "Task", url: "https://x/browse/PROJ-2", source: "rest" },
+    },
+    limitations: [],
+  };
+  applyTrackerTitles(report.summary, tracker);
+  const md = renderMarkdown(report);
+  assert.ok(!md.includes("<img src=x onerror=alert(1)>"), "raw HTML survived into Markdown");
+  assert.ok(!md.includes("[click](http://evil)"), "a raw Markdown link survived");
+  assert.match(md, /PROJ-1/);
+});
+
+test("gh probe and disclosure are scoped to the repository's GitHub host", async () => {
+  const { env } = await tmpCacheEnv();
+  const authArgs = [];
+  const disclosed = [];
+  const exec = async (command, args) => {
+    if (command === "gh" && args[0] === "auth") { authArgs.push(args); return { code: 0, stdout: "", stderr: "" }; }
+    if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 1, title: "x", state: "OPEN", url: "https://ghe.example.com/o/r/issues/1" }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  await resolveTracker({
+    keys: ["#1"],
+    mode: "auto",
+    githubHost: "ghe.example.com",
+    env: { ...env, JIRA_BASE_URL: "" },
+    cache: false,
+    deps: { exec, hasBinary: async (n) => n === "gh" },
+    disclose: (lines) => disclosed.push(...lines),
+  });
+  assert.deepEqual(authArgs[0], ["auth", "status", "--hostname", "ghe.example.com"]);
+  assert.ok(disclosed.some((l) => /ghe\.example\.com/.test(l)), "disclosure must name the repo's GitHub host");
+});
+
+test("applyTrackerTitles stamps the summary with the tracker schema", () => {
+  const report = fixtureReport(["PROJ-1"]);
+  applyTrackerTitles(report.summary, { schema: TRACKER_SCHEMA, entries: {}, limitations: [] });
+  assert.equal(report.summary.tracker_schema, TRACKER_SCHEMA);
+});
+
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   const report = fixtureReport(["PROJ-1"]);
   const tracker = {

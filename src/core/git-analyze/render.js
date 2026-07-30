@@ -18,6 +18,18 @@ function plural(count, singular, pluralForm) {
   return count === 1 ? singular : (pluralForm || `${singular}s`);
 }
 
+// Escape the Markdown metacharacters that could let an untrusted tracker title
+// inject formatting, a link/image, code, a table cell, or raw HTML into the
+// generated document. Newlines are collapsed so a title cannot break out of its
+// line/heading. Applied to every remote (tracker) string the Markdown renderer
+// interpolates; deterministic (git-derived) text does not need it but is safe to
+// pass through.
+function mdInline(text) {
+  return String(text ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/([\\`*_{}[\]()<>|~#])/g, "\\$1");
+}
+
 // A bounded short-SHA evidence trail for the human formats. The full, complete
 // SHA list stays in the JSON contract (where a theme's figures are reconciled);
 // the document formats show enough to trace and then a "+N more" tail so a
@@ -238,12 +250,17 @@ export function renderText(report) {
 // ---------------------------------------------------------------------------
 
 // A compact "KEY — title" list of the other tickets a theme cites (its
-// tracker_refs), resolved titles where available. Returns "" when there are none.
-function relatedRefLines(refs) {
+// tracker_refs), resolved titles where available. `escape` normalizes each
+// untrusted title for the target format (md-escape for Markdown, one-line for
+// the terminal). Returns "" when there are none.
+function oneLine(text) {
+  return String(text ?? "").replace(/\s+/g, " ").trim();
+}
+function relatedRefLines(refs, escape = oneLine) {
   const entries = refs && typeof refs === "object" ? Object.values(refs) : [];
   if (entries.length === 0) return "";
   return entries
-    .map((entry) => (entry.resolved && entry.title ? `${entry.key} — ${entry.title}` : entry.key))
+    .map((entry) => (entry.resolved && entry.title ? `${entry.key} — ${escape(entry.title)}` : entry.key))
     .join(", ");
 }
 
@@ -251,24 +268,31 @@ function mdThemeSection(theme, showRepo) {
   const lines = [];
   const churn = `+${theme.insertions}/-${theme.deletions}`;
   const repoTag = showRepo ? `[${theme.repository}] ` : "";
-  lines.push(`### ${repoTag}${theme.title} — ${theme.commits} ${plural(theme.commits, "commit")} (${churn})`);
+  // Only the UNTRUSTED part of the heading is md-escaped: a resolved tracker
+  // title is rebuilt from the key plus the escaped remote title, so deterministic
+  // titles (Issue #42, Scope (acp), Directory src/) stay verbatim.
+  const headingTitle = theme.tracker && theme.tracker.resolved && theme.tracker.title
+    ? `${theme.key} — ${mdInline(theme.tracker.title)}`
+    : theme.title;
+  lines.push(`### ${repoTag}${headingTitle} — ${theme.commits} ${plural(theme.commits, "commit")} (${churn})`);
   lines.push("");
   const tag = themeKeyLine(theme);
   if (tag) lines.push(`- Key: ${tag}`);
   // Tracker enrichment (#355): the resolved title already rides in the heading
-  // (theme.title); surface the status/type and a link when present.
+  // (theme.title); surface the status/type and a link when present. All values
+  // are untrusted remote text and are md-escaped.
   if (theme.tracker) {
     const tr = theme.tracker;
     if (tr.resolved) {
-      const meta = [tr.type, tr.status].filter(Boolean).join(" · ");
-      lines.push(`- Tracker: ${meta || "resolved"}${tr.url ? ` — ${tr.url}` : ""}`);
+      const meta = [tr.type, tr.status].filter(Boolean).map(mdInline).join(" · ");
+      lines.push(`- Tracker: ${meta || "resolved"}${tr.url ? ` — ${mdInline(tr.url)}` : ""}`);
     } else if (tr.url) {
-      lines.push(`- Tracker: ${tr.key} (untitled) — ${tr.url}`);
+      lines.push(`- Tracker: ${mdInline(tr.key)} (untitled) — ${mdInline(tr.url)}`);
     }
   }
   // Other tickets this theme cites, resolved to titles where possible, so a
   // commit referencing more than one ticket does not spend a lookup for nothing.
-  const related = relatedRefLines(theme.tracker_refs);
+  const related = relatedRefLines(theme.tracker_refs, mdInline);
   if (related) lines.push(`- Related: ${related}`);
   const types = histogram(theme.type_histogram);
   if (types) lines.push(`- Types: ${types}`);
