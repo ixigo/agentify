@@ -113,6 +113,14 @@ const MAX_TOKEN_CHARS = 256 * 1024;
 // entries for that commit are dropped and the record is flagged.
 const MAX_NUMSTAT_ENTRIES = 200_000;
 
+// AGGREGATE ceiling on retained file paths across the whole collection. The
+// per-commit and commit-count caps do not bound this product: 50k commits each
+// touching 1,000 files is 50 million retained path strings, which exhausts
+// memory long before any existing cap reports anything. Past this budget the
+// churn NUMBERS still accumulate exactly (they are counters, not paths) — only
+// the retained path lists stop growing, and the collection says so.
+const MAX_TOTAL_FILE_ENTRIES = 500_000;
+
 // Caps so a pathological repo (200k commits in-window) terminates instead of
 // growing the kept arrays without bound. Overridable for tests.
 const DEFAULT_MAX_COMMITS = 50_000;
@@ -608,6 +616,14 @@ async function* streamRawRecords(root, gitArgs) {
   }
 }
 
+// An empty async stream, used when a branch restriction resolved to no
+// reachable refs: the collection proceeds normally (branch table, notes, shallow
+// probe) but reads zero commits, instead of spawning git with no positional ref
+// (which git would silently resolve to HEAD).
+async function* emptyRecordStream() {
+  // Intentionally yields nothing.
+}
+
 /**
  * Public streaming API: yield fully-built commit records incrementally.
  * Used by downstream slices (and the streaming test) that want records without
@@ -631,8 +647,16 @@ export async function* streamCommitRecords(root, options = {}) {
 // Assemble the `git log` argument array. Non-merge collection carries numstat;
 // merge collection does not (merge numstat is first-parent noise and merges are
 // excluded from churn counts). A `--` before the range is not needed: no
-// pathspec is passed here (path filtering lands in #351).
-function buildLogArgs({ merges, dateArgs = [], range = null }) {
+// pathspec is passed here (path filtering is a JS post-filter in #351).
+//
+// `refs` is the #351 branch-reachability pushdown: a list of fully-qualified
+// refs (e.g. `refs/heads/feat/a`). When present, commits reachable from ANY of
+// them are read (git unions and dedups, so a commit on two matched branches
+// appears once). A ref-based window lower bound (`A..HEAD` in `range`) is
+// re-expressed as an ancestor exclusion `^A` so "since <ref>" still holds under
+// a branch restriction. Refs are read-only revision arguments passed verbatim in
+// the argv array — no user pattern text ever reaches git here.
+function buildLogArgs({ merges, dateArgs = [], range = null, refs = null }) {
   const args = [
     "log",
     merges ? "--merges" : "--no-merges",
@@ -657,7 +681,15 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
     );
   }
   args.push(...dateArgs);
-  if (range) {
+  if (refs && refs.length > 0) {
+    if (range && range.includes("..")) {
+      const sinceRef = range.split("..")[0];
+      if (sinceRef) {
+        args.push(`^${sinceRef}`);
+      }
+    }
+    args.push(...refs);
+  } else if (range) {
     args.push(range);
   }
   return args;
@@ -879,6 +911,19 @@ export async function resolveWindowBounds(root, window) {
     range = untilRef;
   }
 
+  // A reversed window can never match a commit, so it would otherwise render as
+  // a perfectly successful report of zero commits — making a transposed pair of
+  // dates look like a real (and alarming) finding about the work done. Only
+  // checkable when both bounds resolved to instants; ref bounds are a revision
+  // range whose ordering is git's business.
+  if (sinceInstant !== null && untilInstant !== null && sinceInstant >= untilInstant) {
+    throw new Error(
+      `git analyze window is empty: --since (${new Date(sinceInstant).toISOString()}) is not before ` +
+        `--until (${new Date(untilInstant).toISOString()}). The window is half-open [since, until), so ` +
+        "the two bounds may not be equal either. Check whether they are the wrong way round.",
+    );
+  }
+
   // Exclusive unless the upper bound is a ref (a range, git-native inclusive).
   const untilExact = untilRef === null;
   return { dateArgs, range, sinceInstant, untilInstant, untilExact };
@@ -929,6 +974,10 @@ function isEmptyHistoryError(error) {
  * @param {number} [options.maxCommits]
  * @param {number} [options.maxMerges]
  * @param {string[]} [options.ignorePatterns] - override default ignore patterns (tests)
+ * @param {string[]} [options.refs] - #351 branch-reachability pushdown: read only
+ *   commits reachable from these fully-qualified refs. `null`/absent means no
+ *   branch restriction (default HEAD reachability); an explicit EMPTY array means
+ *   the branch globs matched no branch, so nothing is read (not a fallback to HEAD).
  * @returns {Promise<{
  *   commits: object[], merges: object[], branches: object[],
  *   stats: object, truncated: {commits:boolean, merges:boolean}, notes: string[]
@@ -946,10 +995,17 @@ export async function collectCommits(root, options = {}) {
   const bounds = options.bounds || await resolveWindowBounds(root, window);
   const { dateArgs, range } = bounds;
 
+  // #351 branch-reachability pushdown. A `null`/absent `refs` reads default HEAD
+  // reachability; an explicit empty array means the `--branch` globs matched no
+  // branch, so we read nothing rather than let an empty positional ref list fall
+  // back to HEAD (which would silently ignore the filter).
+  const refs = Array.isArray(options.refs) ? options.refs : null;
+  const noReachableRefs = refs !== null && refs.length === 0;
+
   const notes = [];
   const commits = [];
   const merges = [];
-  const truncated = { commits: false, merges: false, files: false };
+  const truncated = { commits: false, merges: false, files: false, fileEntries: false };
 
   // Aggregate rollups. Line/file totals are RAW (before generated-path
   // exclusion) so they match the reference measurement; `filesExcluded` records
@@ -962,6 +1018,8 @@ export async function collectCommits(root, options = {}) {
   let fileChanges = 0;
   let binaryFiles = 0;
   let filesExcluded = 0;
+  // Retained path entries across ALL commits, against MAX_TOTAL_FILE_ENTRIES.
+  let retainedFileEntries = 0;
 
   const addIssueRefs = (record) => {
     for (const key of record.issueKeys) {
@@ -971,8 +1029,8 @@ export async function collectCommits(root, options = {}) {
 
   // --- non-merge commits (the counted set, with numstat) ---
   try {
-    const gitArgs = buildLogArgs({ merges: false, dateArgs, range });
-    for await (const raw of streamRawRecords(root, gitArgs)) {
+    const gitArgs = buildLogArgs({ merges: false, dateArgs, range, refs });
+    for await (const raw of noReachableRefs ? emptyRecordStream() : streamRawRecords(root, gitArgs)) {
       const { record, numstat } = parseRecord(raw, { isMerge: false, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
@@ -994,13 +1052,23 @@ export async function collectCommits(root, options = {}) {
       deletions += numstat.deletions;
       binaryFiles += numstat.binaryFiles;
       filesExcluded += numstat.excludedFiles.length;
-      for (const file of numstat.files) {
-        rawDistinctFiles.add(file);
-        fileChanges += 1;
-      }
-      for (const file of numstat.excludedFiles) {
-        rawDistinctFiles.add(file);
-        fileChanges += 1;
+      // Counters always advance; only PATH RETENTION is budgeted, so churn
+      // totals stay exact even once the path lists stop growing.
+      fileChanges += numstat.files.length + numstat.excludedFiles.length;
+      if (retainedFileEntries >= MAX_TOTAL_FILE_ENTRIES) {
+        truncated.fileEntries = true;
+        // Drop this record's path list rather than keep a partial one that a
+        // downstream path filter would silently read as "touched nothing else".
+        record.files = [];
+        record.filesTruncated = true;
+      } else {
+        for (const file of numstat.files) {
+          rawDistinctFiles.add(file);
+        }
+        for (const file of numstat.excludedFiles) {
+          rawDistinctFiles.add(file);
+        }
+        retainedFileEntries += numstat.files.length + numstat.excludedFiles.length;
       }
     }
   } catch (error) {
@@ -1013,8 +1081,8 @@ export async function collectCommits(root, options = {}) {
 
   // --- merge commits (delivery evidence; excluded from churn counts) ---
   try {
-    const gitArgs = buildLogArgs({ merges: true, dateArgs, range });
-    for await (const raw of streamRawRecords(root, gitArgs)) {
+    const gitArgs = buildLogArgs({ merges: true, dateArgs, range, refs });
+    for await (const raw of noReachableRefs ? emptyRecordStream() : streamRawRecords(root, gitArgs)) {
       const { record } = parseRecord(raw, { isMerge: true, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
@@ -1036,6 +1104,12 @@ export async function collectCommits(root, options = {}) {
 
   const { branches, ok: branchesOk } = await getBranchTable(root);
 
+  if (truncated.fileEntries) {
+    notes.push(
+      `File-path retention was capped at ${MAX_TOTAL_FILE_ENTRIES} entries; insertions, deletions, and ` +
+        "file-change counts are still exact, but per-commit file lists and the distinct-file total are a floor.",
+    );
+  }
   if (truncated.commits) {
     notes.push(`Commit reading was capped at ${maxCommits}; counts reflect the cap, not the full window.`);
   }

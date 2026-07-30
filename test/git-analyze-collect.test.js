@@ -614,6 +614,49 @@ test("derived record fields stay bounded on a pathological commit message", asyn
   await fs.rm(root, { recursive: true, force: true });
 });
 
+// A transposed date pair matches no commit, so without this check the command
+// reports a confident, successful "0 commits" — which reads as a real finding
+// about the work done rather than a typo in the flags.
+test("a reversed or empty window is rejected instead of reported as zero commits", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-window-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await git(root, ["config", "commit.gpgsign", "false"]);
+  await fs.writeFile(path.join(root, "a.txt"), "a\n");
+  await git(root, ["add", "a.txt"]);
+  await git(root, ["commit", "-m", "feat: only commit"]);
+
+  const reversed = {
+    since: "2026-07-01T00:00:00.000Z",
+    until: "2026-06-01T00:00:00.000Z",
+    since_kind: "instant",
+    until_kind: "instant",
+  };
+  await assert.rejects(
+    () => collectCommits(root, { window: reversed }),
+    /window is empty/,
+    "a reversed window must fail loudly",
+  );
+
+  // Half-open [since, until) means an equal pair can never match either.
+  const degenerate = { ...reversed, until: reversed.since };
+  await assert.rejects(() => collectCommits(root, { window: degenerate }), /window is empty/);
+
+  // The correctly-ordered window still works.
+  const ok = await collectCommits(root, {
+    window: {
+      since: "2020-01-01T00:00:00.000Z",
+      until: "2030-01-01T00:00:00.000Z",
+      since_kind: "instant",
+      until_kind: "instant",
+    },
+  });
+  assert.equal(ok.stats.commits, 1);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("createIgnoreMatcher matches the default generated patterns", () => {
   const matcher = createIgnoreMatcher(["pnpm-lock.yaml", "dist/", "*.min.*", ".agentify/work/**"]);
   assert.equal(matcher("pnpm-lock.yaml"), true);

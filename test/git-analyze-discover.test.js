@@ -475,6 +475,52 @@ test("global real run keeps repositories separate and labels the aggregate", asy
   assert.equal(report.repositories[1].commits[0].repository, "beta");
 });
 
+// Integration guard for the #350 + #351 seam: discovery and filtering were
+// built independently, and the global path originally collected commits without
+// ever applying the filter set — so `--global --me --type feat` silently
+// reported every commit in the window as if no filter had been passed.
+test("global run applies filters per repository and reports each repo's match counts", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-global-filters-"));
+  const alpha = path.join(root, "alpha");
+  const beta = path.join(root, "beta");
+  await initRepo(alpha, { subject: "feat(core): alpha feature" });
+  await initRepo(beta, { subject: "fix(core): beta fix" });
+  // A second commit in alpha that the --type filter must exclude.
+  await fs.writeFile(path.join(alpha, "chore.txt"), "x\n");
+  await git(alpha, ["add", "."]);
+  await git(alpha, ["commit", "-q", "-m", "chore: alpha housekeeping"]);
+
+  const report = await runGitAnalyze("/unused", {
+    scope: "global",
+    dryRun: false,
+    window: { days: 3650 },
+    repositories: [
+      { path: alpha, name: "alpha" },
+      { path: beta, name: "beta" },
+    ],
+    discovery: { roots: [root], repositoriesFound: 2, fromCache: false, limitations: [] },
+    filters: { type: "feat" },
+  });
+
+  // Only alpha's feat commit survives: the filter really ran.
+  assert.equal(report.counts.commits, 1);
+  const [alphaSection, betaSection] = report.repositories;
+  assert.equal(alphaSection.counts.commits, 1);
+  assert.equal(betaSection.counts.commits, 0);
+
+  // Each repository carries its OWN match counts — a filter matching in one
+  // repo and not another is normal and must not read as a global miss.
+  const alphaType = alphaSection.filters.applied_filters.find((entry) => entry.kind === "type");
+  const betaType = betaSection.filters.applied_filters.find((entry) => entry.kind === "type");
+  assert.equal(alphaType.matched, 1);
+  assert.equal(betaType.matched, 0);
+
+  // The requested set is stated once at the top level.
+  assert.ok(report.filters, "global report states the requested filter set");
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("CLI: git analyze --global --dry-run reports discovered repos and stays clean", async () => {
   const { root, alpha } = await buildFixtureTree();
   const cacheHome = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-cache-"));
