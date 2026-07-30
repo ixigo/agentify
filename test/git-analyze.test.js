@@ -99,14 +99,15 @@ test("runGitAnalyze --local errors with one actionable line outside a git repo",
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("runGitAnalyze scope=global is a valid downstream contract that does not require a repo", async () => {
-  // The #348 CLI never reaches this path (global is deferred to #350), but the
-  // report shape is frozen here so #350 can build on it.
+test("runGitAnalyze scope=global does not require the cwd to be a repo (#350)", async () => {
+  // Global scope reads a discovered repository LIST, not the cwd, so an empty
+  // list yields a valid zero-repository report rather than an error.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-global-"));
-  const report = await runGitAnalyze(root, { window: {}, scope: "global" });
+  const report = await runGitAnalyze(root, { window: {}, scope: "global", repositories: [] });
   assert.equal(report.scope, "global");
   assert.equal(report.counts.repositories, 0);
-  assert.ok(report.notes.some((note) => /#350/.test(note)));
+  assert.deepEqual(report.repositories, []);
+  assert.ok(report.discovery, "a global report carries a discovery section");
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -178,11 +179,12 @@ test("git analyze accepts a single --root but rejects repeated discovery roots",
   const topLevel = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: repo })).stdout.trim();
   assert.equal(payload.repository.path, topLevel);
 
-  // Repeated --root: the (unimplemented) discovery-roots semantics.
+  // Repeated --root under the default --local scope is rejected: repeatable
+  // discovery roots require --global (#350).
   await assert.rejects(
     () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", "--root", "/tmp", "--root", repo], { cwd: os.tmpdir() }),
     (error) => {
-      assert.match(error.stderr, /multiple --root values \(repeatable discovery roots, #350\)/);
+      assert.match(error.stderr, /--local takes a single --root; multiple discovery roots require --global/);
       return true;
     },
   );
@@ -246,7 +248,7 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   await initGitRepo(root);
 
   const cases = [
-    [["--global"], /--global \(repository discovery, #350\)/],
+    // --global and --repo (#350) are now implemented and no longer deferred.
     [["--author", "alice"], /--author \(filtering, #351\)/],
     [["--provider", "claude"], /--provider \(provider narration, #354\)/],
     [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],

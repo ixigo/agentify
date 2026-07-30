@@ -49,6 +49,7 @@ import {
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { runGitAnalyze, renderGitAnalyzeText } from "./core/git-analyze/index.js";
+import { discoverRepositories, selectRepositories } from "./core/git-analyze/discover.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import {
@@ -1387,7 +1388,7 @@ export async function runCli(argv, _runtime = {}) {
           "local", "global", "repo",
           "me", "author", "branch", "grep", "path", "type", "scope", "issue", "includeMerges",
           "ai", "provider", "depth", "maxBudgetUsd", "jira",
-          "format", "output", "noOpen", "yes",
+          "format", "output", "noOpen", "yes", "noCache",
           "json", "root", "ghost", "strict", "languages", "dryRun", "help", "version",
         ]);
         const unknownFlags = Object.keys(args)
@@ -1407,7 +1408,6 @@ export async function runCli(argv, _runtime = {}) {
         // a clear "not available yet" — never a silent no-op, and never a
         // misleading acknowledgement of an option the command cannot honour.
         const DEFERRED_FLAGS = [
-          ["global", "--global", "repository discovery", 350], ["repo", "--repo", "repository discovery", 350],
           ["me", "--me", "filtering", 351], ["author", "--author", "filtering", 351],
           ["branch", "--branch", "filtering", 351], ["grep", "--grep", "filtering", 351],
           ["path", "--path", "filtering", 351], ["type", "--type", "filtering", 351],
@@ -1423,15 +1423,35 @@ export async function runCli(argv, _runtime = {}) {
           const parts = usedDeferred.map(([, label, subsystem, issue]) => `${label} (${subsystem}, #${issue})`);
           throw new Error(`git analyze does not support ${parts.join(", ")} yet; this build collects and reports the window's commits, but those options land in later slices.`);
         }
-        // A single --root is the standard command root; repeating it invokes the
-        // frozen "repeatable discovery roots" semantics, which land in #350.
-        // Reject that rather than silently honouring only the last root.
-        if (Array.isArray(args.root)) {
-          throw new Error("git analyze does not support multiple --root values (repeatable discovery roots, #350) yet; pass a single --root or none.");
+        // Scope resolution (#350). --local is the default; --global switches to
+        // repository discovery under the roots. They are mutually exclusive so a
+        // command can never half-mean both.
+        if (args.local === true && args.global === true) {
+          throw new Error("git analyze --local and --global are mutually exclusive; pass one.");
+        }
+        const gitScope = args.global === true ? "global" : "local";
+        // --repo narrows the DISCOVERED set, so it only makes sense under
+        // --global; under --local there is one repository and nothing to narrow.
+        if (hasOwn(args, "repo") && gitScope !== "global") {
+          throw new Error("git analyze --repo narrows discovered repositories and requires --global.");
+        }
+        // A blank --repo (`--repo=` or a valueless `--repo`) would otherwise
+        // compile to zero patterns and silently select every repository; reject
+        // it so an empty selector is a clear error, not a full-tree analysis.
+        const repoGlobs = Array.isArray(args.repo) ? args.repo : (hasOwn(args, "repo") ? [args.repo] : []);
+        if (repoGlobs.some((value) => value === true || String(value).trim() === "")) {
+          throw new Error("git analyze --repo requires a non-empty pattern.");
+        }
+        // --root is a single command root under --local, but a repeatable
+        // discovery root under --global. Reject a repeated --root only in local
+        // scope rather than silently honouring the last one.
+        if (gitScope === "local" && Array.isArray(args.root)) {
+          throw new Error("git analyze --local takes a single --root; multiple discovery roots require --global.");
         }
         // A blank --root (e.g. `--root=` or an empty env expansion) resolves to
         // the cwd, silently targeting the wrong repository; reject it.
-        if (hasOwn(args, "root") && (args.root === true || String(args.root).trim() === "")) {
+        const rootValues = Array.isArray(args.root) ? args.root : (hasOwn(args, "root") ? [args.root] : []);
+        if (rootValues.some((value) => value === true || String(value).trim() === "")) {
           throw new Error("git analyze --root requires a directory path.");
         }
         // Detect presence explicitly: `--format=`/`--format=0`/`--format=false`
@@ -1454,6 +1474,59 @@ export async function runCli(argv, _runtime = {}) {
             windowInput[key] = args[key];
           }
         }
+
+        if (gitScope === "global") {
+          // Discovery roots: repeated --root values, or the invasive default of
+          // $HOME (depth 4). Disclose the roots before walking them — a $HOME
+          // sweep must never start silently.
+          const discoveryRoots = rootValues.length > 0
+            ? rootValues.map((value) => path.resolve(String(value)))
+            : [os.homedir()];
+          // Disclose the roots BEFORE walking them — always, even under --json:
+          // log/warn write to stderr, so the disclosure never corrupts the JSON
+          // on stdout, and a $HOME sweep must never start silently.
+          warn(`git analyze --global will scan for repositories under: ${discoveryRoots.join(", ")}`);
+          if (rootValues.length === 0) {
+            log(dim("No --root given, so your home directory is scanned (depth 4). Use --dry-run to preview, or --root <dir> to narrow."));
+          }
+          const discovery = await discoverRepositories({
+            roots: discoveryRoots,
+            useCache: args.noCache !== true,
+          });
+          const selected = selectRepositories(discovery.repositories, repoGlobs);
+          // A --repo glob that matches nothing is a mistake worth surfacing with
+          // the list of what WAS found, not an empty window reported as success.
+          if (selected.length === 0) {
+            if (discovery.repositories.length === 0) {
+              throw new Error(`git analyze --global found no git repositories under ${discoveryRoots.join(", ")}.`);
+            }
+            const found = discovery.repositories.map((repo) => repo.name).join(", ");
+            throw new Error(hasOwn(args, "repo")
+              ? `git analyze --repo matched none of the ${discovery.repositories.length} discovered repositories. Found: ${found}.`
+              : `git analyze --global found no repositories to analyze. Found: ${found}.`);
+          }
+          const report = await runGitAnalyze(root, {
+            window: windowInput,
+            scope: "global",
+            dryRun,
+            repositories: selected,
+            discovery: {
+              roots: discovery.roots,
+              repositoriesFound: discovery.repositories.length,
+              fromCache: discovery.fromCache,
+              bounds: discovery.bounds,
+              stats: discovery.stats,
+              limitations: discovery.limitations,
+            },
+          });
+          if (format === "json") {
+            console.log(JSON.stringify(report, null, 2));
+          } else {
+            log(renderGitAnalyzeText(report));
+          }
+          return;
+        }
+
         const report = await runGitAnalyze(root, {
           window: windowInput,
           scope: "local",
