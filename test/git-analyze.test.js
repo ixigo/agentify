@@ -247,16 +247,12 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);
 
-  // #351 filter flags (--me/--author/--branch/--grep/--path/--type/--scope/
-  // --issue/--include-merges) are implemented and no longer rejected here; the
-  // remaining slices' flags stay deferred.
+  // Everything through #354 is implemented and no longer rejected here:
+  // #350 (--global/--repo), #351 (the filter flags), #353 (--output/--no-open/
+  // --format html), and #354 (--ai/--provider/--depth/--max-budget-usd/--yes).
+  // Only #355 (--jira) stays deferred.
   const cases = [
-    // --global/--repo (#350), the filter flags (#351), and the report output
-    // flags --output/--no-open/--format html (#353) are now implemented and no
-    // longer deferred; only later slices' flags remain.
-    [["--provider", "claude"], /--provider \(provider narration, #354\)/],
     [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
-    [["--ai"], /--ai \(provider narration, #354\)/],
   ];
   for (const [flags, pattern] of cases) {
     await assert.rejects(
