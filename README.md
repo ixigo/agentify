@@ -134,6 +134,31 @@ Every other agent — Cursor, Zed, Windsurf, Gemini CLI, Claude Desktop — reac
 
 </details>
 
+## `agentify git analyze` — zero-install git insights
+
+The one command you can run before installing anything:
+
+```bash
+agentify git analyze
+```
+
+Run it inside any git repository and it turns your local commit history into a
+filtered summary and a shareable HTML report — read-only, no config, no index,
+no network by default, and nothing written inside your repository (`git status`
+is unchanged afterwards). It needs no `agentify install` first.
+
+```bash
+agentify git analyze --months 3 --me           # your last three months
+agentify git analyze --quarter 1 --year 2026    # a specific quarter
+agentify git analyze --dry-run                   # just the resolved window
+```
+
+`--me` resolves your identities from `git config` and `.mailmap`; if you commit
+under more than one email (e.g. a work and a personal address), pass each with
+`--author` or add a `.mailmap` so a first run does not under-report. Full flag
+surface, the zero-install guarantees, and a worked example are in
+[docs/git-analyze.md](docs/git-analyze.md).
+
 ## Commands
 
 All commands accept `--json` for machine-readable output — which is how agents are expected to call them. Grouped below; expand a section for its commands.

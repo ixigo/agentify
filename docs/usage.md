@@ -61,6 +61,29 @@ agentify test --run              # run only the tests your current change affect
 agentify stats                   # what the delegate traffic cost this month
 ```
 
+## Zero-install git insights: `agentify git analyze`
+
+Unlike everything else in this document, `agentify git analyze` needs **no**
+install, no config, no index, and no store. Run it inside any git repository and
+it turns local commit history into a filtered summary and a shareable HTML
+report:
+
+```bash
+agentify git analyze                            # last 30 days of this repo
+agentify git analyze --months 3 --me            # your last three months
+agentify git analyze --quarter 1 --year 2026 --format json
+agentify git analyze --dry-run                  # preview the resolved window only
+```
+
+It is read-only on git, makes no network calls by default, and writes nothing
+inside the analysed repository — reports default to `~/.cache/agentify/git-analyze/`
+(or an absolute `$XDG_CACHE_HOME`), never into your working tree, so `git status`
+is unchanged. `--me` reads your identities from `git config` and `.mailmap`; if
+you commit under two emails, pass both with `--author` or add a `.mailmap` line
+so a first run does not under-report. Every optional layer (`--ai` narration,
+`--jira` issue titles) is off by default and degrades to a footnote when its CLI
+is absent. Full reference: [git-analyze.md](git-analyze.md).
+
 ## Context tracking
 
 Events live in `.agentify/context/events.jsonl`, notes in `.agentify/context/notes.jsonl`, handoffs under `.agentify/context/handoffs/`. Events are compact single-line JSON records:
