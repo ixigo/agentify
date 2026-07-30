@@ -1554,10 +1554,13 @@ export async function runCli(argv, _runtime = {}) {
             // a one-commit repo must not demand --yes for a run that would send
             // nothing. A dry run still falls through to print the empty packet.
             if (packet.themes.length === 0 && !dryRun) {
+              const droppedForSize = Array.isArray(packet.dropped_themes) && packet.dropped_themes.length > 0;
               report.narration = narrationUnavailable({
                 depth: narrationDepth,
                 reason: "no_themes",
-                note: "No themes reached the grouping threshold, so narration was skipped and no provider was contacted.",
+                note: droppedForSize
+                  ? "Every theme was dropped from the packet to fit the token ceiling, so narration was skipped and no provider was contacted."
+                  : "No themes reached the grouping threshold, so narration was skipped and no provider was contacted.",
               });
               emitGitAnalyzeReport(report, format);
               return;
@@ -1651,7 +1654,10 @@ export async function runCli(argv, _runtime = {}) {
             }
 
             report.narration = await narrateGitAnalyze({
-              root,
+              // Detect an existing store at the repository top-level, not the
+              // (possibly sub-directory) command cwd, so spend is recorded when
+              // a repo-level store exists and the command was run from a subdir.
+              root: (report.repository && report.repository.path) || root,
               packet,
               provider,
               model: null,

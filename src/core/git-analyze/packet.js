@@ -89,8 +89,18 @@ function scrubUrls(value) {
     .replace(/\b[\w.-]+@[\w.-]+:[^\s"'<>)]+/g, "[url]");
 }
 
+// Collapse filesystem-absolute paths (a leading-slash token with at least two
+// segments, e.g. "/private/company/secrets") to a placeholder. The contract
+// excludes absolute paths at every depth, and repo-relative file paths already
+// travel in the dedicated `file_paths` field, so a machine path that slipped
+// into a commit subject or note does not leak the layout. Relative paths
+// ("src/foo") and single-segment tokens ("N/A") are left untouched.
+function scrubAbsolutePaths(value) {
+  return String(value).replace(/(?<![\w~])\/[\w.-]+(?:\/[\w.-]*)+/g, "[path]");
+}
+
 function redactString(value) {
-  return scrubUrls(scrubHome(redactSensitiveText(String(value || ""))));
+  return scrubAbsolutePaths(scrubUrls(scrubHome(redactSensitiveText(String(value || "")))));
 }
 
 // Every commit record in the report, local or global, in one flat list. Used
@@ -323,6 +333,12 @@ function enforceTokenCeiling(packet, tokenCeiling) {
     while (estimateTokens(packet) > tokenCeiling && packet.distributions[dimension].length > 0) {
       packet.distributions[dimension].pop();
     }
+  }
+  // Last resort: drop the identity list (the user's own emails) if the packet
+  // is still over the ceiling. The headline totals and window are the
+  // irreducible core and always survive.
+  if (estimateTokens(packet) > tokenCeiling && packet.identities) {
+    packet.identities = null;
   }
   return packet;
 }

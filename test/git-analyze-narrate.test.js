@@ -149,15 +149,18 @@ test("packet carries opaque theme ids and never ships an absolute path, home dir
   assert.deepEqual(packet.identities, { emails: ["me@example.com"] });
 });
 
-test("the packet scrubs URLs and scp-style remotes from copied free text", () => {
+test("the packet scrubs URLs, scp-style remotes, and absolute paths from copied free text", () => {
   const report = syntheticReport();
-  report.commits[0].subject = "feat: point at https://internal.example/secret and git@host:acme/repo (#123)";
+  report.commits[0].subject = "feat: point at https://internal.example/secret, /private/company/secrets/x, git@host:acme/repo (#123)";
   report.summary.themes[0].shas = ["aaaaaaa1"];
   const packet = buildNarrationPacket(report, { depth: "metadata" });
   const json = JSON.stringify(packet);
   assert.ok(!json.includes("https://internal.example/secret"), "a URL never travels in the packet");
   assert.ok(!json.includes("git@host:acme/repo"), "an scp-style remote never travels");
-  assert.ok(json.includes("[url]"));
+  assert.ok(!json.includes("/private/company/secrets"), "an absolute filesystem path never travels");
+  assert.ok(json.includes("[url]") && json.includes("[path]"));
+  // Repo-relative file paths (the legitimate structured field) are untouched.
+  assert.ok(packet.themes[0].file_paths.includes("src/widget.js"));
 });
 
 test("redaction is asserted on the packet, not merely relied upon", () => {
