@@ -185,12 +185,20 @@ function defaultHttpRequest({ method = "GET", url, headers = {}, body = null, ti
 }
 
 // A single child process (acli / gh / auth probes). Returns `{ code, stdout,
-// stderr }` and never throws. stdin is closed; no environment is added, so a
-// probe can never be re-imported as user work.
+// stderr }` and never throws. stdin is closed; the Jira REST credential is
+// STRIPPED from the child's environment (`which`, `acli`, and `gh` never need
+// it) so a PATH-hijacked helper cannot read JIRA_API_TOKEN — the token stays
+// confined to the REST Authorization header.
+function scrubbedEnv(env = process.env) {
+  const copy = { ...env };
+  delete copy.JIRA_API_TOKEN;
+  return copy;
+}
+
 function defaultExec(command, args, { cwd, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
   return new Promise((resolve) => {
     import("node:child_process").then(({ spawn }) => {
-      const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: scrubbedEnv() });
       let stdout = "";
       let stderr = "";
       let settled = false;
@@ -278,28 +286,30 @@ function unresolvedEntry({ key, reason, url = null, source = "offline" }) {
 async function resolveViaAcli(keys, ctx) {
   const { exec, budget, cacheDir, cache } = ctx;
   for (const key of keys) {
-    if (ctx.entries.has(key)) continue;
+    // Skip only keys ALREADY RESOLVED (by cache or a prior tier); an unresolved
+    // placeholder from a prior tier is fair game to retry here.
+    if (ctx.entries.get(key)?.resolved) continue;
     if (!budget.canSpend()) { ctx.exhausted = true; break; }
-    const cached = await maybeCached(ctx, "acli", key);
+    const cached = await maybeCached(ctx, ctx.jiraScope, key);
     if (cached) { ctx.entries.set(key, cached); continue; }
     budget.spend();
     ctx.requests += 1;
-    const result = await exec("acli", ["jira", "workitem", "view", key, "--json"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeoutMs });
+    const result = await exec("acli", ["jira", "workitem", "view", key, "--json"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
     if (isAuthFailure(result.code, result.stderr)) {
       ctx.disableTier("acli", "the Atlassian CLI is not authenticated (run `acli jira auth login`)");
       break;
     }
     if (result.code !== 0) {
-      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "acli" }));
+      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "acli", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null }));
       continue;
     }
     let parsed = null;
     try { parsed = parseAcliIssue(JSON.parse(result.stdout), key); } catch { parsed = null; }
     const entry = parsed
       ? resolvedEntry({ ...parsed, url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null, source: "acli" })
-      : unresolvedEntry({ key, reason: "unparseable", source: "acli" });
+      : unresolvedEntry({ key, reason: "unparseable", source: "acli", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null });
     ctx.entries.set(key, entry);
-    if (cache) await writeCacheEntry(cacheDir, "acli", entry, ctx);
+    if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.jiraScope, entry, ctx);
   }
 }
 
@@ -313,8 +323,8 @@ async function resolveViaRest(keys, ctx) {
 
   const pending = [];
   for (const key of keys) {
-    if (ctx.entries.has(key)) continue;
-    const cached = await maybeCached(ctx, "rest", key);
+    if (ctx.entries.get(key)?.resolved) continue;
+    const cached = await maybeCached(ctx, ctx.jiraScope, key);
     if (cached) { ctx.entries.set(key, cached); continue; }
     pending.push(key);
   }
@@ -336,7 +346,7 @@ async function resolveViaRest(keys, ctx) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(bodyObj),
-      timeoutMs: ctx.requestTimeoutMs,
+      timeoutMs: ctx.requestTimeout(),
     });
     if (result.statusCode === 401 || result.statusCode === 403) {
       ctx.disableTier("rest", "the Jira credentials were rejected (check JIRA_EMAIL / JIRA_API_TOKEN)");
@@ -364,7 +374,10 @@ async function resolveViaRest(keys, ctx) {
         ? resolvedEntry({ ...parsed, url: `${ctx.baseUrl}/browse/${key}`, source: "rest" })
         : unresolvedEntry({ key, reason: "not_found", source: "rest", url: `${ctx.baseUrl}/browse/${key}` });
       ctx.entries.set(key, entry);
-      if (cache) await writeCacheEntry(cacheDir, "rest", entry, ctx);
+      // A resolved title and a DEFINITIVE 404 (absent from a 200 batch) are both
+      // stable and cached, so re-running a quarter costs zero requests; transient
+      // failures above are never cached (they never reach this branch).
+      if (cache) await writeCacheEntry(cacheDir, ctx.jiraScope, entry, ctx);
     }
   }
 }
@@ -375,14 +388,14 @@ async function resolveViaRest(keys, ctx) {
 async function resolveViaGh(keys, ctx) {
   const { exec, budget, cacheDir, cache } = ctx;
   for (const key of keys) {
-    if (ctx.entries.has(key)) continue;
+    if (ctx.entries.get(key)?.resolved) continue;
     if (!budget.canSpend()) { ctx.exhausted = true; break; }
     const number = key.replace(/^#/, "");
     const cached = await maybeCached(ctx, ctx.ghScope, key);
     if (cached) { ctx.entries.set(key, cached); continue; }
     budget.spend();
     ctx.requests += 1;
-    const result = await exec("gh", ["issue", "view", number, "--json", "number,title,state,url"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeoutMs });
+    const result = await exec("gh", ["issue", "view", number, "--json", "number,title,state,url"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
     if (isAuthFailure(result.code, result.stderr)) {
       ctx.disableTier("gh", "the GitHub CLI is not authenticated (run `gh auth login`)");
       break;
@@ -402,7 +415,9 @@ async function resolveViaGh(keys, ctx) {
       ? resolvedEntry({ key, title: parsed.title, status: parsed.status, type: "issue", url: parsed.url, source: "gh" })
       : unresolvedEntry({ key, reason: "unparseable", source: "gh" });
     ctx.entries.set(key, entry);
-    if (cache) await writeCacheEntry(cacheDir, ctx.ghScope, entry, ctx);
+    // Only cache a resolved title. A `gh` non-zero exit can be a transient
+    // network error as easily as a real 404, so it is never persisted.
+    if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.ghScope, entry, ctx);
   }
 }
 
@@ -495,7 +510,11 @@ export async function resolveTracker(params = {}) {
     baseUrl,
     env,
     cwd: params.cwd || process.cwd(),
+    // GitHub `#NNN` is repository-relative, so its cache scope is the repo. Jira
+    // keys are global to a SITE, so their scope is the base-URL host — never the
+    // bare tier name, or `PROJ-1` on site B would reuse site A's cached title.
     ghScope: params.ghScope ? `github:${params.ghScope}` : "github",
+    jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}`,
     cache: params.cache !== false,
     cacheDir: trackerCacheDir(env),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -503,60 +522,91 @@ export async function resolveTracker(params = {}) {
     now,
     exec,
     httpRequest,
+    // Clamp a single request's timeout to the time left before the wall-clock
+    // deadline, so the whole run cannot overrun the deadline by a full timeout.
+    requestTimeout() { return Math.min(this.requestTimeoutMs, Math.max(1, budget.remainingMs())); },
     disableTier(tier, why) {
       if (!disabledTiers.includes(tier)) disabledTiers.push(tier);
       limitations.push(`Tracker tier "${tier}" was disabled for this run: ${why}. Affected keys are reported without titles.`);
     },
   };
 
-  // Decide which higher Jira tier applies.
+  // Under --global a `#NNN` is repository-relative, so gh (which reads a single
+  // cwd) cannot resolve it correctly across repositories — the caller sets
+  // allowGithubTitles=false there. Jira keys are site-global, so they resolve
+  // under --global unaffected.
+  const allowGithub = params.allowGithubTitles !== false;
+
+  // Decide the ordered Jira tier(s) to attempt.
   const jiraTier = await decideJiraTier({ mode, env, hasBinary });
-  if (mode === "rest" && jiraTier.tier !== "rest") {
+  if (mode === "rest" && !jiraTier.order.includes("rest")) {
     // The one hard failure in the whole feature: an explicit --jira rest with the
     // env unset is a misconfiguration the user must fix, not something to
     // silently downgrade. Name exactly the three variables.
     const missing = missingRestEnv(env);
     throw new Error(`git analyze --jira rest needs ${REST_ENV_VARS.join(", ")} in the environment; missing: ${missing.join(", ")}.`);
   }
-  if (mode === "acli" && jiraTier.tier !== "acli") {
-    limitations.push("git analyze --jira acli found no authenticated Atlassian CLI on PATH; Jira titles are unavailable and keys are reported without them.");
+  if (mode === "acli" && !jiraTier.order.includes("acli")) {
+    limitations.push("git analyze --jira acli found no Atlassian CLI on PATH; Jira titles are unavailable and keys are reported without them.");
   }
 
-  // GitHub tier: gh when present and authenticated. Independent of the Jira tier.
-  const ghAvailable = githubKeys.length > 0 ? await ghUsable(hasBinary, exec, ctx) : false;
-
-  // Disclosure BEFORE any network, naming the host and the key count (the #354
-  // discipline). Only tiers that will actually run are announced.
-  if (jiraTier.tier === "rest" && jiraKeys.length > 0) {
-    disclosures.push(`git analyze --jira: resolving ${jiraKeys.length} Jira key(s) via the REST API against ${hostOf(baseUrl)}.`);
-  } else if (jiraTier.tier === "acli" && jiraKeys.length > 0) {
-    disclosures.push(`git analyze --jira: resolving ${jiraKeys.length} Jira key(s) via the local acli CLI${baseUrl ? ` (${hostOf(baseUrl)})` : ""}.`);
+  // gh PRESENCE is a local `which` (no network) — safe to check before the
+  // disclosure. The auth probe (which may contact a host) is deferred until
+  // after the disclosure below.
+  const ghPresent = allowGithub && githubKeys.length > 0 ? await hasBinary("gh") : false;
+  if (!allowGithub && githubKeys.length > 0) {
+    limitations.push("GitHub issue titles are not resolved under --global (a #NNN is repository-relative and cannot be resolved from one working directory); Jira keys are still resolved.");
   }
-  if (ghAvailable && githubKeys.length > 0) {
+
+  // Disclosure BEFORE any network, naming host and key count (the #354
+  // discipline). Every tier that MAY run is announced.
+  const jiraHost = hostOf(baseUrl);
+  if (jiraKeys.length > 0) {
+    for (const tier of jiraTier.order) {
+      if (tier === "rest") {
+        disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the REST API against ${jiraHost}.`);
+      } else if (tier === "acli") {
+        disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the local acli CLI${baseUrl ? ` (${jiraHost})` : ""}.`);
+      }
+    }
+  }
+  if (ghPresent && githubKeys.length > 0) {
     disclosures.push(`git analyze --jira: resolving ${githubKeys.length} GitHub issue title(s) via the local gh CLI.`);
   }
-  // Emit the disclosure BEFORE any request leaves the machine (the #354
-  // discipline). The caller routes these to stderr so --json stdout stays clean.
   if (disclosures.length > 0 && typeof params.disclose === "function") {
     params.disclose(disclosures);
   }
 
-  // Run the higher tiers. Each is bounded and fail-soft; a disabled tier stops.
-  if (jiraKeys.length > 0) {
-    if (jiraTier.tier === "acli") {
-      await resolveViaAcli(jiraKeys, ctx);
-    } else if (jiraTier.tier === "rest") {
-      await resolveViaRest(jiraKeys, ctx);
+  // The gh auth probe runs AFTER disclosure (per its manual it can contact a
+  // configured host to test auth state), and is counted as a network request.
+  let ghAvailable = false;
+  if (ghPresent) {
+    ctx.requests += 1;
+    const status = await exec("gh", ["auth", "status"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
+    ghAvailable = status.code === 0;
+    if (!ghAvailable) {
+      limitations.push("git analyze --jira: the GitHub CLI (gh) is installed but not authenticated (run `gh auth login`); GitHub issue titles are unavailable.");
     }
+  }
+
+  // Run the Jira tiers IN ORDER, each over the keys still unresolved — so `auto`
+  // falls back from a logged-out acli to configured REST. Each tier is bounded
+  // and fail-soft; a disabled tier is skipped rather than retried.
+  for (const tier of jiraTier.order) {
+    if (!jiraKeys.some((key) => !ctx.entries.get(key)?.resolved)) break;
+    if (disabledTiers.includes(tier)) continue;
+    if (tier === "acli") await resolveViaAcli(jiraKeys, ctx);
+    else if (tier === "rest") await resolveViaRest(jiraKeys, ctx);
   }
   if (ghAvailable && githubKeys.length > 0) {
     await resolveViaGh(githubKeys, ctx);
   }
 
   // Tier 0 backfill: any key a higher tier did not resolve (offline run, budget
-  // stop, disabled tier, 404) still gets a stable entry — with a browse link for
-  // Jira when a base URL is configured — so a key is reported, never dropped.
-  finalizeTierZero(ctx, jiraKeys, githubKeys);
+  // stop, disabled tier, 404) and any key skipped by the allowlist still gets a
+  // stable entry — with a browse link for Jira when a base URL is configured — so
+  // a key is reported, never dropped.
+  finalizeTierZero(ctx, jiraKeys, githubKeys, skippedByAllowlist);
 
   if (ctx.exhausted) {
     limitations.push(`The tracker request budget or ${Math.round((Number.isFinite(params.deadlineMs) ? params.deadlineMs : DEFAULT_DEADLINE_MS) / 1000)}s time limit was reached; remaining keys are reported without titles.`);
@@ -564,8 +614,8 @@ export async function resolveTracker(params = {}) {
   if (ctx.softErrors > 0) {
     limitations.push(`${ctx.softErrors} tracker request(s) failed transiently (rate limit or server error); the affected keys are reported without titles.`);
   }
-  if (mode === "auto" && jiraTier.tier === "offline" && !ghAvailable && (jiraKeys.length > 0 || githubKeys.length > 0)) {
-    limitations.push("git analyze --jira auto found no tracker configured (no authenticated acli, no Jira REST env vars, no authenticated gh); issue keys are grouped and linked but not titled.");
+  if (mode === "auto" && jiraTier.order.length === 0 && !ghAvailable && (jiraKeys.length > 0 || githubKeys.length > 0)) {
+    limitations.push("git analyze --jira auto found no tracker configured (no acli on PATH, no Jira REST env vars, no authenticated gh); issue keys are grouped and linked but not titled.");
   }
 
   const entries = {};
@@ -576,9 +626,10 @@ export async function resolveTracker(params = {}) {
   return {
     schema: TRACKER_SCHEMA,
     mode,
-    // The Jira tier actually used, plus whether gh ran. "offline" means tier 0
-    // only (no network for Jira).
-    tier: jiraTier.tier,
+    // The primary Jira tier (first attempted), plus whether gh ran. "offline"
+    // means tier 0 only (no network for Jira).
+    tier: jiraTier.primary,
+    tiers_attempted: jiraTier.order,
     github: ghAvailable ? "gh" : (githubKeys.length > 0 ? "offline" : null),
     host: hostOf(baseUrl),
     base_url: baseUrl || null,
@@ -621,7 +672,9 @@ function hostOf(baseUrl) {
 }
 
 // A request/time budget. `canSpend` gates each request on both the count and the
-// wall clock; `spend` decrements the count.
+// wall clock; `spend` decrements the count; `remainingMs` is the time left before
+// the deadline, so an individual request's timeout can be clamped to it (a
+// request started just before the deadline must not extend the run past it).
 function makeBudget(maxRequests, startedAt, deadlineMs) {
   let remaining = Math.max(0, Math.floor(maxRequests));
   const deadline = startedAt + deadlineMs;
@@ -630,16 +683,24 @@ function makeBudget(maxRequests, startedAt, deadlineMs) {
       return remaining > 0 && Date.now() < deadline;
     },
     spend() { remaining -= 1; },
+    remainingMs() { return Math.max(0, deadline - Date.now()); },
   };
 }
 
 // Backfill tier 0 for every key a higher tier did not already set: a browse link
 // for Jira when a base URL is configured, and a bare (link-less) placeholder
 // otherwise. Runs AFTER the higher tiers so it never clobbers a resolved title.
-function finalizeTierZero(ctx, jiraKeys, githubKeys) {
+// Allowlist-skipped keys are Jira keys too, so they get a browse link and are
+// reported (with a distinct reason), never silently dropped.
+function finalizeTierZero(ctx, jiraKeys, githubKeys, skippedByAllowlist = []) {
   for (const key of jiraKeys) {
     if (!ctx.entries.has(key)) {
       ctx.entries.set(key, unresolvedEntry({ key, reason: "offline", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null }));
+    }
+  }
+  for (const key of skippedByAllowlist) {
+    if (!ctx.entries.has(key)) {
+      ctx.entries.set(key, unresolvedEntry({ key, reason: "allowlist_skipped", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null }));
     }
   }
   for (const key of githubKeys) {
@@ -649,30 +710,23 @@ function finalizeTierZero(ctx, jiraKeys, githubKeys) {
   }
 }
 
-// Which Jira tier applies. auto: acli if authenticated on PATH, else rest if the
-// env is configured, else offline. Explicit acli/rest force that tier (subject
-// to availability, checked by the caller for the hard-fail).
+// The ORDERED list of Jira tiers to attempt. Explicit modes force a single tier.
+// `auto` tries acli first (when the binary is present) and falls back to REST
+// (when the env is configured) — so an acli that is installed but logged out no
+// longer strands keys that valid REST credentials could resolve. `primary` is
+// the first tier, reported as `tier` in the result; "offline" when none apply.
 async function decideJiraTier({ mode, env, hasBinary }) {
   if (mode === "rest") {
-    return { tier: restEnvConfigured(env) ? "rest" : "offline" };
+    const order = restEnvConfigured(env) ? ["rest"] : [];
+    return { order, primary: order[0] || "offline" };
   }
   if (mode === "acli") {
-    const present = await hasBinary("acli");
-    return { tier: present ? "acli" : "offline" };
+    const order = (await hasBinary("acli")) ? ["acli"] : [];
+    return { order, primary: order[0] || "offline" };
   }
-  // auto
-  const acli = await hasBinary("acli");
-  if (acli) return { tier: "acli" };
-  if (restEnvConfigured(env)) return { tier: "rest" };
-  return { tier: "offline" };
-}
-
-// gh is usable when it is on PATH AND authenticated. The auth probe is one cheap
-// process; a non-zero status means "not logged in", so gh stays off (quietly
-// under auto).
-async function ghUsable(hasBinary, exec, ctx) {
-  const present = await hasBinary("gh");
-  if (!present) return false;
-  const status = await exec("gh", ["auth", "status"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeoutMs });
-  return status.code === 0;
+  // auto: acli then rest, using whichever is configured.
+  const order = [];
+  if (await hasBinary("acli")) order.push("acli");
+  if (restEnvConfigured(env)) order.push("rest");
+  return { order, primary: order[0] || "offline" };
 }

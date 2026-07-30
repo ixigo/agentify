@@ -1420,9 +1420,15 @@ export async function runCli(argv, _runtime = {}) {
         // before any git read; a bare `--jira` means "auto". `--jira-project`
         // scopes which Jira keys are looked up (an allowlist), repeatable.
         const trackerMode = hasOwn(args, "jira") ? normalizeTrackerMode(args.jira) : "off";
-        const jiraProjects = hasOwn(args, "jiraProject")
-          ? [].concat(args.jiraProject).map((value) => String(value).trim()).filter(Boolean)
-          : [];
+        // A valueless `--jira-project` parses to the boolean sentinel `true`, and
+        // `--jira-project=` to an empty string; both would otherwise become a
+        // bogus project ("TRUE" / none). Reject them so an empty selector is a
+        // clear error, never a silent misfilter.
+        const rawJiraProjects = hasOwn(args, "jiraProject") ? [].concat(args.jiraProject) : [];
+        if (rawJiraProjects.some((value) => value === true || String(value).trim().length === 0)) {
+          throw new Error("git analyze --jira-project requires a non-empty project key, e.g. --jira-project PROJ.");
+        }
+        const jiraProjects = rawJiraProjects.map((value) => String(value).trim());
         if (jiraProjects.length > 0 && trackerMode === "off") {
           throw new Error("git analyze --jira-project narrows tracker lookups and requires --jira (auto|acli|rest).");
         }
@@ -1592,6 +1598,10 @@ export async function runCli(argv, _runtime = {}) {
               projects: jiraProjects,
               cwd: report.repository?.path || root,
               ghScope: report.repository?.path || root,
+              // A GitHub `#NNN` is repository-relative; under --global one cwd
+              // cannot resolve it across repos, so gh is disabled there (Jira,
+              // being site-global, still resolves).
+              allowGithubTitles: report.scope !== "global",
               env: process.env,
               cache: args.noCache !== true,
               deps: _runtime.tracker,

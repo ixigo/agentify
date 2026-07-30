@@ -358,7 +358,7 @@ test("--jira acli with no acli on PATH falls soft to tier 0 with a limitation", 
   const { env } = await tmpCacheEnv();
   const result = await resolveTracker({ keys: ["PROJ-1"], mode: "acli", env, cache: false, deps: { exec: async () => ({ code: 0, stdout: "", stderr: "" }), hasBinary: async () => false } });
   assert.equal(result.tier, "offline");
-  assert.ok(result.limitations.some((l) => /no authenticated Atlassian CLI/.test(l)));
+  assert.ok(result.limitations.some((l) => /no Atlassian CLI on PATH/.test(l)));
 });
 
 // ---------------------------------------------------------------------------
@@ -445,6 +445,98 @@ test("applyTrackerTitles retitles issue themes and merges limitations", () => {
   assert.equal(theme.title, "PROJ-1 — Ship the thing");
   assert.equal(theme.tracker.status, "Done");
   assert.ok(report.summary.limitations.includes("A tracker limitation."));
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes.
+// ---------------------------------------------------------------------------
+
+test("auto falls back from a logged-out acli to configured REST", async () => {
+  const { env } = await tmpCacheEnv();
+  const http = mockHttp(restOk({ "PROJ-1": "Resolved via REST" }));
+  const exec = async (command, args) => {
+    if (command === "acli" && args[0] === "jira") return { code: 1, stdout: "", stderr: "401 Unauthorized: please authenticate" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const result = await resolveTracker({
+    keys: ["PROJ-1"],
+    mode: "auto",
+    env: { ...env, ...REST_ENV },
+    cache: false,
+    deps: { httpRequest: http.fn, exec, hasBinary: async (name) => name === "acli" },
+  });
+  assert.deepEqual(result.disabled_tiers, ["acli"]);
+  assert.equal(result.entries["PROJ-1"].resolved, true);
+  assert.equal(result.entries["PROJ-1"].source, "rest");
+  assert.equal(result.entries["PROJ-1"].title, "Resolved via REST");
+});
+
+test("Jira cache entries do not collide across different base URLs", async () => {
+  const { dir } = await tmpCacheEnv();
+  const httpA = mockHttp(restOk({ "PROJ-1": "Site A title" }));
+  const httpB = mockHttp(restOk({ "PROJ-1": "Site B title" }));
+  const base = { JIRA_EMAIL: "me@example.com", JIRA_API_TOKEN: "t" };
+
+  const a = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { XDG_CACHE_HOME: dir, JIRA_BASE_URL: "https://a.atlassian.net", ...base }, deps: { httpRequest: httpA.fn } });
+  const b = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { XDG_CACHE_HOME: dir, JIRA_BASE_URL: "https://b.atlassian.net", ...base }, deps: { httpRequest: httpB.fn } });
+
+  assert.equal(a.entries["PROJ-1"].title, "Site A title");
+  assert.equal(b.entries["PROJ-1"].title, "Site B title", "site B must not reuse site A's cached title");
+  assert.equal(httpB.calls.length, 1, "site B must make its own request, not read site A's cache");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("GitHub titles are disabled under --global with a stated limitation and no gh call", async () => {
+  const { env } = await tmpCacheEnv();
+  let ghCalls = 0;
+  const exec = async (command) => { if (command === "gh") ghCalls += 1; return { code: 0, stdout: "", stderr: "" }; };
+  const result = await resolveTracker({
+    keys: ["#42"],
+    mode: "auto",
+    allowGithubTitles: false,
+    env: { ...env, JIRA_BASE_URL: "", JIRA_EMAIL: "", JIRA_API_TOKEN: "" },
+    cache: false,
+    deps: { exec, hasBinary: async () => false },
+  });
+  assert.equal(ghCalls, 0);
+  assert.equal(result.github, "offline");
+  assert.ok(result.limitations.some((l) => /not resolved under --global/.test(l)));
+});
+
+test("gh installed-but-unauthenticated states a limitation and resolves nothing", async () => {
+  const { env } = await tmpCacheEnv();
+  const exec = async (command, args) => {
+    if (command === "gh" && args[0] === "auth") return { code: 1, stdout: "", stderr: "You are not logged into any GitHub hosts" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const result = await resolveTracker({ keys: ["#42"], mode: "auto", env: { ...env, JIRA_BASE_URL: "" }, cache: false, deps: { exec, hasBinary: async (name) => name === "gh" } });
+  assert.equal(result.github, "offline");
+  assert.equal(result.entries["#42"].resolved, false);
+  assert.ok(result.limitations.some((l) => /not authenticated/.test(l)));
+});
+
+test("allowlist-skipped keys still get a reported entry with a browse link", async () => {
+  const http = mockHttp(restOk({ "WEB-1": "kept" }));
+  const { env } = await tmpCacheEnv();
+  const result = await resolveTracker({
+    keys: ["WEB-1", "OPS-9"],
+    mode: "rest",
+    projects: ["WEB"],
+    env: { ...env, ...REST_ENV },
+    cache: false,
+    deps: { httpRequest: http.fn },
+  });
+  assert.ok(result.entries["OPS-9"], "skipped key must still be reported");
+  assert.equal(result.entries["OPS-9"].reason, "allowlist_skipped");
+  assert.equal(result.entries["OPS-9"].url, "https://example.atlassian.net/browse/OPS-9");
+});
+
+test("renderText surfaces tracker limitations in the terminal view", () => {
+  const report = fixtureReport(["PROJ-1"]);
+  applyTrackerTitles(report.summary, { schema: TRACKER_SCHEMA, entries: {}, limitations: ["A tracker tier was disabled for this run."] });
+  const text = renderText(report);
+  assert.match(text, /limitations:/);
+  assert.match(text, /A tracker tier was disabled for this run\./);
 });
 
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {

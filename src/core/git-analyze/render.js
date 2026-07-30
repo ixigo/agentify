@@ -213,6 +213,16 @@ export function renderText(report) {
     lines.push(`  by type:    ${top}  (${ofTotal(byType.counted, byType.denominator)} classified)`);
   }
 
+  // Limitations (caps, excluded merges, and any tracker limitation folded in by
+  // applyTrackerTitles). The terminal view must state these too — an
+  // unauthenticated tier or a budget stop is invisible otherwise (#355).
+  if (Array.isArray(summary.limitations) && summary.limitations.length > 0) {
+    lines.push("  limitations:");
+    for (const limitation of summary.limitations) {
+      lines.push(`    - ${limitation}`);
+    }
+  }
+
   // Optional provider narration (#354), spliced after the deterministic body.
   if (report.narration) {
     lines.push(...narrationTextLines(report.narration));
