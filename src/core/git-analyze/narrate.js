@@ -472,6 +472,16 @@ function degraded({ depth, provider, model, reason, note, receipt = null }) {
 }
 
 /**
+ * A degraded narration object for a failure the CLI detects BEFORE any provider
+ * runs — no provider installed, or consent declined. No receipt (none ran).
+ * @param {object} params
+ * @returns {object} the narration object (attached to report.narration)
+ */
+export function narrationUnavailable({ depth, provider = null, reason, note }) {
+  return degraded({ depth, provider, model: null, reason, note });
+}
+
+/**
  * Run narration end to end for a consented `--ai` invocation, degrading to the
  * deterministic report on every failure. The caller has already resolved the
  * provider, obtained consent, and built the packet.

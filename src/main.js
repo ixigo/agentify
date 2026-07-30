@@ -51,6 +51,15 @@ import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/
 import { runGitAnalyze } from "./core/git-analyze/index.js";
 import { renderText, renderMarkdown, renderJson } from "./core/git-analyze/render.js";
 import { discoverRepositories, selectRepositories } from "./core/git-analyze/discover.js";
+import { buildNarrationPacket, packetPreview as narrationPacketPreview, collectThemeDiffs, resolveNarrationDepth } from "./core/git-analyze/packet.js";
+import {
+  narrateGitAnalyze,
+  narrationUnavailable,
+  resolveNarrationProvider,
+  resolveNarrationBudgetUsd,
+  buildNarrationPlan,
+  DEFAULT_NARRATION_TIMEOUT_S,
+} from "./core/git-analyze/narrate.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
 import {
@@ -64,7 +73,7 @@ import {
   runCliInsights,
 } from "./core/session-analysis/insights.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
-import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
+import { describeModelRoutes, detectDelegateProviders, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
@@ -1408,15 +1417,15 @@ export async function runCli(argv, _runtime = {}) {
         // skeleton implements only the window + local dry-run. Using one now is
         // a clear "not available yet" — never a silent no-op, and never a
         // misleading acknowledgement of an option the command cannot honour.
-        // #350 discovery flags (--global/--repo/--root) and #351 filter flags
+        // #350 discovery flags (--global/--repo/--root), #351 filter flags
         // (--me/--author/--branch/--grep/--path/--type/--scope/--issue/
-        // --include-merges) are implemented in this build and no longer
-        // deferred; the remaining slices' flags stay rejected as "not yet".
+        // --include-merges), and #354 narration flags (--ai/--provider/--depth/
+        // --max-budget-usd/--yes) are implemented in this build and no longer
+        // deferred. --output/--no-open (#353) and --jira (#355) stay rejected as
+        // "not yet" here; #353's report output is landing concurrently.
         const DEFERRED_FLAGS = [
           ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
-          ["ai", "--ai", "provider narration", 354], ["provider", "--provider", "provider narration", 354],
-          ["depth", "--depth", "provider narration", 354], ["maxBudgetUsd", "--max-budget-usd", "provider narration", 354],
-          ["yes", "--yes", "provider narration", 354], ["jira", "--jira", "tracker enrichment", 355],
+          ["jira", "--jira", "tracker enrichment", 355],
         ];
         const usedDeferred = DEFERRED_FLAGS.filter(([key]) => hasOwn(args, key));
         if (usedDeferred.length > 0) {
@@ -1498,6 +1507,130 @@ export async function runCli(argv, _runtime = {}) {
           }
         };
 
+        // #354 optional provider narration. OFF by default: with --ai absent,
+        // nothing below runs — no provider is probed, no packet is built, no
+        // process starts and no socket opens. The narration flags only
+        // configure this path, so they require --ai.
+        const aiRequested = args.ai === true;
+        if (!aiRequested) {
+          for (const [key, flag] of [["provider", "--provider"], ["depth", "--depth"], ["maxBudgetUsd", "--max-budget-usd"]]) {
+            if (hasOwn(args, key)) {
+              throw new Error(`git analyze ${flag} configures provider narration and requires --ai.`);
+            }
+          }
+        }
+        // Validate the narration options up front so a bad flag fails before any
+        // git read. --depth/--max-budget-usd throw here on a bad value.
+        const narrationDepth = aiRequested ? resolveNarrationDepth(hasOwn(args, "depth") ? args.depth : "metadata") : "metadata";
+        const narrationBudgetUsd = aiRequested ? resolveNarrationBudgetUsd(hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined) : null;
+        const narrationTimeoutSec = DEFAULT_NARRATION_TIMEOUT_S;
+        // A plain --dry-run resolves the window only (no history read). But
+        // --ai --dry-run must PREVIEW THE PACKET, which needs the summary — so
+        // it reads history and then sends nothing. Hence dry-run means "read
+        // history but skip the history read" only when narration is off.
+        const historyDryRun = dryRun && !aiRequested;
+
+        // Build the packet, gate consent, run (or preview) narration, and attach
+        // the result to report.narration — then emit. Degrades to the
+        // deterministic report on every failure, exit 0.
+        const finish = async (report) => {
+          if (aiRequested && report.summary) {
+            let diffHunksByTheme = null;
+            let diffBytes = 0;
+            if (narrationDepth === "diff" && report.scope === "local") {
+              const diffs = await collectThemeDiffs(root, report);
+              diffHunksByTheme = diffs.hunksByTheme;
+              diffBytes = diffs.bytes;
+            }
+            const packet = buildNarrationPacket(report, { depth: narrationDepth, diffHunksByTheme });
+            const preview = narrationPacketPreview(packet);
+            const availability = await detectDelegateProviders();
+            const { provider, requestedUnavailable } = resolveNarrationProvider({
+              requested: hasOwn(args, "provider") ? args.provider : undefined,
+              availability,
+              config,
+            });
+            const plan = provider
+              ? buildNarrationPlan({ provider, model: null, budgetUsd: narrationBudgetUsd, timeoutSec: narrationTimeoutSec })
+              : null;
+
+            // --ai --dry-run: print the exact packet and the provider plan, and
+            // send nothing. This is the whole output under a dry run.
+            if (dryRun) {
+              console.log(JSON.stringify({
+                command: "git analyze",
+                ai_dry_run: true,
+                depth: narrationDepth,
+                packet,
+                packet_preview: preview,
+                provider: provider || null,
+                provider_available: Boolean(provider),
+                budget_usd: narrationBudgetUsd,
+                timeout_s: narrationTimeoutSec,
+                plan,
+              }, null, 2));
+              return;
+            }
+
+            if (!provider) {
+              const note = requestedUnavailable
+                ? `The requested provider "${requestedUnavailable}" is not installed; narration was skipped and the deterministic report stands.`
+                : "No supported provider CLI (claude or codex) is installed; narration was skipped and the deterministic report stands.";
+              warn(note);
+              report.narration = narrationUnavailable({ depth: narrationDepth, reason: "no_provider", note });
+              emitGitAnalyzeReport(report, format);
+              return;
+            }
+
+            // Consent gate: disclose byte count, field list, provider, model,
+            // budget (and, at --depth diff, that source diffs travel) BEFORE
+            // anything is sent. Disclosure goes to stderr so --json stdout stays
+            // clean. Mirrors `analyze --insights`.
+            const disclosure = [
+              `git analyze --ai: sending the sanitized packet (${preview.bytes} bytes, ~${preview.token_estimate} tokens; fields: ${preview.fields.join(", ")}) to ${provider} via the local CLI at --depth ${narrationDepth}.`,
+              `  plan: ${plan.command} ${plan.args.join(" ")} — enforcement: ${plan.enforcement}`,
+              `Budget: $${narrationBudgetUsd}; timeout ${narrationTimeoutSec}s. Report-generation spend, recorded separately only if an Agentify store already exists.`,
+            ];
+            if (narrationDepth === "diff") {
+              disclosure.push(`--depth diff also ships bounded, redacted source diffs (${diffBytes} bytes); generated/vendored files are stripped and hunks are capped.`);
+            }
+            for (const line of disclosure) process.stderr.write(`${line}\n`);
+
+            let consented = args.yes === true;
+            if (!consented) {
+              if (process.stdin.isTTY && process.stderr.isTTY) {
+                const readlinePromises = await import("node:readline/promises");
+                const prompt = readlinePromises.createInterface({ input: process.stdin, output: process.stderr });
+                try {
+                  const answer = await prompt.question("Send the packet and spend up to the budget? [y/N] ");
+                  consented = /^y(es)?$/i.test(answer.trim());
+                } finally {
+                  prompt.close();
+                }
+              } else {
+                throw new Error("git analyze --ai needs explicit consent in non-interactive mode. Re-run with --yes to consent, or --dry-run to preview the exact packet.");
+              }
+            }
+            if (!consented) {
+              const note = "Narration was declined at the consent prompt; the deterministic report is unchanged.";
+              log("narration declined — the deterministic report continues without it.");
+              report.narration = narrationUnavailable({ depth: narrationDepth, provider, reason: "declined", note });
+              emitGitAnalyzeReport(report, format);
+              return;
+            }
+
+            report.narration = await narrateGitAnalyze({
+              root,
+              packet,
+              provider,
+              model: null,
+              budgetUsd: narrationBudgetUsd,
+              timeoutSec: narrationTimeoutSec,
+            });
+          }
+          emitGitAnalyzeReport(report, format);
+        };
+
         if (gitScope === "global") {
           // Discovery roots: repeated --root values, or the invasive default of
           // $HOME (depth 4). Disclose the roots before walking them — a $HOME
@@ -1531,7 +1664,7 @@ export async function runCli(argv, _runtime = {}) {
           const report = await runGitAnalyze(root, {
             window: windowInput,
             scope: "global",
-            dryRun,
+            dryRun: historyDryRun,
             repositories: selected,
             discovery: {
               roots: discovery.roots,
@@ -1543,17 +1676,17 @@ export async function runCli(argv, _runtime = {}) {
             },
             filters,
           });
-          emitGitAnalyzeReport(report, format);
+          await finish(report);
           return;
         }
 
         const report = await runGitAnalyze(root, {
           window: windowInput,
           scope: "local",
-          dryRun,
+          dryRun: historyDryRun,
           filters,
         });
-        emitGitAnalyzeReport(report, format);
+        await finish(report);
         return;
       }
 
