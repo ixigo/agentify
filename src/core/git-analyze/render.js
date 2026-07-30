@@ -24,9 +24,13 @@ function plural(count, singular, pluralForm) {
 // line/heading. Applied to every remote (tracker) string the Markdown renderer
 // interpolates; deterministic (git-derived) text does not need it but is safe to
 // pass through.
+// Control bytes (C0/C1) an untrusted title could carry to clear/spoof a terminal
+// or emit a terminal hyperlink; stripped before rendering in either text or md.
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
+
 function mdInline(text) {
   return String(text ?? "")
-    .replace(/[\r\n]+/g, " ")
+    .replace(CONTROL_CHARS, " ")
     .replace(/([\\`*_{}[\]()<>|~#])/g, "\\$1");
 }
 
@@ -254,7 +258,7 @@ export function renderText(report) {
 // untrusted title for the target format (md-escape for Markdown, one-line for
 // the terminal). Returns "" when there are none.
 function oneLine(text) {
-  return String(text ?? "").replace(/\s+/g, " ").trim();
+  return String(text ?? "").replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
 }
 function relatedRefLines(refs, escape = oneLine) {
   const entries = refs && typeof refs === "object" ? Object.values(refs) : [];

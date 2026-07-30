@@ -372,11 +372,13 @@ export function clusterCommits(commits, options = {}) {
  * @param {object|null} tracker - the `report.tracker` block (or null when off)
  * @returns {object} the same summary
  */
-// Collapse whitespace/control characters in a remote label to a single line, so
-// a title used as a one-line theme label cannot break a text table or terminal
-// row. Not an escape — renderers still escape (HTML) or md-escape as needed.
+// Sanitize a remote label to a single, control-free line: strip C0/C1 control
+// bytes (ANSI/OSC escapes a title could carry to clear or spoof a terminal, or
+// emit a terminal hyperlink) and collapse whitespace. Not a format escape —
+// renderers still HTML-escape or md-escape as needed.
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
 function normalizeLabel(value) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return String(value ?? "").replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
 }
 
 export function applyTrackerTitles(summary, tracker) {

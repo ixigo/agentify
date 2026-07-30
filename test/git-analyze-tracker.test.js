@@ -844,6 +844,52 @@ test("applyTrackerTitles stamps the summary with the tracker schema", () => {
   assert.equal(report.summary.tracker_schema, TRACKER_SCHEMA);
 });
 
+test("terminal control sequences in a tracker title are stripped from text and md", () => {
+  const ESC = String.fromCharCode(27);
+  const report = fixtureReport(["PROJ-1"]);
+  const tracker = { schema: TRACKER_SCHEMA, entries: { "PROJ-1": { key: "PROJ-1", resolved: true, title: `safe${ESC}[2Jforged`, status: "Done", type: "Story", url: "https://x/browse/PROJ-1", source: "rest" } }, limitations: [] };
+  applyTrackerTitles(report.summary, tracker);
+  const text = renderText(report);
+  const md = renderMarkdown(report);
+  assert.ok(!text.includes(ESC), "an ESC byte survived into the text render");
+  assert.ok(!md.includes(ESC), "an ESC byte survived into the markdown render");
+  assert.match(text, /safe.*forged/);
+});
+
+test("--jira rest with a non-https base URL fails with an https-specific message", async () => {
+  await assert.rejects(
+    () => resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { JIRA_BASE_URL: "http://jira.internal", JIRA_EMAIL: "a@b.co", JIRA_API_TOKEN: "t" }, deps: { httpRequest: mockHttp(() => ({})).fn } }),
+    /https:\/\/ URL/,
+  );
+});
+
+test("auto with a non-https base URL falls back to acli rather than a dead REST tier", async () => {
+  const { env } = await tmpCacheEnv();
+  const exec = async (command, args) => {
+    if (command === "acli" && args[0] === "jira") return { code: 0, stdout: JSON.stringify({ fields: { summary: "Via acli", status: { name: "Open" }, issuetype: { name: "Task" } } }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const result = await resolveTracker({
+    keys: ["PROJ-1"],
+    mode: "auto",
+    env: { ...env, JIRA_BASE_URL: "http://jira.internal", JIRA_EMAIL: "a@b.co", JIRA_API_TOKEN: "t" },
+    cache: false,
+    deps: { exec, hasBinary: async (n) => n === "acli" },
+  });
+  assert.deepEqual(result.tiers_attempted, ["acli"]);
+  assert.equal(result.entries["PROJ-1"].title, "Via acli");
+});
+
+test("a REST 429 stops the tier instead of firing the remaining batches", async () => {
+  const keys = Array.from({ length: 60 }, (_, i) => `PROJ-${i + 1}`);
+  const http = mockHttp(() => ({ statusCode: 429, body: "slow down" }));
+  const { env } = await tmpCacheEnv();
+  const result = await resolveTracker({ keys, mode: "rest", env: { ...env, ...REST_ENV }, cache: false, deps: { httpRequest: http.fn } });
+  assert.equal(http.calls.length, 1, "a 429 must halt the tier, not trigger the second batch");
+  assert.equal(result.entries["PROJ-1"].reason, "rate_limited");
+  assert.equal(result.entries["PROJ-60"].reason, "rate_limited");
+});
+
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   const report = fixtureReport(["PROJ-1"]);
   const tracker = {

@@ -197,13 +197,14 @@ function defaultHttpRequest({ method = "GET", url, headers = {}, body = null, ti
 }
 
 // A single child process (acli / gh / auth probes). Returns `{ code, stdout,
-// stderr }` and never throws. stdin is closed; the Jira REST credential is
-// STRIPPED from the child's environment (`which`, `acli`, and `gh` never need
-// it) so a PATH-hijacked helper cannot read JIRA_API_TOKEN — the token stays
-// confined to the REST Authorization header.
+// stderr }` and never throws. stdin is closed; the Jira REST configuration is
+// STRIPPED from the child's environment — the token AND the base URL (which may
+// itself embed `user:pass@host` userinfo) and the email. `which`, `acli`, and
+// `gh` never need any of them (acli authenticates via its own config), so a
+// PATH-hijacked helper cannot read a credential the REST tier holds.
 function scrubbedEnv(env = process.env) {
   const copy = { ...env };
-  delete copy.JIRA_API_TOKEN;
+  for (const name of REST_ENV_VARS) delete copy[name];
   return copy;
 }
 
@@ -265,8 +266,14 @@ function accountHash(env) {
   return crypto.createHash("sha256").update(email).digest("hex").slice(0, 12);
 }
 
+// REST is "configured" only when all three vars are set AND the base URL is a
+// usable https:// URL — the tier sends Basic credentials, so a cleartext http
+// URL (or a malformed one) is not usable and must not masquerade as configured
+// (which would make every key look transiently unavailable, and block acli
+// fallback under auto).
 function restEnvConfigured(env) {
-  return REST_ENV_VARS.every((name) => typeof env[name] === "string" && env[name].trim().length > 0);
+  const allSet = REST_ENV_VARS.every((name) => typeof env[name] === "string" && env[name].trim().length > 0);
+  return allSet && jiraBaseUrl(env).startsWith("https://");
 }
 
 function missingRestEnv(env) {
@@ -408,11 +415,24 @@ async function resolveViaRest(keys, ctx) {
       ctx.disableTier("rest", "the Jira credentials were rejected (check JIRA_EMAIL / JIRA_API_TOKEN)");
       break;
     }
+    if (result.statusCode === 429) {
+      // A rate limit STOPS the REST tier: firing the remaining batches
+      // immediately would only deepen the throttling. This batch's keys and every
+      // still-pending key are left unresolved (with a browse link); tier-0
+      // backfill covers anything not yet in the map.
+      for (const key of pending.slice(i)) {
+        if (!ctx.entries.has(key)) {
+          ctx.entries.set(key, unresolvedEntry({ key, reason: "rate_limited", source: "rest", url: `${ctx.baseUrl}/browse/${key}` }));
+        }
+      }
+      ctx.softErrors += 1;
+      break;
+    }
     if (result.statusCode !== 200) {
-      // 429 / 5xx / transport error (0) / timeout: leave the batch unresolved and
-      // keep going — a rate limit on one batch must not fail the run.
+      // 5xx / transport error (0) / timeout: leave this batch unresolved and keep
+      // going — a single failed batch must not fail the run.
       for (const key of batch) {
-        ctx.entries.set(key, unresolvedEntry({ key, reason: result.statusCode === 429 ? "rate_limited" : "unavailable", source: "rest", url: `${ctx.baseUrl}/browse/${key}` }));
+        ctx.entries.set(key, unresolvedEntry({ key, reason: "unavailable", source: "rest", url: `${ctx.baseUrl}/browse/${key}` }));
       }
       ctx.softErrors += 1;
       continue;
@@ -615,11 +635,15 @@ export async function resolveTracker(params = {}) {
   // Decide the ordered Jira tier(s) to attempt.
   const jiraTier = await decideJiraTier({ mode, env, hasBinary });
   if (mode === "rest" && !jiraTier.order.includes("rest")) {
-    // The one hard failure in the whole feature: an explicit --jira rest with the
-    // env unset is a misconfiguration the user must fix, not something to
-    // silently downgrade. Name exactly the three variables.
+    // The one hard failure in the whole feature: an explicit --jira rest that is
+    // not usable is a misconfiguration the user must fix, not something to
+    // silently downgrade. Distinguish a missing variable from a non-https base
+    // URL so the message is actionable either way.
     const missing = missingRestEnv(env);
-    throw new Error(`git analyze --jira rest needs ${REST_ENV_VARS.join(", ")} in the environment; missing: ${missing.join(", ")}.`);
+    if (missing.length > 0) {
+      throw new Error(`git analyze --jira rest needs ${REST_ENV_VARS.join(", ")} in the environment; missing: ${missing.join(", ")}.`);
+    }
+    throw new Error(`git analyze --jira rest needs JIRA_BASE_URL to be an https:// URL (credentials must not travel in cleartext); got "${env.JIRA_BASE_URL}".`);
   }
   if (mode === "acli" && !jiraTier.order.includes("acli")) {
     limitations.push("git analyze --jira acli found no Atlassian CLI on PATH; Jira titles are unavailable and keys are reported without them.");
