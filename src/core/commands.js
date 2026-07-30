@@ -82,9 +82,14 @@ export async function ensureBaselineArtifacts(root, config, options = {}) {
   // The caller is responsible for only invoking this where the index location
   // is already git-safe, so a read never modifies a tracked file.
   if (!options.indexOnly) {
-    await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore());
-    await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails());
-    await ensureAgentifyGitignore(root);
+    const generated = [];
+    if (await writeTextIfMissing(path.join(root, ".agentignore"), renderDefaultAgentignore())) {
+      generated.push("/.agentignore");
+    }
+    if (await writeTextIfMissing(path.join(root, ".guardrails"), renderDefaultGuardrails())) {
+      generated.push("/.guardrails");
+    }
+    await ensureAgentifyGitignore(root, { additionalPatterns: generated });
   }
 }
 

@@ -209,12 +209,13 @@ All commands accept `--json` for machine-readable output — which is how agents
 </details>
 
 <details>
-<summary><strong>Workflows &amp; serve</strong> — MCP, skills, review, hooks (5)</summary>
+<summary><strong>Workflows &amp; serve</strong> — MCP, ACP, skills, review, hooks (6)</summary>
 
 | Command | What it does |
 | --- | --- |
 | `agentify workflow list\|install` | Board-to-draft-PR workflow bundle for your platform |
 | `agentify serve` | MCP server over stdio — Agentify tools for any MCP-capable agent |
+| `agentify acp --provider <claude\|codex>` | ACP pass-through proxy with optional context injection and session capture |
 | `agentify skill list\|install` | Install bundled agent skills (Claude, Codex, Gemini, OpenCode) |
 | `agentify review [--diff <ref>] [--push]` | Cross-vendor review of a change (`--push` reviews outgoing commits) |
 | `agentify hooks install\|remove\|status` | Optional git hooks (pre-commit check, post-merge rescan, opt-in pre-push review) |
@@ -238,6 +239,32 @@ claude mcp add agentify -- agentify serve
 
 Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the decision log before re-proposing a settled direction), `ctx_handoff` (leave a handoff at the end of a long task) — the persistent-context set — plus `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
 
+## Full-agent sessions over ACP
+
+MCP exposes Agentify tools to an existing agent. [ACP](https://agentclientprotocol.com/) is the full-agent transport: an ACP-capable editor or client launches Agentify as a transparent proxy, and Agentify launches the downstream Claude or Codex adapter.
+
+```bash
+# Install the adapter used by the downstream provider.
+npm install -g @agentclientprotocol/codex-acp
+
+# Configure the ACP client to launch this command from the repo root.
+agentify acp --provider codex
+```
+
+The proxy forwards ACP messages unchanged, including methods Agentify does not recognize. Its two Agentify-specific behaviors are opt-in:
+
+```yaml
+context:
+  acpInjection: relevant  # off (default) | relevant | digest
+  acpCapture: auto        # off (default) | auto | all | compare
+```
+
+`acpInjection` adds a token-budgeted context block to the first user turn. `acpCapture: auto` records edits, commands, failures, and session outcomes for hookless downstreams such as Codex; for Claude, whose hooks already own the main context store, it writes only the diagnostic comparison log so events are not double-counted. `agentify ctx capture-report` compares proxy capture with hook capture.
+
+The workspace boundary is enforced for the repo root and its subdirectories, including symlink resolution, so a session outside the workspace cannot receive or write this repo's context. Both features honor `agentify ctx pause`. Claude's ACP adapter currently requires Node 22+; Agentify itself remains Node 20+ and prints a clear warning on an older runtime.
+
+ACP client configuration is still manual: `agentify install` sets up guidance, hooks, MCP, and the index, but does not yet edit editor-specific ACP client config.
+
 ## One-command install and the first-run win
 
 `agentify install` does the whole setup in one pass and prints a **receipt** of what it did. It:
@@ -245,8 +272,9 @@ Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the de
 1. **Detects** which provider CLIs are installed (Claude Code, Codex) and whether each is authenticated.
 2. **Registers the Agentify MCP server** with every installed provider — Claude Code in `~/.claude.json`, Codex in `~/.codex/config.toml` — so the tools are actually reachable. Registration is idempotent, backs up the config before writing, and preserves every unrelated key. Re-running never adds a second entry.
 3. **Wires guidance and hooks** (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
-4. **Builds the structural index** for `query` / `risk` / `test_select`.
-5. **Shows a first-run win** immediately: recent activity, hot files, and unresolved failed commands from your local sessions — or, on a repo with no Agentify history yet, a setup audit of your global provider config.
+4. **Keeps new Agentify-owned project files local** through a managed `.gitignore` block. Mixed-ownership files are ignored only when Agentify creates them, and project skills add their exact installed directory instead of hiding the provider's whole skill tree. `CLAUDE.md` and `AGENTS.md` remain visible to Git; `.gitignore` is the tracked control file. Existing tracked files stay tracked—Agentify never stages their removal. `ctx share` is the explicit opt-in that re-includes team notes.
+5. **Builds the structural index** for `query` / `risk` / `test_select`.
+6. **Shows a first-run win** immediately: recent activity, hot files, and unresolved failed commands from your local sessions — or, on a repo with no Agentify history yet, a setup audit of your global provider config.
 
 ```bash
 agentify install                       # detect + register + index, everything present
@@ -258,7 +286,7 @@ agentify install --home <dir>          # target a non-default home (used by test
 
 If a provider is installed but not authenticated, the install **warns and continues** — the MCP registration is written anyway (it is just config; auth is separate), and the receipt tells you which login command to run.
 
-**ACP clients** are handled conditionally: if this build carries no ACP registration path (it depends on a separate change), the receipt says so and skips it cleanly rather than assuming a client is present.
+**ACP registration is not part of install yet.** The `agentify acp` proxy is available, but the receipt reports client registration as unavailable so it never claims to have edited an editor-specific ACP config.
 
 ### Manual fallback
 

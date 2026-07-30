@@ -489,6 +489,11 @@ test("shared-notes gitignore mode toggles and survives baseline rewrites", async
     assert.ok(hasSharedNotesGitignore(text));
     assert.ok(text.includes(".agentify/context/*"));
     assert.ok(text.includes("agentify-session-analysis.html"));
+    assert.ok(!text.includes("\n.agentify.yaml\n"));
+    assert.ok(!text.includes("\n.claude/settings.json\n"));
+    assert.ok(text.includes("plans/[0-9]"));
+    assert.ok(!text.includes("\nCLAUDE.md\n"));
+    assert.ok(!text.includes("\nAGENTS.md\n"));
     assert.ok(!text.includes("\n.agentify/\n"));
 
     // baseline rewrite without an explicit mode must preserve shared
@@ -501,6 +506,32 @@ test("shared-notes gitignore mode toggles and survives baseline rewrites", async
     assert.ok(!hasSharedNotesGitignore(after));
     assert.ok(after.includes(".agentify/"));
     assert.ok(after.includes("agentify-session-analysis.html"));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gitignore upgrades the legacy repo-shared policy header", async () => {
+  const { ensureAgentifyGitignore } = await import("../src/core/gitignore.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-gitignore-upgrade-"));
+  const legacyHeader = "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.";
+  try {
+    await fs.writeFile(path.join(dir, ".gitignore"), [
+      "# >>> agentify generated artifacts",
+      legacyHeader,
+      ".agentify/",
+      "custom-local-output/",
+      "# <<< agentify generated artifacts",
+      "",
+    ].join("\n"));
+
+    await ensureAgentifyGitignore(dir, { additionalPatterns: ["/.agentify.yaml"] });
+    const text = await fs.readFile(path.join(dir, ".gitignore"), "utf8");
+
+    assert.ok(!text.includes(legacyHeader));
+    assert.ok(text.includes("# New Agentify-owned files stay local."));
+    assert.ok(text.includes("/.agentify.yaml"));
+    assert.ok(text.includes("custom-local-output/"));
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

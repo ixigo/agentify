@@ -8,7 +8,7 @@ node_modules/
 !.codex/skills/**
 
 # >>> agentify generated artifacts
-# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.
+# New Agentify-owned files stay local. CLAUDE.md, AGENTS.md, and this .gitignore remain visible to Git.
 .agentify/
 .current_session/
 AGENTIFY.md
@@ -18,6 +18,11 @@ output.txt
 agentify-report.html
 agentify-value-report.html
 agentify-session-analysis.html
+/.agentify.yaml
+/.agentignore
+/.guardrails
+/.claude/hooks/plan-to-html.mjs
+plans/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.html
 newdesign/
 # <<< agentify generated artifacts
 evals/harbor/jobs/

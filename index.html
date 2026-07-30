@@ -83,11 +83,28 @@ img { display: block; max-width: 100%; }
 }
 .skip-link:focus { transform: translateY(0); }
 
+.acp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border: 2px solid var(--color-divider);
+}
+.acp-grid > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr !important; }
   .sidebar { display: none !important; }
   section.doc-scroll, .poster, footer { padding-left: 24px !important; padding-right: 24px !important; }
   .hero-h1 { font-size: 38px !important; }
+  .acp-grid { grid-template-columns: 1fr; }
+  .acp-grid > div {
+    border-right: 0 !important;
+    border-bottom: 2px solid var(--color-divider);
+  }
+  .acp-grid > div:last-child { border-bottom: 0; }
 }
 </style>
 </head>
@@ -110,6 +127,7 @@ img { display: block; max-width: 100%; }
         <a href="#routing" style="color:var(--color-text)">Routing</a>
         <a href="#eval" style="color:var(--color-text)">Eval</a>
         <a href="#mcp" style="color:var(--color-text)">MCP</a>
+        <a href="#acp" style="color:var(--color-text)">ACP</a>
       </nav>
       <a href="https://github.com/ixigo/agentify" style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;background:var(--color-text);color:var(--color-bg);font:600 12px/1 var(--font-heading);letter-spacing:.02em">
         <span style="font-family:var(--mono);font-weight:700">↗</span> GitHub
@@ -137,6 +155,7 @@ img { display: block; max-width: 100%; }
         <a class="toc-link" href="#workflows" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Platform workflows</a>
         <a class="toc-link" href="#skills" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Skills</a>
         <a class="toc-link" href="#mcp" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">MCP server</a>
+        <a class="toc-link" href="#acp" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">ACP proxy</a>
         <a class="toc-link" href="#requirements" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Requirements</a>
         <div style="height:2px;background:var(--color-divider);margin:14px 0"></div>
         <a class="toc-link" href="pages/analyze.html" style="padding:6px 10px;color:var(--color-neutral-800);border-left:2px solid transparent">Analyze (page)</a>
@@ -210,7 +229,7 @@ img { display: block; max-width: 100%; }
           <div>
             <h4 style="font-size:16px;margin:0 0 10px">Wire into a repo</h4>
             <div data-term data-label="terminal" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 8px"></div>
-            <p style="font-size:13px;color:var(--color-neutral-700);margin:0">Both install and uninstall are surgical — only content between the managed markers is touched. Your own <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> and hooks are preserved.</p>
+            <p style="font-size:13px;color:var(--color-neutral-700);margin:0">Both install and uninstall are surgical. Agentify also updates a managed <code style="font-family:var(--mono);font-size:12px">.gitignore</code> block for files it creates, without hiding mixed-ownership provider directories. <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> and <code style="font-family:var(--mono);font-size:12px">AGENTS.md</code> remain visible; already tracked files stay tracked.</p>
           </div>
         </div>
       </section>
@@ -362,9 +381,34 @@ img { display: block; max-width: 100%; }
         </div>
       </section>
 
+      <!-- ACP -->
+      <section id="acp" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">11 — ACP proxy</div>
+        <h2 style="font-size:34px;margin:0 0 16px">Carry the full agent session through Agentify</h2>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px"><a href="https://agentclientprotocol.com/" style="color:var(--color-accent-700)">ACP</a> connects an editor to an agent. Agentify sits transparently in that transport, launches Claude or Codex downstream, and can add the same repo memory used by hooks and MCP without changing unknown protocol messages.</p>
+
+        <div data-term data-label="agentify acp --provider codex" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 26px"></div>
+
+        <div class="acp-grid">
+          <div style="padding:22px;border-right:2px solid var(--color-divider)">
+            <h3 style="font-size:16px;margin:0 0 8px">Transparent proxy</h3>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)">ACP frames pass through byte-for-byte. Adapter failure closes the connection instead of leaving requests hanging.</p>
+          </div>
+          <div style="padding:22px;border-right:2px solid var(--color-divider)">
+            <h3 style="font-size:16px;margin:0 0 8px">Budgeted injection</h3>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)"><code style="font-family:var(--mono);font-size:12px">acpInjection: relevant</code> adds matched context to the first turn. It defaults to off.</p>
+          </div>
+          <div style="padding:22px">
+            <h3 style="font-size:16px;margin:0 0 8px">One-writer capture</h3>
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800)"><code style="font-family:var(--mono);font-size:12px">acpCapture: auto</code> records hookless sessions while avoiding duplicate Claude hook events.</p>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:16px 0 0;max-width:68ch">Both controls honor <code style="font-family:var(--mono);font-size:12px">ctx pause</code> and enforce a symlink-safe workspace boundary. ACP client registration is still manual; <code style="font-family:var(--mono);font-size:12px">agentify install</code> does not claim to edit editor-specific client config.</p>
+      </section>
+
       <!-- REQUIREMENTS -->
       <section id="requirements" class="doc-scroll" style="padding:52px 56px">
-        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">11 — Requirements</div>
+        <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">12 — Requirements</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:2px solid var(--color-text)">
           <div style="padding:26px 24px;border-right:2px solid var(--color-divider)">
             <div style="font-family:var(--font-heading);font-weight:800;font-size:26px;margin:0 0 6px">Node 20+</div>
@@ -479,6 +523,12 @@ document.addEventListener("DOMContentLoaded", function () {
       {c:"# stdio MCP server, run from the repo root"},
       {p:"$", t:"claude mcp add agentify -- agentify serve"}
     ],
+    acp: [
+      {p:"$", t:"npm install -g @agentclientprotocol/codex-acp"},
+      {p:"$", t:"agentify acp --provider codex"},
+      {c:"# opt in: context.acpInjection=relevant, context.acpCapture=auto"},
+      {o:"ACP v1 proxy -> codex-acp; workspace-scoped context"}
+    ],
     analyze: [
       {p:"$", t:"agentify analyze --dry-run"},
       {o:"what would be read, nothing parsed"},
@@ -502,7 +552,7 @@ document.addEventListener("DOMContentLoaded", function () {
   };
   const plainText = (lines) => lines.map(l => l.blank ? "" : (l.c||l.o|| ((l.p?l.p+" ":"")+(l.t||"")))).join("\n");
 
-  const termKeyOrder = ["hero","how","curl","wire","delegate","eval","analyze","workflow","skills","serve"];
+  const termKeyOrder = ["hero","how","curl","wire","delegate","eval","analyze","workflow","skills","serve","acp"];
   let ti = 0;
   $$("[data-term]").forEach((box) => {
     const key = termKeyOrder[ti++] || "hero";
@@ -572,6 +622,7 @@ document.addEventListener("DOMContentLoaded", function () {
     { name: "Workflows & serve", rows: [
       ["agentify workflow list|install", "Board-to-draft-PR workflow bundle for your platform"],
       ["agentify serve", "MCP server over stdio — Agentify tools for any MCP-capable agent"],
+      ["agentify acp --provider <claude|codex>", "ACP proxy with opt-in context injection and session capture"],
       ["agentify skill list|install", "Install bundled agent skills"],
       ["agentify review [--diff <ref>] [--push]", "Cross-vendor review of a change"],
       ["agentify hooks install|remove|status", "Optional git hooks (pre-commit, post-merge, opt-in pre-push review)"]
