@@ -183,6 +183,15 @@ test("--depth diff adds bounded redacted hunks; --depth metadata never does", as
   assert.ok(!("diff_hunks" in metaPacket.themes[0]), "metadata depth ignores diff hunks");
 });
 
+test("collectThemeDiffs bounds the total diff by BYTES even for multibyte content", async () => {
+  const report = syntheticReport();
+  // A large multibyte diff (each emoji is 4 UTF-8 bytes) must not overrun the
+  // byte cap via character-count slicing.
+  const big = `diff --git a/x b/x\n+${"🚀".repeat(100000)}\n`;
+  const { bytes } = await collectThemeDiffs(path.sep, report, { exec: async () => ({ stdout: big }) });
+  assert.ok(bytes <= 60000, `total diff bytes (${bytes}) must respect the 60000-byte cap`);
+});
+
 test("collectThemeDiffs never ships source under --global", async () => {
   const report = syntheticReport();
   report.scope = "global";
@@ -472,6 +481,10 @@ test("spend IS recorded when a store already exists", async () => {
     assert.equal(narration.receipt.cost_recorded, true);
     assert.equal(recorded.length, 1);
     assert.equal(recorded[0].cost_usd, 0.0021);
+    // The record must be a well-formed successful delegation line, or the stats
+    // accumulator (exit_code !== 0 ⇒ failure) would count it as a failure.
+    assert.equal(recorded[0].exit_code, 0);
+    assert.equal(recorded[0].status, "ok");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

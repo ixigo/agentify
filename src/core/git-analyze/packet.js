@@ -303,6 +303,17 @@ function enforceTokenCeiling(packet, tokenCeiling) {
   while (estimateTokens(packet) > tokenCeiling && packet.limitations.length > 0) {
     packet.limitations.pop();
   }
+  // Under --global a huge repository list or distribution tail could still keep
+  // the packet over the ceiling on its own; trim those too, keeping at least
+  // the leading repository so the packet is never emptied of provenance.
+  while (estimateTokens(packet) > tokenCeiling && packet.repositories.length > 1) {
+    packet.repositories.pop();
+  }
+  for (const dimension of ["by_type", "by_scope"]) {
+    while (estimateTokens(packet) > tokenCeiling && packet.distributions[dimension].length > 0) {
+      packet.distributions[dimension].pop();
+    }
+  }
   return packet;
 }
 
@@ -314,6 +325,17 @@ const DIFF_MAX_COMMITS_PER_THEME = 4;
 const DIFF_MAX_FILES_PER_COMMIT = 6;
 const DIFF_MAX_BYTES_PER_HUNK = 4000;
 const DIFF_MAX_TOTAL_BYTES = 60000;
+
+// Truncate a string to at most `maxBytes` UTF-8 bytes on a codepoint boundary,
+// so a byte budget is never overrun by a multibyte character.
+function byteSlice(text, maxBytes) {
+  const buffer = Buffer.from(String(text), "utf8");
+  if (buffer.length <= maxBytes) return String(text);
+  // Back up off a partial trailing multibyte sequence (0b10xxxxxx bytes).
+  let end = maxBytes;
+  while (end > 0 && (buffer[end] & 0xc0) === 0x80) end -= 1;
+  return buffer.toString("utf8", 0, end);
+}
 
 // A read-only `git show` for one commit, restricted to the (already
 // generated-stripped) paths on its record. `--format=` drops the commit
@@ -369,10 +391,12 @@ export async function collectThemeDiffs(root, report, options = {}) {
       } catch {
         continue; // an unreadable diff is skipped, never fabricated
       }
-      const clipped = redactString(raw).slice(0, DIFF_MAX_BYTES_PER_HUNK);
+      // Bound by BYTES, not characters: a UTF-8 multibyte hunk sliced by char
+      // count would overrun both the per-hunk and total byte caps.
+      const clipped = byteSlice(redactString(raw), DIFF_MAX_BYTES_PER_HUNK);
       if (!clipped.trim()) continue;
       const remaining = DIFF_MAX_TOTAL_BYTES - bytes;
-      const bounded = clipped.slice(0, Math.max(0, remaining));
+      const bounded = byteSlice(clipped, Math.max(0, remaining));
       if (!bounded) break;
       hunks.push(`# ${sha.slice(0, 7)}\n${bounded}`);
       bytes += Buffer.byteLength(bounded, "utf8");

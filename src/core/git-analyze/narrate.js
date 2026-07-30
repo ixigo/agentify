@@ -568,8 +568,13 @@ export async function narrateGitAnalyze(params) {
     // store. Recording happens here (not only on success) so a PAID failure —
     // a budget stop that still cost dollars — is not undercounted in rolling
     // spend when a store exists.
-    const finalizeReceipt = async () => {
+    const finalizeReceipt = async (outcome = "ok") => {
       if (costUsd !== null && !costRecorded) {
+        // The record must be a well-formed delegation line: the stats
+        // accumulator reads `exit_code !== 0` as a failure and `input/output
+        // tokens` for totals, so a bare {cost} would inflate the failure metric
+        // and skew routing evidence. A completed narration is exit 0; a budget
+        // stop is flagged as such.
         costRecorded = await recordSpendIfStore(root, {
           schema: "git-analyze-narration",
           kind: "git-analyze",
@@ -578,6 +583,12 @@ export async function narrateGitAnalyze(params) {
           cost_usd: costUsd,
           depth,
           bytes_sent: bytesSent,
+          status: outcome,
+          exit_code: outcome === "ok" ? 0 : 1,
+          budget_stop_reason: outcome === "budget_blocked" ? "max_budget_usd" : null,
+          input_tokens: 0,
+          output_tokens: 0,
+          tokens_estimated: true,
         }, deps);
       }
       return {
@@ -593,10 +604,10 @@ export async function narrateGitAnalyze(params) {
     };
 
     if (/timed out after/.test(String(result.stderr || ""))) {
-      return degraded({ depth, provider, model, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
+      return degraded({ depth, provider, model, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: await finalizeReceipt("timeout") });
     }
     if (result.code !== 0) {
-      return degraded({ depth, provider, model, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
+      return degraded({ depth, provider, model, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: await finalizeReceipt("provider_error") });
     }
 
     // Extract the answer text and any reported cost.
@@ -612,7 +623,7 @@ export async function narrateGitAnalyze(params) {
       if (envelope.is_error) {
         // A budget stop lands here — the cap held, the deterministic report stands.
         const budgetStopped = /budget/i.test(String(envelope.subtype || ""));
-        return degraded({ depth, provider, model, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
+        return degraded({ depth, provider, model, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: await finalizeReceipt(budgetStopped ? "budget_blocked" : "provider_error") });
       }
       // With --json-schema the validated object is on `structured_output`;
       // older CLIs put the answer text on `result`/`content`. Prefer the
