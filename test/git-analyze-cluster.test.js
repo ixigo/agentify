@@ -236,6 +236,32 @@ test("headline totals equal the sum over themes plus the smaller-changes bucket"
   assert.equal(summary.totals.commits, commits.length);
 });
 
+test("under --include-merges the headline (merge-inclusive) equals the sum over themes", () => {
+  const commits = [
+    rec({ issueKeys: ["#1"], insertions: 5 }),
+    rec({ issueKeys: ["#1"], insertions: 3 }),
+  ];
+  // Two merges opted into the count; they carry no churn and cite an issue.
+  const merges = [
+    rec({ isMerge: true, insertions: 0, subject: "Merge #1", issueKeys: ["#1"], authoredAt: "2026-06-05T09:00:00+00:00" }),
+    rec({ isMerge: true, insertions: 0, subject: "Merge #9", issueKeys: ["#9"], authoredAt: "2026-06-06T09:00:00+00:00" }),
+  ];
+  const report = makeLocalReport(commits, merges);
+  // Mirror #351 under --include-merges: merges fold into the commit count.
+  report.counts.commits = commits.length + merges.length;
+  report.totals.merges = merges.length;
+  report.filters = { ...report.filters, applied: true, include_merges: true };
+
+  const summary = buildGitAnalyzeSummary(report);
+  let commitSum = 0;
+  for (const theme of summary.themes) commitSum += theme.commits;
+  for (const bucket of summary.smaller_changes) commitSum += bucket.commits;
+  assert.equal(summary.totals.commits, 4, "headline counts the two merges too");
+  assert.equal(commitSum, summary.totals.commits, "themes+bucket account for every counted commit");
+  // A merge-inclusive run has dated activity from the merges, never zero.
+  assert.ok(summary.totals.active_days >= 1);
+});
+
 test("theme assignment and ordering are independent of input order", () => {
   // A theme's `shas` list follows input (git-log) order — meaningful evidence
   // order — so normalize it before comparing: what must be order-independent is
@@ -375,6 +401,32 @@ test("computeBranchOwnership attributes commits unique to one branch", async () 
     });
     assert.equal(ownership.get(featSha), "feat/x", "feature commit owned by feat/x");
     assert.equal(ownership.has(mainSha), false, "shared base commit is not owned");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("computeBranchOwnership makes no attribution for a lone branch with no trunk", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-lone-"));
+  try {
+    // A repo on a non-standard default branch with nothing to compare against:
+    // every commit is trivially 'unique' to it, so attributing would label the
+    // whole repo one branch theme. The lone-candidate guard must prevent that.
+    await git(root, ["init", "-q", "-b", "develop"]);
+    await git(root, ["config", "user.name", "Alice"]);
+    await git(root, ["config", "user.email", "alice@work.com"]);
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    await git(root, ["add", "."]);
+    await git(root, ["commit", "-q", "-m", "work"]);
+    const sha = (await git(root, ["rev-parse", "HEAD"])).stdout.trim();
+
+    // mainlineBranch null (no main/master/origin-HEAD), single candidate.
+    const { ownership } = await computeBranchOwnership(root, {
+      candidateNames: ["develop"],
+      windowShas: new Set([sha]),
+      mainlineBranch: null,
+    });
+    assert.equal(ownership.size, 0, "no branch attribution for a lone trunk-like branch");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

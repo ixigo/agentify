@@ -30,7 +30,12 @@ import {
 //              of per-repo sections, no top-level `repository`/`bounds`). The
 //              local shape is unchanged; the version bump signals the new
 //              variant so a consumer can distinguish the two contracts.
-export const GIT_ANALYZE_SCHEMA_VERSION = 3;
+//   4 (#352) — a real run now carries `report.summary` (the versioned
+//              `git-analyze-v1` clustered summary), and `counts.commits` folds in
+//              merges under `--include-merges`. Both are observable, so a v3
+//              consumer must not assume the old (summary-less, merge-excluded)
+//              contract.
+export const GIT_ANALYZE_SCHEMA_VERSION = 4;
 
 export { resolveWindow };
 
@@ -521,7 +526,10 @@ export function renderGitAnalyzeText(report) {
     const t = report.totals;
     lines.push(`  commits:    ${report.counts.commits} (${report.counts.authors} author${report.counts.authors === 1 ? "" : "s"})`);
     lines.push(`  churn:      +${t.insertions} / -${t.deletions} across ${t.distinct_files} file${t.distinct_files === 1 ? "" : "s"} (${t.file_changes} change${t.file_changes === 1 ? "" : "s"})`);
-    lines.push(`  merges:     ${t.merges} (excluded from counts)`);
+    // --include-merges folds merges into the commit count (#351); say which is
+    // in force so this line never contradicts the commit total beside it.
+    const mergesCounted = Boolean(report.filters && report.filters.include_merges);
+    lines.push(`  merges:     ${t.merges} (${mergesCounted ? "counted with --include-merges" : "excluded from counts"})`);
     lines.push(`  issue refs: ${t.issue_refs}`);
     lines.push(`  branches:   ${t.branches}`);
   }

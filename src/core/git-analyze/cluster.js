@@ -469,13 +469,17 @@ function buildLimitationsAndEvidence(report, sections) {
     }
   }
 
-  let mergesExcluded = 0;
+  const includeMerges = Boolean(report.filters && report.filters.include_merges);
+  let mergeCount = 0;
   let generatedExcluded = 0;
   let commitsCapped = false;
   for (const section of sections) {
-    mergesExcluded += section.totals.merges || 0;
+    mergeCount += section.totals.merges || 0;
     generatedExcluded += section.totals.files_excluded || 0;
   }
+  // Under --include-merges the merges are folded into the counts, so none are
+  // "excluded"; otherwise every merge is excluded from the commit/churn headline.
+  const mergesExcluded = includeMerges ? 0 : mergeCount;
   const truncated = report.truncated || null;
   if (truncated && truncated.commits) commitsCapped = true;
   for (const repo of report.repositories || []) {
@@ -485,14 +489,13 @@ function buildLimitationsAndEvidence(report, sections) {
     (repo) => repo.is_git_repository && !repo.commits_read && !("window_commit_count" in repo),
   ).length;
 
-  const includeMerges = Boolean(report.filters && report.filters.include_merges);
-  if (mergesExcluded > 0) {
+  if (mergeCount > 0) {
     // Merges are always retained as delivery evidence; --include-merges decides
     // whether they also COUNT. Say which of the two is in force, so the merge
     // figure in the headline is never ambiguous.
     add(includeMerges
-      ? `${mergesExcluded} merge commit(s) are counted toward commit totals (--include-merges); churn figures still come from non-merge commits only.`
-      : `${mergesExcluded} merge commit(s) are reported as delivery evidence but excluded from commit and churn counts (pass --include-merges to count them).`);
+      ? `${mergeCount} merge commit(s) are counted toward commit totals (--include-merges); churn figures still come from non-merge commits only.`
+      : `${mergeCount} merge commit(s) are reported as delivery evidence but excluded from commit and churn counts (pass --include-merges to count them).`);
   }
   if (report.scope === "global") {
     add("Branch-based clustering is not computed under --global (to bound the cross-repository sweep); themes there cluster by issue key, conventional scope, and directory only.");
@@ -535,8 +538,20 @@ export function buildGitAnalyzeSummary(report, options = {}) {
   const allCommits = [];
   const authorEmails = new Set();
 
+  // `--include-merges` folds merges INTO the counted set (#351), so counts.commits
+  // includes them. Clustering, distributions, active-days and spans must run over
+  // that SAME counted set, or the headline would not equal the sum over themes and
+  // a merge-only match would show a commit with no theme and no active day.
+  const includeMerges = Boolean(report.filters && report.filters.include_merges);
+
   for (const section of sections) {
-    const { themes: repoThemes, smallerChanges: bucket } = clusterCommits(section.commits, {
+    // The counted set for this repository: non-merge commits, plus merges when
+    // --include-merges opted them in. Merges carry no numstat (zero churn) and
+    // usually no conventional type, so they cluster by issue key or fall through
+    // to unclustered — but they are never lost from the headline.
+    const clustered = includeMerges ? [...section.commits, ...section.merges] : section.commits;
+
+    const { themes: repoThemes, smallerChanges: bucket } = clusterCommits(clustered, {
       minThemeCommits: options.minThemeCommits,
       merges: section.merges,
       // Ownership is a whole-run map keyed by sha; global passes an empty map.
@@ -547,13 +562,13 @@ export function buildGitAnalyzeSummary(report, options = {}) {
     for (const theme of repoThemes) themes.push(theme);
     if (bucket) smallerChanges.push(bucket);
 
-    const { first, last } = firstLastOf(section.commits);
+    const { first, last } = firstLastOf(clustered);
     repositories.push({
       name: section.name,
       path: section.path,
       commits: section.counts.commits || 0,
       authors: section.counts.authors || 0,
-      active_days: activeDaysOf(section.commits),
+      active_days: activeDaysOf(clustered),
       first_commit: first,
       last_commit: last,
       insertions: section.totals.insertions || 0,
@@ -566,7 +581,7 @@ export function buildGitAnalyzeSummary(report, options = {}) {
       filters: report.scope === "global" ? (section.filters || null) : null,
     });
 
-    for (const record of section.commits) {
+    for (const record of clustered) {
       allCommits.push(record);
       if (record.authorEmail) authorEmails.add(String(record.authorEmail).toLowerCase());
     }
