@@ -143,9 +143,10 @@ agentify git analyze
 ```
 
 Run it inside any git repository and it turns your local commit history into a
-filtered summary and a shareable HTML report — read-only, no config, no index,
-no network by default, and nothing written inside your repository (`git status`
-is unchanged afterwards). It needs no `agentify install` first.
+filtered summary printed to your terminal — read-only, no config, no index, no
+network by default, and nothing written inside your repository (`git status` is
+unchanged afterwards). Add `--format html` for a shareable report that opens in
+your browser. It needs no `agentify install` first.
 
 ```bash
 agentify git analyze --months 3 --me           # your last three months

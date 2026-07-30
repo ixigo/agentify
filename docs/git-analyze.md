@@ -8,20 +8,25 @@ agentify git analyze
 ```
 
 That is the whole thing. Run it inside any git repository. It reads your commit
-history for the last 30 days, groups the work into themes, prints a summary, and
-writes an HTML report you can open in a browser. It installs nothing, writes
-nothing into your repository, and makes no network calls.
+history for the last 30 days, groups the work into themes, and prints a summary
+to your terminal. Add `--format html` for a shareable report that opens in your
+browser. It installs nothing, writes nothing into your repository, and makes no
+network calls.
 
 You do **not** need to have run `agentify install`, `agentify scan`, or anything
 else first. If this is the first Agentify command you have ever run, it works.
+
+> **Output format.** The default output is a text summary printed to your
+> terminal. Choose another with `--format`: `text` (default), `json`, `md`, or
+> `html`. Only `--format html` writes a file and offers to open a browser.
 
 ## What you get
 
 - A summary of what changed, by whom, on what, in a window you choose — behind
   real filters (branch, path, commit-message search, conventional type/scope,
   issue key, author).
-- An HTML report that opens in your browser, ending with a short note about what
-  Agentify can do when it is set up. A pointer, not an installer.
+- With `--format html`, a report that opens in your browser, ending with a short
+  note about what Agentify can do when it is set up. A pointer, not an installer.
 - Every number is computed from your git history deterministically. Optional AI
   narration (off by default) may phrase and group; it never produces a figure.
 
@@ -80,7 +85,7 @@ tracker
   --jira auto|off|acli|rest                                          (default off)
 
 output
-  --format html|md|text|json                                         (default html)
+  --format text|json|md|html                                         (default text)
   --output <path> | --no-open | --dry-run | --yes
 ```
 
@@ -113,8 +118,10 @@ not a failure.
 
 ## Worked example (this repository)
 
-For the window `2026-04-29 → 2026-07-29`, counting both identities and excluding
-merge commits, this repository reports:
+Measured on this repository at the epic's integration point
+(`feat/347-git-analyze`), for the window `2026-04-29 → 2026-07-29`, counting both
+identities and excluding merge commits. These are a point-in-time reference; your
+own run will differ as history grows past that commit.
 
 | Metric | Value |
 |---|---|
@@ -174,8 +181,10 @@ agentify git analyze --months 3 --ai --provider claude --max-budget-usd 0.25
 ## Optional: issue titles
 
 `--jira auto` enriches issue references with their titles when a tracker CLI
-(`acli`) or `gh` is available and authenticated. This is the only path that
-touches a network, and only when you ask for it. Without `--jira`, zero network.
+(`acli`) or `gh` is available and authenticated. It is one of only two paths that
+ever touch a network — the other is `--ai` narration — and both are off unless
+you ask for them. With neither `--jira` nor `--ai`, the command makes zero
+network calls.
 
 ## If you want the rest of it
 

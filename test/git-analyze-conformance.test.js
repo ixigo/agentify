@@ -35,7 +35,17 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-// Every window form the frozen surface accepts.
+// An ABSOLUTE window that spans the whole fixture history. Assertions that need
+// the fixture's commits to actually fall inside the window use this, so the
+// suite never depends on the wall clock — the fixture's pinned commit dates and
+// this fixed window fully determine what is analysed, today or in 2030.
+const WINDOW = ["--since", "2026-04-29", "--until", "2026-08-01"];
+
+// Every window FORM the frozen surface accepts. These are used only where the
+// assertion is "runs to completion / resolves the window" (exit 0 + schema),
+// which is clock-independent: a relative form that has aged past the fixture
+// simply resolves to an empty-but-valid report. Nothing here asserts a commit
+// count, so the wall clock cannot change the outcome.
 const WINDOW_FORMS = [
   ["--days", "30"],
   ["--months", "3"],
@@ -46,18 +56,19 @@ const WINDOW_FORMS = [
 
 // A representative spread of command variants, all on the DEFAULT (no network)
 // path, used by the footprint and git-allowlist rows so those assertions see
-// every code path a first-time user might hit.
+// every code path a first-time user might hit. All use the fixed absolute
+// WINDOW so the exercised code paths are deterministic.
 const DEFAULT_VARIANTS = [
-  ["--months", "3", "--format", "json"],
-  ["--months", "3", "--format", "text"],
-  ["--months", "3", "--format", "md"],
-  ["--months", "3", "--format", "html", "--no-open"],
-  ["--months", "3", "--me", "--format", "json"],
-  ["--months", "3", "--branch", "feature/*", "--format", "json"],
-  ["--months", "3", "--type", "feat,fix", "--scope", "report", "--format", "json"],
-  ["--months", "3", "--issue", "#353", "--format", "json"],
-  ["--months", "3", "--grep", "report", "--path", "src/**", "--format", "json"],
-  ["--months", "3", "--include-merges", "--format", "json"],
+  [...WINDOW, "--format", "json"],
+  [...WINDOW, "--format", "text"],
+  [...WINDOW, "--format", "md"],
+  [...WINDOW, "--format", "html", "--no-open"],
+  [...WINDOW, "--me", "--format", "json"],
+  [...WINDOW, "--branch", "feature/*", "--format", "json"],
+  [...WINDOW, "--type", "feat,fix", "--scope", "report", "--format", "json"],
+  [...WINDOW, "--issue", "#353", "--format", "json"],
+  [...WINDOW, "--grep", "report", "--path", "src/**", "--format", "json"],
+  [...WINDOW, "--include-merges", "--format", "json"],
 ];
 
 // -------------------------------------------------------------------------
@@ -163,7 +174,13 @@ test("row 5: default path spawns no provider process and opens no socket", async
   try {
     for (const args of DEFAULT_VARIANTS) {
       await fs.writeFile(sandbox.procSpyLog, "", "utf8");
-      const result = await runAnalyzeCli(sandbox, repo.root, args);
+      // blockNetwork preloads an in-process tripwire that throws on any
+      // fetch/http(s).request/net.connect/dns/tls attempt. Combined with the
+      // empty proc-spy (no provider/tracker CHILD spawned), this asserts the
+      // default path opens no socket in-process AND spawns nothing network-
+      // capable — the complete network-isolation claim. A run that touched the
+      // network in-process would be non-zero here.
+      const result = await runAnalyzeCli(sandbox, repo.root, args, { blockNetwork: true });
       assert.equal(result.code, 0, `variant ${args.join(" ")} exited ${result.code}\n${result.stderr}`);
       const procs = await sandbox.procCalls();
       assert.deepEqual(procs, [], `default path spawned a provider process for ${args.join(" ")}:\n${procs.join("\n")}`);
@@ -191,7 +208,7 @@ test("row 6: works with HOME pointing at an empty directory", async () => {
       JSON.parse(result.stdout); // valid report
     }
     // And the html path, whose default report dir is derived from HOME/XDG.
-    const html = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--format", "html", "--no-open"]);
+    const html = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "html", "--no-open"]);
     assert.equal(html.code, 0, `HOME=empty html exited ${html.code}\n${html.stderr}`);
   } finally {
     await sandbox.cleanup();
@@ -211,7 +228,7 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
     // unavailable and the deterministic report still renders.
     {
       const repo = await createPristineRepo();
-      const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--ai", "--yes", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--ai", "--yes", "--format", "json"]);
       assert.equal(r.code, 0, `--ai (no provider) errored:\n${r.stderr}`);
       const rep = JSON.parse(r.stdout);
       assert.ok(rep.narration, "an --ai run carries a narration block even when unavailable");
@@ -222,7 +239,7 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
     // --jira with no acli/gh: must not throw; zero network; tracker degrades.
     {
       const repo = await createPristineRepo();
-      const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--jira", "auto", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--jira", "auto", "--format", "json"]);
       assert.equal(r.code, 0, `--jira auto (no acli/gh) errored:\n${r.stderr}`);
       const rep = JSON.parse(r.stdout);
       assert.ok(rep.tracker, "a --jira run carries a tracker block");
@@ -233,7 +250,7 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
     // Degenerate repo shapes: each is a stated outcome, not a crash.
     for (const shape of ["single", "main-only", "detached"]) {
       const repo = await createPristineRepo({ shape });
-      const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "json"]);
       assert.equal(r.code, 0, `shape=${shape} errored:\n${r.stderr}`);
       JSON.parse(r.stdout);
       await repo.cleanup();
@@ -242,7 +259,7 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
     {
       const repo = await createPristineRepo();
       await assert.rejects(fs.access(path.join(repo.root, ".mailmap")), "fixture has no .mailmap");
-      const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--me", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--me", "--format", "json"]);
       assert.equal(r.code, 0, `--me without .mailmap errored:\n${r.stderr}`);
       await repo.cleanup();
     }
@@ -261,7 +278,7 @@ test("row 8: exit codes distinguish success/explained-empty from misuse/git-fail
     // Success.
     {
       const repo = await createPristineRepo();
-      const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "json"]);
       assert.equal(r.code, 0, `success should exit 0:\n${r.stderr}`);
       await repo.cleanup();
     }
@@ -294,7 +311,7 @@ test("row 8: exit codes distinguish success/explained-empty from misuse/git-fail
     // Git failure: --local outside a git repository is a genuine failure.
     {
       const notRepo = await fs.mkdtemp(path.join((await import("node:os")).tmpdir(), "agentify-notrepo-"));
-      const r = await runAnalyzeCli(sandbox, notRepo, ["--months", "3", "--format", "json"]);
+      const r = await runAnalyzeCli(sandbox, notRepo, [...WINDOW, "--format", "json"]);
       assert.notEqual(r.code, 0, `--local outside a git repo should be non-zero:\n${r.stdout}`);
       await fs.rm(notRepo, { recursive: true, force: true });
     }
@@ -343,7 +360,7 @@ test("row 10: the HTML report artifact lands outside the analysed repository", a
   const sandbox = await createSandbox();
   try {
     const before = await snapshotTree(repo.root);
-    const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--format", "html", "--no-open"]);
+    const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "html", "--no-open"]);
     assert.equal(r.code, 0, `html errored:\n${r.stderr}`);
     const m = r.stderr.match(/Report written to (\S+\.html)/);
     assert.ok(m, `could not find the report path in:\n${r.stderr}`);
@@ -490,7 +507,7 @@ test("perf: branch-ownership attribution over many branches stays bounded", asyn
   const sandbox = await createSandbox();
   try {
     const started = Date.now();
-    const r = await runAnalyzeCli(sandbox, repo.root, ["--months", "3", "--format", "json"]);
+    const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "json"]);
     const elapsedMs = Date.now() - started;
     assert.equal(r.code, 0, `many-branch run errored:\n${r.stderr}`);
     // Generous bound: this fixture completes in ~1–3s; 60s catches a genuine

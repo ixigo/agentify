@@ -325,12 +325,19 @@ export function diffSnapshots(before, after) {
 // shim — first on the child's PATH — intercepts EVERY git call the command
 // makes, which is the only way row 4 catches a future slice adding a `fetch`.
 function gitShimSource(realGit) {
+  // The command issues git calls CONCURRENTLY (e.g. `--me` resolves user.name
+  // and user.email in parallel), and every shim appends to the SAME log file.
+  // Build the whole record as one string and emit it with a SINGLE printf, so
+  // each record is one O_APPEND write() — atomic under PIPE_BUF — and records
+  // from concurrent gits never interleave. (Per-line printf would interleave
+  // and corrupt the parse.)
   return `#!/bin/sh
-{
-  printf 'GITCALL\\n'
-  for a in "$@"; do printf '%s\\n' "$a"; done
-  printf 'ENDGITCALL\\n'
-} >> "$GIT_SPY_LOG"
+rec='GITCALL'
+for a in "$@"; do
+  rec="$rec
+$a"
+done
+printf '%s\\nENDGITCALL\\n' "$rec" >> "$GIT_SPY_LOG"
 exec ${JSON.stringify(realGit)} "$@"
 `;
 }
@@ -343,13 +350,39 @@ exec ${JSON.stringify(realGit)} "$@"
 // through a spawned provider/tracker CLI, so "no provider process spawned"
 // means "no socket opened".
 function procShimSource(name) {
+  // Single atomic append (see gitShimSource) so concurrent provider spawns can
+  // never interleave into one corrupted line.
   return `#!/bin/sh
-{
-  printf '%s' ${JSON.stringify(name)}
-  for a in "$@"; do printf ' %s' "$a"; done
-  printf '\\n'
-} >> "$PROC_SPY_LOG"
+rec=${JSON.stringify(name)}
+for a in "$@"; do
+  rec="$rec $a"
+done
+printf '%s\\n' "$rec" >> "$PROC_SPY_LOG"
 exit 0
+`;
+}
+
+// A hermetic `which`/`where` shim that resolves names against ITS OWN directory
+// (the sandbox bin dir) only — never the host. This is what makes "absent" mean
+// absent: with a binDir-only PATH, `which claude` fails unless we planted a
+// claude shim, regardless of what the host has in /usr/local/bin. Uses only
+// shell builtins (no external `dirname`/`printf` binary) so it works with an
+// empty PATH. detectEnvironment probes availability via `which`, so this also
+// keeps provider detection deterministic across CI hosts.
+function whichShimSource() {
+  return `#!/bin/sh
+d=\${0%/*}
+for name in "$@"; do
+  case "$name" in
+    -*|which|where) continue ;;
+  esac
+  if [ -x "$d/$name" ]; then
+    echo "$d/$name"
+    exit 0
+  fi
+  exit 1
+done
+exit 1
 `;
 }
 
@@ -386,6 +419,10 @@ export async function createSandbox(opts = {}) {
   await fs.writeFile(procSpyLog, "", "utf8");
 
   await writeShim(binDir, "git", gitShimSource(await realGitPath()));
+  // A hermetic which/where so availability detection resolves against binDir
+  // only (see whichShimSource). Present in every sandbox.
+  await writeShim(binDir, "which", whichShimSource());
+  await writeShim(binDir, "where", whichShimSource());
   if (opts.providers) {
     for (const name of ["claude", "codex", "acli", "gh"]) {
       await writeShim(binDir, name, procShimSource(name));
@@ -399,14 +436,14 @@ export async function createSandbox(opts = {}) {
   // than being masked by redaction that only runs on commit text.
   const secret = opts.secret || "CONFORMANCE-ENV-SENTINEL-8f3a91-do-not-leak";
 
-  // A minimal PATH: the shim dir first, then only the standard system dirs that
-  // hold sh / which / env. Deliberately EXCLUDES the dirs where claude / codex /
-  // acli / gh normally live, so (unless we planted shims) those tools are truly
-  // absent — the missing-dependency matrix (row 7).
-  const systemDirs = process.platform === "win32"
-    ? [process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32") : "C:\\Windows\\System32"]
-    : ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
-  const PATH = [binDir, ...systemDirs].join(path.delimiter);
+  // A binDir-ONLY PATH. Nothing on the host can leak in: git is the shim (which
+  // execs the real git by absolute path), which/where are the hermetic shims,
+  // and claude/codex/acli/gh exist only if we planted them. This is what makes
+  // the missing-dependency matrix (row 7) host-independent — a real `gh` in
+  // /usr/local/bin can no longer satisfy a run that is meant to prove `gh` is
+  // absent. The shims themselves use only shell builtins, so they need no other
+  // directory on PATH.
+  const PATH = binDir;
 
   const env = {
     PATH,
@@ -567,13 +604,21 @@ export function findGitViolations(calls) {
  * @param {object} sandbox - from createSandbox()
  * @param {string} cwd - the analysed repo root
  * @param {string[]} analyzeArgs - args AFTER `git analyze`
+ * @param {object} [opts]
+ * @param {boolean} [opts.blockNetwork] - preload the in-process network guard
+ *   (test/helpers/no-network-guard.mjs), so any in-process socket attempt throws.
  */
-export async function runAnalyzeCli(sandbox, cwd, analyzeArgs = []) {
+export async function runAnalyzeCli(sandbox, cwd, analyzeArgs = [], opts = {}) {
+  const env = { ...sandbox.env };
+  if (opts.blockNetwork) {
+    const guard = fileURLToPath(new URL("./no-network-guard.mjs", import.meta.url));
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ? env.NODE_OPTIONS + " " : ""}--import ${JSON.stringify(guard)}`;
+  }
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [CLI, "git", "analyze", ...analyzeArgs],
-      { cwd, env: sandbox.env, maxBuffer: 64 * 1024 * 1024 },
+      { cwd, env, maxBuffer: 64 * 1024 * 1024 },
       (error, stdout, stderr) => {
         resolve({
           code: error && typeof error.code === "number" ? error.code : (error ? 1 : 0),
