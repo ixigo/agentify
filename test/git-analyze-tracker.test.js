@@ -539,6 +539,88 @@ test("renderText surfaces tracker limitations in the terminal view", () => {
   assert.match(text, /A tracker tier was disabled for this run\./);
 });
 
+test("a malformed HTTP 200 is a transient failure, not a cached not_found", async () => {
+  const { dir } = await tmpCacheEnv();
+  let bodies = ['{"issues": "not-an-array"}', "this is not json"];
+  let call = 0;
+  const http = { calls: [], fn: async (opts) => { http.calls.push(opts); return { statusCode: 200, body: bodies[call++] || "{}" }; } };
+  const env = { XDG_CACHE_HOME: dir, ...REST_ENV };
+
+  // Non-array `issues` must not throw and must not cache.
+  const r1 = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env, deps: { httpRequest: http.fn } });
+  assert.equal(r1.entries["PROJ-1"].resolved, false);
+  assert.equal(r1.entries["PROJ-1"].reason, "unavailable");
+
+  // Invalid JSON likewise; and a follow-up run re-requests (nothing poisoned).
+  const r2 = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env, deps: { httpRequest: http.fn } });
+  assert.equal(r2.entries["PROJ-1"].reason, "unavailable");
+  assert.equal(http.calls.length, 2, "a malformed 200 must not be cached; the second run re-requests");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("acli caches under its own scope and does not reuse a REST title for the same key", async () => {
+  const { dir } = await tmpCacheEnv();
+  const env = { XDG_CACHE_HOME: dir, JIRA_BASE_URL: "https://site.atlassian.net", JIRA_EMAIL: "m@e.co", JIRA_API_TOKEN: "t" };
+
+  // Warm the REST cache for PROJ-1.
+  const http = mockHttp(restOk({ "PROJ-1": "REST title" }));
+  await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env, deps: { httpRequest: http.fn } });
+
+  // An acli run for the same key must NOT read the REST-scoped cache; it makes
+  // its own acli call and uses acli's own link (none here → null), not the env
+  // browse URL.
+  let acliCalls = 0;
+  const exec = async (command, args) => {
+    if (command === "acli" && args[0] === "jira") { acliCalls += 1; return { code: 0, stdout: JSON.stringify({ fields: { summary: "ACLI title", status: { name: "Open" }, issuetype: { name: "Task" } } }), stderr: "" }; }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const r = await resolveTracker({ keys: ["PROJ-1"], mode: "acli", env, deps: { exec, hasBinary: async (n) => n === "acli" } });
+  assert.equal(acliCalls, 1, "acli must not be short-circuited by the REST cache");
+  assert.equal(r.entries["PROJ-1"].title, "ACLI title");
+  assert.equal(r.entries["PROJ-1"].url, null, "acli link must not be synthesised from JIRA_BASE_URL");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("the gh auth probe respects the request budget", async () => {
+  const { env } = await tmpCacheEnv();
+  let ghCalls = 0;
+  const exec = async (command) => { if (command === "gh") ghCalls += 1; return { code: 0, stdout: "", stderr: "" }; };
+  const result = await resolveTracker({
+    keys: ["#42"],
+    mode: "auto",
+    env: { ...env, JIRA_BASE_URL: "" },
+    cache: false,
+    maxRequests: 0,
+    deps: { exec, hasBinary: async (n) => n === "gh" },
+  });
+  assert.equal(ghCalls, 0, "a zero budget must not perform the gh auth probe");
+  assert.equal(result.network_requests, 0);
+});
+
+test("secondary cited tickets (tracker_refs) render in md, text, and html", () => {
+  const report = fixtureReport(["PROJ-1"]);
+  // Make PROJ-1's theme also cite PROJ-2.
+  for (const theme of report.summary.themes) {
+    if (theme.key === "PROJ-1") theme.issue_keys = ["PROJ-1", "PROJ-2"];
+  }
+  const tracker = {
+    schema: TRACKER_SCHEMA,
+    entries: {
+      "PROJ-1": { key: "PROJ-1", resolved: true, title: "Primary", status: "Done", type: "Story", url: "https://x/browse/PROJ-1", source: "rest" },
+      "PROJ-2": { key: "PROJ-2", resolved: true, title: "Secondary work", status: "Done", type: "Task", url: "https://x/browse/PROJ-2", source: "rest" },
+    },
+    limitations: [],
+  };
+  applyTrackerTitles(report.summary, tracker);
+  const md = renderMarkdown(report);
+  const text = renderText(report);
+  const html = renderGitAnalyzeHtml(report, { environment: { agentifyOnPath: false, hasConfig: false, providers: [] } });
+  for (const out of [md, text, html]) {
+    assert.match(out, /PROJ-2/);
+    assert.match(out, /Secondary work/);
+  }
+});
+
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   const report = fixtureReport(["PROJ-1"]);
   const tracker = {

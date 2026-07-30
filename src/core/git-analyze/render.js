@@ -191,6 +191,8 @@ export function renderText(report) {
         `    ${String(theme.commits).padStart(4)}  ${repoTag}${theme.title}${tag ? `  ${tag}` : ""}  ` +
           `${churn}  ${span(theme.first_commit, theme.last_commit)}${iter}`,
       );
+      const related = relatedRefLines(theme.tracker_refs);
+      if (related) lines.push(`          also: ${related}`);
     }
   } else if (summary.totals.commits === 0) {
     lines.push("  themes:     none (no commits matched)");
@@ -235,6 +237,16 @@ export function renderText(report) {
 // markdown
 // ---------------------------------------------------------------------------
 
+// A compact "KEY — title" list of the other tickets a theme cites (its
+// tracker_refs), resolved titles where available. Returns "" when there are none.
+function relatedRefLines(refs) {
+  const entries = refs && typeof refs === "object" ? Object.values(refs) : [];
+  if (entries.length === 0) return "";
+  return entries
+    .map((entry) => (entry.resolved && entry.title ? `${entry.key} — ${entry.title}` : entry.key))
+    .join(", ");
+}
+
 function mdThemeSection(theme, showRepo) {
   const lines = [];
   const churn = `+${theme.insertions}/-${theme.deletions}`;
@@ -254,6 +266,10 @@ function mdThemeSection(theme, showRepo) {
       lines.push(`- Tracker: ${tr.key} (untitled) — ${tr.url}`);
     }
   }
+  // Other tickets this theme cites, resolved to titles where possible, so a
+  // commit referencing more than one ticket does not spend a lookup for nothing.
+  const related = relatedRefLines(theme.tracker_refs);
+  if (related) lines.push(`- Related: ${related}`);
   const types = histogram(theme.type_histogram);
   if (types) lines.push(`- Types: ${types}`);
   lines.push(`- Span: ${span(theme.first_commit, theme.last_commit)} · ${theme.files_changed} ${plural(theme.files_changed, "file")} touched`);

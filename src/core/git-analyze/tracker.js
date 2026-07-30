@@ -249,7 +249,25 @@ function parseAcliIssue(json, key) {
   const status = fields?.status?.name || json?.status?.name || json?.status || null;
   const type = fields?.issuetype?.name || json?.issuetype?.name || json?.type || null;
   if (!title) return null;
-  return { key, title: String(title), status: status ? String(status) : null, type: type ? String(type) : null };
+  // acli authenticates to its OWN site, which may differ from JIRA_BASE_URL, so a
+  // browse link is taken only from acli's payload (never synthesised from the
+  // env base URL); a bare http(s) link is kept, anything else dropped.
+  const rawUrl = json?.url || fields?.url || json?.self || null;
+  const url = httpLink(rawUrl);
+  return { key, title: String(title), status: status ? String(status) : null, type: type ? String(type) : null, url };
+}
+
+// Return a URL only when it is http(s); otherwise null. Keeps a synthesised or
+// hostile link out of the resolved entry.
+function httpLink(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return (url.protocol === "http:" || url.protocol === "https:") ? raw : null;
+  } catch {
+    return null;
+  }
 }
 
 // Normalise a Jira REST v3 search issue object.
@@ -290,7 +308,10 @@ async function resolveViaAcli(keys, ctx) {
     // placeholder from a prior tier is fair game to retry here.
     if (ctx.entries.get(key)?.resolved) continue;
     if (!budget.canSpend()) { ctx.exhausted = true; break; }
-    const cached = await maybeCached(ctx, ctx.jiraScope, key);
+    // acli's authenticated site is independent of JIRA_BASE_URL, so its results
+    // are cached under their OWN scope — never mixed with REST's host scope, and
+    // never linked with an env-derived browse URL.
+    const cached = await maybeCached(ctx, ctx.acliScope, key);
     if (cached) { ctx.entries.set(key, cached); continue; }
     budget.spend();
     ctx.requests += 1;
@@ -300,16 +321,16 @@ async function resolveViaAcli(keys, ctx) {
       break;
     }
     if (result.code !== 0) {
-      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "acli", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null }));
+      ctx.entries.set(key, unresolvedEntry({ key, reason: "not_found", source: "acli" }));
       continue;
     }
     let parsed = null;
     try { parsed = parseAcliIssue(JSON.parse(result.stdout), key); } catch { parsed = null; }
     const entry = parsed
-      ? resolvedEntry({ ...parsed, url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null, source: "acli" })
-      : unresolvedEntry({ key, reason: "unparseable", source: "acli", url: ctx.baseUrl ? `${ctx.baseUrl}/browse/${key}` : null });
+      ? resolvedEntry({ key, title: parsed.title, status: parsed.status, type: parsed.type, url: parsed.url, source: "acli" })
+      : unresolvedEntry({ key, reason: "unparseable", source: "acli" });
     ctx.entries.set(key, entry);
-    if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.jiraScope, entry, ctx);
+    if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.acliScope, entry, ctx);
   }
 }
 
@@ -361,10 +382,20 @@ async function resolveViaRest(keys, ctx) {
       ctx.softErrors += 1;
       continue;
     }
-    let issues = [];
-    try { issues = JSON.parse(result.body)?.issues || []; } catch { issues = []; }
+    // A 200 with an unparseable or structurally-wrong body is a TRANSIENT fault,
+    // not a definitive "these keys do not exist": it must not poison the negative
+    // cache, and a non-array `issues` must never throw (fail-soft contract).
+    let payload = null;
+    try { payload = JSON.parse(result.body); } catch { payload = null; }
+    if (!payload || !Array.isArray(payload.issues)) {
+      for (const key of batch) {
+        ctx.entries.set(key, unresolvedEntry({ key, reason: "unavailable", source: "rest", url: `${ctx.baseUrl}/browse/${key}` }));
+      }
+      ctx.softErrors += 1;
+      continue;
+    }
     const byKey = new Map();
-    for (const issue of issues) {
+    for (const issue of payload.issues) {
       const parsed = parseRestIssue(issue);
       if (parsed) byKey.set(parsed.key, parsed);
     }
@@ -514,7 +545,10 @@ export async function resolveTracker(params = {}) {
     // keys are global to a SITE, so their scope is the base-URL host — never the
     // bare tier name, or `PROJ-1` on site B would reuse site A's cached title.
     ghScope: params.ghScope ? `github:${params.ghScope}` : "github",
+    // REST is scoped to its configured host; acli to its own (machine-local)
+    // authenticated site, which env base URL cannot vouch for.
     jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}`,
+    acliScope: "acli",
     cache: params.cache !== false,
     cacheDir: trackerCacheDir(env),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -578,14 +612,20 @@ export async function resolveTracker(params = {}) {
   }
 
   // The gh auth probe runs AFTER disclosure (per its manual it can contact a
-  // configured host to test auth state), and is counted as a network request.
+  // configured host to test auth state), counts as a network request, and is
+  // gated by the SAME budget as every other request.
   let ghAvailable = false;
   if (ghPresent) {
-    ctx.requests += 1;
-    const status = await exec("gh", ["auth", "status"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
-    ghAvailable = status.code === 0;
-    if (!ghAvailable) {
-      limitations.push("git analyze --jira: the GitHub CLI (gh) is installed but not authenticated (run `gh auth login`); GitHub issue titles are unavailable.");
+    if (!budget.canSpend()) {
+      ctx.exhausted = true;
+    } else {
+      budget.spend();
+      ctx.requests += 1;
+      const status = await exec("gh", ["auth", "status"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
+      ghAvailable = status.code === 0;
+      if (!ghAvailable) {
+        limitations.push("git analyze --jira: the GitHub CLI (gh) is installed but not authenticated (run `gh auth login`); GitHub issue titles are unavailable.");
+      }
     }
   }
 

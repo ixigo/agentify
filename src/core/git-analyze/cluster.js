@@ -389,10 +389,13 @@ export function applyTrackerTitles(summary, tracker) {
         }
       }
     }
-    // Every cited key gets its entry surfaced, so a branch/scope theme citing a
-    // ticket can render the ticket's title too.
+    // Every OTHER cited key gets its entry surfaced, so a branch/scope theme
+    // citing a ticket — or an issue theme citing a second ticket — can render
+    // that ticket's title too. The primary key is excluded (it is already the
+    // theme's own `tracker`).
     const refs = {};
     for (const key of theme.issue_keys || []) {
+      if (key === theme.key) continue;
       const entry = lookup(key);
       if (entry) refs[key] = entry;
     }

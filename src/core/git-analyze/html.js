@@ -350,6 +350,21 @@ function renderThemeTracker(tracker) {
   return `<p class="tracker">${link}${bits.length > 0 ? ` ${bits.join(" ")}` : ""}</p>`;
 }
 
+// Other tickets a theme cites (tracker_refs), each escaped and, when a safe
+// link exists, linked. Untrusted remote text throughout.
+function renderThemeTrackerRefs(refs) {
+  const entries = refs && typeof refs === "object" ? Object.values(refs) : [];
+  if (entries.length === 0) return "";
+  const items = entries.map((entry) => {
+    const label = entry.resolved && entry.title
+      ? `${escapeHtml(entry.key)} — ${escapeHtml(entry.title)}`
+      : escapeHtml(entry.key);
+    const href = safeHref(entry.url);
+    return `<li>${href ? `<a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${label}</a>` : label}</li>`;
+  }).join("");
+  return `<details class="tracker-refs"><summary>Also referenced</summary><ul>${items}</ul></details>`;
+}
+
 function renderTheme(theme, narrationByThemeId) {
   const types = Object.entries(theme.type_histogram || {})
     .sort((a, b) => b[1] - a[1])
@@ -381,6 +396,7 @@ function renderTheme(theme, narrationByThemeId) {
   // — so it goes through escapeHtml, and the link href is safe-guarded to
   // http(s) before it is ever emitted.
   const trackerBlock = renderThemeTracker(theme.tracker);
+  const trackerRefsBlock = renderThemeTrackerRefs(theme.tracker_refs);
 
   return `
   <article class="theme">
@@ -392,6 +408,7 @@ function renderTheme(theme, narrationByThemeId) {
       · ${escapeHtml(formatDate(theme.first_commit))} → ${escapeHtml(formatDate(theme.last_commit))}
     </p>
     ${trackerBlock}
+    ${trackerRefsBlock}
     ${narrationBlock}
     ${formatIterationSignal(theme.iteration_signal)}
     ${types ? `<ul class="chips">${types}</ul>` : ""}
