@@ -14,6 +14,7 @@
 // it goes through escapeHtml() at every single interpolation.
 
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -85,6 +86,10 @@ async function onPath(binary) {
  */
 export async function detectEnvironment(repositoryPath, injected = {}) {
   const hasBinary = injected.hasBinary || onPath;
+  // Under --global there is no single repository to make a claim about, so the
+  // panel reports "not applicable" instead of asserting "not configured" about
+  // a repository it never inspected.
+  const multiRepository = injected.multiRepository === true;
 
   const [agentifyOnPath, claude, codex] = await Promise.all([
     hasBinary("agentify"),
@@ -106,7 +111,7 @@ export async function detectEnvironment(repositoryPath, injected = {}) {
   if (claude) providers.push("claude");
   if (codex) providers.push("codex");
 
-  return { agentifyOnPath, hasConfig, providers };
+  return { agentifyOnPath, hasConfig: multiRepository ? null : hasConfig, providers };
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +306,19 @@ function renderDistributions(summary) {
   </section>`;
 }
 
+// `iteration_signal` is a STRUCTURED value ({kind, key, commits}), not a
+// sentence — interpolating it directly renders "[object Object]" in the one
+// place the report is meant to surface repeated work on a single unit.
+function formatIterationSignal(signal) {
+  if (!signal) return "";
+  if (typeof signal === "string") {
+    return `<p class="iteration">${escapeHtml(signal)}</p>`;
+  }
+  const commits = Number(signal.commits);
+  if (!Number.isFinite(commits) || !signal.key) return "";
+  return `<p class="iteration">${formatNumber(commits)} ${pluralize(commits, "commit")} on ${escapeHtml(signal.key)} — repeated work, not noise.</p>`;
+}
+
 function renderTheme(theme, narrationByThemeId) {
   const types = Object.entries(theme.type_histogram || {})
     .sort((a, b) => b[1] - a[1])
@@ -336,7 +354,7 @@ function renderTheme(theme, narrationByThemeId) {
       · ${escapeHtml(formatDate(theme.first_commit))} → ${escapeHtml(formatDate(theme.last_commit))}
     </p>
     ${narrationBlock}
-    ${theme.iteration_signal ? `<p class="iteration">${escapeHtml(theme.iteration_signal)}</p>` : ""}
+    ${formatIterationSignal(theme.iteration_signal)}
     ${types ? `<ul class="chips">${types}</ul>` : ""}
     ${topFiles ? `<details><summary>Top files</summary><ul class="files">${topFiles}</ul></details>` : ""}
     ${merges ? `<details><summary>Merges landed</summary><ul>${merges}</ul></details>` : ""}
@@ -351,19 +369,42 @@ function renderThemes(summary, narrationByThemeId) {
   // Under --global, group by repository with a per-repo subtotal — never one
   // blended list (#353).
   if (summary.scope === "global") {
+    // Group by the repository's PATH, not its display name. Two checkouts can
+    // share a basename (`~/work/app` and `~/oss/app`), and grouping on the name
+    // silently blends two repositories into one section — exactly what the epic
+    // forbids. Themes carry the display name, so map name+path via the
+    // repositories list and fall back to the name only when a path is unknown.
+    const repositories = summary.repositories || [];
+    const themeGroupKey = (theme) => {
+      const matches = repositories.filter((entry) => entry.name === theme.repository);
+      if (matches.length === 1) return matches[0].path || theme.repository;
+      // Ambiguous name: recover the path from the theme id, which is prefixed
+      // with the repository path (`<path>::<kind>:<key>`).
+      const prefix = String(theme.id || "").split("::")[0];
+      return prefix || theme.repository;
+    };
+
     const byRepo = new Map();
     for (const theme of themes) {
-      if (!byRepo.has(theme.repository)) byRepo.set(theme.repository, []);
-      byRepo.get(theme.repository).push(theme);
+      const key = themeGroupKey(theme);
+      if (!byRepo.has(key)) byRepo.set(key, []);
+      byRepo.get(key).push(theme);
     }
-    const groups = [...byRepo.entries()].map(([repository, repoThemes]) => {
-      const repoTotals = (summary.repositories || []).find((entry) => entry.name === repository);
+    const groups = [...byRepo.entries()].map(([repoKey, repoThemes]) => {
+      const repoTotals = repositories.find((entry) => entry.path === repoKey)
+        || repositories.find((entry) => entry.name === repoKey);
+      const displayName = repoTotals?.name || repoThemes[0]?.repository || repoKey;
+      // Disambiguate in the heading when the name alone is not unique.
+      const sameName = repositories.filter((entry) => entry.name === displayName).length > 1;
+      const heading = sameName && repoTotals?.path
+        ? `${displayName} <span class="muted">${repoTotals.path}</span>`
+        : escapeHtml(displayName);
       const subtotal = repoTotals
         ? `<p class="muted">${formatNumber(repoTotals.commits)} ${pluralize(repoTotals.commits, "commit")} · <span class="add">${formatSigned(repoTotals.insertions, "+")}</span> <span class="del">${formatSigned(repoTotals.deletions, "−")}</span> · ${formatNumber(repoTotals.files)} ${pluralize(repoTotals.files, "file")}</p>`
         : "";
       return `
       <section class="repo-group">
-        <h3>${escapeHtml(repository)}</h3>
+        <h3>${sameName && repoTotals?.path ? `${escapeHtml(displayName)} <span class="muted">${escapeHtml(repoTotals.path)}</span>` : heading}</h3>
         ${subtotal}
         ${repoThemes.map((theme) => renderTheme(theme, narrationByThemeId)).join("")}
       </section>`;
@@ -469,11 +510,18 @@ function renderAgentifyPanel(environment) {
   }
 
   // Exactly one suggested next command, chosen from what is actually available.
+  // hasConfig === null means "several repositories were analysed", so no claim
+  // about a single repository's setup can honestly be made.
+  const configUnknown = hasConfig === null;
+
   let nextCommand;
   let nextExplanation;
   if (!agentifyOnPath) {
     nextCommand = null;
     nextExplanation = "Agentify is not on this machine's PATH. This report was produced by the command you just ran, and needed nothing installed.";
+  } else if (configUnknown) {
+    nextCommand = "agentify scan";
+    nextExplanation = "Agentify is on your PATH. Run this inside whichever of these repositories you want set up first.";
   } else if (!hasConfig) {
     nextCommand = "agentify scan";
     nextExplanation = "Agentify is on your PATH but this repository is not set up yet. One scan builds the index the structural queries read.";
@@ -484,7 +532,9 @@ function renderAgentifyPanel(environment) {
 
   const present = [];
   present.push(`<li><code>agentify</code> on PATH: <strong>${agentifyOnPath ? "yes" : "no"}</strong></li>`);
-  present.push(`<li><code>.agentify.yaml</code> in this repository: <strong>${hasConfig ? "yes" : "no"}</strong></li>`);
+  present.push(configUnknown
+    ? `<li><code>.agentify.yaml</code>: <strong>not checked</strong> <span class="muted">(several repositories were analysed)</span></li>`
+    : `<li><code>.agentify.yaml</code> in this repository: <strong>${hasConfig ? "yes" : "no"}</strong></li>`);
   present.push(`<li>Provider CLI detected: <strong>${providers.length > 0 ? escapeHtml(providers.join(", ")) : "none"}</strong></li>`);
 
   return `
@@ -660,16 +710,63 @@ function slugify(value) {
  * @param {object} [env] - defaults to process.env
  * @returns {string} an absolute path under the user's cache directory
  */
-export function defaultReportPath(report, env = process.env) {
+export function defaultReportPath(report, env = process.env, repositoryPath = null) {
   const summary = report?.summary || {};
   const name = summary.scope === "global"
     ? "global"
     : slugify((summary.repositories || [])[0]?.name || "repository");
   const window = slugify(summary.window?.label || report?.window?.label || "window");
 
-  const cacheHome = env.XDG_CACHE_HOME && env.XDG_CACHE_HOME.trim().length > 0
-    ? env.XDG_CACHE_HOME
-    : path.join(os.homedir(), ".cache");
+  const homeCache = path.join(os.homedir(), ".cache");
+  // XDG_CACHE_HOME is only honoured when it is ABSOLUTE. The spec says a
+  // relative value must be ignored, and honouring one here would resolve
+  // against the process cwd — i.e. write the report straight into the
+  // repository being analysed.
+  const configured = typeof env.XDG_CACHE_HOME === "string" ? env.XDG_CACHE_HOME.trim() : "";
+  let cacheHome = configured.length > 0 && path.isAbsolute(configured) ? configured : homeCache;
+
+  // Even an absolute XDG_CACHE_HOME can point inside the analysed repository.
+  // The DEFAULT path must never do that — a report appearing in `git status`
+  // fails the epic's constraint. (An explicit --output inside a repo is the
+  // user's own choice and is honoured elsewhere.)
+  const candidate = path.join(cacheHome, "agentify", "git-analyze");
+  if (repositoryPath && isInside(repositoryPath, candidate)) {
+    cacheHome = isInside(repositoryPath, homeCache) ? os.tmpdir() : homeCache;
+  }
 
   return path.join(cacheHome, "agentify", "git-analyze", `${name}-${window}.html`);
+}
+
+/**
+ * Whether `target` is the same path as, or nested inside, `parent`. Compared on
+ * resolved paths with a separator guard so `/repo-backup` is not read as being
+ * inside `/repo`.
+ */
+export function isInside(parent, target) {
+  const from = realPath(path.resolve(parent));
+  const to = realPath(path.resolve(target));
+  if (from === to) return true;
+  const relative = path.relative(from, to);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+// Resolve symlinks so the containment check is not defeated by them. On macOS
+// `/tmp` is a symlink to `/private/tmp`, so a repo reported as `/private/tmp/x`
+// and a cache path given as `/tmp/x/.cache` are the SAME directory while
+// comparing unequal as strings — which would let the default report land inside
+// the analysed repository. Walks up to the nearest existing ancestor, because
+// the cache directory usually does not exist yet.
+function realPath(target) {
+  let current = target;
+  const suffix = [];
+  for (;;) {
+    try {
+      return path.join(fsSync.realpathSync(current), ...suffix);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return target;
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
 }

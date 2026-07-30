@@ -1463,6 +1463,28 @@ export async function runCli(argv, _runtime = {}) {
         if (format !== "text" && format !== "json" && format !== "md" && format !== "html") {
           throw new Error("git analyze --format must be one of: text, json, md, html");
         }
+        // Report-output flags only mean something for the html artifact; silently
+        // ignoring them on a json run hides a typo the user would never see.
+        if (format !== "html") {
+          if (hasOwn(args, "output")) {
+            throw new Error(`git analyze --output only applies to --format html (got --format ${format}).`);
+          }
+          if (hasOwn(args, "noOpen")) {
+            throw new Error(`git analyze --no-open only applies to --format html (got --format ${format}).`);
+          }
+        }
+        // A valueless `--output` parses to the boolean sentinel `true`, which
+        // would otherwise be resolved as a file literally named "true" in the
+        // current directory.
+        if (hasOwn(args, "output") && (args.output === true || String(args.output).trim().length === 0)) {
+          throw new Error("git analyze --output requires a file path, e.g. --output ./report.html");
+        }
+        // A dry run deliberately reads no history, so there is no summary to
+        // render. Writing an HTML artifact reporting zero commits would look
+        // like a real (and alarming) finding rather than a preview.
+        if (format === "html" && dryRun) {
+          throw new Error("git analyze --dry-run has no report to render; use --format text or json to preview the resolved window.");
+        }
         const windowInput = {};
         for (const key of ["days", "months", "quarter", "year", "since", "until"]) {
           if (hasOwn(args, key)) {
@@ -1497,13 +1519,18 @@ export async function runCli(argv, _runtime = {}) {
             // outside the analysed repository so nothing this command does can
             // ever show up in `git status`; --output is the user's explicit
             // choice and is honoured wherever it points.
+            //
+            // Under --global there is no single repository to inspect, so the
+            // panel is told so explicitly rather than being handed null and
+            // concluding "not configured" about a repository it never looked at.
             const environment = await detectEnvironment(
-              report.repository?.path || (report.scope === "global" ? null : root),
+              report.scope === "global" ? null : (report.repository?.path || root),
+              { multiRepository: report.scope === "global" },
             );
             const html = renderGitAnalyzeHtml(report, { environment });
-            const outputPath = hasOwn(args, "output") && String(args.output).trim().length > 0
+            const outputPath = hasOwn(args, "output")
               ? path.resolve(String(args.output))
-              : defaultReportPath(report);
+              : defaultReportPath(report, process.env, report.repository?.path || root);
             await fs.mkdir(path.dirname(outputPath), { recursive: true });
             await fs.writeFile(outputPath, html, "utf8");
             success(`Report written to ${outputPath}`);

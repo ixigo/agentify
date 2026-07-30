@@ -12,6 +12,7 @@ import {
   detectEnvironment,
   defaultReportPath,
   escapeHtml,
+  isInside,
 } from "../src/core/git-analyze/html.js";
 
 const execFileAsync = promisify(execFile);
@@ -81,7 +82,7 @@ function fixtureReport(overrides = {}) {
         insertions: 100, deletions: 20, files_changed: 6,
         top_files: [{ path: "src/core/acp/inject.js", commits: 3 }],
         merge_subjects: ["Merge pull request #340"],
-        iteration_signal: "4 commits on #336 (repeated work, not noise)",
+        iteration_signal: { kind: "issue", key: "#336", commits: 4 },
         shas: ["a".repeat(40), "b".repeat(40)],
       }],
       smaller_changes: [{
@@ -121,7 +122,7 @@ test("the report renders every required section from the summary", () => {
   // Figures come from the summary, unaltered.
   assert.match(html, /120/);
   assert.match(html, /Issue #336/);
-  assert.match(html, /repeated work, not noise/);
+  assert.match(html, /4 commits on #336 — repeated work, not noise/);
   // The "smaller changes" bucket is not silently dropped.
   assert.match(html, /Smaller changes/);
 });
@@ -243,6 +244,32 @@ test("a declined or failed narration states the reason and keeps the report", ()
   assert.equal(html.includes("Privacy receipt"), false);
 });
 
+// Two checkouts commonly share a basename (~/work/app and ~/oss/app). Grouping
+// on the display name silently merges them into one section — the epic's "never
+// blend two repositories" rule, broken invisibly.
+test("global scope keeps same-named repositories in separate sections", () => {
+  const report = fixtureReport();
+  report.scope = "global";
+  report.summary.scope = "global";
+  report.summary.repositories = [
+    { name: "app", path: "/a/app", commits: 4, insertions: 100, deletions: 20, files: 6, merges: 1, authors: 1, active_days: 2 },
+    { name: "app", path: "/b/app", commits: 2, insertions: 20, deletions: 10, files: 3, merges: 1, authors: 1, active_days: 2 },
+  ];
+  report.summary.themes = [
+    { ...report.summary.themes[0], id: "/a/app::issue:#1", repository: "app", title: "Issue #1" },
+    { ...report.summary.themes[0], id: "/b/app::issue:#2", repository: "app", title: "Issue #2" },
+  ];
+
+  const html = renderGitAnalyzeHtml(report, { environment: NO_TOOLS });
+  const groups = (html.match(/<section class="repo-group">/g) || []).length;
+  assert.equal(groups, 2, "two distinct repositories must render as two sections");
+  // Each path is shown so the reader can tell them apart.
+  assert.ok(html.includes("/a/app"), "first repository path is disambiguated");
+  assert.ok(html.includes("/b/app"), "second repository path is disambiguated");
+  // Each keeps its own subtotal rather than both inheriting the first.
+  assert.ok(html.includes("Issue #1") && html.includes("Issue #2"));
+});
+
 test("global scope groups themes by repository instead of blending them", () => {
   const report = fixtureReport();
   report.scope = "global";
@@ -275,6 +302,77 @@ test("defaultReportPath resolves outside any repository and honours XDG_CACHE_HO
   const safe = defaultReportPath(hostile, { XDG_CACHE_HOME: "/custom/cache" });
   assert.ok(safe.startsWith("/custom/cache/agentify/git-analyze/"), safe);
   assert.equal(safe.includes(".."), false, "no traversal survives slugification");
+});
+
+// The default path is the one place the epic's "never write inside the analysed
+// repository" constraint can be violated by the ENVIRONMENT rather than by the
+// code — a relative XDG_CACHE_HOME resolves against the process cwd, which is
+// the repository being analysed.
+test("defaultReportPath never lands inside the analysed repository", () => {
+  const report = fixtureReport();
+  const repo = "/tmp/some-repo";
+
+  // A RELATIVE XDG_CACHE_HOME is ignored (per the XDG spec) rather than
+  // resolved against cwd.
+  const relative = defaultReportPath(report, { XDG_CACHE_HOME: "cache" }, repo);
+  assert.ok(path.isAbsolute(relative), `must be absolute, got ${relative}`);
+  assert.equal(isInside(repo, relative), false);
+
+  // An ABSOLUTE XDG_CACHE_HOME pointing inside the repo is refused too.
+  const inside = defaultReportPath(report, { XDG_CACHE_HOME: path.join(repo, ".cache") }, repo);
+  assert.equal(isInside(repo, inside), false, `default path must escape the repo, got ${inside}`);
+
+  // A sibling directory sharing a prefix is NOT inside the repo.
+  assert.equal(isInside("/tmp/repo", "/tmp/repo-backup/x.html"), false);
+  assert.equal(isInside("/tmp/repo", "/tmp/repo/sub/x.html"), true);
+  assert.equal(isInside("/tmp/repo", "/tmp/repo"), true);
+});
+
+test("the panel makes no per-repository claim when several repos were analysed", async () => {
+  const environment = await detectEnvironment(null, {
+    hasBinary: async (name) => name === "agentify",
+    multiRepository: true,
+  });
+  assert.equal(environment.hasConfig, null, "no claim is made");
+
+  const html = renderGitAnalyzeHtml(fixtureReport(), { environment });
+  assert.match(html, /not checked/);
+  assert.match(html, /several repositories were analysed/);
+  // It must not assert "no" about a repository it never looked at.
+  assert.equal(/in this repository: <strong>no<\/strong>/.test(html), false);
+});
+
+test("CLI: --output and --no-open are rejected outside html, and --output needs a path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-html-flags-"));
+  await git(root, ["init", "-q"]);
+  await git(root, ["config", "user.name", "Fix Ture"]);
+  await git(root, ["config", "user.email", "fixture@example.com"]);
+  await git(root, ["config", "commit.gpgsign", "false"]);
+  await fs.writeFile(path.join(root, "a.js"), "a\n");
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-q", "-m", "feat: one"]);
+
+  const rejects = async (argv, pattern) => {
+    await assert.rejects(
+      () => execFileAsync("node", [CLI, "git", "analyze", "--days", "3650", ...argv], { cwd: root }),
+      (error) => {
+        assert.match(error.stderr, pattern);
+        return true;
+      },
+    );
+  };
+
+  // Silently ignoring these on a json run would hide a typo the user never sees.
+  await rejects(["--format", "json", "--output", "/tmp/x.html"], /--output only applies to --format html/);
+  await rejects(["--format", "json", "--no-open"], /--no-open only applies to --format html/);
+  // A valueless --output parses to `true` and would write a file named "true".
+  await rejects(["--format", "html", "--output", "--no-open"], /--output requires a file path/);
+  // A dry run reads no history, so there is no report to render.
+  await rejects(["--format", "html", "--dry-run"], /--dry-run has no report to render/);
+
+  // Nothing was written by any of the rejected runs.
+  assert.deepEqual((await fs.readdir(root)).sort(), [".git", "a.js"]);
+  await fs.rm(root, { recursive: true, force: true });
 });
 
 test("detectEnvironment reports what is actually present, without writing", async () => {
