@@ -217,7 +217,13 @@ function defaultExec(command, args, { cwd, timeoutMs = DEFAULT_REQUEST_TIMEOUT_M
       let settled = false;
       const done = (result) => { if (!settled) { settled = true; resolve(result); } };
       const timer = setTimeout(() => { child.kill("SIGKILL"); done({ code: 124, stdout, stderr: `${stderr}\ntimed out` }); }, timeoutMs);
-      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      // Cap accumulated stdout so a pathological CLI response cannot exhaust
+      // memory; a title/status/type payload is tiny, so 2MB is generous.
+      const MAX_STDOUT_BYTES = 2 * 1024 * 1024;
+      child.stdout.on("data", (chunk) => {
+        if (stdout.length <= MAX_STDOUT_BYTES) stdout += chunk;
+        else { clearTimeout(timer); child.kill("SIGKILL"); done({ code: 1, stdout, stderr: `${stderr}\noutput too large` }); }
+      });
       child.stderr.on("data", (chunk) => { stderr += chunk; });
       child.on("error", (error) => { clearTimeout(timer); done({ code: 127, stdout, stderr: `${stderr}\n${error.message}`.trim() }); });
       child.on("close", (code) => { clearTimeout(timer); done({ code: code ?? 1, stdout, stderr }); });
@@ -225,9 +231,11 @@ function defaultExec(command, args, { cwd, timeoutMs = DEFAULT_REQUEST_TIMEOUT_M
   });
 }
 
-async function defaultHasBinary(name, exec) {
+async function defaultHasBinary(name, exec, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
   const probe = process.platform === "win32" ? "where" : "which";
-  const result = await exec(probe, [name], {});
+  // Bound the probe by the caller's remaining wall-clock budget, so a slow PATH
+  // lookup cannot push the run past its hard deadline before resolution starts.
+  const result = await exec(probe, [name], { timeoutMs });
   return result.code === 0;
 }
 
@@ -358,7 +366,10 @@ async function resolveViaAcli(keys, ctx) {
     // it each run is a safe trade for never serving another tenant's title.
     budget.spend();
     ctx.requests += 1;
-    const result = await exec("acli", ["jira", "workitem", "view", key, "--json"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
+    // Request only the fields this feature surfaces — never the (potentially
+    // large, and more private) description/comments — to bound the payload and
+    // the data pulled.
+    const result = await exec("acli", ["jira", "workitem", "view", key, "--json", "--fields", "summary,status,type"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
     if (result.code !== 0) {
       const kind = classifyCliFailure(result.code, result.stderr);
       if (kind === "auth") {
@@ -462,10 +473,12 @@ async function resolveViaRest(keys, ctx) {
         ? resolvedEntry({ ...parsed, url: `${ctx.baseUrl}/browse/${key}`, source: "rest" })
         : unresolvedEntry({ key, reason: "not_found", source: "rest", url: `${ctx.baseUrl}/browse/${key}` });
       ctx.entries.set(key, entry);
-      // A resolved title and a DEFINITIVE 404 (absent from a 200 batch) are both
-      // stable and cached, so re-running a quarter costs zero requests; transient
-      // failures above are never cached (they never reach this branch).
-      if (cache) await writeCacheEntry(cacheDir, ctx.jiraScope, entry, ctx);
+      // Cache ONLY resolved titles. A key absent from a successful search page is
+      // not necessarily permanently gone: Jira's search is eventually consistent,
+      // and access may have just been granted or the issue just created/moved.
+      // Caching that miss for a day would keep it untitled; so a miss is left
+      // uncached and simply re-tried on the next run.
+      if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.jiraScope, entry, ctx);
     }
   }
 }
@@ -585,7 +598,6 @@ export async function resolveTracker(params = {}) {
 
   const exec = params.deps?.exec || defaultExec;
   const httpRequest = params.deps?.httpRequest || defaultHttpRequest;
-  const hasBinary = params.deps?.hasBinary || ((name) => defaultHasBinary(name, exec));
 
   const projects = (params.projects || []).map((value) => String(value).trim().toUpperCase()).filter(Boolean);
   const baseUrl = jiraBaseUrl(env);
@@ -656,6 +668,10 @@ export async function resolveTracker(params = {}) {
       limitations.push(`Tracker tier "${tier}" was disabled for this run: ${why}. Affected keys are reported without titles.`);
     },
   };
+
+  // Defined after ctx so the default binary probe is bounded by the same
+  // wall-clock deadline as every other request.
+  const hasBinary = params.deps?.hasBinary || ((name) => defaultHasBinary(name, exec, ctx.requestTimeout()));
 
   // Under --global a `#NNN` is repository-relative, so gh (which reads a single
   // cwd) cannot resolve it correctly across repositories — the caller sets
@@ -742,11 +758,12 @@ export async function resolveTracker(params = {}) {
     } else {
       budget.spend();
       ctx.requests += 1;
-      // Scope the auth probe to the repository's own host: an unqualified
-      // `gh auth status` checks EVERY configured GitHub host (and can fail
-      // because an unrelated GHE host has stale credentials, or contact an
-      // undisclosed host).
-      const status = await exec("gh", ["auth", "status", "--hostname", githubHost], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
+      // Scope the auth probe to the repository's own host AND the ACTIVE
+      // account: a plain `gh auth status` checks every configured host/account
+      // (so it can fail because an unrelated account is unhealthy, contact an
+      // undisclosed host, or report the wrong login). `--active` pins it to the
+      // one account `gh issue view` will actually use.
+      const status = await exec("gh", ["auth", "status", "--hostname", githubHost, "--active"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
       ghAvailable = status.code === 0;
       if (ghAvailable) {
         // Qualify the GitHub cache scope with the AUTHENTICATED account (parsed

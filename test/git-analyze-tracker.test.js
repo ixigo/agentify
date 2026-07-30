@@ -836,7 +836,7 @@ test("gh probe and disclosure are scoped to the repository's GitHub host", async
     deps: { exec, hasBinary: async (n) => n === "gh" },
     disclose: (lines) => disclosed.push(...lines),
   });
-  assert.deepEqual(authArgs[0], ["auth", "status", "--hostname", "ghe.example.com"]);
+  assert.deepEqual(authArgs[0], ["auth", "status", "--hostname", "ghe.example.com", "--active"]);
   assert.ok(disclosed.some((l) => /ghe\.example\.com/.test(l)), "disclosure must name the repo's GitHub host");
 });
 
