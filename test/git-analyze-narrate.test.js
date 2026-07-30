@@ -477,6 +477,27 @@ test("narrateGitAnalyze: a paid budget-stop still records spend when a store exi
   assert.equal(recorded.length, 1);
 });
 
+test("narrateGitAnalyze: a response with no entries array is malformed, not a successful empty narration", async () => {
+  const narration = await narrateWith(claudeEnvelope({ summary: "oops, wrong shape" }));
+  assert.equal(narration.status, "unavailable");
+  assert.equal(narration.reason, "malformed_response");
+});
+
+test("dropped-theme metadata is never serialized onto the wire", () => {
+  const report = syntheticReport();
+  const base = report.summary.themes[0];
+  report.summary.themes = Array.from({ length: 200 }, (_, i) => ({
+    ...base, id: `/root::issue:#${i}`, title: `SECRETTHEME${i}`, commits: 2, subjects: [], top_files: [], merge_subjects: [], shas: ["aaaaaaa1"],
+  }));
+  const packet = buildNarrationPacket(report, { depth: "metadata", tokenCeiling: 500 });
+  assert.ok(packet.dropped_themes.length > 0, "themes were dropped");
+  // The report/packet object carries the drop metadata, but the wire prompt must not.
+  const prompt = buildNarrationPrompt(packet);
+  assert.ok(!prompt.includes("dropped_themes"), "dropped metadata is stripped from the prompt");
+  const droppedTitle = packet.dropped_themes[0].title;
+  assert.ok(!prompt.includes(droppedTitle), "a dropped theme's title never travels");
+});
+
 test("narrateGitAnalyze: no themes means no provider is contacted", async () => {
   const report = syntheticReport();
   report.summary.themes = [];
@@ -629,6 +650,21 @@ async function captureStdout(fn) {
   }
   return chunks.join("");
 }
+
+test("narration flags require --ai", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-narrate-cli-flagguard-"));
+  try {
+    await initThemedRepo(root);
+    for (const flag of [["--provider", "claude"], ["--depth", "diff"], ["--max-budget-usd", "1"], ["--yes"]]) {
+      await assert.rejects(
+        () => runCli(["git", "analyze", "--days", "3650", ...flag, "--root", root], {}),
+        /requires --ai/,
+      );
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("default git analyze (no --ai) probes no provider and attaches no narration", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-narrate-cli-default-"));

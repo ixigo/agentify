@@ -1513,7 +1513,7 @@ export async function runCli(argv, _runtime = {}) {
         // configure this path, so they require --ai.
         const aiRequested = args.ai === true;
         if (!aiRequested) {
-          for (const [key, flag] of [["provider", "--provider"], ["depth", "--depth"], ["maxBudgetUsd", "--max-budget-usd"]]) {
+          for (const [key, flag] of [["provider", "--provider"], ["depth", "--depth"], ["maxBudgetUsd", "--max-budget-usd"], ["yes", "--yes"]]) {
             if (hasOwn(args, key)) {
               throw new Error(`git analyze ${flag} configures provider narration and requires --ai.`);
             }
