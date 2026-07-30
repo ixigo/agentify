@@ -50,6 +50,7 @@ import {
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
 import { runGitAnalyze } from "./core/git-analyze/index.js";
 import { renderText, renderMarkdown, renderJson } from "./core/git-analyze/render.js";
+import { renderGitAnalyzeHtml, detectEnvironment, defaultReportPath } from "./core/git-analyze/html.js";
 import { discoverRepositories, selectRepositories } from "./core/git-analyze/discover.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
@@ -1413,7 +1414,6 @@ export async function runCli(argv, _runtime = {}) {
         // --include-merges) are implemented in this build and no longer
         // deferred; the remaining slices' flags stay rejected as "not yet".
         const DEFERRED_FLAGS = [
-          ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
           ["ai", "--ai", "provider narration", 354], ["provider", "--provider", "provider narration", 354],
           ["depth", "--depth", "provider narration", 354], ["maxBudgetUsd", "--max-budget-usd", "provider narration", 354],
           ["yes", "--yes", "provider narration", 354], ["jira", "--jira", "tracker enrichment", 355],
@@ -1460,13 +1460,8 @@ export async function runCli(argv, _runtime = {}) {
           ? String(args.format).toLowerCase()
           : (config.json ? "json" : "text");
         const format = config.json ? "json" : requestedFormat;
-        if (format === "html") {
-          throw new Error(
-            "git analyze --format html is not available yet (lands in #353); use text, md, or json",
-          );
-        }
-        if (format !== "text" && format !== "json" && format !== "md") {
-          throw new Error("git analyze --format must be one of: text, json, md (html lands in #353)");
+        if (format !== "text" && format !== "json" && format !== "md" && format !== "html") {
+          throw new Error("git analyze --format must be one of: text, json, md, html");
         }
         const windowInput = {};
         for (const key of ["days", "months", "quarter", "year", "since", "until"]) {
@@ -1488,14 +1483,43 @@ export async function runCli(argv, _runtime = {}) {
         // Route the report to the right renderer and stream: json/md are
         // documents that go to stdout (pipeable, pasteable); text is the
         // terminal view written via ui.log to stderr, so stdout stays clean.
-        const emitGitAnalyzeReport = (report, fmt) => {
+        const emitGitAnalyzeReport = async (report, fmt) => {
           if (fmt === "json") {
             console.log(renderJson(report));
-          } else if (fmt === "md") {
-            console.log(renderMarkdown(report));
-          } else {
-            log(renderText(report));
+            return;
           }
+          if (fmt === "md") {
+            console.log(renderMarkdown(report));
+            return;
+          }
+          if (fmt === "html") {
+            // The report is an artifact, not stdout. The DEFAULT path is
+            // outside the analysed repository so nothing this command does can
+            // ever show up in `git status`; --output is the user's explicit
+            // choice and is honoured wherever it points.
+            const environment = await detectEnvironment(
+              report.repository?.path || (report.scope === "global" ? null : root),
+            );
+            const html = renderGitAnalyzeHtml(report, { environment });
+            const outputPath = hasOwn(args, "output") && String(args.output).trim().length > 0
+              ? path.resolve(String(args.output))
+              : defaultReportPath(report);
+            await fs.mkdir(path.dirname(outputPath), { recursive: true });
+            await fs.writeFile(outputPath, html, "utf8");
+            success(`Report written to ${outputPath}`);
+            if (args.noOpen === true) {
+              return;
+            }
+            // A browser that will not launch is a warning plus the path, never
+            // a failed command — the artifact is already on disk.
+            try {
+              await openInBrowser(outputPath);
+            } catch (error) {
+              warn(`Could not open a browser (${error?.message || error}); open ${outputPath} yourself.`);
+            }
+            return;
+          }
+          log(renderText(report));
         };
 
         if (gitScope === "global") {
@@ -1543,7 +1567,7 @@ export async function runCli(argv, _runtime = {}) {
             },
             filters,
           });
-          emitGitAnalyzeReport(report, format);
+          await emitGitAnalyzeReport(report, format);
           return;
         }
 
@@ -1553,7 +1577,7 @@ export async function runCli(argv, _runtime = {}) {
           dryRun,
           filters,
         });
-        emitGitAnalyzeReport(report, format);
+        await emitGitAnalyzeReport(report, format);
         return;
       }
 
