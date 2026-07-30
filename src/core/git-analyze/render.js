@@ -67,6 +67,90 @@ function themeKeyLine(theme) {
 }
 
 // ---------------------------------------------------------------------------
+// narration (#354) — spliced into text/md when report.narration is present.
+// The deterministic body always renders first and in full; narration is an
+// additive, higher-altitude layer that never replaces a figure.
+// ---------------------------------------------------------------------------
+
+// The privacy receipt line: bytes sent, provider, model, network calls, and
+// spend. Present only when a provider actually ran.
+function narrationReceiptLine(receipt) {
+  if (!receipt) return null;
+  const spend = receipt.cost_usd === null || receipt.cost_usd === undefined
+    ? "unreported (provider reported no cost)"
+    : `$${Number(receipt.cost_usd).toFixed(4)}${receipt.cost_recorded ? " (recorded)" : " (not recorded — no store)"}`;
+  return `bytes sent ${receipt.bytes_sent} · ${receipt.provider}${receipt.model ? `/${receipt.model}` : ""} · depth ${receipt.depth} · network calls ${receipt.network_calls} · spend ${spend}`;
+}
+
+function narrationTextLines(narration) {
+  const lines = [];
+  lines.push("");
+  if (narration.status !== "ok") {
+    lines.push(`  narrative:  unavailable — ${narration.notes[0] || narration.reason}`);
+    const receipt = narrationReceiptLine(narration.receipt);
+    if (receipt) lines.push(`  privacy:    ${receipt}`);
+    return lines;
+  }
+  lines.push(`  narrative (${narration.provider}${narration.model ? `/${narration.model}` : ""}):`);
+  if (narration.entries.length === 0) {
+    lines.push("    (the provider returned no usable entries; the deterministic summary above stands)");
+  }
+  for (const entry of narration.entries) {
+    const flag = entry.source === "deterministic" ? " [deterministic]" : "";
+    lines.push(`    • ${entry.title} [${entry.confidence}]${flag}`);
+    lines.push(`      ${entry.what}`);
+    lines.push(`      ${entry.how_it_helped}`);
+    if (entry.evidence_gap) lines.push(`      gap: ${entry.evidence_gap}`);
+  }
+  if (narration.not_narrated.length > 0) {
+    lines.push(`    not narrated (${narration.not_narrated.length}): ${narration.not_narrated.map((theme) => theme.title).join("; ")}`);
+  }
+  const receipt = narrationReceiptLine(narration.receipt);
+  if (receipt) lines.push(`  privacy:    ${receipt}`);
+  return lines;
+}
+
+function narrationMarkdownLines(narration) {
+  const lines = [];
+  lines.push("## Narrative");
+  lines.push("");
+  if (narration.status !== "ok") {
+    lines.push(`_Narration unavailable — ${narration.notes[0] || narration.reason}. The deterministic summary above is complete._`);
+    lines.push("");
+    const receipt = narrationReceiptLine(narration.receipt);
+    if (receipt) {
+      lines.push(`Privacy receipt: ${receipt}`);
+      lines.push("");
+    }
+    return lines;
+  }
+  lines.push(`_Phrased by ${narration.provider}${narration.model ? `/${narration.model}` : ""} from the sanitized packet; every figure is rendered from the evidence, not the model._`);
+  lines.push("");
+  if (narration.entries.length === 0) {
+    lines.push("_The provider returned no usable entries; the deterministic summary above stands._");
+    lines.push("");
+  }
+  for (const entry of narration.entries) {
+    const flag = entry.source === "deterministic" ? " _(deterministic fallback)_" : "";
+    lines.push(`- **${entry.title}** (${entry.confidence})${flag}`);
+    lines.push(`  - ${entry.what}`);
+    lines.push(`  - ${entry.how_it_helped}`);
+    if (entry.evidence_gap) lines.push(`  - _Evidence gap: ${entry.evidence_gap}_`);
+  }
+  lines.push("");
+  if (narration.not_narrated.length > 0) {
+    lines.push(`**Not narrated (${narration.not_narrated.length}):** ${narration.not_narrated.map((theme) => theme.title).join("; ")}`);
+    lines.push("");
+  }
+  const receipt = narrationReceiptLine(narration.receipt);
+  if (receipt) {
+    lines.push(`**Privacy receipt:** ${receipt}`);
+    lines.push("");
+  }
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // text
 // ---------------------------------------------------------------------------
 
@@ -126,6 +210,11 @@ export function renderText(report) {
   if (byType.items.length > 0) {
     const top = byType.items.slice(0, 6).map((item) => `${item.key} ${item.commits}`).join(", ");
     lines.push(`  by type:    ${top}  (${ofTotal(byType.counted, byType.denominator)} classified)`);
+  }
+
+  // Optional provider narration (#354), spliced after the deterministic body.
+  if (report.narration) {
+    lines.push(...narrationTextLines(report.narration));
   }
 
   return lines.join("\n");
@@ -279,6 +368,12 @@ export function renderMarkdown(report) {
   ].filter(Boolean);
   for (const line of dists) lines.push(line);
   lines.push("");
+
+  // Optional provider narration (#354), before the limitations footer so a
+  // reader sees the higher-altitude read first, then the caveats.
+  if (report.narration) {
+    lines.push(...narrationMarkdownLines(report.narration));
+  }
 
   lines.push("## Limitations");
   lines.push("");
