@@ -804,7 +804,11 @@ export async function getMainlineBranch(root, branchNames = []) {
   }
   if (known.has("main")) return "main";
   if (known.has("master")) return "master";
-  return getCurrentBranch(root);
+  // Deliberately NOT the current branch: running from a feature branch must not
+  // make it the mainline (which would exclude its own commits as trunk history).
+  // When no trunk can be identified, return null — attribution then relies on
+  // reachability multiplicity, which still keeps shared history out of a theme.
+  return null;
 }
 
 /**
@@ -827,6 +831,9 @@ export async function getMainlineBranch(root, branchNames = []) {
  * @param {string[]} params.candidateNames - feature branch short names to consider
  * @param {Set<string>} params.windowShas - the in-window commit shas to attribute
  * @param {string[]} [params.dateArgs] - lower read-bound args (from resolveWindowBounds)
+ * @param {string|null} [params.range] - a ref-based window range (e.g. `A..HEAD`
+ *   or `A..B`); its lower ref is applied as `^A` so a ref window does not walk
+ *   full history (for ref windows `dateArgs` is empty — the bound lives here)
  * @param {string|null} [params.mainlineBranch] - trunk branch whose commits are
  *   never branch-owned; omit to attribute across the candidates as given (used
  *   under an explicit --branch filter, where the user picked the branches)
@@ -836,6 +843,15 @@ export async function computeBranchOwnership(root, params = {}) {
   const windowShas = params.windowShas instanceof Set ? params.windowShas : new Set();
   const dateArgs = Array.isArray(params.dateArgs) ? params.dateArgs : [];
   const mainlineBranch = params.mainlineBranch || null;
+  // Ref windows put the lower bound in `range` (dateArgs is empty then); re-express
+  // its since-ref as an ancestor exclusion so each rev-list stays window-sized
+  // instead of walking a branch's entire history.
+  const range = typeof params.range === "string" ? params.range : null;
+  const boundArgs = [...dateArgs];
+  if (range && range.includes("..")) {
+    const sinceRef = range.split("..")[0];
+    if (sinceRef) boundArgs.push(`^${sinceRef}`);
+  }
   const names = [...new Set((params.candidateNames || []).filter((name) => typeof name === "string" && name.length > 0))]
     .filter((name) => name !== mainlineBranch);
   if (names.length === 0 || windowShas.size === 0) {
@@ -854,7 +870,7 @@ export async function computeBranchOwnership(root, params = {}) {
   // safely exclude the trunk, so the whole attribution is treated as incomplete.
   const excludeShas = new Set();
   if (mainlineBranch) {
-    const mainlineShas = await revListShas(root, `refs/heads/${mainlineBranch}`, dateArgs);
+    const mainlineShas = await revListShas(root, `refs/heads/${mainlineBranch}`, boundArgs);
     if (mainlineShas === null) {
       return { ownership: new Map(), capped: false, incomplete: true };
     }
@@ -865,7 +881,7 @@ export async function computeBranchOwnership(root, params = {}) {
 
   const containCount = new Map(); // sha -> { count, branch }
   for (const name of considered) {
-    const shas = await revListShas(root, `refs/heads/${name}`, dateArgs);
+    const shas = await revListShas(root, `refs/heads/${name}`, boundArgs);
     if (shas === null) {
       // A failed scan could make another branch's commit look unique; abandon
       // positive attribution rather than risk a wrong owner.

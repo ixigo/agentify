@@ -400,6 +400,11 @@ function repoSectionsOf(report) {
         merges: repo.merges || [],
         counts: repo.counts || { commits: 0, authors: 0 },
         totals: repo.totals || {},
+        // Under --global the resolved filter receipt (per-filter match counts and
+        // identities) lives on the repository section, not the top level, since a
+        // filter's selectivity differs per repo. Carry it so the summary is
+        // self-contained (#353/#354 read this rather than re-deriving).
+        filters: repo.filters || null,
       }));
   }
   const name = report.repository && report.repository.path
@@ -555,6 +560,10 @@ export function buildGitAnalyzeSummary(report, options = {}) {
       deletions: section.totals.deletions || 0,
       files: section.totals.distinct_files || 0,
       merges: section.totals.merges || 0,
+      // Per-repository filter receipt (match counts + identities) under --global,
+      // so a filtered global summary is self-contained. null for local (the
+      // resolved receipt is already at summary.filters) and for unfiltered runs.
+      filters: report.scope === "global" ? (section.filters || null) : null,
     });
 
     for (const record of section.commits) {

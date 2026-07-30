@@ -253,6 +253,7 @@ export async function runGitAnalyze(root, options = {}) {
     candidateNames,
     windowShas,
     dateArgs: bounds.dateArgs,
+    range: bounds.range,
     mainlineBranch,
   });
   if (branchIncomplete) {

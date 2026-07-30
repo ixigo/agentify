@@ -305,6 +305,39 @@ test("themes are never merged across repositories on an identical issue key (glo
   assert.deepEqual(issueThemes.map((t) => t.repository).sort(), ["repo-a", "repo-b"]);
 });
 
+test("global summary carries per-repository filter receipts (self-contained)", () => {
+  const mkRepo = (name, matched) => ({
+    name, path: `/${name}`, is_git_repository: true, commits_read: true,
+    counts: { commits: 1, authors: 1 },
+    totals: { insertions: 1, deletions: 0, distinct_files: 0, merges: 0 },
+    commits: [rec({ type: "feat", repository: name })],
+    merges: [], branches: [], notes: [],
+    // The per-repo resolved receipt the pipeline stores under --global.
+    filters: {
+      applied: true, include_merges: false,
+      identities: { emails: [`${name}@x`], names: [name], used_mailmap: false, resolved: 1 },
+      applied_filters: [{ kind: "type", flag: "--type", values: ["feat"], matched, unit: "commits" }],
+      warnings: [],
+    },
+  });
+  const report = {
+    command: "git analyze", scope: "global", generated_at: "x",
+    window: { label: "t", since: "2026-01-01", until: "2026-08-01", timezone: "UTC" },
+    counts: { repositories: 2, commits: 2, authors: 2 },
+    totals: { insertions: 2, deletions: 0, distinct_files: 0, merges: 0, issue_refs: 0, across_repositories: 2 },
+    repositories: [mkRepo("repo-a", 1), mkRepo("repo-b", 1)],
+    filters: { applied: true, include_merges: false, identities: null, applied_filters: [], warnings: [] },
+    notes: [],
+  };
+  const summary = buildGitAnalyzeSummary(report);
+  for (const repo of summary.repositories) {
+    assert.ok(repo.filters, `${repo.name} carries a filter receipt`);
+    assert.ok(repo.filters.identities, `${repo.name} carries identities`);
+    const typeEntry = repo.filters.applied_filters.find((e) => e.kind === "type");
+    assert.equal(typeEntry.matched, 1);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // computeBranchOwnership: the bounded, read-only git pass that feeds tier 2.
 // ---------------------------------------------------------------------------

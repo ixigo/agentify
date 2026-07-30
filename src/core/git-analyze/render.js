@@ -221,6 +221,27 @@ export function renderMarkdown(report) {
   }
 
   const showRepo = summary.scope === "global";
+  // Under --global a filter's selectivity differs per repository, and the
+  // resolved receipt lives per repo — surface it so the global doc is as
+  // explainable as the local one.
+  if (showRepo && summary.repositories.length > 0) {
+    lines.push("## Repositories");
+    lines.push("");
+    for (const repo of summary.repositories) {
+      let line = `- **${repo.name}** — ${repo.commits} ${plural(repo.commits, "commit")} (+${repo.insertions}/-${repo.deletions})`;
+      const applied = repo.filters && Array.isArray(repo.filters.applied_filters) ? repo.filters.applied_filters : [];
+      if (applied.length > 0) {
+        const matched = applied
+          .filter((entry) => entry.matched !== null)
+          .map((entry) => `${entry.flag} ${entry.matched}`)
+          .join(", ");
+        if (matched) line += ` · matched: ${matched}`;
+      }
+      lines.push(line);
+    }
+    lines.push("");
+  }
+
   lines.push("## Themes");
   lines.push("");
   if (summary.themes.length === 0) {
