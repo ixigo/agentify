@@ -79,8 +79,18 @@ function scrubHome(value) {
   return value.split(HOME_DIR).join("~");
 }
 
+// Collapse URLs and scp-style git remotes to a placeholder. The packet excludes
+// remotes by design, and a narration summary never needs a live link — so a URL
+// that slipped into a commit subject or a note does not travel. Query strings
+// and credentials embedded in a URL go with it.
+function scrubUrls(value) {
+  return String(value)
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)]+/gi, "[url]")
+    .replace(/\b[\w.-]+@[\w.-]+:[^\s"'<>)]+/g, "[url]");
+}
+
 function redactString(value) {
-  return scrubHome(redactSensitiveText(String(value || "")));
+  return scrubUrls(scrubHome(redactSensitiveText(String(value || ""))));
 }
 
 // Every commit record in the report, local or global, in one flat list. Used

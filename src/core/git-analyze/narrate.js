@@ -529,10 +529,14 @@ export async function narrateGitAnalyze(params) {
     deps = {},
   } = params;
   const depth = packet.depth;
+  // The model the invocation ACTUALLY uses: claude defaults to haiku when none
+  // is pinned, so the receipt/record must report haiku, not null. Codex null
+  // means the CLI default (genuinely unknown), reported honestly as null.
+  const resolvedModel = provider === "claude" ? (model || "haiku") : (model || null);
 
   if (!Array.isArray(packet.themes) || packet.themes.length === 0) {
     // Nothing clustered to narrate — do not spend to phrase an empty report.
-    return degraded({ depth, provider, model, reason: "no_themes", note: "No themes reached the grouping threshold, so narration was skipped and no provider was contacted." });
+    return degraded({ depth, provider, model: resolvedModel, reason: "no_themes", note: "No themes reached the grouping threshold, so narration was skipped and no provider was contacted." });
   }
 
   const prompt = buildNarrationPrompt(packet);
@@ -550,7 +554,7 @@ export async function narrateGitAnalyze(params) {
     const schemaPath = path.join(workspace, "schema.json");
     const outPath = path.join(workspace, "last-message.json");
     await fs.writeFile(schemaPath, JSON.stringify(NARRATION_OUTPUT_SCHEMA));
-    const invocation = buildNarrationInvocation(provider, { model, budgetUsd, timeoutSec, schemaPath });
+    const invocation = buildNarrationInvocation(provider, { model: resolvedModel, budgetUsd, timeoutSec, schemaPath });
     const args = invocation.args.map((arg) => (arg === "__PROMPT__" ? prompt : arg === "__OUT__" ? outPath : arg));
 
     ran = true;
@@ -579,7 +583,7 @@ export async function narrateGitAnalyze(params) {
           schema: "git-analyze-narration",
           kind: "git-analyze",
           provider,
-          model,
+          model: resolvedModel,
           cost_usd: costUsd,
           depth,
           bytes_sent: bytesSent,
@@ -593,21 +597,25 @@ export async function narrateGitAnalyze(params) {
       }
       return {
         provider,
-        model,
+        model: resolvedModel,
         depth,
         bytes_sent: bytesSent,
         network_calls: 1,
         cost_usd: costUsd,
         cost_recorded: costRecorded,
-        enforcement: describeLimitEnforcement(provider),
+        // Enforcement as this run ACTUALLY bounds spend, not the generic
+        // delegate description: claude's native cap, or codex's sandbox+timeout
+        // envelope (it has no native USD cap and this path runs no rolling
+        // pre-check). Falls back to the registry description if unavailable.
+        enforcement: invocation.enforcement || describeLimitEnforcement(provider),
       };
     };
 
     if (/timed out after/.test(String(result.stderr || ""))) {
-      return degraded({ depth, provider, model, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: await finalizeReceipt("timeout") });
+      return degraded({ depth, provider, model: resolvedModel, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: await finalizeReceipt("timeout") });
     }
     if (result.code !== 0) {
-      return degraded({ depth, provider, model, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: await finalizeReceipt("provider_error") });
+      return degraded({ depth, provider, model: resolvedModel, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: await finalizeReceipt("provider_error") });
     }
 
     // Extract the answer text and any reported cost.
@@ -617,13 +625,13 @@ export async function narrateGitAnalyze(params) {
       try {
         envelope = JSON.parse(result.stdout);
       } catch {
-        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider did not return JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
+        return degraded({ depth, provider, model: resolvedModel, reason: "malformed_response", note: "The provider did not return JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
       }
       costUsd = Number.isFinite(Number(envelope.total_cost_usd)) ? Number(envelope.total_cost_usd) : null;
       if (envelope.is_error) {
         // A budget stop lands here — the cap held, the deterministic report stands.
         const budgetStopped = /budget/i.test(String(envelope.subtype || ""));
-        return degraded({ depth, provider, model, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: await finalizeReceipt(budgetStopped ? "budget_blocked" : "provider_error") });
+        return degraded({ depth, provider, model: resolvedModel, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: await finalizeReceipt(budgetStopped ? "budget_blocked" : "provider_error") });
       }
       // With --json-schema the validated object is on `structured_output`;
       // older CLIs put the answer text on `result`/`content`. Prefer the
@@ -633,7 +641,7 @@ export async function narrateGitAnalyze(params) {
       try {
         rawText = await fs.readFile(outPath, "utf8");
       } catch {
-        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider produced no output file; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
+        return degraded({ depth, provider, model: resolvedModel, reason: "malformed_response", note: "The provider produced no output file; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
       }
     }
 
@@ -641,7 +649,7 @@ export async function narrateGitAnalyze(params) {
     try {
       parsed = typeof rawText === "string" ? JSON.parse(rawText) : rawText;
     } catch {
-      return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider response was not valid JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
+      return degraded({ depth, provider, model: resolvedModel, reason: "malformed_response", note: "The provider response was not valid JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
     }
 
     const assembled = assembleNarration(parsed, packet);
@@ -673,7 +681,7 @@ export async function narrateGitAnalyze(params) {
       status: "ok",
       depth,
       provider,
-      model,
+      model: resolvedModel,
       reason: null,
       entries,
       not_narrated: notNarrated,
@@ -686,11 +694,11 @@ export async function narrateGitAnalyze(params) {
     return degraded({
       depth,
       provider,
-      model,
+      model: resolvedModel,
       reason: "provider_error",
       note: `Narration failed (${String(error?.message || error).slice(0, 200)}); the deterministic report is unchanged.`,
       receipt: ran
-        ? { provider, model, depth, bytes_sent: bytesSent, network_calls: 1, cost_usd: costUsd, cost_recorded: costRecorded, enforcement: describeLimitEnforcement(provider) }
+        ? { provider, model: resolvedModel, depth, bytes_sent: bytesSent, network_calls: 1, cost_usd: costUsd, cost_recorded: costRecorded, enforcement: describeLimitEnforcement(provider) }
         : null,
     });
   } finally {

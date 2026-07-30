@@ -149,6 +149,17 @@ test("packet carries opaque theme ids and never ships an absolute path, home dir
   assert.deepEqual(packet.identities, { emails: ["me@example.com"] });
 });
 
+test("the packet scrubs URLs and scp-style remotes from copied free text", () => {
+  const report = syntheticReport();
+  report.commits[0].subject = "feat: point at https://internal.example/secret and git@host:acme/repo (#123)";
+  report.summary.themes[0].shas = ["aaaaaaa1"];
+  const packet = buildNarrationPacket(report, { depth: "metadata" });
+  const json = JSON.stringify(packet);
+  assert.ok(!json.includes("https://internal.example/secret"), "a URL never travels in the packet");
+  assert.ok(!json.includes("git@host:acme/repo"), "an scp-style remote never travels");
+  assert.ok(json.includes("[url]"));
+});
+
 test("redaction is asserted on the packet, not merely relied upon", () => {
   const report = syntheticReport();
   // A subject and a limitation that already went through redactSensitiveText at
@@ -327,6 +338,18 @@ test("narrateGitAnalyze: a valid response yields entries and a privacy receipt",
   assert.equal(narration.receipt.network_calls, 1);
   assert.equal(narration.receipt.cost_usd, 0.0021);
   assert.ok(narration.receipt.bytes_sent > 0);
+});
+
+test("the receipt reports the model actually used (claude defaults to haiku)", async () => {
+  const packet = buildNarrationPacket(syntheticReport(), { depth: "metadata" });
+  // The CLI passes model: null; claude's invocation defaults to haiku, so the
+  // receipt and store record must say haiku, not null.
+  const narration = await narrateGitAnalyze({
+    root: os.tmpdir(), packet, provider: "claude", model: null, deps: NO_STORE_DEPS,
+    exec: async () => claudeEnvelope({ entries: [{ title: "W", what: "shipped {{theme.commits}} commits", how_it_helped: "reduced risk", theme_ids: ["t1"], confidence: "high" }] }),
+  });
+  assert.equal(narration.model, "haiku");
+  assert.equal(narration.receipt.model, "haiku");
 });
 
 test("narrateGitAnalyze: a literal number is rejected for that entry and the deterministic text is used", async () => {
@@ -605,6 +628,32 @@ test("--ai --dry-run prints the packet and provider plan and sends nothing", asy
   }
 });
 
+test("--ai on a no-theme repo skips consent and the provider entirely (no network)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-narrate-cli-notheme-"));
+  try {
+    // A single commit clusters below the theme threshold → no themes.
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Agentify Tests"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "agentify-tests@example.com"], { cwd: root });
+    await fs.writeFile(path.join(root, "a.txt"), "one\n", "utf8");
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "chore: only commit"], { cwd: root });
+
+    let detectCalled = false;
+    // No --yes, non-interactive: must NOT throw for consent, because nothing
+    // is ever sent.
+    const out = await captureStdout(() => runCli(["git", "analyze", "--days", "3650", "--ai", "--json", "--root", root], {
+      detectProviders: async () => { detectCalled = true; return { claude: true }; },
+    }));
+    const report = JSON.parse(out);
+    assert.equal(detectCalled, false, "no provider is probed when there is nothing to narrate");
+    assert.equal(report.narration.status, "unavailable");
+    assert.equal(report.narration.reason, "no_themes");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("--ai without --yes in non-interactive mode errors explaining consent", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-narrate-cli-consent-"));
   try {
@@ -658,6 +707,7 @@ test("--ai consent accepted runs narration and lands it on report.narration", as
     assert.equal(report.narration.status, "ok");
     assert.ok(report.narration.entries.length >= 1);
     assert.equal(report.narration.receipt.network_calls, 1);
+    assert.equal(report.narration.receipt.model, "haiku", "the receipt reports the effective model, not null");
     // The entry's theme id was translated back to the real, path-bearing id.
     assert.ok(report.narration.entries[0].theme_ids[0].includes("::issue:#123"));
   } finally {

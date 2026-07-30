@@ -1548,6 +1548,21 @@ export async function runCli(argv, _runtime = {}) {
             }
             const packet = buildNarrationPacket(report, { depth: narrationDepth, diffHunksByTheme });
             const preview = narrationPacketPreview(packet);
+
+            // Nothing clustered to narrate: no network request will ever be
+            // made, so skip provider detection AND the consent gate entirely —
+            // a one-commit repo must not demand --yes for a run that would send
+            // nothing. A dry run still falls through to print the empty packet.
+            if (packet.themes.length === 0 && !dryRun) {
+              report.narration = narrationUnavailable({
+                depth: narrationDepth,
+                reason: "no_themes",
+                note: "No themes reached the grouping threshold, so narration was skipped and no provider was contacted.",
+              });
+              emitGitAnalyzeReport(report, format);
+              return;
+            }
+
             // Provider detection, the consent prompt, and the provider process
             // are injectable for tests so the suite exercises consent/degrade
             // paths without ever probing PATH or spawning a real CLI.
