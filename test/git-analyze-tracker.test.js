@@ -451,11 +451,12 @@ test("applyTrackerTitles retitles issue themes and merges limitations", () => {
 // Review fixes.
 // ---------------------------------------------------------------------------
 
-test("auto falls back from a logged-out acli to configured REST", async () => {
+test("auto uses configured REST directly even when acli is present (batched, host-disclosed)", async () => {
   const { env } = await tmpCacheEnv();
   const http = mockHttp(restOk({ "PROJ-1": "Resolved via REST" }));
+  let acliCalls = 0;
   const exec = async (command, args) => {
-    if (command === "acli" && args[0] === "jira") return { code: 1, stdout: "", stderr: "401 Unauthorized: please authenticate" };
+    if (command === "acli" && args[0] === "jira") { acliCalls += 1; return { code: 1, stdout: "", stderr: "401 Unauthorized" }; }
     return { code: 0, stdout: "", stderr: "" };
   };
   const result = await resolveTracker({
@@ -465,8 +466,10 @@ test("auto falls back from a logged-out acli to configured REST", async () => {
     cache: false,
     deps: { httpRequest: http.fn, exec, hasBinary: async (name) => name === "acli" },
   });
-  assert.deepEqual(result.disabled_tiers, ["acli"]);
-  assert.equal(result.entries["PROJ-1"].resolved, true);
+  // REST is preferred when configured, so a logged-out acli is never even called
+  // — the key resolves via the single batched REST request.
+  assert.equal(acliCalls, 0);
+  assert.deepEqual(result.disabled_tiers, []);
   assert.equal(result.entries["PROJ-1"].source, "rest");
   assert.equal(result.entries["PROJ-1"].title, "Resolved via REST");
 });
@@ -656,23 +659,21 @@ test("a warm GitHub cache makes zero requests, including no auth probe", async (
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-test("tiers_attempted reports only the tiers that actually ran", async () => {
+test("auto without REST env uses acli; tiers_attempted reports what ran", async () => {
   const { env } = await tmpCacheEnv();
   const exec = async (command, args) => {
     if (command === "acli" && args[0] === "jira") return { code: 0, stdout: JSON.stringify({ fields: { summary: "Done by acli", status: { name: "Open" }, issuetype: { name: "Task" } } }), stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
   };
-  const http = mockHttp(restOk({ "PROJ-1": "should not be used" }));
+  // No REST env → auto falls to acli (the only configured higher tier).
   const result = await resolveTracker({
     keys: ["PROJ-1"],
     mode: "auto",
-    env: { ...env, ...REST_ENV },
+    env: { ...env, JIRA_BASE_URL: "", JIRA_EMAIL: "", JIRA_API_TOKEN: "" },
     cache: false,
-    deps: { exec, httpRequest: http.fn, hasBinary: async (n) => n === "acli" },
+    deps: { exec, hasBinary: async (n) => n === "acli" },
   });
-  // acli resolved the only key, so REST was configured but never attempted.
   assert.deepEqual(result.tiers_attempted, ["acli"]);
-  assert.equal(http.calls.length, 0);
   assert.equal(result.entries["PROJ-1"].title, "Done by acli");
 });
 
@@ -736,6 +737,63 @@ test("a resolved tracker title survives AI narration in HTML", () => {
   };
   const html = renderGitAnalyzeHtml(report, { environment: { agentifyOnPath: false, hasConfig: false, providers: [] } });
   assert.match(html, /The real Jira summary/, "the Jira title must remain visible even when narration replaces the heading");
+});
+
+test("a legitimate project sharing a standards-like prefix still classifies (PEP, IEC, JSR)", () => {
+  for (const key of ["PEP-8", "IEC-61508", "JSR-330"]) {
+    const info = classifyIssueKey(key);
+    assert.ok(info && info.kind === "jira", `${key} should classify as a Jira key so --jira-project can opt it in`);
+  }
+});
+
+test("a fixed cache clock (params.now) does not starve the live request budget", async () => {
+  const http = mockHttp(restOk({ "PROJ-1": "t" }));
+  const { env } = await tmpCacheEnv();
+  const result = await resolveTracker({
+    keys: ["PROJ-1"],
+    mode: "rest",
+    env: { ...env, ...REST_ENV },
+    cache: false,
+    now: 0,
+    deps: { httpRequest: http.fn },
+  });
+  assert.equal(http.calls.length, 1, "a fixed now must not make every request instantly time-expired");
+  assert.equal(result.entries["PROJ-1"].resolved, true);
+  assert.ok(!result.limitations.some((l) => /time limit/.test(l)));
+});
+
+test("the Jira cache is scoped by base-URL path, not host alone", async () => {
+  const { dir } = await tmpCacheEnv();
+  const base = { XDG_CACHE_HOME: dir, JIRA_EMAIL: "m@e.co", JIRA_API_TOKEN: "t" };
+  const httpA = mockHttp(restOk({ "PROJ-1": "Team A" }));
+  const httpB = mockHttp(restOk({ "PROJ-1": "Team B" }));
+  const a = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { ...base, JIRA_BASE_URL: "https://jira.example.com/team-a" }, deps: { httpRequest: httpA.fn } });
+  const b = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { ...base, JIRA_BASE_URL: "https://jira.example.com/team-b" }, deps: { httpRequest: httpB.fn } });
+  assert.equal(a.entries["PROJ-1"].title, "Team A");
+  assert.equal(b.entries["PROJ-1"].title, "Team B", "different deployment paths on one host must not share cache");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("the GitHub disclosure names the host and key count", async () => {
+  const { env } = await tmpCacheEnv();
+  const disclosed = [];
+  const exec = async (command, args) => {
+    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: "", stderr: "" };
+    if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 1, title: "x", state: "OPEN", url: "https://github.com/o/r/issues/1" }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  await resolveTracker({
+    keys: ["#1", "#2"],
+    mode: "auto",
+    env: { ...env, JIRA_BASE_URL: "" },
+    cache: false,
+    deps: { exec, hasBinary: async (n) => n === "gh" },
+    disclose: (lines) => disclosed.push(...lines),
+  });
+  const gh = disclosed.find((l) => /GitHub/.test(l));
+  assert.ok(gh, "a GitHub disclosure line is required");
+  assert.match(gh, /github\.com/);
+  assert.match(gh, /\b2\b/);
 });
 
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {

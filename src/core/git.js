@@ -204,6 +204,31 @@ export async function isPathIgnoredByGit(root, relPath) {
   }
 }
 
+// Read-only lookup of the `origin` remote URL (falling back to any single
+// remote). Returns null when there is no remote or git is unavailable. Used to
+// give the tracker's GitHub cache a canonical repository identity that survives
+// a checkout being moved, rather than keying on the filesystem path.
+export async function getRemoteUrl(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["config", "--get", "remote.origin.url"], { cwd: root });
+    const url = stdout.trim();
+    if (url) return url;
+  } catch {
+    // No origin remote; fall through to the single-remote probe below.
+  }
+  try {
+    const { stdout } = await execFileAsync("git", ["remote"], { cwd: root });
+    const remotes = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (remotes.length === 1) {
+      const { stdout: urlOut } = await execFileAsync("git", ["config", "--get", `remote.${remotes[0]}.url`], { cwd: root });
+      return urlOut.trim() || null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export async function getUpstreamRef(root) {
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {

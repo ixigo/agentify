@@ -75,7 +75,7 @@ import {
   resolveInsightsProviders,
   runCliInsights,
 } from "./core/session-analysis/insights.js";
-import { getUpstreamRef, hasDiffSince } from "./core/git.js";
+import { getUpstreamRef, hasDiffSince, getRemoteUrl } from "./core/git.js";
 import { describeModelRoutes, detectDelegateProviders, explainRoute, runDelegate } from "./core/models.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
@@ -1592,12 +1592,17 @@ export async function runCli(argv, _runtime = {}) {
           // fail-soft: a per-key miss annotates that key; only an explicit
           // `--jira rest` with the env unset throws (an actionable misconfig).
           if (trackerMode !== "off" && !dryRun && report.summary) {
+            // Scope the GitHub cache by the repository's canonical remote URL when
+            // there is one (it survives a checkout being moved), falling back to
+            // the repo path. Read-only; a repo with no remote just uses its path.
+            const repoRoot = report.repository?.path || root;
+            const ghScope = report.scope === "global" ? null : (await getRemoteUrl(repoRoot)) || repoRoot;
             const tracker = await resolveTracker({
               keys: collectIssueKeys(report.summary),
               mode: trackerMode,
               projects: jiraProjects,
-              cwd: report.repository?.path || root,
-              ghScope: report.repository?.path || root,
+              cwd: repoRoot,
+              ghScope,
               // A GitHub `#NNN` is repository-relative; under --global one cwd
               // cannot resolve it across repos, so gh is disabled there (Jira,
               // being site-global, still resolves).

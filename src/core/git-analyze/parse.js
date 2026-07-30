@@ -30,12 +30,18 @@ const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)(?![\w-])/g;
 // are standards/versions, not issue references. The acceptance set (UTF-8,
 // SHA-256, HTTP-2) must never parse as issue keys; the rest are common enough in
 // commit messages to be worth pre-empting. Matched on the uppercase prefix.
+// Deliberately conservative: it lists only tokens that are STANDARDS/versions and
+// are not plausible Jira project keys, because a prefix added here is also
+// rejected by classifyIssueKey — so an over-eager entry (e.g. a real `PEP-123`
+// project) would be dropped from clustering AND could never be opted back in via
+// --jira-project. When unsure, leave a prefix OUT and rely on the project
+// allowlist to scope lookups instead.
 const NON_ISSUE_PREFIXES = new Set([
   "UTF", "UTF8", "UTF16", "UTF32",
   "SHA", "SHA1", "SHA256", "SHA512", "MD", "MD5",
-  "HTTP", "HTTPS", "HTTP2", "HTTP3", "SSH", "TLS", "SSL", "SPF", "DKIM",
-  "ISO", "IEC", "RFC", "PEP", "JSR", "ASCII", "ANSI", "BASE64", "OAUTH", "OAUTH2", "PBKDF2",
-  "IPV4", "IPV6", "EC2", "S3", "AES", "RSA", "DES", "3DES", "ECMA", "ES",
+  "HTTP", "HTTPS", "HTTP2", "SSH", "TLS", "SSL", "SPF", "DKIM",
+  "ISO", "RFC", "ASCII", "ANSI", "BASE64", "OAUTH", "OAUTH2", "PBKDF2",
+  "IPV4", "IPV6", "EC2", "S3", "AES", "RSA", "DES", "ECMA", "ES",
   "GB", "MB", "KB", "TB", "PB", "H", "X", "CP",
   // Security identifiers that share the PREFIX-NUMBER shape but are not issues.
   "CVE", "CWE", "CAPEC", "GHSA",

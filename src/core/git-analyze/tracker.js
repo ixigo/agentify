@@ -564,7 +564,10 @@ export async function resolveTracker(params = {}) {
   const disclosures = [];
   const disabledTiers = [];
 
-  const budget = makeBudget(Number.isFinite(params.maxRequests) ? params.maxRequests : DEFAULT_MAX_REQUESTS, now, Number.isFinite(params.deadlineMs) ? params.deadlineMs : DEFAULT_DEADLINE_MS);
+  // The budget's wall clock is the REAL Date.now(), independent of `params.now`
+  // (which anchors only cache TTL, and may be a fixed value in tests) — otherwise
+  // a fixed `now` would make every request instantly past the deadline.
+  const budget = makeBudget(Number.isFinite(params.maxRequests) ? params.maxRequests : DEFAULT_MAX_REQUESTS, Date.now(), Number.isFinite(params.deadlineMs) ? params.deadlineMs : DEFAULT_DEADLINE_MS);
 
   const ctx = {
     entries: new Map(),
@@ -580,12 +583,13 @@ export async function resolveTracker(params = {}) {
     // keys are global to a SITE, so their scope is the base-URL host — never the
     // bare tier name, or `PROJ-1` on site B would reuse site A's cached title.
     ghScope: params.ghScope ? `github:${params.ghScope}` : "github",
-    // REST is scoped to its configured host AND a non-secret hash of the account
-    // (JIRA_EMAIL): two accounts on one tenant can have different issue
-    // visibility, so a title (or a `not_found`) cached under one account must not
-    // be served to another. acli is not cached at all (its site is not verifiable
-    // here), so it needs no scope.
-    jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}:${accountHash(env)}`,
+    // REST is scoped to its full base URL (host AND path — one host can serve
+    // `/team-a` and `/team-b` as separate Jira deployments) plus a non-secret
+    // hash of the account (JIRA_EMAIL): two accounts on one tenant can have
+    // different issue visibility, so a title (or a `not_found`) cached under one
+    // account must not be served to another. acli is not cached at all (its site
+    // is not verifiable here), so it needs no scope.
+    jiraScope: `jira:${baseUrl || "local"}:${accountHash(env)}`,
     cache: params.cache !== false,
     cacheDir: trackerCacheDir(env),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -672,7 +676,8 @@ export async function resolveTracker(params = {}) {
     }
   }
   if (ghPresent) {
-    disclosures.push(`git analyze --jira: resolving GitHub issue title(s) via the local gh CLI.`);
+    const ghCount = githubKeys.filter((key) => !ctx.entries.has(key)).length;
+    disclosures.push(`git analyze --jira: resolving ${ghCount} GitHub issue title(s) via the local gh CLI against github.com.`);
   }
   if (disclosures.length > 0 && typeof params.disclose === "function") {
     params.disclose(disclosures);
@@ -835,9 +840,13 @@ async function decideJiraTier({ mode, env, hasBinary }) {
     const order = (await hasBinary("acli")) ? ["acli"] : [];
     return { order, primary: order[0] || "offline" };
   }
-  // auto: acli then rest, using whichever is configured.
-  const order = [];
-  if (await hasBinary("acli")) order.push("acli");
-  if (restEnvConfigured(env)) order.push("rest");
-  return { order, primary: order[0] || "offline" };
+  // auto: pick ONE higher tier. REST is preferred when configured — it is
+  // batched (one request per 50 keys, so 50 keys cannot exhaust the budget), its
+  // destination host is known and disclosed, and it avoids mixing two sites in
+  // one run (acli authenticates to its own, possibly different, site). acli is
+  // used only when REST is not configured. This still covers the
+  // "acli-present-but-logged-out + REST-configured" case: REST simply resolves.
+  if (restEnvConfigured(env)) return { order: ["rest"], primary: "rest" };
+  if (await hasBinary("acli")) return { order: ["acli"], primary: "acli" };
+  return { order: [], primary: "offline" };
 }
