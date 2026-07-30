@@ -26,6 +26,7 @@ import tls from "node:tls";
 import http from "node:http";
 import https from "node:https";
 import dns from "node:dns";
+import dgram from "node:dgram";
 import fs from "node:fs";
 
 const TRIP_FILE = process.env.NET_TRIP_FILE;
@@ -65,7 +66,14 @@ try {
 for (const name of ["lookup", "resolve", "resolve4", "resolve6"]) {
   try { dns[name] = trip(`dns.${name}`); } catch { /* ignore */ }
   try { if (dns.promises) dns.promises[name] = trip(`dns.promises.${name}`); } catch { /* ignore */ }
+  // dns.Resolver instances have their own methods; patch the prototype so a
+  // `new dns.Resolver().resolve(...)` trips too.
+  try { if (dns.Resolver?.prototype) dns.Resolver.prototype[name] = trip(`dns.Resolver.${name}`); } catch { /* ignore */ }
+  try { if (dns.promises?.Resolver?.prototype) dns.promises.Resolver.prototype[name] = trip(`dns.promises.Resolver.${name}`); } catch { /* ignore */ }
 }
+
+// UDP (dgram) is a network egress path too.
+try { dgram.createSocket = trip("dgram.createSocket"); } catch { /* ignore */ }
 
 try { globalThis.fetch = trip("fetch"); } catch { /* ignore */ }
 

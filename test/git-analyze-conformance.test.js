@@ -469,14 +469,22 @@ test("a symlinked XDG_CACHE_HOME into a discovered repo does not write into it (
   const sandbox = await createSandbox();
   sandbox.env.XDG_CACHE_HOME = cacheLink; // absolute, but a symlink into the repo
   try {
+    // Cover BOTH the discovery-cache write (json path) and the HTML report
+    // artifact (html path) — each has its own containment guard.
     const before = await snapshotTree(repo.root);
-    const r = await runAnalyzeCli(sandbox, discoveryRoot, ["--global", "--root", discoveryRoot, ...WINDOW, "--format", "json"]);
-    assert.equal(r.code, 0, `--global with symlinked cache errored:\n${r.stderr}`);
-    // Nothing was written into the repo through the symlink.
+    const rJson = await runAnalyzeCli(sandbox, discoveryRoot, ["--global", "--root", discoveryRoot, ...WINDOW, "--format", "json"]);
+    assert.equal(rJson.code, 0, `--global json with symlinked cache errored:\n${rJson.stderr}`);
+    const rHtml = await runAnalyzeCli(sandbox, discoveryRoot, ["--global", "--root", discoveryRoot, ...WINDOW, "--format", "html", "--no-open"]);
+    assert.equal(rHtml.code, 0, `--global html with symlinked cache errored:\n${rHtml.stderr}`);
+    // Nothing was written into the repo through the symlink, by either path.
     assert.deepEqual(diffSnapshots(before, await snapshotTree(repo.root)), [], "wrote into the repo via a symlinked cache");
-    // And the report states the limitation (a footnote, not a silent skip).
-    const rep = JSON.parse(r.stdout);
-    const limitations = rep.discovery?.limitations || [];
+    assert.deepEqual(await findAgentifyArtifacts(repo.root), [], "left an Agentify artifact in the repo via a symlinked cache");
+    // The HTML report landed OUTSIDE the repo despite the symlinked cache.
+    const m = rHtml.stderr.match(/Report written to (\S+\.html)/);
+    assert.ok(m, `no report path in:\n${rHtml.stderr}`);
+    assert.ok(path.relative(repo.root, path.resolve(m[1])).startsWith(".."), `HTML report landed inside the repo: ${m[1]}`);
+    // And the discovery cache write states the limitation (a footnote, not a silent skip).
+    const limitations = JSON.parse(rJson.stdout).discovery?.limitations || [];
     assert.ok(
       limitations.some((l) => /cache/i.test(l) && /(inside|scanned repositor)/i.test(l)),
       `expected a stated cache-containment limitation; got:\n${limitations.join("\n")}`,
@@ -565,6 +573,10 @@ test("proof: the git allowlist FAILS on mutating subcommands", () => {
     ["symbolic-ref", "HEAD", "refs/heads/x"],        // write: two positionals
     ["gc"],
     ["update-ref", "refs/heads/x", "HEAD"],
+    ["diff", "--output=/tmp/leak", "A", "B"],        // write: --output writes a file
+    ["log", "--output", "/tmp/leak"],                // write: --output writes a file
+    ["show", "--ext-diff", "HEAD"],                  // exec: runs an external diff program
+    ["log", "--textconv"],                           // exec: runs a configured filter
   ];
   const violations = findGitViolations(denied);
   assert.equal(violations.length, denied.length, `every denied call must be flagged; got:\n${violations.join("\n")}`);

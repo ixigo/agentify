@@ -633,10 +633,27 @@ export function gitSubcommand(argv) {
  * of violation strings (empty means clean). A `config` write form or any
  * subcommand outside the allowlist is a violation.
  */
+// Flags that make an otherwise read-only subcommand write a file or run an
+// external program, regardless of subcommand: `--output[=<file>]` (diff/log/
+// format-patch write to a file), `--ext-diff` (runs a configured external diff
+// program — a side effect), and `--textconv` (runs a configured filter and can
+// populate a textconv cache). The command deliberately uses the negated
+// `--no-ext-diff`/`--no-textconv`, which are safe and NOT matched here.
+function hasWriteOrExecFlag(argv) {
+  // Note: `-O<orderfile>` READS an order file (not a write) and is not flagged.
+  return argv.some((tok) =>
+    tok === "--output" || tok.startsWith("--output=") ||
+    tok === "--ext-diff" || tok === "--textconv");
+}
+
 export function findGitViolations(calls) {
   const violations = [];
   for (const argv of calls) {
     const { subcommand } = gitSubcommand(argv);
+    if (hasWriteOrExecFlag(argv)) {
+      violations.push(`write/exec-enabling git flag: git ${argv.join(" ")}`);
+      continue;
+    }
     if (subcommand === "--version" || subcommand === "--help") continue;
     if (subcommand === null) {
       violations.push(`no subcommand found in: git ${argv.join(" ")}`);

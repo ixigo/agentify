@@ -794,10 +794,14 @@ export function defaultReportPath(report, env = process.env, repositoryPath = nu
   // fails the epic's constraint. (An explicit --output inside a repo is the
   // user's own choice and is honoured elsewhere.)
   //
-  // Guard against EVERY analysed repository, not just the command root: under
-  // `--global` the command root (a discovery root, retained as the LAST --root)
-  // is not necessarily a parent of every discovered repo, so a cache inside a
-  // discovered repo under a different root would otherwise slip through.
+  // A destination is unsafe if it is inside a named analysed repository OR
+  // inside ANY git repository (a `.git` ancestor). The `.git`-ancestor check is
+  // what makes this robust regardless of how the repo set was filtered: under
+  // `--global` the report carries only the SELECTED, deduplicated repositories,
+  // so guarding by that list alone would miss a cache inside an unselected repo
+  // or a dropped linked worktree. We then fall back through candidates and
+  // VALIDATE each fallback (a bare `~/.cache` can itself be inside a repo), so
+  // the returned path is never inside a repository.
   const guardPaths = [];
   if (repositoryPath) guardPaths.push(repositoryPath);
   if (summary.scope === "global" || report?.scope === "global") {
@@ -805,12 +809,31 @@ export function defaultReportPath(report, env = process.env, repositoryPath = nu
       if (repo?.path) guardPaths.push(repo.path);
     }
   }
-  const candidate = path.join(cacheHome, "agentify", "git-analyze");
-  if (guardPaths.some((repoPath) => isInside(repoPath, candidate))) {
-    cacheHome = guardPaths.some((repoPath) => isInside(repoPath, homeCache)) ? os.tmpdir() : homeCache;
+  const unsafe = (dir) => guardPaths.some((repoPath) => isInside(repoPath, dir)) || isInsideGitRepo(dir);
+  for (const fallback of [cacheHome, homeCache, os.tmpdir()]) {
+    const dir = path.join(fallback, "agentify", "git-analyze");
+    if (!unsafe(dir)) {
+      cacheHome = fallback;
+      break;
+    }
+    cacheHome = os.tmpdir(); // last resort if every candidate is unsafe
   }
 
   return path.join(cacheHome, "agentify", "git-analyze", `${name}-${window}.html`);
+}
+
+// Whether `target` (or the nearest existing ancestor it resolves to) sits inside
+// a git repository — detected by a `.git` entry at any ancestor. Read-only; used
+// to keep the default report path out of every repository, not just the ones the
+// report happened to list.
+function isInsideGitRepo(target) {
+  let current = realPath(path.resolve(target));
+  for (;;) {
+    if (fsSync.existsSync(path.join(current, ".git"))) return true;
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
 }
 
 /**
