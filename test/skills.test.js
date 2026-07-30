@@ -75,7 +75,12 @@ test("listBuiltinSkills exposes built-in catalog and alias", async () => {
   assert.deepEqual(resolveBuiltinSkill("figma-ui-eval").name, "figma-ui-build");
   assert.deepEqual(resolveBuiltinSkill("playwright-ui-eval").name, "ui-screenshot-eval");
   assert.deepEqual(resolveBuiltinSkill("visual-ui-eval").name, "ui-screenshot-eval");
+  assert.deepEqual(resolveBuiltinSkill("php-to-astro").name, "migrate-php-to-astro-iui");
+  assert.deepEqual(resolveBuiltinSkill("astro-php-migration").name, "migrate-php-to-astro-iui");
   assert.deepEqual(resolveBuiltinSkill("jira").name, "jira");
+  assert.deepEqual(resolveBuiltinSkill("quarterly-goals").name, "find-goals-per-quarter");
+  assert.deepEqual(resolveBuiltinSkill("quarter-goals").name, "find-goals-per-quarter");
+  assert.deepEqual(resolveBuiltinSkill("goals-per-quarter").name, "find-goals-per-quarter");
 });
 
 test("resolveSkillInstallTargets expands provider all for project scope", () => {
@@ -130,6 +135,60 @@ test("installBuiltinSkill copies architecture skill references into project scop
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(referencePath), true);
+});
+
+test("installBuiltinSkill copies PHP to Astro migration bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-php-astro-"));
+  const result = await installBuiltinSkill(root, {
+    name: "php-to-astro",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const basePath = path.join(root, ".codex", "skills", "migrate-php-to-astro-iui");
+  const expectedFiles = [
+    "SKILL.md",
+    path.join("agents", "openai.yaml"),
+    path.join("scripts", "audit-rendered-route.mjs"),
+    path.join("scripts", "inventory-php-page.mjs"),
+    path.join("references", "confirmtkt-astro-conventions.md"),
+    path.join("references", "iui-component-map.md"),
+    path.join("references", "migration-contract.md"),
+    path.join("references", "quality-gates.md"),
+    path.join("references", "visual-parity-checklist.md"),
+  ];
+
+  assert.equal(result.skill.name, "migrate-php-to-astro-iui");
+  assert.equal(result.results[0].status, "installed");
+  for (const relativePath of expectedFiles) {
+    assert.equal(await exists(path.join(basePath, relativePath)), true);
+  }
+});
+
+test("installBuiltinSkill copies quarter goals bundle into project scope", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-skill-quarter-goals-"));
+  const result = await installBuiltinSkill(root, {
+    name: "quarterly-goals",
+    provider: "codex",
+    scope: "project",
+  });
+
+  const basePath = path.join(root, ".codex", "skills", "find-goals-per-quarter");
+  const expectedFiles = [
+    "SKILL.md",
+    path.join("agents", "openai.yaml"),
+    path.join("references", "azure-pr-history-queries.md"),
+    path.join("references", "jira-history-queries.md"),
+    path.join("references", "quarter-summary-contract.md"),
+    path.join("scripts", "quarter-window.mjs"),
+    path.join("scripts", "summarize-quarter-activity.mjs"),
+  ];
+
+  assert.equal(result.skill.name, "find-goals-per-quarter");
+  assert.equal(result.results[0].status, "installed");
+  for (const relativePath of expectedFiles) {
+    assert.equal(await exists(path.join(basePath, relativePath)), true);
+  }
 });
 
 test("installBuiltinSkill copies gh autopilot skill bundle into project scope", async () => {

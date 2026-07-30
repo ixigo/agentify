@@ -1,0 +1,4 @@
+interface:
+  display_name: "PHP to Astro IUI Migration"
+  short_description: "Migrate legacy PHP pages into Astro and IUI"
+  default_prompt: "Use $migrate-php-to-astro-iui to migrate this legacy PHP or AMP page into the existing Astro app with IUI reuse, SEO parity, visual validation, and Lighthouse quality gates."

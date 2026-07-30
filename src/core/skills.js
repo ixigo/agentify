@@ -36,12 +36,6 @@ const BUILTIN_SKILLS = [
       "Ultra-compressed caveman-speak output mode. Cuts ~65-75% of output tokens while keeping full technical accuracy. Supports intensity levels lite/full/ultra/wenyan.",
   },
   {
-    name: "caveman-compress",
-    aliases: [],
-    description:
-      "Placeholder for future memory-file compression using caveman-style input-token reduction.",
-  },
-  {
     name: "design-an-interface",
     aliases: [],
     description:
@@ -54,16 +48,16 @@ const BUILTIN_SKILLS = [
       "Challenge a plan against the existing domain model, sharpen terminology, and update documentation such as CONTEXT.md and ADRs as decisions crystallize.",
   },
   {
-    name: "edit-article",
-    aliases: [],
-    description:
-      "Edit and improve articles by restructuring sections, improving clarity, and tightening prose.",
-  },
-  {
     name: "figma-ui-build",
     aliases: ["figma-to-ui", "figma-ui-eval"],
     description:
       "Build frontend UI from a Figma node using a user-provided node image, cached design metadata, local UI pattern matching, and ui-screenshot-eval validation.",
+  },
+  {
+    name: "find-goals-per-quarter",
+    aliases: ["quarterly-goals", "quarter-goals", "goals-per-quarter"],
+    description:
+      "Summarize the current user's own delivered work over the last three months or a named calendar quarter by reading their Jira work items via acli and their Azure DevOps pull requests via az, cross-linking tickets to PRs, grouping evidence into goal themes, and reporting coverage gaps. Read-only.",
   },
   {
     name: "git-guardrails-claude-code",
@@ -120,34 +114,16 @@ const BUILTIN_SKILLS = [
       "Manage Jira work items through Atlassian CLI `acli`, including picking up assigned tickets, daily to-do triage, transitioning statuses, editing summaries/descriptions/assignees/labels, updating the current ticket, and creating new Jira tasks or bugs.",
   },
   {
-    name: "migrate-to-shoehorn",
-    aliases: [],
+    name: "migrate-php-to-astro-iui",
+    aliases: ["php-to-astro", "astro-php-migration"],
     description:
-      "Migrate test files from TypeScript `as` assertions to @total-typescript/shoehorn. Use when the user mentions shoehorn or partial test data.",
-  },
-  {
-    name: "obsidian-vault",
-    aliases: [],
-    description:
-      "Search, create, and manage notes in an Obsidian vault with wikilinks and index notes.",
+      "Migrate legacy ConfirmTkt PHP or AMP pages into Astro with existing IUI and brand components, server-rendered SEO content, visual parity, accessibility, and Lighthouse validation.",
   },
   {
     name: "qa",
     aliases: [],
     description:
       "Run an interactive QA session where the user reports bugs conversationally, the agent explores for context, and GitHub issues are filed.",
-  },
-  {
-    name: "request-refactor-plan",
-    aliases: [],
-    description:
-      "Create a detailed refactor plan with tiny commits through user interview, then file it as a GitHub issue.",
-  },
-  {
-    name: "scaffold-exercises",
-    aliases: [],
-    description:
-      "Create exercise directory structures with sections, problems, solutions, and explainers that pass linting.",
   },
   {
     name: "setup-pre-commit",
@@ -172,18 +148,6 @@ const BUILTIN_SKILLS = [
     aliases: [],
     description:
       "Break a plan, spec, or PRD into independently grabbable GitHub issues using tracer-bullet vertical slices.",
-  },
-  {
-    name: "to-prd",
-    aliases: [],
-    description:
-      "Turn the current conversation context into a PRD and submit it as a GitHub issue.",
-  },
-  {
-    name: "triage-issue",
-    aliases: [],
-    description:
-      "Triage a bug or issue by exploring the codebase to find root cause, then create a GitHub issue with a TDD-based fix plan.",
   },
   {
     name: "ubiquitous-language",
@@ -232,12 +196,6 @@ const BUILTIN_SKILLS = [
     aliases: [],
     description:
       "Create new agent skills with proper structure, progressive disclosure, and bundled resources.",
-  },
-  {
-    name: "zoom-out",
-    aliases: [],
-    description:
-      "Tell the agent to zoom out and provide broader context or a higher-level map of unfamiliar code.",
   },
 ];
 

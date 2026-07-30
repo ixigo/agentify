@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Goals Per Quarter"
+  short_description: "Summarize a quarter of Jira and Azure DevOps work"
+  default_prompt: "Use $find-goals-per-quarter to summarize the work I completed in the last 3 months from my Jira tickets and Azure DevOps pull requests."
