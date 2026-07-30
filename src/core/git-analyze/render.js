@@ -233,6 +233,17 @@ function mdThemeSection(theme, showRepo) {
   lines.push("");
   const tag = themeKeyLine(theme);
   if (tag) lines.push(`- Key: ${tag}`);
+  // Tracker enrichment (#355): the resolved title already rides in the heading
+  // (theme.title); surface the status/type and a link when present.
+  if (theme.tracker) {
+    const tr = theme.tracker;
+    if (tr.resolved) {
+      const meta = [tr.type, tr.status].filter(Boolean).join(" · ");
+      lines.push(`- Tracker: ${meta || "resolved"}${tr.url ? ` — ${tr.url}` : ""}`);
+    } else if (tr.url) {
+      lines.push(`- Tracker: ${tr.key} (untitled) — ${tr.url}`);
+    }
+  }
   const types = histogram(theme.type_histogram);
   if (types) lines.push(`- Types: ${types}`);
   lines.push(`- Span: ${span(theme.first_commit, theme.last_commit)} · ${theme.files_changed} ${plural(theme.files_changed, "file")} touched`);

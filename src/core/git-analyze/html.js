@@ -319,6 +319,37 @@ function formatIterationSignal(signal) {
   return `<p class="iteration">${formatNumber(commits)} ${pluralize(commits, "commit")} on ${escapeHtml(signal.key)} — repeated work, not noise.</p>`;
 }
 
+// A URL is only emitted as an href when it is http(s); anything else (a
+// `javascript:` or `data:` URL that somehow reached a tracker field) is dropped
+// rather than linked. The visible text is escaped regardless.
+function safeHref(value) {
+  const raw = String(value || "").trim();
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:" || url.protocol === "https:") return raw;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+// The tracker chip for one theme: a status/type badge and a link. All values are
+// untrusted remote text and are escaped; the link is protocol-guarded.
+function renderThemeTracker(tracker) {
+  if (!tracker) return "";
+  const bits = [];
+  if (tracker.resolved) {
+    if (tracker.type) bits.push(`<span class="chip">${escapeHtml(tracker.type)}</span>`);
+    if (tracker.status) bits.push(`<span class="chip">${escapeHtml(tracker.status)}</span>`);
+  }
+  const href = safeHref(tracker.url);
+  const link = href
+    ? `<a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(tracker.key)}</a>`
+    : `<span>${escapeHtml(tracker.key)}</span>`;
+  if (bits.length === 0 && !href) return "";
+  return `<p class="tracker">${link}${bits.length > 0 ? ` ${bits.join(" ")}` : ""}</p>`;
+}
+
 function renderTheme(theme, narrationByThemeId) {
   const types = Object.entries(theme.type_histogram || {})
     .sort((a, b) => b[1] - a[1])
@@ -344,6 +375,13 @@ function renderTheme(theme, narrationByThemeId) {
     .map((subject) => `<li>${escapeHtml(subject)}</li>`)
     .join("");
 
+  // Tracker enrichment (#355). A resolved issue TITLE already rides in
+  // `theme.title`; here we add the status/type chip and a link. Every value is
+  // untrusted remote text out of a tracker — a Jira summary can contain anything
+  // — so it goes through escapeHtml, and the link href is safe-guarded to
+  // http(s) before it is ever emitted.
+  const trackerBlock = renderThemeTracker(theme.tracker);
+
   return `
   <article class="theme">
     <h3>${escapeHtml(narration?.title || theme.title)}</h3>
@@ -353,6 +391,7 @@ function renderTheme(theme, narrationByThemeId) {
       · ${formatNumber(theme.files_changed)} ${pluralize(theme.files_changed, "file")}
       · ${escapeHtml(formatDate(theme.first_commit))} → ${escapeHtml(formatDate(theme.last_commit))}
     </p>
+    ${trackerBlock}
     ${narrationBlock}
     ${formatIterationSignal(theme.iteration_signal)}
     ${types ? `<ul class="chips">${types}</ul>` : ""}
@@ -618,6 +657,10 @@ const STYLES = `
     .theme h3 { margin-top: 0; }
     .theme-stats { font-size: 0.92rem; }
     .iteration { color: var(--amber); font-size: 0.9rem; }
+    .tracker { font-size: 0.9rem; margin: 4px 0 8px; }
+    .tracker a { color: var(--accent); }
+    .chip { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); margin-left: 4px; }
     .narration { border-left: 3px solid var(--accent); padding-left: 12px; margin: 10px 0; }
     .narration-what { font-size: 1rem; }
     .narration-how { color: var(--text-dim); }

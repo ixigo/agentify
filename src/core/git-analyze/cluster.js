@@ -398,6 +398,22 @@ export function applyTrackerTitles(summary, tracker) {
     }
     if (Object.keys(refs).length > 0) theme.tracker_refs = refs;
   }
+
+  // Fold the tracker's own limitations into the summary's limitations block so
+  // every renderer (which already prints summary.limitations) surfaces a
+  // disabled tier, a budget stop, or an unconfigured `auto` without extra
+  // plumbing. Deduped against what the summary already states.
+  if (Array.isArray(tracker.limitations) && tracker.limitations.length > 0) {
+    const seen = new Set(summary.limitations || []);
+    summary.limitations = summary.limitations || [];
+    for (const line of tracker.limitations) {
+      const text = String(line || "").trim();
+      if (text && !seen.has(text)) {
+        seen.add(text);
+        summary.limitations.push(text);
+      }
+    }
+  }
   return summary;
 }
 
