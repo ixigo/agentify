@@ -251,11 +251,12 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   // --issue/--include-merges) are implemented and no longer rejected here; the
   // remaining slices' flags stay deferred.
   const cases = [
-    // --global/--repo (#350) and the filter flags (#351) are now implemented
-    // and no longer deferred; only later slices' flags remain.
+    // --global/--repo (#350), the filter flags (#351), and the report output
+    // flags --output/--no-open/--format html (#353) are now implemented and no
+    // longer deferred; only later slices' flags remain.
     [["--provider", "claude"], /--provider \(provider narration, #354\)/],
     [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
-    [["--output", "/tmp/x.html"], /--output \(report output, #353\)/],
+    [["--ai"], /--ai \(provider narration, #354\)/],
   ];
   for (const [flags, pattern] of cases) {
     await assert.rejects(

@@ -8,6 +8,7 @@
 // consumers keep working while #353/#354 read `report.summary`).
 
 import { renderGitAnalyzeText } from "./index.js";
+import { renderGitAnalyzeHtml } from "./html.js";
 
 // ---------------------------------------------------------------------------
 // Shared formatting (pure; no colour so output is byte-stable off a TTY).
@@ -316,13 +317,17 @@ export function renderJson(report) {
  * @param {string} format
  * @returns {string}
  */
-export function renderGitAnalyze(report, format) {
+export function renderGitAnalyze(report, format, options = {}) {
   switch (format) {
     case "md":
     case "markdown":
       return renderMarkdown(report);
     case "json":
       return renderJson(report);
+    case "html":
+      // The HTML report (#353) consumes the same `summary` block as every other
+      // format, so no figure can differ between them.
+      return renderGitAnalyzeHtml(report, options);
     case "text":
     default:
       return renderText(report);
