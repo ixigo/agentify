@@ -3,6 +3,14 @@ import path from "node:path";
 import { getRepoTopLevel, isGitRepository } from "../git.js";
 import { resolveWindow } from "./window.js";
 import { collectCommits, windowUpperExclusive } from "./collect.js";
+import {
+  resolveFilters,
+  isFilterActive,
+  describeRequestedFilters,
+  resolveIdentities,
+  resolveBranchRefs,
+  applyFilters,
+} from "./filters.js";
 
 // Bump when the shape returned by runGitAnalyze changes in a way downstream
 // slices (#349–#356) or report renderers must notice.
@@ -47,6 +55,8 @@ export async function runGitAnalyze(root, options = {}) {
   const scope = options.scope === "global" ? "global" : "local";
   const now = options.now instanceof Date ? options.now : new Date();
   const window = resolveWindow(options.window || {}, { now });
+  // Resolve the filter flags into a normalized set (pure; no git yet). #351.
+  const filterSet = resolveFilters(options.filters || {});
 
   const resolvedRoot = path.resolve(root);
   const detectRepo = options.isGitRepository || isGitRepository;
@@ -103,6 +113,10 @@ export async function runGitAnalyze(root, options = {}) {
     bounds: {
       until_exclusive: untilExclusive,
     },
+    // The resolved filter set (#351). On a dry run / non-reading path this echoes
+    // the requested filters with null match counts; a real run below replaces it
+    // with per-filter match counts.
+    filters: describeRequestedFilters(filterSet),
     notes,
   };
 
@@ -115,38 +129,69 @@ export async function runGitAnalyze(root, options = {}) {
     return report;
   }
 
+  // #351 branch reachability is pushed DOWN to git: resolve the `--branch` globs
+  // to refs BEFORE collecting, so the read is restricted to commits reachable
+  // from matching branches (a commit on two matched branches still appears once).
+  let branchResolution = null;
+  let refsPushdown;
+  if (filterSet.branchGlobs.length > 0) {
+    branchResolution = await resolveBranchRefs(repositoryPath, filterSet.branchGlobs);
+    refsPushdown = branchResolution.refs;
+  }
+  // `--me` identities are resolved from the repo's git config + .mailmap.
+  const identity = filterSet.me ? await resolveIdentities(repositoryPath) : null;
+
   // Real local run: stream the window's commits. The collector resolves and
   // VALIDATES the bounds (a mistyped --since/--until throws here).
   const collection = await collect(repositoryPath, {
     window,
     maxCommits: options.maxCommits,
     maxMerges: options.maxMerges,
+    refs: refsPushdown,
   });
+
+  // Content filters (#351) run as JS post-filters over the collected records.
+  // When no filter is active the report is byte-identical to the unfiltered
+  // #349 shape (same totals); an active filter recomputes totals over the
+  // filtered set and records each filter's independent match count.
+  const active = isFilterActive(filterSet);
+  const applied = active ? applyFilters(collection, filterSet, { identity, branchResolution }) : null;
+  const stats = active ? applied.stats : collection.stats;
 
   report.commits_read = true;
   report.counts = {
-    commits: collection.stats.commits,
-    authors: collection.stats.authors,
+    commits: stats.commits,
+    authors: stats.authors,
     repositories: 1,
   };
   report.totals = {
-    insertions: collection.stats.insertions,
-    deletions: collection.stats.deletions,
-    distinct_files: collection.stats.distinctFiles,
-    file_changes: collection.stats.fileChanges,
-    binary_files: collection.stats.binaryFiles,
-    files_excluded: collection.stats.filesExcluded,
-    merges: collection.stats.merges,
-    issue_refs: collection.stats.issueRefs,
-    branches: collection.stats.branches,
+    insertions: stats.insertions,
+    deletions: stats.deletions,
+    distinct_files: stats.distinctFiles,
+    file_changes: stats.fileChanges,
+    binary_files: stats.binaryFiles,
+    files_excluded: stats.filesExcluded,
+    merges: stats.merges,
+    issue_refs: stats.issueRefs,
+    branches: stats.branches,
   };
   report.truncated = collection.truncated;
-  // The frozen commit records and their delivery evidence, for downstream
-  // slices (#351 filtering, #352 clustering) to consume.
-  report.commits = collection.commits;
-  report.merges = collection.merges;
+  // The (possibly filtered) commit records and their delivery evidence, for
+  // downstream slices (#352 clustering, #353 report) to consume.
+  report.commits = active ? applied.commits : collection.commits;
+  report.merges = active ? applied.merges : collection.merges;
   report.branches = collection.branches;
   notes.push(...collection.notes);
+
+  if (active) {
+    report.filters = applied.filters;
+    notes.push(...applied.warnings);
+    // A single-identity `--me` with no .mailmap silently drops a person's other
+    // emails; state the limitation and point at `--author` (per #351).
+    if (filterSet.me && identity && !identity.usedMailmap) {
+      notes.push("--me used the git config identity only (no .mailmap found); if you commit under more than one email, add the others with --author.");
+    }
+  }
 
   return report;
 }
@@ -172,6 +217,28 @@ export function renderGitAnalyzeText(report) {
     lines.push(`  merges:     ${t.merges} (excluded from counts)`);
     lines.push(`  issue refs: ${t.issue_refs}`);
     lines.push(`  branches:   ${t.branches}`);
+  }
+  // The applied filter set with per-filter match counts, so a surprising number
+  // is always traceable to the filter that caused it (#351).
+  const filters = report.filters;
+  if (filters && Array.isArray(filters.applied_filters) && filters.applied_filters.length > 0) {
+    lines.push("  filters:");
+    for (const entry of filters.applied_filters) {
+      const count = entry.matched === null ? "(not evaluated)" : `matched ${entry.matched} ${entry.unit}`;
+      if (entry.kind === "me") {
+        const id = entry.identities || { emails: [], used_mailmap: false };
+        const emails = id.emails.length > 0 ? id.emails.join(", ") : "(none resolved)";
+        lines.push(`    --me [${emails}${id.used_mailmap ? " via .mailmap" : ""}]: ${count}`);
+        continue;
+      }
+      const value = entry.values && entry.values.length > 0 ? ` ${entry.values.join(",")}` : "";
+      lines.push(`    ${entry.flag}${value}: ${count}`);
+    }
+    if (Array.isArray(filters.warnings)) {
+      for (const warning of filters.warnings) {
+        lines.push(`    warning:  ${warning}`);
+      }
+    }
   }
   for (const note of report.notes) {
     lines.push(`  note:       ${note}`);

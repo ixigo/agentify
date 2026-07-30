@@ -608,6 +608,14 @@ async function* streamRawRecords(root, gitArgs) {
   }
 }
 
+// An empty async stream, used when a branch restriction resolved to no
+// reachable refs: the collection proceeds normally (branch table, notes, shallow
+// probe) but reads zero commits, instead of spawning git with no positional ref
+// (which git would silently resolve to HEAD).
+async function* emptyRecordStream() {
+  // Intentionally yields nothing.
+}
+
 /**
  * Public streaming API: yield fully-built commit records incrementally.
  * Used by downstream slices (and the streaming test) that want records without
@@ -631,8 +639,16 @@ export async function* streamCommitRecords(root, options = {}) {
 // Assemble the `git log` argument array. Non-merge collection carries numstat;
 // merge collection does not (merge numstat is first-parent noise and merges are
 // excluded from churn counts). A `--` before the range is not needed: no
-// pathspec is passed here (path filtering lands in #351).
-function buildLogArgs({ merges, dateArgs = [], range = null }) {
+// pathspec is passed here (path filtering is a JS post-filter in #351).
+//
+// `refs` is the #351 branch-reachability pushdown: a list of fully-qualified
+// refs (e.g. `refs/heads/feat/a`). When present, commits reachable from ANY of
+// them are read (git unions and dedups, so a commit on two matched branches
+// appears once). A ref-based window lower bound (`A..HEAD` in `range`) is
+// re-expressed as an ancestor exclusion `^A` so "since <ref>" still holds under
+// a branch restriction. Refs are read-only revision arguments passed verbatim in
+// the argv array — no user pattern text ever reaches git here.
+function buildLogArgs({ merges, dateArgs = [], range = null, refs = null }) {
   const args = [
     "log",
     merges ? "--merges" : "--no-merges",
@@ -657,7 +673,15 @@ function buildLogArgs({ merges, dateArgs = [], range = null }) {
     );
   }
   args.push(...dateArgs);
-  if (range) {
+  if (refs && refs.length > 0) {
+    if (range && range.includes("..")) {
+      const sinceRef = range.split("..")[0];
+      if (sinceRef) {
+        args.push(`^${sinceRef}`);
+      }
+    }
+    args.push(...refs);
+  } else if (range) {
     args.push(range);
   }
   return args;
@@ -929,6 +953,10 @@ function isEmptyHistoryError(error) {
  * @param {number} [options.maxCommits]
  * @param {number} [options.maxMerges]
  * @param {string[]} [options.ignorePatterns] - override default ignore patterns (tests)
+ * @param {string[]} [options.refs] - #351 branch-reachability pushdown: read only
+ *   commits reachable from these fully-qualified refs. `null`/absent means no
+ *   branch restriction (default HEAD reachability); an explicit EMPTY array means
+ *   the branch globs matched no branch, so nothing is read (not a fallback to HEAD).
  * @returns {Promise<{
  *   commits: object[], merges: object[], branches: object[],
  *   stats: object, truncated: {commits:boolean, merges:boolean}, notes: string[]
@@ -945,6 +973,13 @@ export async function collectCommits(root, options = {}) {
   // validate and label identically); otherwise resolve them here.
   const bounds = options.bounds || await resolveWindowBounds(root, window);
   const { dateArgs, range } = bounds;
+
+  // #351 branch-reachability pushdown. A `null`/absent `refs` reads default HEAD
+  // reachability; an explicit empty array means the `--branch` globs matched no
+  // branch, so we read nothing rather than let an empty positional ref list fall
+  // back to HEAD (which would silently ignore the filter).
+  const refs = Array.isArray(options.refs) ? options.refs : null;
+  const noReachableRefs = refs !== null && refs.length === 0;
 
   const notes = [];
   const commits = [];
@@ -971,8 +1006,8 @@ export async function collectCommits(root, options = {}) {
 
   // --- non-merge commits (the counted set, with numstat) ---
   try {
-    const gitArgs = buildLogArgs({ merges: false, dateArgs, range });
-    for await (const raw of streamRawRecords(root, gitArgs)) {
+    const gitArgs = buildLogArgs({ merges: false, dateArgs, range, refs });
+    for await (const raw of noReachableRefs ? emptyRecordStream() : streamRawRecords(root, gitArgs)) {
       const { record, numstat } = parseRecord(raw, { isMerge: false, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
@@ -1013,8 +1048,8 @@ export async function collectCommits(root, options = {}) {
 
   // --- merge commits (delivery evidence; excluded from churn counts) ---
   try {
-    const gitArgs = buildLogArgs({ merges: true, dateArgs, range });
-    for await (const raw of streamRawRecords(root, gitArgs)) {
+    const gitArgs = buildLogArgs({ merges: true, dateArgs, range, refs });
+    for await (const raw of noReachableRefs ? emptyRecordStream() : streamRawRecords(root, gitArgs)) {
       const { record } = parseRecord(raw, { isMerge: true, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;

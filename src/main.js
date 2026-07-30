@@ -1406,13 +1406,11 @@ export async function runCli(argv, _runtime = {}) {
         // skeleton implements only the window + local dry-run. Using one now is
         // a clear "not available yet" — never a silent no-op, and never a
         // misleading acknowledgement of an option the command cannot honour.
+        // #351 filter flags (--me/--author/--branch/--grep/--path/--type/--scope/
+        // --issue/--include-merges) are implemented in this build and no longer
+        // deferred; the remaining slices' flags stay rejected as "not yet".
         const DEFERRED_FLAGS = [
           ["global", "--global", "repository discovery", 350], ["repo", "--repo", "repository discovery", 350],
-          ["me", "--me", "filtering", 351], ["author", "--author", "filtering", 351],
-          ["branch", "--branch", "filtering", 351], ["grep", "--grep", "filtering", 351],
-          ["path", "--path", "filtering", 351], ["type", "--type", "filtering", 351],
-          ["scope", "--scope", "filtering", 351], ["issue", "--issue", "filtering", 351],
-          ["includeMerges", "--include-merges", "filtering", 351],
           ["output", "--output", "report output", 353], ["noOpen", "--no-open", "report output", 353],
           ["ai", "--ai", "provider narration", 354], ["provider", "--provider", "provider narration", 354],
           ["depth", "--depth", "provider narration", 354], ["maxBudgetUsd", "--max-budget-usd", "provider narration", 354],
@@ -1454,10 +1452,19 @@ export async function runCli(argv, _runtime = {}) {
             windowInput[key] = args[key];
           }
         }
+        // #351 filter flags, passed through verbatim; runGitAnalyze resolves and
+        // applies them. Repeatable flags may be a single value or an array.
+        const filters = {};
+        for (const key of ["me", "author", "branch", "grep", "path", "type", "scope", "issue", "includeMerges"]) {
+          if (hasOwn(args, key)) {
+            filters[key] = args[key];
+          }
+        }
         const report = await runGitAnalyze(root, {
           window: windowInput,
           scope: "local",
           dryRun,
+          filters,
         });
         if (format === "json") {
           console.log(JSON.stringify(report, null, 2));

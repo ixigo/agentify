@@ -245,9 +245,11 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);
 
+  // #351 filter flags (--me/--author/--branch/--grep/--path/--type/--scope/
+  // --issue/--include-merges) are implemented and no longer rejected here; the
+  // remaining slices' flags stay deferred.
   const cases = [
     [["--global"], /--global \(repository discovery, #350\)/],
-    [["--author", "alice"], /--author \(filtering, #351\)/],
     [["--provider", "claude"], /--provider \(provider narration, #354\)/],
     [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
     [["--output", "/tmp/x.html"], /--output \(report output, #353\)/],
