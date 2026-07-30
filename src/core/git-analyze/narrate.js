@@ -168,6 +168,9 @@ export function buildNarrationInvocation(provider, { model, budgetUsd, timeoutSe
     command: "codex",
     args: [
       "exec",
+      // The run happens in an empty temp workspace (isolation), which is not a
+      // git repo — codex exec refuses to start outside one without this.
+      "--skip-git-repo-check",
       "--ephemeral",
       "--ignore-user-config",
       "--sandbox", "read-only",
@@ -227,7 +230,9 @@ export function buildNarrationPlan({ provider, model, budgetUsd, timeoutSec }) {
 // removed. This is the validator: "improved performance by 40%" fails because
 // "40" is a digit outside a placeholder; "{{theme.commits}} commits" passes.
 export function containsBareNumber(text) {
-  return /\d/.test(String(text || "").replace(/\{\{[^}]*\}\}/g, ""));
+  // \p{Nd} (Unicode decimal digit) not ASCII \d, so a full-width "４０" or any
+  // other script's digits cannot slip a figure past the validator.
+  return /\p{Nd}/u.test(String(text || "").replace(/\{\{[^}]*\}\}/g, ""));
 }
 
 // Aggregate the packet figures across an entry's cited themes, so a placeholder
@@ -673,7 +678,8 @@ export async function narrateGitAnalyze(params) {
       notes.push(`${rejections.length} model entr(y/ies) were rejected or de-numbered by the validator; those themes use the deterministic template.`);
     }
     if (Array.isArray(packet.dropped_themes) && packet.dropped_themes.length > 0) {
-      notes.push(`${packet.dropped_themes.length} low-value theme(s) were dropped from the packet to fit the token ceiling and were not sent: ${packet.dropped_themes.map((theme) => theme.title).join("; ")}.`);
+      const total = packet.dropped_total || packet.dropped_themes.length;
+      notes.push(`${total} low-value theme(s) were dropped from the packet to fit the token ceiling and were not sent (e.g. ${packet.dropped_themes.map((theme) => theme.title).join("; ")}).`);
     }
 
     return {

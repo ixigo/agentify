@@ -96,7 +96,12 @@ function scrubUrls(value) {
 // into a commit subject or note does not leak the layout. Relative paths
 // ("src/foo") and single-segment tokens ("N/A") are left untouched.
 function scrubAbsolutePaths(value) {
-  return String(value).replace(/(?<![\w~])\/[\w.-]+(?:\/[\w.-]*)+/g, "[path]");
+  return String(value)
+    // POSIX absolute paths ("/private/company/secrets", incl. spaced segments
+    // like "/Volumes/Company Drive/x") — greedy across path-legal characters.
+    .replace(/(?<![\w~])\/[\w.-]+(?:\/[\w .-]*)+/g, "[path]")
+    // Windows absolute paths ("C:\\Corp\\Secret\\plan.md").
+    .replace(/\b[A-Za-z]:\\[^\s"'<>)]+/g, "[path]");
 }
 
 function redactString(value) {
@@ -278,6 +283,7 @@ export function buildNarrationPacket(report, options = {}) {
     })),
     limitations: (summary.limitations || []).map(redactString),
     dropped_themes: [],
+    dropped_total: 0,
   };
 
   const bounded = enforceTokenCeiling(packet, tokenCeiling);
@@ -290,6 +296,11 @@ export function buildNarrationPacket(report, options = {}) {
 // the packet fits the token ceiling, recording each dropped theme so the
 // report can say which themes never reached the model. A packet whose themes
 // are all dropped still ships its headline — the ceiling never empties totals.
+// The dropped-theme list is itself bounded: on a pathological 2000-theme
+// window the full list would dwarf the ceiling, so only the headline drops are
+// named and the rest are counted in `dropped_total`.
+const DROPPED_THEMES_NAMED = 30;
+
 function enforceTokenCeiling(packet, tokenCeiling) {
   if (estimateTokens(packet) <= tokenCeiling) {
     return packet;
@@ -304,14 +315,21 @@ function enforceTokenCeiling(packet, tokenCeiling) {
   });
   const dropped = [];
   const droppedIds = new Set();
+  // Keep `dropped_themes` (bounded) on the packet as we drop, so the ceiling is
+  // measured against the WHOLE packet — the dropped list is part of what ships.
+  const applyDropped = () => {
+    const sorted = dropped.slice().sort((a, b) => (b.commits - a.commits) || (a.id < b.id ? -1 : 1));
+    packet.dropped_themes = sorted.slice(0, DROPPED_THEMES_NAMED);
+    packet.dropped_total = dropped.length;
+  };
   for (const theme of ranked) {
     if (estimateTokens(packet) <= tokenCeiling) break;
     droppedIds.add(theme.id);
     dropped.push({ id: theme.id, title: theme.title, commits: theme.commits });
     packet.themes = packet.themes.filter((entry) => !droppedIds.has(entry.id));
+    applyDropped();
   }
-  // Report drops in the summary's headline-first order (most commits first).
-  packet.dropped_themes = dropped.sort((a, b) => (b.commits - a.commits) || (a.id < b.id ? -1 : 1));
+  applyDropped();
 
   // Themes are the bulk of the packet, but they are not the only unbounded
   // field: a pathological limitations list or smaller-changes tail could keep

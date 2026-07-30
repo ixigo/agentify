@@ -15,6 +15,7 @@ import {
 } from "../src/core/git-analyze/packet.js";
 import {
   assembleNarration,
+  buildNarrationInvocation,
   buildNarrationPrompt,
   containsBareNumber,
   narrateGitAnalyze,
@@ -260,6 +261,26 @@ test("a malformed narrative field is rejected to the deterministic template, not
   assert.ok(result.rejections.every((rej) => /invalid narrative field/.test(rej.reason)));
 });
 
+test("the token ceiling bounds the dropped-theme list itself on a huge window", () => {
+  const report = syntheticReport();
+  const base = report.summary.themes[0];
+  report.summary.themes = Array.from({ length: 2000 }, (_, i) => ({
+    ...base,
+    id: `/root::issue:#${i}`,
+    title: `Issue #${i}`,
+    commits: 2 + (i % 5),
+    last_commit: "2026-04-01T00:00:00Z",
+    subjects: [],
+    top_files: [],
+    merge_subjects: [],
+    shas: ["aaaaaaa1"],
+  }));
+  const packet = buildNarrationPacket(report, { depth: "metadata", tokenCeiling: 12000 });
+  assert.ok(packetPreview(packet).token_estimate <= 12000, `packet (${packetPreview(packet).token_estimate} tokens) must respect the 12000 ceiling even with a huge dropped list`);
+  assert.ok(packet.dropped_themes.length <= 30, "the named dropped list is bounded");
+  assert.ok(packet.dropped_total > packet.dropped_themes.length, "dropped_total records the true count");
+});
+
 test("the token ceiling bounds non-theme fields too (limitations, smaller changes)", () => {
   const report = syntheticReport();
   report.summary.themes = [];
@@ -286,6 +307,9 @@ test("containsBareNumber rejects a literal figure but allows placeholders and sp
   assert.equal(containsBareNumber("shipped {{theme.commits}} commits"), false);
   assert.equal(containsBareNumber("hardened over eight review rounds"), false);
   assert.equal(containsBareNumber("touched {{theme.files}} files over {{theme.span}}"), false);
+  // Unicode digits must not slip past an ASCII-only check.
+  assert.equal(containsBareNumber("improved by ４０%"), true);
+  assert.equal(containsBareNumber("saved ٥ hours"), true);
 });
 
 test("substitutePlaceholders fills known figures and rejects an unknown placeholder", () => {
@@ -528,6 +552,17 @@ test("resolveNarrationProvider prefers an explicit provider, then config, then P
   assert.throws(() => resolveNarrationProvider({ requested: "gemini", availability: {} }), /--provider must be one of/);
   assert.equal(resolveNarrationProvider({ availability: { codex: true } }).provider, "codex");
   assert.equal(resolveNarrationProvider({ availability: {} }).reason, "no_provider");
+});
+
+test("the codex invocation runs tool-less and can start in the empty (non-git) workspace", () => {
+  const codex = buildNarrationInvocation("codex", { model: null, budgetUsd: 0.5, timeoutSec: 120, schemaPath: "/tmp/s.json" });
+  assert.equal(codex.command, "codex");
+  // Must not refuse to start outside a git repo (the workspace is empty).
+  assert.ok(codex.args.includes("--skip-git-repo-check"));
+  assert.ok(codex.args.includes("--ignore-user-config"));
+  assert.ok(codex.args.includes("read-only"));
+  const claude = buildNarrationInvocation("claude", { model: "haiku", budgetUsd: 0.5, timeoutSec: 120 });
+  assert.ok(claude.args.includes("--safe-mode") && claude.args.includes("--tools"));
 });
 
 test("the prompt contract is sent verbatim and delimits the packet as untrusted data", () => {
