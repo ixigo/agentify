@@ -1590,10 +1590,16 @@ export async function runCli(argv, _runtime = {}) {
             // budget (and, at --depth diff, that source diffs travel) BEFORE
             // anything is sent. Disclosure goes to stderr so --json stdout stays
             // clean. Mirrors `analyze --insights`.
+            // Codex has no native USD cap (it is bounded by the empty read-only
+            // workspace, ignore-user-config, and the wall-clock timeout); say so
+            // honestly rather than implying a dollar ceiling it cannot enforce.
+            const budgetLine = provider === "claude"
+              ? `Budget: $${narrationBudgetUsd} enforced natively by claude; timeout ${narrationTimeoutSec}s.`
+              : `Budget: codex has no native USD cap — it is bounded by an empty read-only sandbox, --ignore-user-config, and the ${narrationTimeoutSec}s timeout only.`;
             const disclosure = [
               `git analyze --ai: sending the sanitized packet (${preview.bytes} bytes, ~${preview.token_estimate} tokens; fields: ${preview.fields.join(", ")}) to ${provider} via the local CLI at --depth ${narrationDepth}.`,
               `  plan: ${plan.command} ${plan.args.join(" ")} — enforcement: ${plan.enforcement}`,
-              `Budget: $${narrationBudgetUsd}; timeout ${narrationTimeoutSec}s. Report-generation spend, recorded separately only if an Agentify store already exists.`,
+              `${budgetLine} Report-generation spend, recorded separately only if an Agentify store already exists.`,
             ];
             if (narrationDepth === "diff") {
               disclosure.push(`--depth diff also ships bounded, redacted source diffs (${diffBytes} bytes); generated/vendored files are stripped and hunks are capped.`);

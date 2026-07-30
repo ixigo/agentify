@@ -115,14 +115,18 @@ function subjectsForTheme(theme, subjectBySha) {
 // the per-run id the model sees and cites; the real (path-bearing) id never
 // enters the packet.
 function packetTheme(theme, subjectBySha, opaqueId) {
+  // EVERY string copied from the summary is re-redacted (and home-scrubbed) on
+  // its way into the packet — not only the obvious free text. A branch name,
+  // scope, issue key, or file path can carry a secret-shaped token too, and the
+  // packet is the privacy boundary, so nothing crosses it unfiltered.
   return {
     id: opaqueId,
-    repository: theme.repository,
+    repository: redactString(theme.repository),
     title: redactString(theme.title),
     key_kind: theme.key_kind,
-    issue_keys: theme.issue_keys,
-    branches: theme.branches,
-    scopes: theme.scopes,
+    issue_keys: (theme.issue_keys || []).map(redactString),
+    branches: (theme.branches || []).map(redactString),
+    scopes: (theme.scopes || []).map(redactString),
     type_histogram: theme.type_histogram,
     commits: theme.commits,
     insertions: theme.insertions,
@@ -132,19 +136,20 @@ function packetTheme(theme, subjectBySha, opaqueId) {
     last_commit: day(theme.last_commit),
     // File PATHS only (repo-relative; generated/vendored paths were already
     // excluded from the records these come from). No file contents.
-    file_paths: (theme.top_files || []).slice(0, FILE_PATHS_PER_THEME).map((entry) => entry.path),
+    file_paths: (theme.top_files || []).slice(0, FILE_PATHS_PER_THEME).map((entry) => redactString(entry.path)),
     subjects: subjectsForTheme(theme, subjectBySha),
     merge_subjects: (theme.merge_subjects || []).map(redactString),
     iteration_signal: theme.iteration_signal
-      ? { key: theme.iteration_signal.key, commits: theme.iteration_signal.commits }
+      ? { key: redactString(theme.iteration_signal.key), commits: theme.iteration_signal.commits }
       : null,
   };
 }
 
 // Trim a distribution to a compact { key, commits } list for the packet — the
-// model uses it to group by outcome, not to state a number.
+// model uses it to group by outcome, not to state a number. Keys (scopes can
+// be arbitrary text) are redacted like every other copied string.
 function packetDistribution(distribution, limit = 10) {
-  return (distribution?.items || []).slice(0, limit).map((item) => ({ key: item.key, commits: item.commits }));
+  return (distribution?.items || []).slice(0, limit).map((item) => ({ key: redactString(item.key), commits: item.commits }));
 }
 
 // Rough token estimate for a JSON payload (chars / 4), matching the estimator
@@ -185,7 +190,7 @@ export function buildNarrationPacket(report, options = {}) {
     : null;
 
   const repositories = (summary.repositories || []).map((repo) => ({
-    name: repo.name,
+    name: redactString(repo.name),
     commits: repo.commits,
     insertions: repo.insertions,
     deletions: repo.deletions,
@@ -245,7 +250,7 @@ export function buildNarrationPacket(report, options = {}) {
     },
     themes,
     smaller_changes: (summary.smaller_changes || []).map((bucket) => ({
-      repository: bucket.repository,
+      repository: redactString(bucket.repository),
       commits: bucket.commits,
       insertions: bucket.insertions,
       deletions: bucket.deletions,

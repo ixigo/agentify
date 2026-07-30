@@ -83,7 +83,7 @@ export const NARRATION_OUTPUT_SCHEMA = {
           title: { type: "string", maxLength: 140 },
           what: { type: "string", maxLength: 600 },
           how_it_helped: { type: "string", maxLength: 600 },
-          theme_ids: { type: "array", minItems: 1, maxItems: MAX_ENTRIES, items: { type: "string", maxLength: 300 } },
+          theme_ids: { type: "array", minItems: 1, maxItems: MAX_ENTRIES, uniqueItems: true, items: { type: "string", maxLength: 300 } },
           confidence: { type: "string", enum: ["high", "medium", "low"] },
           evidence_gap: { type: "string", maxLength: 300 },
         },
@@ -332,7 +332,9 @@ export function assembleNarration(parsed, packet) {
       rejections.push({ entry: label, reason: "not an object" });
       continue;
     }
-    const ids = Array.isArray(entry.theme_ids) ? entry.theme_ids : [];
+    // Dedupe cited ids: a response citing ["t1","t1"] must not double-count
+    // t1's commits when the placeholders aggregate the themes.
+    const ids = Array.isArray(entry.theme_ids) ? [...new Set(entry.theme_ids)] : [];
     if (ids.length === 0) {
       // An entry with no evidence is a defect — omit it.
       rejections.push({ entry: label, reason: "no theme_ids (no evidence)" });
@@ -353,9 +355,11 @@ export function assembleNarration(parsed, packet) {
       ? entry.evidence_gap.trim()
       : null;
 
-    // The number-rejection validator: a bare figure in either narrative field
-    // falls the entry back to the deterministic template for its themes.
-    if (containsBareNumber(entry.what) || containsBareNumber(entry.how_it_helped) || containsBareNumber(title)) {
+    // The number-rejection validator: a bare figure in ANY model-authored
+    // string — title, what, how_it_helped, or evidence_gap — falls the entry
+    // back to the deterministic template. The guarantee is "a model may never
+    // produce a number", so evidence_gap is not an escape hatch.
+    if (containsBareNumber(entry.what) || containsBareNumber(entry.how_it_helped) || containsBareNumber(title) || (evidenceGap && containsBareNumber(evidenceGap))) {
       rejections.push({ entry: label, reason: "literal number rejected; used deterministic text", theme_ids: ids });
       entries.push(deterministicEntry(themes, { reason: "literal_number" }));
       for (const id of ids) covered.add(id);
@@ -513,16 +517,20 @@ export async function narrateGitAnalyze(params) {
     return degraded({ depth, provider, model, reason: "no_themes", note: "No themes reached the grouping threshold, so narration was skipped and no provider was contacted." });
   }
 
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-narrate-"));
-  const schemaPath = path.join(workspace, "schema.json");
-  const outPath = path.join(workspace, "last-message.json");
   const prompt = buildNarrationPrompt(packet);
   const bytesSent = Buffer.byteLength(prompt, "utf8");
+  let workspace = null;
   let ran = false;
   let costUsd = null;
   let costRecorded = false;
 
   try {
+    // Create the isolated workspace INSIDE the try: a mkdtemp failure (a
+    // read-only or full temp dir) must degrade gracefully, not throw the whole
+    // command.
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-narrate-"));
+    const schemaPath = path.join(workspace, "schema.json");
+    const outPath = path.join(workspace, "last-message.json");
     await fs.writeFile(schemaPath, JSON.stringify(NARRATION_OUTPUT_SCHEMA));
     const invocation = buildNarrationInvocation(provider, { model, budgetUsd, timeoutSec, schemaPath });
     const args = invocation.args.map((arg) => (arg === "__PROMPT__" ? prompt : arg === "__OUT__" ? outPath : arg));
@@ -539,23 +547,38 @@ export async function narrateGitAnalyze(params) {
     // The privacy receipt, present whenever a provider ran. `cost_usd` is the
     // provider-reported dollar figure (null when the provider reports none,
     // e.g. codex); `cost_recorded` says whether it was written to an existing
-    // store.
-    const buildReceipt = () => ({
-      provider,
-      model,
-      depth,
-      bytes_sent: bytesSent,
-      network_calls: 1,
-      cost_usd: costUsd,
-      cost_recorded: costRecorded,
-      enforcement: describeLimitEnforcement(provider),
-    });
+    // store. Recording happens here (not only on success) so a PAID failure —
+    // a budget stop that still cost dollars — is not undercounted in rolling
+    // spend when a store exists.
+    const finalizeReceipt = async () => {
+      if (costUsd !== null && !costRecorded) {
+        costRecorded = await recordSpendIfStore(root, {
+          schema: "git-analyze-narration",
+          kind: "git-analyze",
+          provider,
+          model,
+          cost_usd: costUsd,
+          depth,
+          bytes_sent: bytesSent,
+        }, deps);
+      }
+      return {
+        provider,
+        model,
+        depth,
+        bytes_sent: bytesSent,
+        network_calls: 1,
+        cost_usd: costUsd,
+        cost_recorded: costRecorded,
+        enforcement: describeLimitEnforcement(provider),
+      };
+    };
 
     if (/timed out after/.test(String(result.stderr || ""))) {
-      return degraded({ depth, provider, model, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: buildReceipt() });
+      return degraded({ depth, provider, model, reason: "timeout", note: `The provider did not respond within ${timeoutSec}s; the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
     }
     if (result.code !== 0) {
-      return degraded({ depth, provider, model, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: buildReceipt() });
+      return degraded({ depth, provider, model, reason: "provider_error", note: `The provider exited non-zero (${result.code}); the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
     }
 
     // Extract the answer text and any reported cost.
@@ -565,20 +588,23 @@ export async function narrateGitAnalyze(params) {
       try {
         envelope = JSON.parse(result.stdout);
       } catch {
-        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider did not return JSON; the deterministic report is unchanged.", receipt: buildReceipt() });
+        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider did not return JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
       }
       costUsd = Number.isFinite(Number(envelope.total_cost_usd)) ? Number(envelope.total_cost_usd) : null;
       if (envelope.is_error) {
         // A budget stop lands here — the cap held, the deterministic report stands.
         const budgetStopped = /budget/i.test(String(envelope.subtype || ""));
-        return degraded({ depth, provider, model, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: buildReceipt() });
+        return degraded({ depth, provider, model, reason: budgetStopped ? "budget_blocked" : "provider_error", note: budgetStopped ? "The provider stopped at the budget ceiling; the deterministic report is unchanged." : `The provider reported an error (${envelope.subtype || "error"}); the deterministic report is unchanged.`, receipt: await finalizeReceipt() });
       }
-      rawText = envelope.result ?? envelope.content ?? "";
+      // With --json-schema the validated object is on `structured_output`;
+      // older CLIs put the answer text on `result`/`content`. Prefer the
+      // structured field, fall back to the text.
+      rawText = envelope.structured_output ?? envelope.result ?? envelope.content ?? "";
     } else {
       try {
         rawText = await fs.readFile(outPath, "utf8");
       } catch {
-        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider produced no output file; the deterministic report is unchanged.", receipt: buildReceipt() });
+        return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider produced no output file; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
       }
     }
 
@@ -586,7 +612,7 @@ export async function narrateGitAnalyze(params) {
     try {
       parsed = typeof rawText === "string" ? JSON.parse(rawText) : rawText;
     } catch {
-      return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider response was not valid JSON; the deterministic report is unchanged.", receipt: buildReceipt() });
+      return degraded({ depth, provider, model, reason: "malformed_response", note: "The provider response was not valid JSON; the deterministic report is unchanged.", receipt: await finalizeReceipt() });
     }
 
     const assembled = assembleNarration(parsed, packet);
@@ -601,18 +627,9 @@ export async function narrateGitAnalyze(params) {
       Array.isArray(rejection.theme_ids) ? { ...rejection, theme_ids: rejection.theme_ids.map(toReal) } : rejection
     ));
 
-    // Record spend only if a store already exists; always report it below.
-    if (costUsd !== null) {
-      costRecorded = await recordSpendIfStore(root, {
-        schema: "git-analyze-narration",
-        kind: "git-analyze",
-        provider,
-        model,
-        cost_usd: costUsd,
-        depth,
-        bytes_sent: bytesSent,
-      }, deps);
-    }
+    // Finalize the receipt (records spend only if a store already exists; the
+    // cost is always reported either way).
+    const receipt = await finalizeReceipt();
 
     const notes = [];
     if (rejections.length > 0) {
@@ -632,7 +649,7 @@ export async function narrateGitAnalyze(params) {
       entries,
       not_narrated: notNarrated,
       rejections,
-      receipt: buildReceipt(),
+      receipt,
       notes,
     };
   } catch (error) {
@@ -648,6 +665,6 @@ export async function narrateGitAnalyze(params) {
         : null,
     });
   } finally {
-    await fs.rm(workspace, { recursive: true, force: true }).catch(() => {});
+    if (workspace) await fs.rm(workspace, { recursive: true, force: true }).catch(() => {});
   }
 }

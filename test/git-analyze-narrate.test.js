@@ -97,18 +97,17 @@ function syntheticReport() {
 }
 
 // A claude JSON envelope wrapping a narration payload, as the CLI returns it.
+// With --json-schema the validated object is on `structured_output`; model it
+// that way so the extraction path matches a real run.
 function claudeEnvelope(payload, { cost = 0.0021, isError = false, subtype = "success" } = {}) {
-  return {
-    code: 0,
-    stdout: JSON.stringify({
-      type: "result",
-      subtype,
-      is_error: isError,
-      total_cost_usd: cost,
-      result: typeof payload === "string" ? payload : JSON.stringify(payload),
-    }),
-    stderr: "",
+  const envelope = {
+    type: "result",
+    subtype,
+    is_error: isError,
+    total_cost_usd: cost,
   };
+  if (payload !== undefined) envelope.structured_output = payload;
+  return { code: 0, stdout: JSON.stringify(envelope), stderr: "" };
 }
 
 const NO_STORE_DEPS = {
@@ -323,6 +322,54 @@ test("narrateGitAnalyze: a budget stop degrades to budget_blocked", async () => 
   const narration = await narrateWith(claudeEnvelope("", { isError: true, subtype: "error_max_budget" }));
   assert.equal(narration.status, "unavailable");
   assert.equal(narration.reason, "budget_blocked");
+});
+
+test("narrateGitAnalyze: an older CLI envelope with the answer on `result` still parses", async () => {
+  const payload = { entries: [{ title: "W", what: "shipped {{theme.commits}} commits", how_it_helped: "reduced risk", theme_ids: ["t1"], confidence: "high" }] };
+  const envelope = { code: 0, stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, total_cost_usd: 0.001, result: JSON.stringify(payload) }), stderr: "" };
+  const narration = await narrateWith(envelope);
+  assert.equal(narration.status, "ok");
+  assert.equal(narration.entries.length, 1);
+});
+
+test("narrateGitAnalyze: a number smuggled into evidence_gap is rejected too", async () => {
+  const narration = await narrateWith(claudeEnvelope({
+    entries: [{ title: "W", what: "shipped {{theme.commits}} commits", how_it_helped: "reduced risk", theme_ids: ["t1"], confidence: "low", evidence_gap: "only 40% of the surface was observed" }],
+  }));
+  assert.equal(narration.status, "ok");
+  // The bare number in evidence_gap falls the entry back to deterministic text.
+  assert.equal(narration.entries[0].source, "deterministic");
+  assert.ok(!JSON.stringify(narration.entries[0]).includes("40"), "no invented number survives");
+});
+
+test("narrateGitAnalyze: duplicate theme_ids are not double-counted", async () => {
+  const narration = await narrateWith(claudeEnvelope({
+    entries: [{ title: "W", what: "shipped {{theme.commits}} commits", how_it_helped: "reduced risk", theme_ids: ["t1", "t1"], confidence: "high" }],
+  }));
+  assert.equal(narration.status, "ok");
+  // t1 is a 3-commit theme; the citation must not report "6 commits".
+  assert.equal(narration.entries[0].what, "shipped 3 commits");
+  assert.deepEqual(narration.entries[0].theme_ids, [ABSOLUTE_THEME_ID]);
+});
+
+test("narrateGitAnalyze: a paid budget-stop still records spend when a store exists", async () => {
+  const recorded = [];
+  const deps = {
+    stats: {
+      resolveDelegationsPath: (r) => path.join(r, ".agentify", "delegations.jsonl"),
+      recordDelegation: async (r, record) => { recorded.push(record); },
+    },
+    stat: async () => ({ isDirectory: () => true }),
+  };
+  const packet = buildNarrationPacket(syntheticReport(), { depth: "metadata" });
+  const narration = await narrateGitAnalyze({
+    root: os.tmpdir(), packet, provider: "claude", model: "haiku", deps,
+    exec: async () => claudeEnvelope(undefined, { cost: 0.005, isError: true, subtype: "error_max_budget" }),
+  });
+  assert.equal(narration.reason, "budget_blocked");
+  assert.equal(narration.receipt.cost_usd, 0.005);
+  assert.equal(narration.receipt.cost_recorded, true, "a paid failure records spend when a store exists");
+  assert.equal(recorded.length, 1);
 });
 
 test("narrateGitAnalyze: no themes means no provider is contacted", async () => {
