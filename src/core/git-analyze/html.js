@@ -810,16 +810,34 @@ export function defaultReportPath(report, env = process.env, repositoryPath = nu
     }
   }
   const unsafe = (dir) => guardPaths.some((repoPath) => isInside(repoPath, dir)) || isInsideGitRepo(dir);
+  let chosen = null;
   for (const fallback of [cacheHome, homeCache, os.tmpdir()]) {
-    const dir = path.join(fallback, "agentify", "git-analyze");
-    if (!unsafe(dir)) {
-      cacheHome = fallback;
+    if (!unsafe(path.join(fallback, "agentify", "git-analyze"))) {
+      chosen = fallback;
       break;
     }
-    cacheHome = os.tmpdir(); // last resort if every candidate is unsafe
   }
+  if (chosen === null) {
+    // Degenerate config (e.g. $HOME is itself a git repo AND TMPDIR points
+    // inside it): walk up from the OS temp dir to the nearest ancestor that is
+    // not inside any repository. A git repo is bounded, so this terminates at
+    // the latest at the filesystem root, which is never a repository.
+    chosen = nearestNonRepoAncestor(os.tmpdir());
+  }
+  cacheHome = chosen;
 
   return path.join(cacheHome, "agentify", "git-analyze", `${name}-${window}.html`);
+}
+
+// The nearest ancestor of `dir` (inclusive) that is not inside a git repository.
+function nearestNonRepoAncestor(dir) {
+  let current = realPath(path.resolve(dir));
+  while (isInsideGitRepo(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) break; // filesystem root: never a repository
+    current = parent;
+  }
+  return current;
 }
 
 // Whether `target` (or the nearest existing ancestor it resolves to) sits inside

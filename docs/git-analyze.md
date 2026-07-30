@@ -18,7 +18,10 @@ else first. If this is the first Agentify command you have ever run, it works.
 
 > **Output format.** The default output is a text summary printed to your
 > terminal. Choose another with `--format`: `text` (default), `json`, `md`, or
-> `html`. Only `--format html` writes a file and offers to open a browser.
+> `html`. Only `--format html` writes a **report** file (and offers to open a
+> browser); the other formats print to stdout/terminal. Separately, `--global`
+> may write a small discovery cache under `~/.cache/agentify/` — never inside a
+> repository — regardless of format; `--no-cache` disables it.
 
 ## What you get
 
@@ -136,8 +139,10 @@ own run will differ as history grows past that commit.
 | Merge commits (excluded from the churn above) | 176 |
 
 ```bash
+# Full timestamps pin the window to fixed instants — a date-only bound is filled
+# with the current time of day, so the exact counts would drift by run time.
 agentify git analyze \
-  --since 2026-04-29 --until 2026-07-29 \
+  --since 2026-04-29T00:00:00 --until 2026-07-29T00:00:00 \
   --author ranveer.kumar@travenues.com --author ranveersequeira@gmail.com \
   --format json
 ```

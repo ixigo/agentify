@@ -344,6 +344,41 @@ export async function findAgentifyArtifacts(root) {
 }
 
 /**
+ * Content fingerprint of the git CONTROL files a read-only command must never
+ * touch: `.git/config`, `.git/HEAD`, `.git/packed-refs`, and everything under
+ * `.git/refs/`. These carry ref writes and config writes — exactly what the
+ * epic forbids — and, unlike `.git/index`/`.git/objects`/`.git/logs`, they are
+ * not churned by a read. Snapshotting them (rather than all of `.git`) catches a
+ * config mutation or a ref write without flaking on git's own read-side touches.
+ * Returns a map of relative path -> sha256 (missing files simply absent).
+ */
+export async function gitControlSnapshot(root) {
+  const out = {};
+  const gitDir = path.join(root, ".git");
+  for (const rel of ["config", "HEAD", "packed-refs"]) {
+    try {
+      out[rel] = crypto.createHash("sha256").update(await fs.readFile(path.join(gitDir, rel))).digest("hex");
+    } catch { /* absent: fine */ }
+  }
+  async function walkRefs(dir, prefix) {
+    let dirents;
+    try {
+      dirents = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const dirent of dirents) {
+      const abs = path.join(dir, dirent.name);
+      const rel = `${prefix}/${dirent.name}`;
+      if (dirent.isDirectory()) await walkRefs(abs, rel);
+      else out[rel] = crypto.createHash("sha256").update(await fs.readFile(abs)).digest("hex");
+    }
+  }
+  await walkRefs(path.join(gitDir, "refs"), "refs");
+  return out;
+}
+
+/**
  * Compare two snapshots. Returns an array of human-readable differences (empty
  * means byte-identical footprint). Callers assert the array is empty.
  */

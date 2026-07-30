@@ -26,6 +26,7 @@ import {
   runAnalyzeCli,
   snapshotTree,
   diffSnapshots,
+  gitControlSnapshot,
   findAgentifyArtifacts,
   findGitViolations,
   gitSubcommand,
@@ -35,11 +36,12 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-// An ABSOLUTE window that spans the whole fixture history. Assertions that need
-// the fixture's commits to actually fall inside the window use this, so the
-// suite never depends on the wall clock — the fixture's pinned commit dates and
-// this fixed window fully determine what is analysed, today or in 2030.
-const WINDOW = ["--since", "2026-04-29", "--until", "2026-08-01"];
+// An ABSOLUTE window that spans the whole fixture history. Full timestamps (not
+// date-only) so the bounds are FIXED INSTANTS: git's approxidate fills a
+// date-only value with the current time of day, which would make even an
+// absolute window drift with the wall clock. The fixture's pinned commit dates
+// plus these fixed instants fully determine what is analysed, today or in 2030.
+const WINDOW = ["--since", "2026-04-29T00:00:00+00:00", "--until", "2026-08-01T00:00:00+00:00"];
 
 // Every window FORM the frozen surface accepts. These are used only where the
 // assertion is "runs to completion / resolves the window" (exit 0 + schema),
@@ -107,11 +109,16 @@ test("rows 2 & 3: zero filesystem footprint inside the analysed repo, incl. giti
   try {
     for (const args of DEFAULT_VARIANTS) {
       const before = await snapshotTree(repo.root);
+      const gitBefore = await gitControlSnapshot(repo.root);
       const result = await runAnalyzeCli(sandbox, repo.root, args);
       assert.equal(result.code, 0, `variant ${args.join(" ")} exited ${result.code}\n${result.stderr}`);
       const after = await snapshotTree(repo.root);
       const diffs = diffSnapshots(before, after);
       assert.deepEqual(diffs, [], `variant ${args.join(" ")} changed the repo footprint:\n${diffs.join("\n")}`);
+      // The git control files (config, HEAD, refs, packed-refs) — where a ref
+      // write or config write would land, inside .git which the snapshot skips —
+      // must be byte-identical.
+      assert.deepEqual(await gitControlSnapshot(repo.root), gitBefore, `variant ${args.join(" ")} changed a .git control file`);
       // Row 3 explicitly: porcelain byte-identical. (diffSnapshots covers it,
       // but assert it on its own so a failure names the right contract row.)
       assert.equal(after.porcelain, before.porcelain, `variant ${args.join(" ")} changed git status --porcelain`);
