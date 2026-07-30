@@ -676,6 +676,68 @@ test("tiers_attempted reports only the tiers that actually ran", async () => {
   assert.equal(result.entries["PROJ-1"].title, "Done by acli");
 });
 
+test("credentials embedded in JIRA_BASE_URL never reach the report, links, or cache", async () => {
+  const { dir } = await tmpCacheEnv();
+  const http = mockHttp(restOk({ "PROJ-1": "Title" }));
+  const env = { XDG_CACHE_HOME: dir, JIRA_BASE_URL: "https://bob:hunter2@site.atlassian.net", JIRA_EMAIL: "bob@site.co", JIRA_API_TOKEN: "tok" };
+  const result = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env, deps: { httpRequest: http.fn } });
+
+  assert.equal(result.base_url, "https://site.atlassian.net");
+  assert.equal(result.entries["PROJ-1"].url, "https://site.atlassian.net/browse/PROJ-1");
+  const serialized = JSON.stringify(result);
+  assert.ok(!serialized.includes("hunter2"), "URL password leaked into the tracker block");
+  assert.ok(!serialized.includes("bob:hunter2"));
+  for (const file of await fs.readdir(trackerCacheDir(env))) {
+    const raw = await fs.readFile(path.join(trackerCacheDir(env), file), "utf8");
+    assert.ok(!raw.includes("hunter2"), "URL password leaked into the cache");
+  }
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("REST cache is partitioned by account, not just host", async () => {
+  const { dir } = await tmpCacheEnv();
+  const base = { XDG_CACHE_HOME: dir, JIRA_BASE_URL: "https://site.atlassian.net", JIRA_API_TOKEN: "t" };
+  const httpA = mockHttp(restOk({ "PROJ-1": "Alice's view" }));
+  const httpB = mockHttp(restOk({ "PROJ-1": "Bob's view" }));
+
+  const a = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { ...base, JIRA_EMAIL: "alice@site.co" }, deps: { httpRequest: httpA.fn } });
+  const b = await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { ...base, JIRA_EMAIL: "bob@site.co" }, deps: { httpRequest: httpB.fn } });
+
+  assert.equal(a.entries["PROJ-1"].title, "Alice's view");
+  assert.equal(b.entries["PROJ-1"].title, "Bob's view", "a different account must not reuse the first account's cached title");
+  assert.equal(httpB.calls.length, 1);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("under --global a warm GitHub cache is not applied (wrong-repo risk)", async () => {
+  const { dir, env } = await tmpCacheEnv();
+  // Warm the gh cache for #7 in a LOCAL run.
+  const okExec = async (command, args) => {
+    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: "", stderr: "" };
+    if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 7, title: "Repo A issue", state: "OPEN", url: "https://github.com/a/r/issues/7" }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  await resolveTracker({ keys: ["#7"], mode: "auto", env: { ...env, JIRA_BASE_URL: "" }, ghScope: "/repos/a", deps: { exec: okExec, hasBinary: async (n) => n === "gh" } });
+
+  // A --global run (allowGithubTitles:false) must NOT reuse that cached title.
+  const global = await resolveTracker({ keys: ["#7"], mode: "auto", allowGithubTitles: false, env: { ...env, JIRA_BASE_URL: "" }, ghScope: "/repos/a", deps: { exec: okExec, hasBinary: async () => false } });
+  assert.equal(global.entries["#7"].resolved, false, "global must not apply a cwd-scoped GitHub title");
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a resolved tracker title survives AI narration in HTML", () => {
+  const report = fixtureReport(["PROJ-1"]);
+  const tracker = { schema: TRACKER_SCHEMA, entries: { "PROJ-1": { key: "PROJ-1", resolved: true, title: "The real Jira summary", status: "Done", type: "Story", url: "https://x/browse/PROJ-1", source: "rest" } }, limitations: [] };
+  applyTrackerTitles(report.summary, tracker);
+  const themeId = report.summary.themes.find((t) => t.key === "PROJ-1").id;
+  report.narration = {
+    status: "ok", provider: "claude", entries: [{ title: "A narrated headline", what: "w", how_it_helped: "h", confidence: "high", theme_ids: [themeId] }],
+    not_narrated: [], receipt: null,
+  };
+  const html = renderGitAnalyzeHtml(report, { environment: { agentifyOnPath: false, hasConfig: false, providers: [] } });
+  assert.match(html, /The real Jira summary/, "the Jira title must remain visible even when narration replaces the heading");
+});
+
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   const report = fixtureReport(["PROJ-1"]);
   const tracker = {

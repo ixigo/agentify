@@ -234,11 +234,35 @@ async function defaultHasBinary(name, exec) {
 // Environment / tier detection.
 // ---------------------------------------------------------------------------
 
-// The base URL for tier-0 browse links and the REST tier, trimmed of a trailing
-// slash. Never carries a credential.
+// The base URL for tier-0 browse links and the REST tier. Any embedded userinfo
+// (`https://user:pass@host`) is STRIPPED so a credential smuggled into
+// JIRA_BASE_URL can never reach a report, a browse link, or the cache — the
+// value is rebuilt from safe scheme/host/path components only. Returns "" when
+// the value is not a usable http(s) URL. The REST tier still authenticates with
+// JIRA_EMAIL/JIRA_API_TOKEN, so dropping URL userinfo costs nothing.
 function jiraBaseUrl(env) {
   const raw = typeof env.JIRA_BASE_URL === "string" ? env.JIRA_BASE_URL.trim() : "";
-  return raw.replace(/\/+$/, "");
+  if (!raw) return "";
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+// A short, non-secret hash of the Jira account (email), for cache scoping so one
+// account's cached titles are never served to another. The email is hashed (not
+// stored) and never a credential; this is only a cache-partition key.
+function accountHash(env) {
+  const email = typeof env.JIRA_EMAIL === "string" ? env.JIRA_EMAIL.trim().toLowerCase() : "";
+  return crypto.createHash("sha256").update(email).digest("hex").slice(0, 12);
 }
 
 function restEnvConfigured(env) {
@@ -556,9 +580,12 @@ export async function resolveTracker(params = {}) {
     // keys are global to a SITE, so their scope is the base-URL host — never the
     // bare tier name, or `PROJ-1` on site B would reuse site A's cached title.
     ghScope: params.ghScope ? `github:${params.ghScope}` : "github",
-    // REST is scoped to its configured host. acli is not cached at all (its site
-    // is not verifiable here), so it needs no scope.
-    jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}`,
+    // REST is scoped to its configured host AND a non-secret hash of the account
+    // (JIRA_EMAIL): two accounts on one tenant can have different issue
+    // visibility, so a title (or a `not_found`) cached under one account must not
+    // be served to another. acli is not cached at all (its site is not verifiable
+    // here), so it needs no scope.
+    jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}:${accountHash(env)}`,
     cache: params.cache !== false,
     cacheDir: trackerCacheDir(env),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -607,9 +634,14 @@ export async function resolveTracker(params = {}) {
         if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
       }
     }
-    for (const key of githubKeys) {
-      const cached = await readCacheEntry(ctx.cacheDir, ctx.ghScope, key, ctx);
-      if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
+    // Only prefill GitHub titles when GitHub resolution is allowed. Under
+    // --global a `#NNN` is repository-relative, so a cache hit from THIS cwd
+    // would wrongly label another repository's identically-numbered issue.
+    if (allowGithub) {
+      for (const key of githubKeys) {
+        const cached = await readCacheEntry(ctx.cacheDir, ctx.ghScope, key, ctx);
+        if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
+      }
     }
   }
   const jiraNeedsWork = jiraKeys.some((key) => !ctx.entries.has(key));
@@ -632,7 +664,10 @@ export async function resolveTracker(params = {}) {
       if (tier === "rest") {
         disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the REST API against ${jiraHost}.`);
       } else if (tier === "acli") {
-        disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the local acli CLI${baseUrl ? ` (${jiraHost})` : ""}.`);
+        // acli authenticates to its OWN selected site, which may not be
+        // JIRA_BASE_URL's host — so the disclosure must not claim that host as
+        // acli's destination.
+        disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the local acli CLI (its own configured Jira site).`);
       }
     }
   }

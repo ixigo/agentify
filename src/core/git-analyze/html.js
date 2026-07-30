@@ -333,8 +333,11 @@ function safeHref(value) {
   return null;
 }
 
-// The tracker chip for one theme: a status/type badge and a link. All values are
-// untrusted remote text and are escaped; the link is protocol-guarded.
+// The tracker chip for one theme: the resolved issue TITLE, a status/type badge,
+// and a link. The title is rendered here (not only in the <h3>) so that provider
+// narration, which replaces the heading with its own phrasing, can never hide
+// the ticket summary. All values are untrusted remote text and are escaped; the
+// link is protocol-guarded.
 function renderThemeTracker(tracker) {
   if (!tracker) return "";
   const bits = [];
@@ -346,8 +349,9 @@ function renderThemeTracker(tracker) {
   const link = href
     ? `<a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow">${escapeHtml(tracker.key)}</a>`
     : `<span>${escapeHtml(tracker.key)}</span>`;
-  if (bits.length === 0 && !href) return "";
-  return `<p class="tracker">${link}${bits.length > 0 ? ` ${bits.join(" ")}` : ""}</p>`;
+  const title = tracker.resolved && tracker.title ? ` — ${escapeHtml(tracker.title)}` : "";
+  if (bits.length === 0 && !href && !title) return "";
+  return `<p class="tracker">${link}${title}${bits.length > 0 ? ` ${bits.join(" ")}` : ""}</p>`;
 }
 
 // Other tickets a theme cites (tracker_refs), each escaped and, when a safe
