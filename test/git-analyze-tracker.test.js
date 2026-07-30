@@ -621,6 +621,61 @@ test("secondary cited tickets (tracker_refs) render in md, text, and html", () =
   }
 });
 
+test("cache files and directory are created owner-only (0700/0600)", async () => {
+  const http = mockHttp(restOk({ "PROJ-1": "t" }));
+  const { dir, env } = await tmpCacheEnv();
+  await resolveTracker({ keys: ["PROJ-1"], mode: "rest", env: { ...env, ...REST_ENV }, deps: { httpRequest: http.fn } });
+  const cacheDir = trackerCacheDir(env);
+  const dirStat = await fs.stat(cacheDir);
+  assert.equal(dirStat.mode & 0o777, 0o700);
+  const files = await fs.readdir(cacheDir);
+  const fileStat = await fs.stat(path.join(cacheDir, files[0]));
+  assert.equal(fileStat.mode & 0o777, 0o600);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a warm GitHub cache makes zero requests, including no auth probe", async () => {
+  const { dir, env } = await tmpCacheEnv();
+  const okExec = async (command, args) => {
+    if (command === "gh" && args[0] === "auth") return { code: 0, stdout: "", stderr: "" };
+    if (command === "gh" && args[0] === "issue") return { code: 0, stdout: JSON.stringify({ number: 7, title: "Cached GH", state: "OPEN", url: "https://github.com/o/r/issues/7" }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const opts = { keys: ["#7"], mode: "auto", env: { ...env, JIRA_BASE_URL: "" }, deps: { exec: okExec, hasBinary: async (n) => n === "gh" } };
+  const cold = await resolveTracker(opts);
+  assert.equal(cold.entries["#7"].title, "Cached GH");
+
+  // Warm run: any gh invocation (auth or issue) would be a request; there must
+  // be none.
+  let ghCalls = 0;
+  const countingExec = async (command, ...rest) => { if (command === "gh") ghCalls += 1; return okExec(command, ...rest); };
+  const warm = await resolveTracker({ ...opts, deps: { exec: countingExec, hasBinary: async (n) => n === "gh" } });
+  assert.equal(warm.entries["#7"].title, "Cached GH");
+  assert.equal(ghCalls, 0, "a warm gh cache must not even run the auth probe");
+  assert.equal(warm.network_requests, 0);
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("tiers_attempted reports only the tiers that actually ran", async () => {
+  const { env } = await tmpCacheEnv();
+  const exec = async (command, args) => {
+    if (command === "acli" && args[0] === "jira") return { code: 0, stdout: JSON.stringify({ fields: { summary: "Done by acli", status: { name: "Open" }, issuetype: { name: "Task" } } }), stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const http = mockHttp(restOk({ "PROJ-1": "should not be used" }));
+  const result = await resolveTracker({
+    keys: ["PROJ-1"],
+    mode: "auto",
+    env: { ...env, ...REST_ENV },
+    cache: false,
+    deps: { exec, httpRequest: http.fn, hasBinary: async (n) => n === "acli" },
+  });
+  // acli resolved the only key, so REST was configured but never attempted.
+  assert.deepEqual(result.tiers_attempted, ["acli"]);
+  assert.equal(http.calls.length, 0);
+  assert.equal(result.entries["PROJ-1"].title, "Done by acli");
+});
+
 test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   const report = fixtureReport(["PROJ-1"]);
   const tracker = {

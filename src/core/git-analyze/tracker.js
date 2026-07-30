@@ -35,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { classifyIssueKey } from "./parse.js";
+import { writePrivateJson } from "../fs.js";
 
 // Versioned machine contract for the `report.tracker` block. Bump on any
 // breaking change to that shape.
@@ -135,11 +136,12 @@ async function readCacheEntry(dir, scope, key, { ttlMs, now }) {
 
 async function writeCacheEntry(dir, scope, entry, { now }) {
   try {
-    await fs.mkdir(dir, { recursive: true });
     const file = path.join(dir, cacheFileName(scope, entry.key));
-    // Only the resolved facts are persisted — never a credential, never the
-    // Authorization header, never the raw provider response.
-    await fs.writeFile(file, JSON.stringify({ v: 1, fetched_at: now, entry }), "utf8");
+    // Cached issue titles can be private, so the cache dir/file are created
+    // owner-only (0700/0600) via the shared private-fs helpers. Only the resolved
+    // facts are persisted — never a credential, the Authorization header, or the
+    // raw provider response.
+    await writePrivateJson(file, { v: 1, fetched_at: now, entry });
   } catch {
     // A cache write is best-effort: a read-only or full cache dir must not fail
     // the run. The resolution still stands for this run; the next run re-fetches.
@@ -171,13 +173,23 @@ function defaultHttpRequest({ method = "GET", url, headers = {}, body = null, ti
         done({ statusCode: 0, body: "" });
         return;
       }
+      // An ABSOLUTE deadline (not `setTimeout`, which only fires on inactivity):
+      // a server trickling bytes must not keep the run alive past the wall-clock
+      // cap. The response body is also capped so a giant payload cannot exhaust
+      // memory — both are hard bounds the feature promises.
+      const MAX_BODY_BYTES = 5 * 1024 * 1024;
+      const deadline = setTimeout(() => { req.destroy(); done({ statusCode: 0, body: "" }); }, timeoutMs);
       const req = request(target, { method, headers }, (res) => {
         let data = "";
-        res.on("data", (chunk) => { data += chunk; });
-        res.on("end", () => done({ statusCode: res.statusCode || 0, body: data }));
+        let bytes = 0;
+        res.on("data", (chunk) => {
+          bytes += chunk.length;
+          if (bytes > MAX_BODY_BYTES) { req.destroy(); clearTimeout(deadline); done({ statusCode: 0, body: "" }); return; }
+          data += chunk;
+        });
+        res.on("end", () => { clearTimeout(deadline); done({ statusCode: res.statusCode || 0, body: data }); });
       });
-      req.on("error", () => done({ statusCode: 0, body: "" }));
-      req.setTimeout(timeoutMs, () => { req.destroy(); done({ statusCode: 0, body: "" }); });
+      req.on("error", () => { clearTimeout(deadline); done({ statusCode: 0, body: "" }); });
       if (body) req.write(body);
       req.end();
     }).catch(() => resolve({ statusCode: 0, body: "" }));
@@ -302,17 +314,17 @@ function unresolvedEntry({ key, reason, url = null, source = "offline" }) {
 // One acli lookup per key. A missing title (404-shaped) annotates the key; an
 // auth failure disables the whole tier for the run.
 async function resolveViaAcli(keys, ctx) {
-  const { exec, budget, cacheDir, cache } = ctx;
+  const { exec, budget } = ctx;
   for (const key of keys) {
     // Skip only keys ALREADY RESOLVED (by cache or a prior tier); an unresolved
     // placeholder from a prior tier is fair game to retry here.
     if (ctx.entries.get(key)?.resolved) continue;
     if (!budget.canSpend()) { ctx.exhausted = true; break; }
-    // acli's authenticated site is independent of JIRA_BASE_URL, so its results
-    // are cached under their OWN scope — never mixed with REST's host scope, and
-    // never linked with an env-derived browse URL.
-    const cached = await maybeCached(ctx, ctx.acliScope, key);
-    if (cached) { ctx.entries.set(key, cached); continue; }
+    // acli results are NOT cached: acli authenticates to its own site
+    // independently of JIRA_BASE_URL, and that site is not something this process
+    // can verify, so a cached `PROJ-1` could silently belong to a different
+    // tenant after an `acli` re-login. acli is a fast local CLI, so re-invoking
+    // it each run is a safe trade for never serving another tenant's title.
     budget.spend();
     ctx.requests += 1;
     const result = await exec("acli", ["jira", "workitem", "view", key, "--json"], { cwd: ctx.cwd, timeoutMs: ctx.requestTimeout() });
@@ -330,7 +342,6 @@ async function resolveViaAcli(keys, ctx) {
       ? resolvedEntry({ key, title: parsed.title, status: parsed.status, type: parsed.type, url: parsed.url, source: "acli" })
       : unresolvedEntry({ key, reason: "unparseable", source: "acli" });
     ctx.entries.set(key, entry);
-    if (cache && entry.resolved) await writeCacheEntry(cacheDir, ctx.acliScope, entry, ctx);
   }
 }
 
@@ -545,10 +556,9 @@ export async function resolveTracker(params = {}) {
     // keys are global to a SITE, so their scope is the base-URL host — never the
     // bare tier name, or `PROJ-1` on site B would reuse site A's cached title.
     ghScope: params.ghScope ? `github:${params.ghScope}` : "github",
-    // REST is scoped to its configured host; acli to its own (machine-local)
-    // authenticated site, which env base URL cannot vouch for.
+    // REST is scoped to its configured host. acli is not cached at all (its site
+    // is not verifiable here), so it needs no scope.
     jiraScope: `jira:${hostOf(baseUrl) || baseUrl || "local"}`,
-    acliScope: "acli",
     cache: params.cache !== false,
     cacheDir: trackerCacheDir(env),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -584,18 +594,40 @@ export async function resolveTracker(params = {}) {
     limitations.push("git analyze --jira acli found no Atlassian CLI on PATH; Jira titles are unavailable and keys are reported without them.");
   }
 
+  // Warm-cache PREFILL (no network): fill resolved entries straight from the
+  // cache first, so a fully-warm re-run makes ZERO requests — not even a gh auth
+  // probe. The jira cache is host-scoped and written only by REST, so it is
+  // trusted only when REST is a configured tier (acli's authenticated site may
+  // differ from JIRA_BASE_URL, so an acli-only run must not read the REST cache).
+  // gh results are repo-scoped and always valid to prefill.
+  if (ctx.cache) {
+    if (jiraTier.order.includes("rest")) {
+      for (const key of jiraKeys) {
+        const cached = await readCacheEntry(ctx.cacheDir, ctx.jiraScope, key, ctx);
+        if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
+      }
+    }
+    for (const key of githubKeys) {
+      const cached = await readCacheEntry(ctx.cacheDir, ctx.ghScope, key, ctx);
+      if (cached) { ctx.entries.set(key, cached); ctx.cacheHits += 1; }
+    }
+  }
+  const jiraNeedsWork = jiraKeys.some((key) => !ctx.entries.has(key));
+  const githubNeedsWork = githubKeys.some((key) => !ctx.entries.has(key));
+
   // gh PRESENCE is a local `which` (no network) — safe to check before the
-  // disclosure. The auth probe (which may contact a host) is deferred until
-  // after the disclosure below.
-  const ghPresent = allowGithub && githubKeys.length > 0 ? await hasBinary("gh") : false;
+  // disclosure, and only when a GitHub key still needs resolving. The auth probe
+  // (which may contact a host) is deferred until after the disclosure below.
+  const ghPresent = allowGithub && githubNeedsWork ? await hasBinary("gh") : false;
   if (!allowGithub && githubKeys.length > 0) {
     limitations.push("GitHub issue titles are not resolved under --global (a #NNN is repository-relative and cannot be resolved from one working directory); Jira keys are still resolved.");
   }
 
   // Disclosure BEFORE any network, naming host and key count (the #354
-  // discipline). Every tier that MAY run is announced.
+  // discipline). Only tiers that will actually make a request are announced — a
+  // fully-warm run announces nothing because it reaches no network.
   const jiraHost = hostOf(baseUrl);
-  if (jiraKeys.length > 0) {
+  if (jiraNeedsWork) {
     for (const tier of jiraTier.order) {
       if (tier === "rest") {
         disclosures.push(`git analyze --jira: resolving up to ${jiraKeys.length} Jira key(s) via the REST API against ${jiraHost}.`);
@@ -604,8 +636,8 @@ export async function resolveTracker(params = {}) {
       }
     }
   }
-  if (ghPresent && githubKeys.length > 0) {
-    disclosures.push(`git analyze --jira: resolving ${githubKeys.length} GitHub issue title(s) via the local gh CLI.`);
+  if (ghPresent) {
+    disclosures.push(`git analyze --jira: resolving GitHub issue title(s) via the local gh CLI.`);
   }
   if (disclosures.length > 0 && typeof params.disclose === "function") {
     params.disclose(disclosures);
@@ -631,10 +663,14 @@ export async function resolveTracker(params = {}) {
 
   // Run the Jira tiers IN ORDER, each over the keys still unresolved — so `auto`
   // falls back from a logged-out acli to configured REST. Each tier is bounded
-  // and fail-soft; a disabled tier is skipped rather than retried.
+  // and fail-soft; a disabled tier is skipped rather than retried. `attempted`
+  // records the tiers that ACTUALLY ran (not merely the configured order), so
+  // the network audit is honest.
+  const tiersAttempted = [];
   for (const tier of jiraTier.order) {
     if (!jiraKeys.some((key) => !ctx.entries.get(key)?.resolved)) break;
     if (disabledTiers.includes(tier)) continue;
+    tiersAttempted.push(tier);
     if (tier === "acli") await resolveViaAcli(jiraKeys, ctx);
     else if (tier === "rest") await resolveViaRest(jiraKeys, ctx);
   }
@@ -669,7 +705,7 @@ export async function resolveTracker(params = {}) {
     // The primary Jira tier (first attempted), plus whether gh ran. "offline"
     // means tier 0 only (no network for Jira).
     tier: jiraTier.primary,
-    tiers_attempted: jiraTier.order,
+    tiers_attempted: tiersAttempted,
     github: ghAvailable ? "gh" : (githubKeys.length > 0 ? "offline" : null),
     host: hostOf(baseUrl),
     base_url: baseUrl || null,
