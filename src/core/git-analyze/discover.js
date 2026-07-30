@@ -118,6 +118,26 @@ async function writeCacheFile(cachePath, data) {
   }
 }
 
+// Absolute, symlink-resolved path of `target`, following symlinks up to the
+// nearest EXISTING ancestor (the target usually does not exist yet) and
+// re-appending the not-yet-created suffix. Used so the cache-containment check
+// cannot be defeated by a symlinked XDG_CACHE_HOME. Mirrors the report renderer's
+// symlink-safe containment (html.js isInside/realPath).
+async function realpathNearest(target) {
+  let current = path.resolve(target);
+  const suffix = [];
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(current), ...suffix);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Git identity helpers (dedup + preview counts).
 // ---------------------------------------------------------------------------
@@ -487,11 +507,21 @@ export async function discoverRepositories(options = {}) {
   // not even a cache. If the resolved cache path lands inside a discovered repo
   // (e.g. $HOME is itself a repo, or XDG_CACHE_HOME points into one), skip the
   // write and say so, rather than silently violating the constraint.
-  const cacheResolved = path.resolve(cachePath);
-  const cacheInsideRepo = repositories.some((repo) => {
-    const repoResolved = path.resolve(repo.path);
-    return cacheResolved === repoResolved || cacheResolved.startsWith(`${repoResolved}${path.sep}`);
-  });
+  //
+  // Resolve symlinks first: a LEXICAL comparison is defeated by an absolute
+  // XDG_CACHE_HOME that is a symlink into a repo (the string looks outside while
+  // the write lands inside), and on macOS `/tmp` -> `/private/tmp` makes the
+  // repo's canonical path and a `/tmp/...` cache path the same directory yet
+  // unequal as strings. realpathNearest walks to the nearest existing ancestor
+  // because the cache directory usually does not exist yet.
+  // Resolve BOTH sides through realpath so the comparison is apples-to-apples:
+  // a discovered repo's path may still carry a symlinked prefix (e.g. macOS
+  // `/var` -> `/private/var`), so canonicalising only the cache side would make
+  // the same directory compare unequal and let the write through.
+  const cacheResolved = await realpathNearest(cachePath);
+  const repoResolvedList = await Promise.all(repositories.map((repo) => realpathNearest(repo.path)));
+  const cacheInsideRepo = repoResolvedList.some((repoResolved) =>
+    cacheResolved === repoResolved || cacheResolved.startsWith(`${repoResolved}${path.sep}`));
   if (cacheInsideRepo) {
     limitations.push("The discovery cache would fall inside a scanned repository, so it was not written (nothing is ever written inside a scanned repository).");
   }

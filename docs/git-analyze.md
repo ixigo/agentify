@@ -83,10 +83,12 @@ narration                (entirely optional; off = zero cost, zero network)
 
 tracker
   --jira auto|off|acli|rest                                          (default off)
+  --jira-project <key>   limit tracker lookups to these keys, repeatable
 
 output
   --format text|json|md|html                                         (default text)
   --output <path> | --no-open | --dry-run | --yes
+  --no-cache             bypass the discovery/tracker caches for this run
 ```
 
 The resolved filter set is printed in the report header, so a surprising number

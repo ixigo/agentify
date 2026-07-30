@@ -433,8 +433,10 @@ export async function createSandbox(opts = {}) {
 
   const gitSpyDir = path.join(base, "git-spy");
   const procSpyDir = path.join(base, "proc-spy");
+  const netTripFile = path.join(base, "net-trips.log");
   await fs.mkdir(gitSpyDir, { recursive: true });
   await fs.mkdir(procSpyDir, { recursive: true });
+  await fs.writeFile(netTripFile, "", "utf8");
 
   await writeShim(binDir, "git", gitShimSource(await realGitPath()));
   // A hermetic which/where so availability detection resolves against binDir
@@ -472,6 +474,7 @@ export async function createSandbox(opts = {}) {
     TZ: FIXTURE_TZ,
     GIT_SPY_DIR: gitSpyDir,
     PROC_SPY_DIR: procSpyDir,
+    NET_TRIP_FILE: netTripFile,
     // Keep git hermetic inside the sandbox: no global/system config, no prompts,
     // no implicit network.
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -507,6 +510,7 @@ export async function createSandbox(opts = {}) {
     secret,
     gitSpyDir,
     procSpyDir,
+    netTripFile,
     // Every git invocation's argv (order across calls is not significant).
     async gitCalls() {
       return readSpyDir(gitSpyDir);
@@ -515,13 +519,22 @@ export async function createSandbox(opts = {}) {
     async procCalls() {
       return (await readSpyDir(procSpyDir)).map((fields) => fields.join(" "));
     },
-    // Empty both spy dirs between variants so a failure names the right one.
+    // Every in-process network primitive the guard intercepted (empty = none),
+    // even if the CLI caught the thrown error. Only meaningful when a run used
+    // { blockNetwork: true }.
+    async netTrips() {
+      const raw = await fs.readFile(netTripFile, "utf8");
+      return raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    },
+    // Empty both spy dirs and the net tripwire between variants so a failure
+    // names the right one.
     async resetSpies() {
       for (const dir of [gitSpyDir, procSpyDir]) {
         for (const name of await fs.readdir(dir)) {
           await fs.rm(path.join(dir, name), { force: true });
         }
       }
+      await fs.writeFile(netTripFile, "", "utf8");
     },
     cleanup: () => fs.rm(base, { recursive: true, force: true }),
   };
@@ -649,6 +662,10 @@ export function findGitViolations(calls) {
  * @param {object} [opts]
  * @param {boolean} [opts.blockNetwork] - preload the in-process network guard
  *   (test/helpers/no-network-guard.mjs), so any in-process socket attempt throws.
+ * @param {number} [opts.timeoutMs] - kill the child after this many ms. On
+ *   timeout the child is SIGKILLed and the result carries { timedOut: true } and
+ *   a non-zero code, so an unbounded/hung run fails the assertion promptly
+ *   instead of hanging until the CI job timeout.
  */
 export async function runAnalyzeCli(sandbox, cwd, analyzeArgs = [], opts = {}) {
   const env = { ...sandbox.env };
@@ -660,12 +677,19 @@ export async function runAnalyzeCli(sandbox, cwd, analyzeArgs = [], opts = {}) {
     execFile(
       process.execPath,
       [CLI, "git", "analyze", ...analyzeArgs],
-      { cwd, env, maxBuffer: 64 * 1024 * 1024 },
+      {
+        cwd,
+        env,
+        maxBuffer: 64 * 1024 * 1024,
+        ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: "SIGKILL" } : {}),
+      },
       (error, stdout, stderr) => {
+        const timedOut = Boolean(error && error.killed && error.signal === "SIGKILL");
         resolve({
           code: error && typeof error.code === "number" ? error.code : (error ? 1 : 0),
           stdout,
           stderr,
+          timedOut,
         });
       },
     );

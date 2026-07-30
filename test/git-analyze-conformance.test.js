@@ -183,6 +183,10 @@ test("row 5: default path spawns no provider process and opens no socket", async
       assert.equal(result.code, 0, `variant ${args.join(" ")} exited ${result.code}\n${result.stderr}`);
       const procs = await sandbox.procCalls();
       assert.deepEqual(procs, [], `default path spawned a provider process for ${args.join(" ")}:\n${procs.join("\n")}`);
+      // The in-process tripwire RECORDS every network attempt (even one the CLI
+      // caught), so an empty log means no socket was opened in-process either.
+      const trips = await sandbox.netTrips();
+      assert.deepEqual(trips, [], `default path attempted in-process network for ${args.join(" ")}:\n${trips.join("\n")}`);
     }
   } finally {
     await sandbox.cleanup();
@@ -243,6 +247,9 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
       const rep = JSON.parse(r.stdout);
       assert.ok(rep.tracker, "a --jira run carries a tracker block");
       assert.equal(rep.tracker.network_requests, 0, "no acli/gh means zero network");
+      // The degradation is observable and honest: the tracker fell back to an
+      // OFFLINE tier rather than claiming a live one or erroring.
+      assert.equal(rep.tracker.tier, "offline", "absent acli/gh must degrade to the offline tier");
       assert.equal((await sandbox.procCalls()).length, 0, "no tracker process was spawned");
       await repo.cleanup();
     }
@@ -434,6 +441,47 @@ test("rows 2/4/5/10 hold under --global across multiple discovered repositories"
   }
 });
 
+// -------------------------------------------------------------------------
+// Row 2/10 hardening — a SYMLINKED cache directory must not defeat the
+// "never write inside the repo, not even a cache" guarantee. This regression
+// test caught a real defect: --global with an absolute XDG_CACHE_HOME that is a
+// symlink into a discovered repo wrote discovery.json inside that repo, because
+// the containment check compared paths lexically. The fix realpaths both sides.
+// -------------------------------------------------------------------------
+test("a symlinked XDG_CACHE_HOME into a discovered repo does not write into it (--global)", async () => {
+  const os = await import("node:os");
+  const discoveryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-symlink-root-"));
+  const repo = await createPristineRepo({ parent: discoveryRoot });
+  // An absolute cache home that is a symlink pointing INTO the discovered repo.
+  const insideRepo = path.join(repo.root, "nested-cache");
+  await fs.mkdir(insideRepo, { recursive: true });
+  const linkBase = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-symlink-xdg-"));
+  const cacheLink = path.join(linkBase, "xdg-cache");
+  await fs.symlink(insideRepo, cacheLink);
+
+  const sandbox = await createSandbox();
+  sandbox.env.XDG_CACHE_HOME = cacheLink; // absolute, but a symlink into the repo
+  try {
+    const before = await snapshotTree(repo.root);
+    const r = await runAnalyzeCli(sandbox, discoveryRoot, ["--global", "--root", discoveryRoot, ...WINDOW, "--format", "json"]);
+    assert.equal(r.code, 0, `--global with symlinked cache errored:\n${r.stderr}`);
+    // Nothing was written into the repo through the symlink.
+    assert.deepEqual(diffSnapshots(before, await snapshotTree(repo.root)), [], "wrote into the repo via a symlinked cache");
+    // And the report states the limitation (a footnote, not a silent skip).
+    const rep = JSON.parse(r.stdout);
+    const limitations = rep.discovery?.limitations || [];
+    assert.ok(
+      limitations.some((l) => /cache/i.test(l) && /(inside|scanned repositor)/i.test(l)),
+      `expected a stated cache-containment limitation; got:\n${limitations.join("\n")}`,
+    );
+  } finally {
+    await sandbox.cleanup();
+    await repo.cleanup();
+    await fs.rm(discoveryRoot, { recursive: true, force: true });
+    await fs.rm(linkBase, { recursive: true, force: true });
+  }
+});
+
 // =========================================================================
 // PROVE THE ASSERTIONS WORK — deliberately-broken variants must FAIL the
 // relevant assertion. The issue requires proving each assertion catches a
@@ -553,6 +601,29 @@ test("proof: the git spy captures a real invocation's argv verbatim", async () =
   }
 });
 
+test("proof: the network tripwire records an in-process request via a NAMED import", async () => {
+  // Positive control for row 5's netTrips() assertion: prove the guard is not
+  // silently broken. A named import of `request` (the shape production lazy
+  // imports use) must still trip — which only works because the guard calls
+  // syncBuiltinESMExports(). Records even though the throw is caught.
+  const os = await import("node:os");
+  const tripFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "agentify-nettrip-")), "trips.log");
+  const guard = path.resolve(new URL("./helpers/no-network-guard.mjs", import.meta.url).pathname);
+  const script = "const { request } = await import('node:https');"
+    + " try { request('https://example.invalid'); } catch { /* caught, but recorded */ }";
+  await new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      ["--import", guard, "--input-type=module", "-e", script],
+      { env: { ...process.env, NET_TRIP_FILE: tripFile } },
+      () => resolve(),
+    );
+  });
+  const recorded = (await fs.readFile(tripFile, "utf8")).trim();
+  assert.ok(recorded.length > 0, "network tripwire did not record a named-import request — syncBuiltinESMExports regressed?");
+  await fs.rm(path.dirname(tripFile), { recursive: true, force: true });
+});
+
 test("proof: the provider-spawn spy FAILS when a provider is actually spawned", async () => {
   // Row 5 asserts the proc log stays EMPTY on the default path. Prove the spy
   // isn't silently broken: spawn a provider shim directly through the sandbox
@@ -579,12 +650,13 @@ test("perf: branch-ownership attribution over many branches stays bounded", asyn
   const sandbox = await createSandbox();
   try {
     const started = Date.now();
-    const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "json"]);
+    // A hard child timeout ENFORCES the bound: an unbounded/hung walk is
+    // SIGKILLed at 60s and reported as timedOut, failing this test promptly
+    // instead of hanging the suite until the CI job timeout.
+    const r = await runAnalyzeCli(sandbox, repo.root, [...WINDOW, "--format", "json"], { timeoutMs: 60_000 });
     const elapsedMs = Date.now() - started;
+    assert.equal(r.timedOut, false, `branch-ownership did not terminate within 60s (elapsed ${elapsedMs}ms) — investigate for an unbounded walk`);
     assert.equal(r.code, 0, `many-branch run errored:\n${r.stderr}`);
-    // Generous bound: this fixture completes in ~1–3s; 60s catches a genuine
-    // blow-up (quadratic/unbounded walks) without flaking on a slow CI box.
-    assert.ok(elapsedMs < 60_000, `branch-ownership took ${elapsedMs}ms — investigate for an unbounded walk`);
   } finally {
     await sandbox.cleanup();
     await repo.cleanup();
