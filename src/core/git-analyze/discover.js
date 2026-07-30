@@ -138,6 +138,23 @@ async function realpathNearest(target) {
   }
 }
 
+// Whether `target` (resolved) sits inside ANY git repository — a `.git` entry at
+// any ancestor. This backstops the scanned-repo comparison: an XDG_CACHE_HOME
+// inside a git repo that is NOT under the discovery roots (an unrelated repo)
+// would otherwise pass the scanned-set check and still receive the cache write.
+async function isInsideAnyGitRepo(target) {
+  let current = await realpathNearest(target);
+  for (;;) {
+    try {
+      await fs.access(path.join(current, ".git"));
+      return true;
+    } catch { /* no .git here */ }
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Git identity helpers (dedup + preview counts).
 // ---------------------------------------------------------------------------
@@ -526,8 +543,11 @@ export async function discoverRepositories(options = {}) {
   const cacheResolved = await realpathNearest(cachePath);
   const scannedPaths = state.repos.map((repo) => repo.path);
   const repoResolvedList = await Promise.all(scannedPaths.map((p) => realpathNearest(p)));
-  const cacheInsideRepo = repoResolvedList.some((repoResolved) =>
+  const cacheInsideScanned = repoResolvedList.some((repoResolved) =>
     cacheResolved === repoResolved || cacheResolved.startsWith(`${repoResolved}${path.sep}`));
+  // Also refuse if the cache falls inside ANY git repository, even one outside
+  // the discovery roots — the guarantee is "never inside a repository", full stop.
+  const cacheInsideRepo = cacheInsideScanned || await isInsideAnyGitRepo(cachePath);
   if (cacheInsideRepo) {
     limitations.push("The discovery cache would fall inside a scanned repository, so it was not written (nothing is ever written inside a scanned repository).");
   }

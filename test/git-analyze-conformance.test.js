@@ -36,6 +36,14 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+// The harness uses POSIX `/bin/sh` shims and `/dev/null`, so it runs on
+// macOS/Linux only. On Windows the whole suite is skipped (with a stated reason)
+// rather than failing — a Windows port would need `.cmd` shims and PATHEXT.
+const RUN_OPTS = process.platform === "win32"
+  ? { skip: "POSIX-only conformance harness (sh shims, /dev/null)" }
+  : {};
+const ctest = (name, fn) => test(name, RUN_OPTS, fn);
+
 // An ABSOLUTE window that spans the whole fixture history. Full timestamps (not
 // date-only) so the bounds are FIXED INSTANTS: git's approxidate fills a
 // date-only value with the current time of day, which would make even an
@@ -76,7 +84,7 @@ const DEFAULT_VARIANTS = [
 // -------------------------------------------------------------------------
 // Row 1 — runs to completion in a repo with no Agentify install, every window
 // -------------------------------------------------------------------------
-test("row 1: runs to completion with no Agentify install, for every window form", async () => {
+ctest("row 1: runs to completion with no Agentify install, for every window form", async () => {
   const repo = await createPristineRepo();
   const sandbox = await createSandbox();
   try {
@@ -103,7 +111,7 @@ test("row 1: runs to completion with no Agentify install, for every window form"
 // Rows 2 & 3 — creates/modifies/deletes NOTHING inside the repo (incl.
 // gitignored paths), and `git status --porcelain` is byte-identical.
 // -------------------------------------------------------------------------
-test("rows 2 & 3: zero filesystem footprint inside the analysed repo, incl. gitignored paths", async () => {
+ctest("rows 2 & 3: zero filesystem footprint inside the analysed repo, incl. gitignored paths", async () => {
   const repo = await createPristineRepo();
   const sandbox = await createSandbox();
   try {
@@ -140,7 +148,7 @@ test("rows 2 & 3: zero filesystem footprint inside the analysed repo, incl. giti
 // hope: the PATH-shim records the argv of EVERY git call; assert each against
 // the read-only allowlist and assert no mutating subcommand ever appears.
 // -------------------------------------------------------------------------
-test("row 4: every git invocation is read-only (argv spy vs. allowlist)", async () => {
+ctest("row 4: every git invocation is read-only (argv spy vs. allowlist)", async () => {
   const repo = await createPristineRepo();
   // providers present so detectEnvironment's `which` probes run too — none of
   // that should turn into a mutating git call.
@@ -178,7 +186,7 @@ test("row 4: every git invocation is read-only (argv spy vs. allowlist)", async 
 // provider/tracker CLI, so "no provider process spawned" is the network-
 // isolation assertion for the default path.
 // -------------------------------------------------------------------------
-test("row 5: default path spawns no provider process and opens no socket", async () => {
+ctest("row 5: default path spawns no provider process and opens no socket", async () => {
   const repo = await createPristineRepo();
   const sandbox = await createSandbox({ providers: true });
   try {
@@ -209,7 +217,7 @@ test("row 5: default path spawns no provider process and opens no socket", async
 // Row 6 — works with HOME pointing at an EMPTY directory. Catches code that
 // reaches for ~/.claude, ~/.codex, or a global config as a hard requirement.
 // -------------------------------------------------------------------------
-test("row 6: works with HOME pointing at an empty directory", async () => {
+ctest("row 6: works with HOME pointing at an empty directory", async () => {
   const repo = await createPristineRepo();
   const emptyHome = await fs.mkdtemp(path.join((await import("node:os")).tmpdir(), "agentify-empty-home-"));
   const sandbox = await createSandbox({ home: emptyHome });
@@ -235,7 +243,7 @@ test("row 6: works with HOME pointing at an empty directory", async () => {
 // Row 7 — every absent optional dependency yields a stated limitation, not an
 // error. The missing-dependency matrix. Providers/trackers are ABSENT from PATH.
 // -------------------------------------------------------------------------
-test("row 7: absent optional dependencies degrade to a footnote, never an error", async () => {
+ctest("row 7: absent optional dependencies degrade to a footnote, never an error", async () => {
   const sandbox = await createSandbox({ providers: false }); // no claude/codex/acli/gh on PATH
   try {
     // --ai with no provider CLI: must not throw; narration degrades to
@@ -294,7 +302,7 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
 // Row 8 — exit codes: 0 on success and on explained-empty; non-zero only on
 // genuine misuse or a git failure.
 // -------------------------------------------------------------------------
-test("row 8: exit codes distinguish success/explained-empty from misuse/git-failure", async () => {
+ctest("row 8: exit codes distinguish success/explained-empty from misuse/git-failure", async () => {
   const sandbox = await createSandbox();
   try {
     // Success.
@@ -348,7 +356,7 @@ test("row 8: exit codes distinguish success/explained-empty from misuse/git-fail
 // exercises redact-before-render: a token planted in a commit SUBJECT must be
 // scrubbed on the way into the record.
 // -------------------------------------------------------------------------
-test("row 9: no environment secret (and no commit-subject token) reaches any artifact", async () => {
+ctest("row 9: no environment secret (and no commit-subject token) reaches any artifact", async () => {
   const repo = await createPristineRepo();
   const sandbox = await createSandbox({ providers: true });
   try {
@@ -378,7 +386,7 @@ test("row 9: no environment secret (and no commit-subject token) reaches any art
 // -------------------------------------------------------------------------
 // Row 10 — report artifacts land OUTSIDE the analysed repository.
 // -------------------------------------------------------------------------
-test("row 10: the HTML report artifact lands outside the analysed repository", async () => {
+ctest("row 10: the HTML report artifact lands outside the analysed repository", async () => {
   const repo = await createPristineRepo();
   const sandbox = await createSandbox();
   try {
@@ -411,7 +419,7 @@ test("row 10: the HTML report artifact lands outside the analysed repository", a
 // regression in discovery/global caching could otherwise write into a
 // discovered repo or reach the network while the local-scope rows stay green.
 // -------------------------------------------------------------------------
-test("rows 2/4/5/10 hold under --global across multiple discovered repositories", async () => {
+ctest("rows 2/4/5/10 hold under --global across multiple discovered repositories", async () => {
   const os = await import("node:os");
   const discoveryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-global-root-"));
   const repoA = await createPristineRepo({ parent: discoveryRoot });
@@ -462,7 +470,7 @@ test("rows 2/4/5/10 hold under --global across multiple discovered repositories"
 // symlink into a discovered repo wrote discovery.json inside that repo, because
 // the containment check compared paths lexically. The fix realpaths both sides.
 // -------------------------------------------------------------------------
-test("a symlinked XDG_CACHE_HOME into a discovered repo does not write into it (--global)", async () => {
+ctest("a symlinked XDG_CACHE_HOME into a discovered repo does not write into it (--global)", async () => {
   const os = await import("node:os");
   const discoveryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-symlink-root-"));
   const repo = await createPristineRepo({ parent: discoveryRoot });
@@ -510,7 +518,7 @@ test("a symlinked XDG_CACHE_HOME into a discovered repo does not write into it (
 // violation rather than assuming green means correct.
 // =========================================================================
 
-test("proof: the footprint assertion FAILS on a write inside the repo (incl. a gitignored path)", async () => {
+ctest("proof: the footprint assertion FAILS on a write inside the repo (incl. a gitignored path)", async () => {
   const repo = await createPristineRepo();
   try {
     const before = await snapshotTree(repo.root);
@@ -561,7 +569,7 @@ test("proof: the footprint assertion FAILS on a write inside the repo (incl. a g
   }
 });
 
-test("proof: the git allowlist FAILS on mutating subcommands", () => {
+ctest("proof: the git allowlist FAILS on mutating subcommands", () => {
   // Feed the assertion representative denied invocations (what a future slice
   // adding a fetch, or a config write, would produce). The spy records real
   // argv verbatim (demonstrated by rows 4/5), so if any of these ever appeared
@@ -609,7 +617,7 @@ test("proof: the git allowlist FAILS on mutating subcommands", () => {
   assert.deepEqual(findGitViolations(allowed), [], "read-only calls must pass the allowlist");
 });
 
-test("proof: the git spy captures a real invocation's argv verbatim", async () => {
+ctest("proof: the git spy captures a real invocation's argv verbatim", async () => {
   // A positive control that the PATH-shim actually records — otherwise row 4
   // could be green because NOTHING was captured.
   const repo = await createPristineRepo({ shape: "single" });
@@ -627,7 +635,7 @@ test("proof: the git spy captures a real invocation's argv verbatim", async () =
   }
 });
 
-test("proof: the network tripwire records an in-process request via a NAMED import", async () => {
+ctest("proof: the network tripwire records an in-process request via a NAMED import", async () => {
   // Positive control for row 5's netTrips() assertion: prove the guard is not
   // silently broken. A named import of `request` (the shape production lazy
   // imports use) must still trip — which only works because the guard calls
@@ -650,7 +658,7 @@ test("proof: the network tripwire records an in-process request via a NAMED impo
   await fs.rm(path.dirname(tripFile), { recursive: true, force: true });
 });
 
-test("proof: the provider-spawn spy FAILS when a provider is actually spawned", async () => {
+ctest("proof: the provider-spawn spy FAILS when a provider is actually spawned", async () => {
   // Row 5 asserts the proc log stays EMPTY on the default path. Prove the spy
   // isn't silently broken: spawn a provider shim directly through the sandbox
   // env and confirm the log records it. All network egress in this command is a
@@ -671,7 +679,7 @@ test("proof: the provider-spawn spy FAILS when a provider is actually spawned", 
 // terminating; a coarse timing guard so a future regression that turns it
 // quadratic (or unbounded) fails loudly rather than merely getting slow.
 // =========================================================================
-test("perf: branch-ownership attribution over many branches stays bounded", async () => {
+ctest("perf: branch-ownership attribution over many branches stays bounded", async () => {
   const repo = await createManyBranchRepo({ branches: 30 });
   const sandbox = await createSandbox();
   try {
