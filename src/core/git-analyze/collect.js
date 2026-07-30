@@ -735,6 +735,163 @@ export async function getBranchTable(root) {
 }
 
 // ---------------------------------------------------------------------------
+// Branch ownership (#352 tier-2 clustering input).
+// ---------------------------------------------------------------------------
+
+// Ceiling on branches probed for ownership, so a repo with tens of thousands of
+// refs cannot turn clustering into an unbounded sweep. Beyond it the caller is
+// told branch clustering was skipped.
+const BRANCH_OWNERSHIP_MAX_BRANCHES = 200;
+
+/**
+ * The repository's current branch short name, or null on a detached HEAD (which
+ * `git` reports as "HEAD"). Read-only. Used to exclude the mainline branch from
+ * branch-ownership clustering so every commit on `main` does not collapse into a
+ * single "main" theme.
+ * @param {string} root
+ * @returns {Promise<string|null>}
+ */
+export async function getCurrentBranch(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, env: gitEnv() });
+    const name = stdout.trim();
+    return name && name !== "HEAD" ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+// Read the in-window commit shas reachable from one ref, bounded by the same
+// lower read bound the collection used. Returns null on any failure (overflow,
+// vanished ref) so the caller can treat the scan as incomplete rather than as a
+// confident empty set.
+async function revListShas(root, ref, dateArgs) {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["rev-list", ...dateArgs, ref],
+      { cwd: root, env: gitEnv(), maxBuffer: 32 * 1024 * 1024 },
+    );
+    return stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the repository's mainline (trunk) branch name, independently of which
+ * branch HEAD currently points at — running from a feature branch must not make
+ * that feature branch the trunk. Preference: the local `origin/HEAD` symbolic
+ * ref (no network), then a `main`/`master` branch if one exists, then the
+ * current branch as a last resort. Returns null when none can be determined.
+ *
+ * @param {string} root
+ * @param {string[]} branchNames - known local branch short names
+ * @returns {Promise<string|null>}
+ */
+export async function getMainlineBranch(root, branchNames = []) {
+  const known = new Set(branchNames);
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+      { cwd: root, env: gitEnv() },
+    );
+    const name = stdout.trim().replace(/^origin\//, "");
+    if (name && known.has(name)) return name;
+  } catch {
+    // No origin/HEAD ref (never fetched, or no remote): fall through.
+  }
+  if (known.has("main")) return "main";
+  if (known.has("master")) return "master";
+  return getCurrentBranch(root);
+}
+
+/**
+ * Attribute in-window commits to the single feature branch that uniquely
+ * contains them, for #352 tier-2 clustering. A commit reachable from the
+ * mainline branch is trunk history and is never attributed; among the remaining
+ * commits, one contained by exactly one candidate branch is owned by it.
+ *
+ * Correctness over completeness: if the branch set is capped, or ANY branch (or
+ * the mainline) scan fails, no positive attribution is made at all — a partial
+ * scan could otherwise report a commit as "uniquely" on one branch when an
+ * unscanned branch also contains it. The caller states the incompleteness.
+ *
+ * Bounded and read-only: each branch is walked with the collection's lower read
+ * bound (window-sized), the branch count is capped, and an overflowing listing
+ * is treated as a failed (incomplete) scan.
+ *
+ * @param {string} root
+ * @param {object} params
+ * @param {string[]} params.candidateNames - feature branch short names to consider
+ * @param {Set<string>} params.windowShas - the in-window commit shas to attribute
+ * @param {string[]} [params.dateArgs] - lower read-bound args (from resolveWindowBounds)
+ * @param {string|null} [params.mainlineBranch] - trunk branch whose commits are
+ *   never branch-owned; omit to attribute across the candidates as given (used
+ *   under an explicit --branch filter, where the user picked the branches)
+ * @returns {Promise<{ ownership: Map<string,string>, capped: boolean, incomplete: boolean }>}
+ */
+export async function computeBranchOwnership(root, params = {}) {
+  const windowShas = params.windowShas instanceof Set ? params.windowShas : new Set();
+  const dateArgs = Array.isArray(params.dateArgs) ? params.dateArgs : [];
+  const mainlineBranch = params.mainlineBranch || null;
+  const names = [...new Set((params.candidateNames || []).filter((name) => typeof name === "string" && name.length > 0))]
+    .filter((name) => name !== mainlineBranch);
+  if (names.length === 0 || windowShas.size === 0) {
+    return { ownership: new Map(), capped: false, incomplete: false };
+  }
+  const capped = names.length > BRANCH_OWNERSHIP_MAX_BRANCHES;
+  if (capped) {
+    // A capped scan cannot distinguish a truly-unique commit from one that also
+    // lives on an unscanned branch, so make no attribution at all.
+    return { ownership: new Map(), capped: true, incomplete: true };
+  }
+  // Iterate in a stable order so the single owner of a commit is deterministic.
+  const considered = [...names].sort();
+
+  // Trunk history is never branch-owned. A failed mainline scan means we cannot
+  // safely exclude the trunk, so the whole attribution is treated as incomplete.
+  const excludeShas = new Set();
+  if (mainlineBranch) {
+    const mainlineShas = await revListShas(root, `refs/heads/${mainlineBranch}`, dateArgs);
+    if (mainlineShas === null) {
+      return { ownership: new Map(), capped: false, incomplete: true };
+    }
+    for (const sha of mainlineShas) {
+      if (windowShas.has(sha)) excludeShas.add(sha);
+    }
+  }
+
+  const containCount = new Map(); // sha -> { count, branch }
+  for (const name of considered) {
+    const shas = await revListShas(root, `refs/heads/${name}`, dateArgs);
+    if (shas === null) {
+      // A failed scan could make another branch's commit look unique; abandon
+      // positive attribution rather than risk a wrong owner.
+      return { ownership: new Map(), capped: false, incomplete: true };
+    }
+    for (const sha of shas) {
+      if (!windowShas.has(sha) || excludeShas.has(sha)) continue;
+      const entry = containCount.get(sha);
+      if (entry) {
+        entry.count += 1;
+      } else {
+        containCount.set(sha, { count: 1, branch: name });
+      }
+    }
+  }
+
+  const ownership = new Map();
+  for (const [sha, entry] of containCount) {
+    if (entry.count === 1) {
+      ownership.set(sha, entry.branch);
+    }
+  }
+  return { ownership, capped: false, incomplete: false };
+}
+
+// ---------------------------------------------------------------------------
 // Window -> git args resolution.
 // ---------------------------------------------------------------------------
 

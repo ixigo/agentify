@@ -48,7 +48,8 @@ import {
   resolveContentMode,
 } from "./core/session-analysis/index.js";
 import { renderAnalysisHtml, renderAnalysisText } from "./core/session-analysis/report.js";
-import { runGitAnalyze, renderGitAnalyzeText } from "./core/git-analyze/index.js";
+import { runGitAnalyze } from "./core/git-analyze/index.js";
+import { renderText, renderMarkdown, renderJson } from "./core/git-analyze/render.js";
 import { discoverRepositories, selectRepositories } from "./core/git-analyze/discover.js";
 import { createProgressRenderer } from "./core/session-analysis/progress.js";
 import { detectToolInventory } from "./core/session-analysis/tool-inventory.js";
@@ -1459,13 +1460,13 @@ export async function runCli(argv, _runtime = {}) {
           ? String(args.format).toLowerCase()
           : (config.json ? "json" : "text");
         const format = config.json ? "json" : requestedFormat;
-        if (format === "html" || format === "md") {
+        if (format === "html") {
           throw new Error(
-            `git analyze --format ${format} is not available yet (lands in #${format === "html" ? "353" : "352"}); use text or json`,
+            "git analyze --format html is not available yet (lands in #353); use text, md, or json",
           );
         }
-        if (format !== "text" && format !== "json") {
-          throw new Error("git analyze --format must be one of: text, json (html and md land in later slices)");
+        if (format !== "text" && format !== "json" && format !== "md") {
+          throw new Error("git analyze --format must be one of: text, json, md (html lands in #353)");
         }
         const windowInput = {};
         for (const key of ["days", "months", "quarter", "year", "since", "until"]) {
@@ -1483,6 +1484,19 @@ export async function runCli(argv, _runtime = {}) {
             filters[key] = args[key];
           }
         }
+
+        // Route the report to the right renderer and stream: json/md are
+        // documents that go to stdout (pipeable, pasteable); text is the
+        // terminal view written via ui.log to stderr, so stdout stays clean.
+        const emitGitAnalyzeReport = (report, fmt) => {
+          if (fmt === "json") {
+            console.log(renderJson(report));
+          } else if (fmt === "md") {
+            console.log(renderMarkdown(report));
+          } else {
+            log(renderText(report));
+          }
+        };
 
         if (gitScope === "global") {
           // Discovery roots: repeated --root values, or the invasive default of
@@ -1529,11 +1543,7 @@ export async function runCli(argv, _runtime = {}) {
             },
             filters,
           });
-          if (format === "json") {
-            console.log(JSON.stringify(report, null, 2));
-          } else {
-            log(renderGitAnalyzeText(report));
-          }
+          emitGitAnalyzeReport(report, format);
           return;
         }
 
@@ -1543,11 +1553,7 @@ export async function runCli(argv, _runtime = {}) {
           dryRun,
           filters,
         });
-        if (format === "json") {
-          console.log(JSON.stringify(report, null, 2));
-        } else {
-          log(renderGitAnalyzeText(report));
-        }
+        emitGitAnalyzeReport(report, format);
         return;
       }
 

@@ -2,8 +2,15 @@ import path from "node:path";
 
 import { getRepoTopLevel, isGitRepository } from "../git.js";
 import { resolveWindow } from "./window.js";
-import { collectCommits, windowUpperExclusive } from "./collect.js";
+import {
+  collectCommits,
+  windowUpperExclusive,
+  resolveWindowBounds,
+  computeBranchOwnership,
+  getMainlineBranch,
+} from "./collect.js";
 import { countCommitsInWindow } from "./discover.js";
+import { buildGitAnalyzeSummary } from "./cluster.js";
 import {
   resolveFilters,
   isFilterActive,
@@ -168,10 +175,15 @@ export async function runGitAnalyze(root, options = {}) {
   // `--me` identities are resolved from the repo's git config + .mailmap.
   const identity = filterSet.me ? await resolveIdentities(repositoryPath) : null;
 
-  // Real local run: stream the window's commits. The collector resolves and
-  // VALIDATES the bounds (a mistyped --since/--until throws here).
+  // Resolve (and VALIDATE — a mistyped --since/--until throws here) the window
+  // bounds once, so the collector and the #352 branch-ownership pass share the
+  // exact same lower read bound instead of each probing git independently.
+  const bounds = await resolveWindowBounds(repositoryPath, window);
+
+  // Real local run: stream the window's commits.
   const collection = await collect(repositoryPath, {
     window,
+    bounds,
     maxCommits: options.maxCommits,
     maxMerges: options.maxMerges,
     refs: refsPushdown,
@@ -219,6 +231,37 @@ export async function runGitAnalyze(root, options = {}) {
       notes.push("--me used the git config identity only (no .mailmap found); if you commit under more than one email, add the others with --author.");
     }
   }
+
+  // #352: attribute the filtered commits to the feature branch that uniquely
+  // contains them (tier-2 clustering input). Under a --branch filter the
+  // candidates are exactly the matched branches (the user's chosen scope, no
+  // trunk exclusion); otherwise every local branch is a candidate and the
+  // mainline branch's history is excluded so trunk commits fall through to
+  // scope/directory clustering. Bounded and read-only; a capped or failed scan
+  // makes no attribution rather than a wrong one.
+  const branchNames = (collection.branches || []).map((branch) => branch.name).filter(Boolean);
+  let candidateNames;
+  let mainlineBranch = null;
+  if (filterSet.branchGlobs.length > 0) {
+    candidateNames = branchResolution ? branchResolution.matchedNames : [];
+  } else {
+    candidateNames = branchNames;
+    mainlineBranch = await getMainlineBranch(repositoryPath, branchNames);
+  }
+  const windowShas = new Set(report.commits.map((record) => record.sha));
+  const { ownership: branchOwnership, incomplete: branchIncomplete } = await computeBranchOwnership(repositoryPath, {
+    candidateNames,
+    windowShas,
+    dateArgs: bounds.dateArgs,
+    mainlineBranch,
+  });
+  if (branchIncomplete) {
+    notes.push("Branch-based clustering was skipped (too many branches, or a branch listing could not be read); themes cluster by issue key, conventional scope, and directory only.");
+  }
+
+  // #352: the deterministic theme summary (headline, distributions, themes,
+  // limitations). It owns every number downstream slices render.
+  report.summary = buildGitAnalyzeSummary(report, { branchOwnership });
 
   return report;
 }
@@ -448,6 +491,11 @@ async function runGlobalGitAnalyze(params) {
     issue_refs: issueRefs.size,
     across_repositories: report.repositories.filter((r) => r.commits_read).length,
   };
+
+  // #352: the deterministic theme summary. Themes stay per-repository (branch
+  // clustering is skipped under --global to bound the sweep; stated as a
+  // limitation in the summary).
+  report.summary = buildGitAnalyzeSummary(report);
   return report;
 }
 
