@@ -28,7 +28,6 @@ import {
   diffSnapshots,
   findGitViolations,
   gitSubcommand,
-  parseGitSpyLog,
   GIT_READONLY_SUBCOMMANDS,
   COMMIT_SECRET_TOKEN,
 } from "./helpers/pristine-repo.js";
@@ -138,7 +137,7 @@ test("row 4: every git invocation is read-only (argv spy vs. allowlist)", async 
   try {
     for (const args of DEFAULT_VARIANTS) {
       // Reset the spy log between variants so a failure names the offending one.
-      await fs.writeFile(sandbox.gitSpyLog, "", "utf8");
+      await sandbox.resetSpies();
       const result = await runAnalyzeCli(sandbox, repo.root, args);
       assert.equal(result.code, 0, `variant ${args.join(" ")} exited ${result.code}\n${result.stderr}`);
       const calls = await sandbox.gitCalls();
@@ -173,7 +172,7 @@ test("row 5: default path spawns no provider process and opens no socket", async
   const sandbox = await createSandbox({ providers: true });
   try {
     for (const args of DEFAULT_VARIANTS) {
-      await fs.writeFile(sandbox.procSpyLog, "", "utf8");
+      await sandbox.resetSpies();
       // blockNetwork preloads an in-process tripwire that throws on any
       // fetch/http(s).request/net.connect/dns/tls attempt. Combined with the
       // empty proc-spy (no provider/tracker CHILD spawned), this asserts the
@@ -263,6 +262,11 @@ test("row 7: absent optional dependencies degrade to a footnote, never an error"
       assert.equal(r.code, 0, `--me without .mailmap errored:\n${r.stderr}`);
       await repo.cleanup();
     }
+    // The ONE deliberate exception to fail-soft: an ABSENT auto-detected tier is
+    // a footnote (asserted above), but EXPLICITLY demanding `--jira rest` with
+    // its required env unset is an actionable misconfiguration, not a silent
+    // degrade. Asserted as non-zero misuse in row 8; noted here so the contract
+    // boundary is explicit.
   } finally {
     await sandbox.cleanup();
   }
@@ -301,6 +305,7 @@ test("row 8: exit codes distinguish success/explained-empty from misuse/git-fail
         ["--months", "3", "--not-a-flag"],                                       // unknown flag
         ["--months", "3", "--format", "html", "--dry-run"],                      // html has no dry-run report
         ["--days", "0", "--format", "json"],                                     // degenerate window
+        [...WINDOW, "--jira", "rest", "--format", "json"],                        // explicit REST, env unset (see row 7)
       ];
       for (const args of misuses) {
         const r = await runAnalyzeCli(sandbox, repo.root, args);
@@ -381,6 +386,54 @@ test("row 10: the HTML report artifact lands outside the analysed repository", a
   }
 });
 
+// -------------------------------------------------------------------------
+// --global scope — the same contract must hold when the command discovers and
+// analyses MANY repositories under a root: no writes into any discovered repo,
+// read-only git only, no provider spawned, artifact outside every repo. A
+// regression in discovery/global caching could otherwise write into a
+// discovered repo or reach the network while the local-scope rows stay green.
+// -------------------------------------------------------------------------
+test("rows 2/4/5/10 hold under --global across multiple discovered repositories", async () => {
+  const os = await import("node:os");
+  const discoveryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-global-root-"));
+  const repoA = await createPristineRepo({ parent: discoveryRoot });
+  const repoB = await createPristineRepo({ parent: discoveryRoot, shape: "main-only" });
+  const sandbox = await createSandbox({ providers: true });
+  try {
+    const beforeA = await snapshotTree(repoA.root);
+    const beforeB = await snapshotTree(repoB.root);
+    await sandbox.resetSpies();
+
+    const r = await runAnalyzeCli(
+      sandbox,
+      discoveryRoot,
+      ["--global", "--root", discoveryRoot, ...WINDOW, "--format", "html", "--no-open"],
+      { blockNetwork: true },
+    );
+    assert.equal(r.code, 0, `--global run errored:\n${r.stderr}`);
+
+    // Row 2/3: neither discovered repo changed.
+    assert.deepEqual(diffSnapshots(beforeA, await snapshotTree(repoA.root)), [], "--global wrote into repo A");
+    assert.deepEqual(diffSnapshots(beforeB, await snapshotTree(repoB.root)), [], "--global wrote into repo B");
+    // Row 4: read-only git only, across discovery + per-repo analysis.
+    const violations = findGitViolations(await sandbox.gitCalls());
+    assert.deepEqual(violations, [], `--global issued a non-read-only git call:\n${violations.join("\n")}`);
+    // Row 5: no provider process spawned.
+    assert.deepEqual(await sandbox.procCalls(), [], "--global spawned a provider process");
+    // Row 10: the artifact landed outside every discovered repo.
+    const m = r.stderr.match(/Report written to (\S+\.html)/);
+    assert.ok(m, `no report path in:\n${r.stderr}`);
+    const reportPath = path.resolve(m[1]);
+    assert.ok(path.relative(repoA.root, reportPath).startsWith(".."), "report landed inside repo A");
+    assert.ok(path.relative(repoB.root, reportPath).startsWith(".."), "report landed inside repo B");
+  } finally {
+    await sandbox.cleanup();
+    await repoA.cleanup();
+    await repoB.cleanup();
+    await fs.rm(discoveryRoot, { recursive: true, force: true });
+  }
+});
+
 // =========================================================================
 // PROVE THE ASSERTIONS WORK — deliberately-broken variants must FAIL the
 // relevant assertion. The issue requires proving each assertion catches a
@@ -410,7 +463,7 @@ test("proof: the footprint assertion FAILS on a write inside the repo (incl. a g
     assert.ok(diffs.some((d) => d.includes(".agentify")), "footprint assertion failed to catch a gitignored write");
     await fs.rm(path.join(repo.root, ".agentify"), { recursive: true, force: true });
 
-    // (c) An in-place same-size overwrite is caught by mtime.
+    // (c) An identical-bytes rewrite is caught by the mtime change.
     const before3 = await snapshotTree(repo.root);
     const readme = path.join(repo.root, "README.md");
     const original = await fs.readFile(readme);
@@ -418,6 +471,21 @@ test("proof: the footprint assertion FAILS on a write inside the repo (incl. a g
     await fs.writeFile(readme, original); // identical bytes, new mtime
     diffs = diffSnapshots(before3, await snapshotTree(repo.root));
     assert.ok(diffs.some((d) => d.includes("modified: README.md")), "footprint assertion failed to catch an mtime change");
+
+    // (d) The subtle case: a SAME-SIZE, different-content write with the mtime
+    // RESTORED. Size and mtime match; only the content hash catches it. This is
+    // why the snapshot hashes contents rather than trusting size+mtime.
+    await fs.writeFile(readme, original); // reset baseline content
+    const before4 = await snapshotTree(repo.root);
+    const st = await fs.stat(readme);
+    const flipped = Buffer.from(original);
+    flipped[0] ^= 0xff; // same length, different bytes
+    await fs.writeFile(readme, flipped);
+    await fs.utimes(readme, st.atime, st.mtime); // restore the timestamp
+    const after4 = await snapshotTree(repo.root);
+    diffs = diffSnapshots(before4, after4);
+    assert.ok(diffs.some((d) => d.includes("modified: README.md")), "content hash failed to catch a same-size mtime-restored write");
+    await fs.writeFile(readme, original); // restore
   } finally {
     await repo.cleanup();
   }
@@ -437,6 +505,8 @@ test("proof: the git allowlist FAILS on mutating subcommands", () => {
     ["config", "user.email", "x@example.com"],       // write: no read flag
     ["config", "--unset", "core.bare"],              // write: mutating flag
     ["remote", "add", "origin", "https://x"],        // write: remote mutation
+    ["remote", "show", "origin"],                    // network: remote show w/o -n
+    ["remote", "update"],                            // network: remote update
     ["symbolic-ref", "HEAD", "refs/heads/x"],        // write: two positionals
     ["gc"],
     ["update-ref", "refs/heads/x", "HEAD"],
@@ -455,6 +525,8 @@ test("proof: the git allowlist FAILS on mutating subcommands", () => {
     ["config", "--get", "user.email"],
     ["remote"],
     ["remote", "-v"],
+    ["remote", "get-url", "origin"],
+    ["remote", "show", "-n", "origin"],
     ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
     ["show", "--stat", "HEAD"],
     ["diff", "--numstat", "A", "B"],
@@ -470,7 +542,7 @@ test("proof: the git spy captures a real invocation's argv verbatim", async () =
   const sandbox = await createSandbox();
   try {
     await execFileAsync("git", ["-C", repo.root, "rev-parse", "--show-toplevel"], { env: sandbox.env });
-    const calls = parseGitSpyLog(await fs.readFile(sandbox.gitSpyLog, "utf8"));
+    const calls = await sandbox.gitCalls();
     assert.ok(
       calls.some((c) => c.join(" ") === `-C ${repo.root} rev-parse --show-toplevel`),
       `spy did not capture the real argv; captured:\n${calls.map((c) => c.join(" ")).join("\n")}`,

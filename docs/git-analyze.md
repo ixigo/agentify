@@ -157,7 +157,11 @@ This command **observes; it does not record**. Specifically:
   `checkout`, or anything that writes.
 - Every optional layer degrades to "off" silently when its prerequisite is
   absent. No `claude`/`codex` CLI, no `acli`/`gh`, no `.mailmap`, no branches
-  beyond `main` — each is a footnote in the report, never an error.
+  beyond `main` — each is a footnote in the report, never an error. The one
+  deliberate exception: if you *explicitly* select `--jira rest` and its required
+  environment variables are unset, that is an actionable misconfiguration and the
+  command exits non-zero rather than silently degrading. Auto-detection
+  (`--jira auto`) always degrades to a footnote.
 
 The zero-install property is enforced by a conformance suite
 (`test/git-analyze-conformance.test.js`) that runs the real command inside a

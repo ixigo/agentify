@@ -25,6 +25,7 @@
 // TZ, no reliance on the wall clock.
 
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -107,11 +108,13 @@ async function commit(root, { message, author, date, files = {}, allowEmpty = fa
  * @param {object} [opts]
  * @param {"full"|"single"|"empty-window"|"detached"|"main-only"} [opts.shape]
  * @param {boolean} [opts.gitignore] - write a .gitignore that hides .agentify/ and node_modules/
+ * @param {string} [opts.parent] - create the repo under this dir (for --global
+ *   discovery roots) instead of the OS temp dir.
  */
 export async function createPristineRepo(opts = {}) {
   const shape = opts.shape || "full";
   const gitignore = opts.gitignore !== false;
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-pristine-"));
+  const root = await fs.mkdtemp(path.join(opts.parent || os.tmpdir(), "agentify-pristine-"));
 
   await git(root, ["init", "-b", "main"]);
   // Local identity so a bare `git commit` never falls back to a global config
@@ -261,13 +264,20 @@ export async function createManyBranchRepo(opts = {}) {
 // --- footprint snapshotting ----------------------------------------------
 
 /**
- * Recursive snapshot of the working tree (paths + sizes + mtimes), INCLUDING
- * gitignored paths, plus `git status --porcelain`. `.git/` internals are
- * excluded because a read-only git command legitimately refreshes its own index
- * timestamp and pack access — that is not a write inside the analysed repo. What
- * matters for the epic is the working tree: a cache dropped into a gitignored
- * `.agentify/` is invisible to `git status` yet still violates the constraint,
- * and the full walk below catches it where porcelain cannot.
+ * Recursive snapshot of the working tree, INCLUDING gitignored paths, plus
+ * `git status --porcelain`. Each regular file is recorded by a SHA-256 of its
+ * contents (byte-identity, not merely size), plus size, mode, and mtime;
+ * symlinks by their target; directories by a marker. This enforces the stated
+ * byte-identical guarantee: a same-size, mtime-restored overwrite still changes
+ * the hash and is caught, and a rewrite with identical bytes still changes the
+ * mtime and is caught.
+ *
+ * `.git/` internals are excluded because a read-only git command legitimately
+ * refreshes its own index timestamp and pack access — that is not a write inside
+ * the analysed repo. What matters for the epic is the working tree: a cache
+ * dropped into a gitignored `.agentify/` is invisible to `git status` yet still
+ * violates the constraint, and the full walk below catches it where porcelain
+ * cannot.
  */
 export async function snapshotTree(root) {
   const entries = {};
@@ -278,12 +288,15 @@ export async function snapshotTree(root) {
       const abs = path.join(dir, dirent.name);
       const rel = path.relative(root, abs);
       const stat = await fs.lstat(abs);
-      if (dirent.isDirectory()) {
-        entries[`${rel}/`] = "dir";
+      if (stat.isSymbolicLink()) {
+        entries[rel] = `symlink:${await fs.readlink(abs)}:${stat.mode.toString(8)}`;
+      } else if (stat.isDirectory()) {
+        entries[`${rel}/`] = `dir:${stat.mode.toString(8)}`;
         await walk(abs);
       } else {
-        // size + mtime (ns) so a same-size in-place overwrite is still caught.
-        entries[rel] = `${stat.size}:${stat.mtimeMs}`;
+        const hash = crypto.createHash("sha256").update(await fs.readFile(abs)).digest("hex");
+        // content hash + size + mode + mtime: byte-identity AND any rewrite.
+        entries[rel] = `${stat.size}:${stat.mode.toString(8)}:${stat.mtimeMs}:${hash}`;
       }
     }
   }
@@ -326,18 +339,21 @@ export function diffSnapshots(before, after) {
 // makes, which is the only way row 4 catches a future slice adding a `fetch`.
 function gitShimSource(realGit) {
   // The command issues git calls CONCURRENTLY (e.g. `--me` resolves user.name
-  // and user.email in parallel), and every shim appends to the SAME log file.
-  // Build the whole record as one string and emit it with a SINGLE printf, so
-  // each record is one O_APPEND write() — atomic under PIPE_BUF — and records
-  // from concurrent gits never interleave. (Per-line printf would interleave
-  // and corrupt the parse.)
+  // and user.email in parallel). Rather than fight for atomic appends to one
+  // shared log (unreliable across shells), each invocation writes its argv to
+  // its OWN uniquely-named file in $GIT_SPY_DIR — one writer per file, so
+  // interleaving is impossible by construction. The unique name is the shim's
+  // PID plus a first-free index (no external tools, works with a binDir-only
+  // PATH). Order across calls does not matter: assertions inspect the SET of
+  // calls and each call's argv, not global ordering.
   return `#!/bin/sh
-rec='GITCALL'
-for a in "$@"; do
-  rec="$rec
-$a"
+i=0
+while :; do
+  f="$GIT_SPY_DIR/call.$$.$i"
+  [ -e "$f" ] || break
+  i=$((i+1))
 done
-printf '%s\\nENDGITCALL\\n' "$rec" >> "$GIT_SPY_LOG"
+printf '%s\\n' "$@" > "$f"
 exec ${JSON.stringify(realGit)} "$@"
 `;
 }
@@ -350,14 +366,16 @@ exec ${JSON.stringify(realGit)} "$@"
 // through a spawned provider/tracker CLI, so "no provider process spawned"
 // means "no socket opened".
 function procShimSource(name) {
-  // Single atomic append (see gitShimSource) so concurrent provider spawns can
-  // never interleave into one corrupted line.
+  // One file per spawn in $PROC_SPY_DIR (see gitShimSource) — no shared-file
+  // race. The file's contents are the binary name and its argv.
   return `#!/bin/sh
-rec=${JSON.stringify(name)}
-for a in "$@"; do
-  rec="$rec $a"
+i=0
+while :; do
+  f="$PROC_SPY_DIR/proc.$$.$i"
+  [ -e "$f" ] || break
+  i=$((i+1))
 done
-printf '%s\\n' "$rec" >> "$PROC_SPY_LOG"
+printf '%s\\n' ${JSON.stringify(name)} "$@" > "$f"
 exit 0
 `;
 }
@@ -413,10 +431,10 @@ export async function createSandbox(opts = {}) {
   await fs.mkdir(home, { recursive: true });
   await fs.mkdir(cacheHome, { recursive: true });
 
-  const gitSpyLog = path.join(base, "git-spy.log");
-  const procSpyLog = path.join(base, "proc-spy.log");
-  await fs.writeFile(gitSpyLog, "", "utf8");
-  await fs.writeFile(procSpyLog, "", "utf8");
+  const gitSpyDir = path.join(base, "git-spy");
+  const procSpyDir = path.join(base, "proc-spy");
+  await fs.mkdir(gitSpyDir, { recursive: true });
+  await fs.mkdir(procSpyDir, { recursive: true });
 
   await writeShim(binDir, "git", gitShimSource(await realGitPath()));
   // A hermetic which/where so availability detection resolves against binDir
@@ -452,8 +470,8 @@ export async function createSandbox(opts = {}) {
     USERPROFILE: home,
     XDG_CACHE_HOME: cacheHome,
     TZ: FIXTURE_TZ,
-    GIT_SPY_LOG: gitSpyLog,
-    PROC_SPY_LOG: procSpyLog,
+    GIT_SPY_DIR: gitSpyDir,
+    PROC_SPY_DIR: procSpyDir,
     // Keep git hermetic inside the sandbox: no global/system config, no prompts,
     // no implicit network.
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -465,6 +483,21 @@ export async function createSandbox(opts = {}) {
     NO_COLOR: "1",
   };
 
+  // Read every per-invocation file in a spy dir, each file's lines being one
+  // record's fields (trailing newline dropped). One writer per file, so there is
+  // no interleaving to parse around.
+  async function readSpyDir(dir) {
+    const names = await fs.readdir(dir);
+    const records = [];
+    for (const name of names) {
+      const raw = await fs.readFile(path.join(dir, name), "utf8");
+      const lines = raw.split("\n");
+      if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+      records.push(lines);
+    }
+    return records;
+  }
+
   return {
     base,
     binDir,
@@ -472,29 +505,26 @@ export async function createSandbox(opts = {}) {
     cacheHome,
     env,
     secret,
-    gitSpyLog,
-    procSpyLog,
+    gitSpyDir,
+    procSpyDir,
+    // Every git invocation's argv (order across calls is not significant).
     async gitCalls() {
-      return parseGitSpyLog(await fs.readFile(gitSpyLog, "utf8"));
+      return readSpyDir(gitSpyDir);
     },
+    // Every spawned provider/tracker process as a "name arg1 arg2" line.
     async procCalls() {
-      const raw = await fs.readFile(procSpyLog, "utf8");
-      return raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      return (await readSpyDir(procSpyDir)).map((fields) => fields.join(" "));
+    },
+    // Empty both spy dirs between variants so a failure names the right one.
+    async resetSpies() {
+      for (const dir of [gitSpyDir, procSpyDir]) {
+        for (const name of await fs.readdir(dir)) {
+          await fs.rm(path.join(dir, name), { force: true });
+        }
+      }
     },
     cleanup: () => fs.rm(base, { recursive: true, force: true }),
   };
-}
-
-// Parse the git spy log into an array of argv arrays.
-export function parseGitSpyLog(raw) {
-  const calls = [];
-  let current = null;
-  for (const line of raw.split("\n")) {
-    if (line === "GITCALL") { current = []; continue; }
-    if (line === "ENDGITCALL") { if (current) calls.push(current); current = null; continue; }
-    if (current) current.push(line);
-  }
-  return calls;
 }
 
 // --- git argv allowlist (row 4) ------------------------------------------
@@ -573,10 +603,22 @@ export function findGitViolations(calls) {
       }
     }
     if (subcommand === "remote") {
-      // Only the bare list / `remote -v` / `remote show` forms are read-only.
-      const mutators = ["add", "remove", "rm", "rename", "set-url", "set-head", "set-branches", "prune", "update"];
-      if (argv.slice(1).some((t) => mutators.includes(t))) {
-        violations.push(`mutating git remote: git ${argv.join(" ")}`);
+      // `remote` is only OFFLINE in specific forms. The bare list, `remote -v`,
+      // and `remote get-url <name>` are local. `remote show <name>` and
+      // `remote update` CONTACT THE NETWORK; `remote add/set-url/...` MUTATE.
+      // Allow only the known-offline forms and flag everything else — otherwise
+      // a future slice could reach the network via `git remote show` and slip
+      // past row 5 (the network guard does not affect child processes).
+      const rest = argv.slice(argv.indexOf(subcommand) + 1);
+      const positionals = rest.filter((t) => !t.startsWith("-"));
+      const flags = rest.filter((t) => t.startsWith("-"));
+      const verb = positionals[0];
+      const offline =
+        positionals.length === 0 || // bare `remote` (+ optional -v)
+        verb === "get-url" ||
+        (verb === "show" && (flags.includes("-n") || flags.includes("--no-query")));
+      if (!offline) {
+        violations.push(`non-offline git remote: git ${argv.join(" ")}`);
       }
     }
     if (subcommand === "symbolic-ref") {
