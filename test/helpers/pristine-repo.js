@@ -70,6 +70,9 @@ export const IDENTITY_A = { name: "Ranveer Kumar", email: "ranveer.kumar@travenu
 export const IDENTITY_B = { name: "Ranveer Sequeira", email: "ranveersequeira@gmail.com" };
 export const IDENTITY_OTHER = { name: "Someone Else", email: "someone@example.com" };
 
+// The token-shaped secret planted in a commit subject (redact-before-render).
+export const COMMIT_SECRET_TOKEN = "sk-LEAKED1234567890abcdef";
+
 async function commit(root, { message, author, date, files = {}, allowEmpty = false }) {
   for (const [rel, contents] of Object.entries(files)) {
     const abs = path.join(root, rel);
@@ -186,6 +189,16 @@ export async function createPristineRepo(opts = {}) {
     );
   }
 
+  // A token-shaped secret in the commit SUBJECT. The epic guardrail is
+  // "redact before you render": redactSensitiveText() must scrub this on the way
+  // INTO the record so it can never reach a report, packet, or stdout. The
+  // conformance suite asserts the raw token is absent from every artifact.
+  await commit(root, {
+    message: "fix(auth): rotate leaked key sk-LEAKED1234567890abcdef (#77)",
+    author: IDENTITY_A,
+    date: "2026-07-18T14:00:00+00:00",
+    files: { "src/auth.js": "export const rotate = () => true;\n" },
+  });
   await commit(root, {
     message: "docs(readme): document zero-install run (#356)",
     author: IDENTITY_B,
@@ -198,6 +211,50 @@ export async function createPristineRepo(opts = {}) {
     await git(root, ["checkout", "--detach", stdout.trim()]);
   }
 
+  return { root, cleanup: () => fs.rm(root, { recursive: true, force: true }) };
+}
+
+/**
+ * Build a repo with MANY feature branches carrying non-issue commits, to
+ * exercise #352 branch-ownership attribution — which can issue up to one
+ * window-bounded `git rev-list` walk per candidate branch. Used for the
+ * conformance suite's timing check (bounded and terminating).
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.branches] - number of feature branches (default 30)
+ */
+export async function createManyBranchRepo(opts = {}) {
+  const branches = opts.branches || 30;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-branches-"));
+  await git(root, ["init", "-b", "main"]);
+  await git(root, ["config", "user.name", IDENTITY_A.name]);
+  await git(root, ["config", "user.email", IDENTITY_A.email]);
+  await commit(root, {
+    message: "chore: base",
+    author: IDENTITY_A,
+    date: "2026-05-01T09:00:00+00:00",
+    files: { "base.txt": "0\n" },
+  });
+  // Trunk commits with NO issue key, so branch-ownership attribution cannot
+  // short-circuit on issue references and must walk the branches.
+  for (let i = 0; i < 20; i++) {
+    await commit(root, {
+      message: `refactor: trunk step ${i}`,
+      author: IDENTITY_A,
+      date: `2026-06-${String((i % 27) + 1).padStart(2, "0")}T09:00:00+00:00`,
+      files: { "base.txt": `${i + 1}\n` },
+    });
+  }
+  for (let b = 0; b < branches; b++) {
+    await git(root, ["checkout", "-b", `feature/branch-${b}`, "main"]);
+    await commit(root, {
+      message: `feat: work on branch ${b}`,
+      author: IDENTITY_A,
+      date: `2026-07-${String((b % 27) + 1).padStart(2, "0")}T10:00:00+00:00`,
+      files: { [`feat-${b}.txt`]: `${b}\n` },
+    });
+    await git(root, ["checkout", "main"]);
+  }
   return { root, cleanup: () => fs.rm(root, { recursive: true, force: true }) };
 }
 
@@ -336,9 +393,11 @@ export async function createSandbox(opts = {}) {
   }
 
   // A deliberately secret-looking value in the environment. Row 9 asserts it
-  // never surfaces in any output artifact. Use a token-shaped value so redaction
-  // (if any) and accidental echoing are both exercised.
-  const secret = opts.secret || "sk-conformance-SECRET-0xDEADBEEF-do-not-leak";
+  // never surfaces in any output artifact. It is deliberately NOT shaped like a
+  // token redactSensitiveText() would scrub (no `sk-`/`Bearer`/URL-cred form):
+  // if it leaked it would leak RAW, so the assertion catches an env dump rather
+  // than being masked by redaction that only runs on commit text.
+  const secret = opts.secret || "CONFORMANCE-ENV-SENTINEL-8f3a91-do-not-leak";
 
   // A minimal PATH: the shim dir first, then only the standard system dirs that
   // hold sh / which / env. Deliberately EXCLUDES the dirs where claude / codex /
@@ -409,9 +468,14 @@ export function parseGitSpyLog(raw) {
 // attribution and #350 discovery counts, and read-only — and the `remote` list
 // form (read-only) used when resolving a repo's canonical remote for the tracker
 // cache key. `--version` is a probe, not a subcommand.
+// `symbolic-ref` (read form) is included: #352's getMainlineBranch reads
+// `symbolic-ref --short refs/remotes/origin/HEAD` to find the trunk WITHOUT a
+// network round-trip. It is read-only, but it is outside the epic's enumerated
+// allowlist — a deviation the conformance suite surfaces (see the suite's
+// row-4 comment). The write forms are guarded in findGitViolations.
 export const GIT_READONLY_SUBCOMMANDS = new Set([
   "log", "rev-list", "for-each-ref", "rev-parse", "show", "diff",
-  "cat-file", "check-ignore", "var", "config", "remote",
+  "cat-file", "check-ignore", "var", "config", "remote", "symbolic-ref",
 ]);
 
 // Global options that consume the following token as a value; used to skip past
@@ -476,6 +540,17 @@ export function findGitViolations(calls) {
       const mutators = ["add", "remove", "rm", "rename", "set-url", "set-head", "set-branches", "prune", "update"];
       if (argv.slice(1).some((t) => mutators.includes(t))) {
         violations.push(`mutating git remote: git ${argv.join(" ")}`);
+      }
+    }
+    if (subcommand === "symbolic-ref") {
+      // Read form: `symbolic-ref [-q] [--short] <name>` (exactly one non-flag
+      // arg). Write forms: `symbolic-ref <name> <ref>` (two non-flag args) or
+      // `-d`/`--delete <name>`.
+      const rest = argv.slice(argv.indexOf(subcommand) + 1);
+      const flags = rest.filter((t) => t.startsWith("-"));
+      const positionals = rest.filter((t) => !t.startsWith("-"));
+      if (flags.includes("-d") || flags.includes("--delete") || positionals.length >= 2) {
+        violations.push(`mutating git symbolic-ref: git ${argv.join(" ")}`);
       }
     }
   }
