@@ -1099,7 +1099,7 @@ export async function resolveWindowBounds(root, window) {
 
   // Exclusive unless the upper bound is a ref (a range, git-native inclusive).
   const untilExact = untilRef === null;
-  return { dateArgs, range, sinceInstant, untilInstant, untilExact };
+  return { dateArgs, range, sinceInstant, untilInstant, untilExact, sinceRef, untilRef };
 }
 
 // Enforce the half-open author-date window `[since, until)` using the resolved
@@ -1180,6 +1180,31 @@ export async function collectCommits(root, options = {}) {
   const merges = [];
   const truncated = { commits: false, merges: false, files: false, fileEntries: false };
 
+  // A REF-based upper bound cannot be expressed alongside `--branch`: the log
+  // walk becomes `refs... ^sinceRef`, and git has no way to say "reachable from
+  // these refs AND from <untilRef>" in one revision range. Dropping the upper
+  // bound (the previous behaviour) silently counted commits ABOVE it, so
+  // `--since A --until B --branch feature` over-reported. Resolve the upper
+  // bound to an explicit SHA set once and intersect in JS. Bounded by the same
+  // window, so it cannot walk more history than the main pass.
+  let untilReachable = null;
+  if (refs !== null && refs.length > 0 && bounds.untilRef) {
+    const revListArgs = ["rev-list", bounds.untilRef];
+    if (bounds.sinceRef) revListArgs.push(`^${bounds.sinceRef}`);
+    revListArgs.push(...bounds.dateArgs);
+    try {
+      const { stdout } = await execFileAsync("git", revListArgs, {
+        cwd: root, env: gitEnv(), maxBuffer: 256 * 1024 * 1024,
+      });
+      untilReachable = new Set(stdout.split("\n").map((line) => line.trim()).filter(Boolean));
+    } catch {
+      // If the upper bound cannot be resolved, say so rather than silently
+      // reporting a window wider than the one that was asked for.
+      notes.push(`The --until ref "${bounds.untilRef}" could not be resolved alongside --branch; commits above it may be included.`);
+    }
+  }
+
+
   // Aggregate rollups. Line/file totals are RAW (before generated-path
   // exclusion) so they match the reference measurement; `filesExcluded` records
   // what was dropped from the per-record file lists.
@@ -1208,6 +1233,10 @@ export async function collectCommits(root, options = {}) {
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
         continue;
       }
+      // Ref-based upper bound under --branch (see untilReachable above).
+      if (untilReachable && !untilReachable.has(record.sha)) {
+        continue;
+      }
       // Check the cap BEFORE retaining, so a window that lands exactly on the
       // cap is not falsely reported as truncated: truncation is set only when a
       // further in-window commit actually exists beyond the cap.
@@ -1228,7 +1257,12 @@ export async function collectCommits(root, options = {}) {
       // Counters always advance; only PATH RETENTION is budgeted, so churn
       // totals stay exact even once the path lists stop growing.
       fileChanges += numstat.files.length + numstat.excludedFiles.length;
-      if (retainedFileEntries >= MAX_TOTAL_FILE_ENTRIES) {
+      // Check the budget against what THIS record would add, not just what was
+      // already retained: a single 200k-file commit arriving at 499,999 would
+      // otherwise be retained whole, overshooting the bound by 40% and possibly
+      // never setting the flag.
+      const wouldRetain = numstat.files.length + numstat.excludedFiles.length;
+      if (retainedFileEntries + wouldRetain > MAX_TOTAL_FILE_ENTRIES) {
         truncated.fileEntries = true;
         // Drop this record's path list rather than keep a partial one that a
         // downstream path filter would silently read as "touched nothing else".
@@ -1258,6 +1292,10 @@ export async function collectCommits(root, options = {}) {
     for await (const raw of noReachableRefs ? emptyRecordStream() : streamRawRecords(root, gitArgs)) {
       const { record } = parseRecord(raw, { isMerge: true, ignoreMatcher });
       if (!isAuthoredInWindow(record.authoredAt, bounds)) {
+        continue;
+      }
+      // Ref-based upper bound under --branch (see untilReachable above).
+      if (untilReachable && !untilReachable.has(record.sha)) {
         continue;
       }
       if (merges.length >= maxMerges) {

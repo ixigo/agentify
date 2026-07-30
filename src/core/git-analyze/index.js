@@ -92,7 +92,10 @@ export async function runGitAnalyze(root, options = {}) {
       dryRun: options.dryRun === true,
       repositories: Array.isArray(options.repositories) ? options.repositories : [],
       discovery: options.discovery || null,
-      includeMerges: options.includeMerges === true,
+      // The CLI passes --include-merges inside `filters` (it is a filter flag),
+      // so reading only a top-level option left the dry-run preview counting
+      // merges differently from the real run that follows it.
+      includeMerges: options.includeMerges === true || filterSet.includeMerges === true,
       maxCommits: options.maxCommits,
       maxMerges: options.maxMerges,
       collectCommits: options.collectCommits || collectCommits,

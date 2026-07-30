@@ -31,11 +31,11 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import { classifyIssueKey } from "./parse.js";
 import { writePrivateJson } from "../fs.js";
+import { resolveCacheDir } from "./cache-path.js";
 
 // Versioned machine contract for the `report.tracker` block. Bump on any
 // breaking change to that shape.
@@ -104,12 +104,13 @@ export function collectIssueKeys(summary) {
  * @param {object} [env]
  * @returns {string}
  */
-export function trackerCacheDir(env = process.env) {
-  const configured = typeof env.XDG_CACHE_HOME === "string" ? env.XDG_CACHE_HOME.trim() : "";
-  const cacheHome = configured.length > 0 && path.isAbsolute(configured)
-    ? configured
-    : path.join(os.homedir(), ".cache");
-  return path.join(cacheHome, "agentify", "git-analyze", "tracker");
+export function trackerCacheDir(env = process.env, repositoryPaths = []) {
+  // Containment is NOT optional here: an XDG_CACHE_HOME that points (or
+  // symlinks) into an analysed repository would make `--jira` drop cache files
+  // inside it, breaking the epic's zero-write guarantee. resolveCacheDir
+  // realpaths both sides and falls back past any candidate inside a repo — the
+  // same guard discovery and the HTML report use.
+  return resolveCacheDir(["tracker"], { env, repositoryPaths });
 }
 
 // A filesystem-safe, leak-free cache filename. The scope (base URL / remote /
@@ -654,7 +655,7 @@ export async function resolveTracker(params = {}) {
     // is not verifiable here), so it needs no scope.
     jiraScope: `jira:${baseUrl || "local"}:${accountHash(env)}`,
     cache: params.cache !== false,
-    cacheDir: trackerCacheDir(env),
+    cacheDir: trackerCacheDir(env, params.repositoryPaths || []),
     requestTimeoutMs: Number.isFinite(params.requestTimeoutMs) ? params.requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS,
     ttlMs: Number.isFinite(params.ttlMs) ? params.ttlMs : DEFAULT_TTL_MS,
     now,

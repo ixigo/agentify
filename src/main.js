@@ -1634,6 +1634,12 @@ export async function runCli(argv, _runtime = {}) {
               mode: trackerMode,
               projects: jiraProjects,
               cwd: repoRoot,
+              // Every repository this run touched, so the tracker cache can be
+              // placed outside all of them (a symlinked XDG_CACHE_HOME pointing
+              // into one would otherwise dirty it).
+              repositoryPaths: report.scope === "global"
+                ? (report.repositories || []).map((entry) => entry.path).filter(Boolean)
+                : [repoRoot].filter(Boolean),
               ghScope,
               // Scope the gh probe/disclosure to the repository's own GitHub host
               // (github.com or a GHE host), so an unqualified `gh auth status`

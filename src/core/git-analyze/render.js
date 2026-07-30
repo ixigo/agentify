@@ -34,6 +34,30 @@ function mdInline(text) {
     .replace(/([\\`*_{}[\]()<>|~#])/g, "\\$1");
 }
 
+// A narrower escape for GIT-DERIVED inline text (branch names, directories,
+// repository names, theme titles). It blocks the characters that can inject
+// STRUCTURE into a shareable markdown report — raw HTML (`<`/`>`), links and
+// images (`[`/`]`), emphasis (`*`/`_`), code spans (backtick), table cells
+// (`|`), and the escape character itself — while leaving `#`, `(`, `)`, `~` and
+// `{}` alone so an ordinary title like "Issue #42" or "Scope (acp)" still reads
+// naturally. Fully escaping those would make every deterministic heading ugly
+// to defend against characters that are inert mid-line.
+function mdText(text) {
+  return String(text ?? "")
+    .replace(CONTROL_CHARS, " ")
+    .replace(/([\\`*_[\]<>|])/g, "\\$1");
+}
+
+// Inside a fenced/inline CODE SPAN a backslash escape is NOT processed — it
+// would render literally as "\#". The only character that can break out of a
+// code span is the backtick, so code-span text is sanitized by replacing
+// backticks (and control bytes) rather than escaping.
+function mdCode(text) {
+  return String(text ?? "")
+    .replace(CONTROL_CHARS, " ")
+    .replaceAll("`", "'");
+}
+
 // A bounded short-SHA evidence trail for the human formats. The full, complete
 // SHA list stays in the JSON contract (where a theme's figures are reconciled);
 // the document formats show enough to trace and then a "+N more" tail so a
@@ -149,14 +173,15 @@ function narrationMarkdownLines(narration) {
   }
   for (const entry of narration.entries) {
     const flag = entry.source === "deterministic" ? " _(deterministic fallback)_" : "";
-    lines.push(`- **${entry.title}** (${entry.confidence})${flag}`);
-    lines.push(`  - ${entry.what}`);
-    lines.push(`  - ${entry.how_it_helped}`);
-    if (entry.evidence_gap) lines.push(`  - _Evidence gap: ${entry.evidence_gap}_`);
+    // Model-authored text is untrusted in a shareable document too.
+    lines.push(`- **${mdText(entry.title)}** (${entry.confidence})${flag}`);
+    lines.push(`  - ${mdText(entry.what)}`);
+    lines.push(`  - ${mdText(entry.how_it_helped)}`);
+    if (entry.evidence_gap) lines.push(`  - _Evidence gap: ${mdText(entry.evidence_gap)}_`);
   }
   lines.push("");
   if (narration.not_narrated.length > 0) {
-    lines.push(`**Not narrated (${narration.not_narrated.length}):** ${narration.not_narrated.map((theme) => theme.title).join("; ")}`);
+    lines.push(`**Not narrated (${narration.not_narrated.length}):** ${narration.not_narrated.map((theme) => mdText(theme.title)).join("; ")}`);
     lines.push("");
   }
   const receipt = narrationReceiptLine(narration.receipt);
@@ -271,13 +296,13 @@ function relatedRefLines(refs, escape = oneLine) {
 function mdThemeSection(theme, showRepo) {
   const lines = [];
   const churn = `+${theme.insertions}/-${theme.deletions}`;
-  const repoTag = showRepo ? `[${theme.repository}] ` : "";
+  const repoTag = showRepo ? `[${mdText(theme.repository)}] ` : "";
   // Only the UNTRUSTED part of the heading is md-escaped: a resolved tracker
   // title is rebuilt from the key plus the escaped remote title, so deterministic
   // titles (Issue #42, Scope (acp), Directory src/) stay verbatim.
   const headingTitle = theme.tracker && theme.tracker.resolved && theme.tracker.title
-    ? `${theme.key} — ${mdInline(theme.tracker.title)}`
-    : theme.title;
+    ? `${mdText(theme.key)} — ${mdInline(theme.tracker.title)}`
+    : mdText(theme.title);
   lines.push(`### ${repoTag}${headingTitle} — ${theme.commits} ${plural(theme.commits, "commit")} (${churn})`);
   lines.push("");
   const tag = themeKeyLine(theme);
@@ -302,13 +327,17 @@ function mdThemeSection(theme, showRepo) {
   if (types) lines.push(`- Types: ${types}`);
   lines.push(`- Span: ${span(theme.first_commit, theme.last_commit)} · ${theme.files_changed} ${plural(theme.files_changed, "file")} touched`);
   if (theme.top_files.length > 0) {
-    lines.push(`- Top files: ${theme.top_files.map((f) => `\`${f.path}\` (${f.commits})`).join(", ")}`);
+    // File paths are git-derived and untrusted: a path containing a backtick
+    // breaks out of the code span, and one containing markdown/HTML renders as
+    // markup in a shareable report.
+    lines.push(`- Top files: ${theme.top_files.map((f) => `\`${mdCode(f.path)}\` (${f.commits})`).join(", ")}`);
   }
   if (theme.merge_subjects.length > 0) {
-    lines.push(`- Delivered: ${theme.merge_subjects.map((s) => `_${s}_`).join("; ")}`);
+    // Merge subjects are raw commit messages — same exposure as file paths.
+    lines.push(`- Delivered: ${theme.merge_subjects.map((s) => `_${mdText(s)}_`).join("; ")}`);
   }
   if (theme.iteration_signal) {
-    lines.push(`- Iteration: ${theme.iteration_signal.commits} commits on ${theme.iteration_signal.key} (repeated work, not noise)`);
+    lines.push(`- Iteration: ${theme.iteration_signal.commits} commits on ${mdText(theme.iteration_signal.key)} (repeated work, not noise)`);
   }
   // Evidence: the SHAs that back every figure above, so the theme reconciles.
   lines.push(`- Evidence: ${shortShas(theme.shas)}`);

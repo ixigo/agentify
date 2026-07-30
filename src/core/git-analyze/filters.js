@@ -713,6 +713,19 @@ export function applyFilters(collection, filterSet, context = {}) {
       warnings.push(`--path "${glob}" matched no changed files.`);
     }
   }
+  // A commit whose file list was dropped at the aggregate retention cap cannot
+  // be path-matched — it has no paths left to compare. Excluding it silently
+  // would under-report an explicit --path query with no way for the user to
+  // reconcile the number, so say so once, with the count.
+  if (filterSet.pathGlobs.length > 0) {
+    const unmatchable = baseCommits.reduce((total, record) => total + (record.filesTruncated ? 1 : 0), 0);
+    if (unmatchable > 0) {
+      warnings.push(
+        `${unmatchable} commit(s) could not be matched against --path because their file lists were dropped at the retention cap; ` +
+          "they are excluded from the path-filtered result.",
+      );
+    }
+  }
 
   if (filterSet.types.length > 0) {
     const matched = countOver(typePredicate, baseCommits);

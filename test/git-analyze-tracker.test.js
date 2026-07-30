@@ -932,3 +932,42 @@ test("HTML escapes untrusted tracker titles and drops a non-http link", () => {
   assert.ok(html.includes("&lt;script&gt;"), "title was not escaped");
   assert.ok(!html.includes("javascript:alert(1)"), "unsafe link was emitted");
 });
+
+// The zero-write guarantee was breached three separate times in this epic — in
+// html.js, then discover.js, then here — each time because a containment check
+// was lexical, or absent, while XDG_CACHE_HOME could be relative, absolute-into
+// the repo, or a symlink into it. All three now share cache-path.js; this pins
+// the tracker's use of it.
+test("the tracker cache never lands inside an analysed repository", async (t) => {
+  const { trackerCacheDir } = await import("../src/core/git-analyze/tracker.js");
+  const { isInside } = await import("../src/core/git-analyze/cache-path.js");
+  const fsSync = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+
+  const repo = fsSync.mkdtempSync(pathMod.join(osMod.tmpdir(), "agentify-trk-repo-"));
+  fsSync.mkdirSync(pathMod.join(repo, ".git"));
+  const insideRepo = pathMod.join(repo, ".cache");
+  fsSync.mkdirSync(insideRepo, { recursive: true });
+  const symlinkIntoRepo = pathMod.join(osMod.tmpdir(), `agentify-trk-link-${process.pid}`);
+  fsSync.symlinkSync(insideRepo, symlinkIntoRepo);
+  t.after(() => {
+    fsSync.rmSync(repo, { recursive: true, force: true });
+    fsSync.rmSync(symlinkIntoRepo, { force: true });
+  });
+
+  for (const [label, xdg] of [
+    ["an absolute XDG_CACHE_HOME inside the repo", insideRepo],
+    ["a symlinked XDG_CACHE_HOME into the repo", symlinkIntoRepo],
+    ["a relative XDG_CACHE_HOME (resolves against cwd)", "cache"],
+  ]) {
+    const dir = trackerCacheDir({ XDG_CACHE_HOME: xdg }, [repo]);
+    assert.ok(pathMod.isAbsolute(dir), `${label}: must be absolute, got ${dir}`);
+    assert.equal(isInside(repo, dir), false, `${label}: leaked into the repo at ${dir}`);
+  }
+
+  // A legitimate absolute cache home outside every repo is still honoured.
+  const outside = fsSync.mkdtempSync(pathMod.join(osMod.tmpdir(), "agentify-trk-cache-"));
+  t.after(() => fsSync.rmSync(outside, { recursive: true, force: true }));
+  assert.ok(trackerCacheDir({ XDG_CACHE_HOME: outside }, [repo]).startsWith(outside));
+});

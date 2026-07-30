@@ -154,7 +154,8 @@ Add `--include-merges` to fold the 176 merge commits back into the counts.
 
 ## What it will never do
 
-This command **observes; it does not record**. Specifically:
+This command **observes; it does not record** — with exactly one opt-in
+exception, spelled out at the end of this section. Specifically:
 
 - It requires no `.agentify.yaml` and never creates one.
 - It requires no index and never runs a scan.
@@ -174,6 +175,22 @@ This command **observes; it does not record**. Specifically:
   environment variables are unset, that is an actionable misconfiguration and the
   command exits non-zero rather than silently degrading. Auto-detection
   (`--jira auto`) always degrades to a footnote.
+
+### The one exception: `--ai` spend in an existing install
+
+There is exactly one case where this command writes anything, and it is opt-in
+twice over. If you pass `--ai`, consent to the packet, a provider actually runs
+**and** this repository already has an Agentify store, the dollars spent are
+appended to that store's existing delegation ledger
+(`.agentify/context/delegations.jsonl`) — the same place every other Agentify
+spend is recorded, so your cost reporting stays complete.
+
+It never *creates* a store to record that number: on a repository with no
+Agentify install there is nothing to write to, and the spend is reported in the
+report itself instead. The default path (`--ai` absent) writes nothing at all,
+and the ledger is gitignored by the install that created it. If you want the
+narration with no write whatsoever, run it from a repository with no Agentify
+store, or read the spend from the report's privacy receipt.
 
 The zero-install property is enforced by a conformance suite
 (`test/git-analyze-conformance.test.js`) that runs the real command inside a
