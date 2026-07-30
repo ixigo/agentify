@@ -10,7 +10,7 @@
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
 
-  <header class="topbar">
+  <header class="topbar" aria-label="Site header">
     <div class="topbar-inner">
       <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
       <nav class="topnav" aria-label="Primary navigation">
@@ -24,7 +24,7 @@
     </div>
   </header>
 
-  <header data-testid="config-page">
+  <header data-testid="config-page" aria-label="Configuration guide introduction">
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">Personalize deliberately</span>
@@ -35,7 +35,7 @@
           <a class="cta cta-secondary" href="analyze.html">Analyze usage first</a>
         </div>
         <div class="hero-meta">
-          <span>versioned per repo</span>
+          <span>local per repo</span>
           <span>deep-merged defaults</span>
           <span>explainable routing</span>
         </div>
@@ -236,6 +236,15 @@ models:
   reserve:
     decisions: 250
     failures: 250</code></pre>
+          </article>
+          <article class="move">
+            <span class="tag">acp sessions · opt in</span>
+            <h3>Bring context to the full agent transport</h3>
+            <p>Injection and capture are independent and default off. <code>auto</code> keeps one writer: Codex uses proxy capture, while Claude keeps its hooks.</p>
+            <pre tabindex="0"><code>context:
+  acpInjection: relevant
+  acpCapture: auto</code></pre>
+            <span class="cmd">agentify acp --provider codex</span>
           </article>
           <article class="move">
             <span class="tag">external search · optional</span>

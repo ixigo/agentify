@@ -1,10 +1,10 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agentify · Usage guide</title>
-  <meta name="description" content="How and when to use each Agentify capability: persistent context, failure memory, impact-aware tests, cross-vendor review, decision log, MCP server, usage stats. Every output shown is from a real run.">
+  <meta name="description" content="How and when to use each Agentify capability: persistent context, failure memory, impact-aware tests, cross-vendor review, decision log, MCP tools, ACP sessions, and usage stats.">
   <link rel="stylesheet" href="command-style.css">
   <style>
     .why-block { margin-top: 14px; }
@@ -20,7 +20,7 @@
   </style>
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" aria-label="Site header">
     <div class="topbar-inner">
       <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
       <nav class="topnav" aria-label="Primary navigation">
@@ -34,7 +34,7 @@
     </div>
   </header>
 
-  <header>
+  <header aria-label="Usage guide introduction">
     <div class="container hero-grid">
       <div>
         <span class="eyebrow">Usage guide</span>
@@ -189,6 +189,25 @@ CLI reported no usage.</pre>
 
 tools: ctx_load, ctx_note, ctx_match, query, risk, test_select, ctx_decisions, ctx_handoff</pre>
         <p><strong>When to use hooks vs MCP:</strong> in Claude Code prefer hooks (automatic tracking, free per-prompt injection); use MCP everywhere else. Both together is fine. The server is part of the CLI — zero extra dependencies, no state between calls, backed by the same store and index.</p>
+      </div>
+    </section>
+
+    <section class="shell usage-section" id="acp">
+      <div class="container">
+        <span class="section-label">acp proxy</span>
+        <h2>The whole agent session, <span class="accent">not just tools.</span></h2>
+        <p><strong>Why:</strong> MCP adds Agentify tools to an existing agent. ACP is the editor-to-agent transport, so Agentify can sit between an ACP-capable client and Claude or Codex, carry the full session, inject prior context, and capture what the agent changes.</p>
+        <p><strong>How:</strong> install a downstream adapter, then configure the ACP client to launch Agentify from the repository root:</p>
+        <pre tabindex="0"><code><span class="c"># Codex adapter</span>
+npm install -g @agentclientprotocol/codex-acp
+<span class="a">agentify acp --provider codex</span>
+
+<span class="c"># opt in through .agentify.yaml</span>
+context:
+  acpInjection: relevant  <span class="c"># off | relevant | digest</span>
+  acpCapture: auto        <span class="c"># off | auto | all | compare</span></code></pre>
+        <p><strong>What the epic adds:</strong> transparent byte-for-byte proxying, token-budgeted context on the first user turn, and observation-only capture of edits, commands, failures, and outcomes. <code>auto</code> writes directly for hookless Codex sessions; Claude's hooks remain the main writer and the proxy uses a diagnostic side-log, avoiding duplicate events.</p>
+        <p><strong>Safety:</strong> both features default to <code>off</code>, honor <code>ctx pause</code>, and accept only the repository root or a real subdirectory. Symlink escapes cannot receive or write this repo's context. Client registration remains manual; <code>agentify install</code> does not claim to edit editor-specific ACP config.</p>
       </div>
     </section>
 

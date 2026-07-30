@@ -5,6 +5,7 @@ import path from "node:path";
 import { ensureBaselineArtifacts, runScan } from "./commands.js";
 import { writeDefaultConfig } from "./config.js";
 import { exists } from "./fs.js";
+import { ensureAgentifyGitignore } from "./gitignore.js";
 import { loadContextSnapshot, renderContextDigest } from "./ctx.js";
 import {
   MCP_REGISTRABLE_PROVIDERS,
@@ -139,6 +140,7 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   // `wrote` records only paths that actually changed on disk, so the receipt
   // is an accurate record rather than an aspirational list.
   const wrote = [];
+  const generatedIgnorePatterns = [];
   const pushWrote = (file) => {
     if (file && !wrote.includes(file)) {
       wrote.push(file);
@@ -164,6 +166,9 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       if (after !== null && after !== before.get(file)) {
         pushWrote(file);
       }
+      if (file !== ".gitignore" && before.get(file) === null && after !== null) {
+        generatedIgnorePatterns.push(`/${file}`);
+      }
     }
     if (!agentifyDirBefore && await exists(path.join(root, ".agentify"))) {
       pushWrote(".agentify");
@@ -185,6 +190,34 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       if (integration.settings?.renderer?.changed && integration.settings.renderer.path) {
         pushWrote(integration.settings.renderer.path);
       }
+      if (!isGlobal
+        && integration.settings?.path
+        && integration.settings.existed === false
+        && integration.settings.changed) {
+        const relative = path.relative(root, integration.settings.path);
+        if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+          generatedIgnorePatterns.push(`/${relative.split(path.sep).join("/")}`);
+        }
+      }
+      if (!isGlobal
+        && integration.settings?.renderer?.path
+        && integration.settings.renderer.existed === false
+        && integration.settings.renderer.changed) {
+        const relative = path.relative(root, integration.settings.renderer.path);
+        if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+          generatedIgnorePatterns.push(`/${relative.split(path.sep).join("/")}`);
+        }
+      }
+    }
+  }
+
+  if (!isGlobal && generatedIgnorePatterns.length > 0) {
+    const gitignore = await ensureAgentifyGitignore(root, {
+      dryRun,
+      additionalPatterns: generatedIgnorePatterns,
+    });
+    if (!dryRun && gitignore.changed) {
+      pushWrote(".gitignore");
     }
   }
 

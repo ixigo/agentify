@@ -6,8 +6,8 @@ import { writeText } from "./fs.js";
 export const AGENTIFY_GITIGNORE_START = "# >>> agentify generated artifacts";
 export const AGENTIFY_GITIGNORE_END = "# <<< agentify generated artifacts";
 
-export const AGENTIFY_GITIGNORE_PATTERNS = [
-  ".agentify/",
+const AGENTIFY_GENERATED_PROJECT_PATTERNS = [
+  "plans/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.html",
   ".current_session/",
   "AGENTIFY.md",
   "docs/repo-map.md",
@@ -16,6 +16,11 @@ export const AGENTIFY_GITIGNORE_PATTERNS = [
   "agentify-report.html",
   "agentify-value-report.html",
   "agentify-session-analysis.html",
+];
+
+export const AGENTIFY_GITIGNORE_PATTERNS = [
+  ".agentify/",
+  ...AGENTIFY_GENERATED_PROJECT_PATTERNS,
 ];
 
 // Shared-context mode: everything under .agentify/ stays local except
@@ -26,14 +31,7 @@ export const AGENTIFY_SHARED_GITIGNORE_PATTERNS = [
   "!.agentify/context",
   ".agentify/context/*",
   "!.agentify/context/notes.jsonl",
-  ".current_session/",
-  "AGENTIFY.md",
-  "docs/repo-map.md",
-  "docs/modules/",
-  "output.txt",
-  "agentify-report.html",
-  "agentify-value-report.html",
-  "agentify-session-analysis.html",
+  ...AGENTIFY_GENERATED_PROJECT_PATTERNS,
 ];
 
 export const SHARED_NOTES_MARKER = "!.agentify/context/notes.jsonl";
@@ -41,10 +39,12 @@ export const SHARED_NOTES_MARKER = "!.agentify/context/notes.jsonl";
 const LEGACY_AGENTIFY_GITIGNORE_PATTERNS = [
   ".agents/",
   ".agentify/work/",
+  "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.",
+  "# Agentify-generated files stay local. CLAUDE.md, AGENTS.md, and this .gitignore remain visible to Git.",
 ];
 
 const AGENTIFY_GITIGNORE_HEADER =
-  "# Local/runtime Agentify output. Commit .agentify.yaml, .agentignore, and .guardrails when you want repo-shared policy.";
+  "# New Agentify-owned files stay local. CLAUDE.md, AGENTS.md, and this .gitignore remain visible to Git.";
 
 function getManagedGitignoreLines({ shared = false } = {}) {
   return [
@@ -92,7 +92,21 @@ function collectPreservedBlockLines(blockText) {
   return preserved;
 }
 
-function applyAgentifyGitignoreBlock(existingText, { shared } = {}) {
+function mergeAdditionalPatterns(preservedLines, additionalPatterns = []) {
+  const seen = new Set(preservedLines.map((line) => line.trim()).filter(Boolean));
+  const merged = [...preservedLines];
+  for (const pattern of additionalPatterns) {
+    const normalized = String(pattern || "").trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    merged.push(normalized);
+  }
+  return merged;
+}
+
+function applyAgentifyGitignoreBlock(existingText, { shared, additionalPatterns = [] } = {}) {
   const normalized = normalizeText(existingText || "");
   const startIndex = normalized.indexOf(AGENTIFY_GITIGNORE_START);
   const endIndex = normalized.indexOf(AGENTIFY_GITIGNORE_END);
@@ -102,12 +116,16 @@ function applyAgentifyGitignoreBlock(existingText, { shared } = {}) {
   if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
     const afterEnd = endIndex + AGENTIFY_GITIGNORE_END.length;
     const blockText = normalized.slice(startIndex + AGENTIFY_GITIGNORE_START.length, endIndex);
-    const block = renderAgentifyGitignoreBlock(collectPreservedBlockLines(blockText), { shared: effectiveShared });
+    const preserved = mergeAdditionalPatterns(collectPreservedBlockLines(blockText), additionalPatterns);
+    const block = renderAgentifyGitignoreBlock(preserved, { shared: effectiveShared });
     const nextText = `${normalized.slice(0, startIndex)}${block}${normalized.slice(afterEnd).replace(/^\n+/, "")}`;
     return nextText.endsWith("\n") ? nextText : `${nextText}\n`;
   }
 
-  const block = renderAgentifyGitignoreBlock([], { shared: effectiveShared });
+  const block = renderAgentifyGitignoreBlock(
+    mergeAdditionalPatterns([], additionalPatterns),
+    { shared: effectiveShared },
+  );
   const prefix = normalized.trimEnd();
   if (!prefix) {
     return block;
@@ -115,7 +133,11 @@ function applyAgentifyGitignoreBlock(existingText, { shared } = {}) {
   return `${prefix}\n\n${block}`;
 }
 
-export async function ensureAgentifyGitignore(root, { dryRun = false, shared } = {}) {
+export async function ensureAgentifyGitignore(root, {
+  dryRun = false,
+  shared,
+  additionalPatterns = [],
+} = {}) {
   const gitignorePath = path.join(root, ".gitignore");
   let existing = null;
 
@@ -127,7 +149,7 @@ export async function ensureAgentifyGitignore(root, { dryRun = false, shared } =
     }
   }
 
-  const next = applyAgentifyGitignoreBlock(existing || "", { shared });
+  const next = applyAgentifyGitignoreBlock(existing || "", { shared, additionalPatterns });
   const changed = existing === null || normalizeText(existing) !== next;
 
   if (changed && !dryRun) {

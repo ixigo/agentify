@@ -29,8 +29,9 @@ agentify install
    - `PostToolUse` (file edits and Bash) runs `agentify ctx track --hook` to record activity and command failures.
    - `PostToolUse` (`ExitPlanMode`) runs `.claude/hooks/plan-to-html.mjs` to save approved plans as standalone files under `plans/`.
    - `SessionEnd` records the session close and triggers the background session summary.
-3. Writes baseline repo files: `.agentify.yaml` (config), `.agentignore`, `.guardrails`, and the `.agentify/` runtime directory (gitignored).
-4. Prints next steps.
+3. Writes baseline repo files: `.agentify.yaml` (config), `.agentignore`, `.guardrails`, and the `.agentify/` runtime directory.
+4. Updates a marker-delimited `.gitignore` block so newly created Agentify-owned artifacts stay local. Mixed-ownership files are added only when Agentify creates them, and project skills add their exact installed directory. `CLAUDE.md`, `AGENTS.md`, and `.gitignore` remain visible. Existing tracked files remain tracked; Agentify never stages removals from the Git index.
+5. Prints next steps.
 
 `agentify install --global` skips the repo files and instead writes the managed block and hooks into `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, and `~/.claude/hooks/plan-to-html.mjs`, so every repo you work in gets context tracking and plan rendering.
 
@@ -586,6 +587,44 @@ The server exposes eight tools, all backed by the same store and index the hooks
 
 Any other agent can still use the plain CLI with `--json` output: `agentify ctx load`, `agentify ctx note`, `agentify query ...`, `agentify risk`. Add equivalent guidance to that agent's instruction file and, if it supports lifecycle hooks, wire `agentify ctx track --hook` the same way.
 
+## Full-agent sessions: ACP proxy
+
+MCP gives an existing agent Agentify tools. [ACP](https://agentclientprotocol.com/) carries the whole agent session between an ACP-capable client and a downstream agent. Configure the client to launch Agentify from the repository root:
+
+```bash
+# Codex adapter
+npm install -g @agentclientprotocol/codex-acp
+agentify acp --provider codex
+
+# Claude adapter (currently requires Node 22+)
+npm install -g @agentclientprotocol/claude-agent-acp
+agentify acp --provider claude
+
+# Any compatible adapter binary
+agentify acp --command ./my-acp-adapter
+```
+
+The proxy is deliberately transparent: it forwards ACP frames byte-for-byte, including extension methods Agentify does not understand; owns and terminates the downstream process; and closes the connection rather than leaving requests hanging if the adapter fails.
+
+Context injection and capture are separate, opt-in controls:
+
+```yaml
+context:
+  acpInjection: relevant  # off (default) | relevant | digest
+  acpCapture: auto        # off (default) | auto | all | compare
+```
+
+- `acpInjection: relevant` matches the first user turn against the same token-budgeted context store used by hooks. `digest` injects the full session digest. Injection happens once per ACP session and suppresses downstream hook injection to prevent duplicates.
+- `acpCapture: auto` writes edits, commands, failures, and outcomes to the main store for hookless agents such as Codex. For Claude, its hooks remain the one writer and proxy events go to a diagnostic side-log instead.
+- `all` makes the proxy authoritative even when the downstream can run hooks. Use it only when those hooks are disabled.
+- `compare` never touches the main event store. Run `agentify ctx capture-report` to compare proxy fidelity with hook capture.
+
+Both paths honor `agentify ctx pause`. A session may use the repository root or any real subdirectory, but symlink escapes and paths outside the workspace are rejected before context is injected or captured.
+
+`AGENTIFY_ACP_INJECTION` and `AGENTIFY_ACP_CAPTURE` provide one-process overrides. `AGENTIFY_CTX=off` disables both. The default remains `off` for both features, so adding the proxy alone preserves pure pass-through behavior.
+
+`agentify install` does not yet register editor-specific ACP client configuration. Its receipt reports that honestly; configure the ACP launch command in the client yourself.
+
 ## One-command install: registration, index, and a first-run win
 
 `agentify install` performs the full setup in one pass and prints a receipt of everything it did — what it **detected**, **registered**, **wrote to disk**, and **read**.
@@ -598,8 +637,9 @@ What it does, in order:
    - Codex → `~/.codex/config.toml`, a `[mcp_servers.agentify]` table.
    Registration is **idempotent** (a byte-identical entry is a no-op), **backs up** the config to a timestamped copy before any change, and **preserves every unrelated key**. Running twice yields exactly one registration.
 3. **Wire guidance and hooks** for the installed providers (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
-4. **Build the structural index** (`agentify scan` under the hood) so `query` / `risk` / `test_select` work immediately.
-5. **Show a first-run win**: the digest of recent local sessions (hot files, unresolved failed commands) when there is history, or a setup audit of your global provider config on a repo with no Agentify history yet.
+4. **Keep new Agentify-owned project files local** through the managed `.gitignore` block. Mixed-ownership paths are ignored only when this run creates them, and exact project-skill directories are added individually. `CLAUDE.md`, `AGENTS.md`, and `.gitignore` remain visible. Existing tracked files stay tracked; `ctx share` is the explicit opt-in that re-includes `notes.jsonl`.
+5. **Build the structural index** (`agentify scan` under the hood) so `query` / `risk` / `test_select` work immediately.
+6. **Show a first-run win**: the digest of recent local sessions (hot files, unresolved failed commands) when there is history, or a setup audit of your global provider config on a repo with no Agentify history yet.
 
 Flags:
 
@@ -615,7 +655,7 @@ agentify install --json                # machine-readable receipt (single payloa
 
 A provider that is installed but **not authenticated** produces a warning and the install continues — the MCP registration is written regardless (auth is a separate concern), and the receipt prints the login command to run when you are ready.
 
-**ACP clients** are registered only if this build carries an ACP registration path. When it does not (it lands with a separate change), the receipt reports ACP as unavailable and skips it — it never assumes a client is present.
+**ACP client registration is not part of install yet.** The `agentify acp` proxy is available, while the receipt reports registration as unavailable and does not claim an editor config was changed.
 
 ### Manual fallback for every automated step
 

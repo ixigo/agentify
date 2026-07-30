@@ -114,6 +114,10 @@ test("installBuiltinSkill copies codex skill bundle into project scope", async (
   assert.equal(result.results[0].status, "installed");
   assert.equal(await exists(skillPath), true);
   assert.equal(await exists(uiPath), true);
+  const gitignore = await fs.readFile(path.join(root, ".gitignore"), "utf8");
+  assert.ok(gitignore.split("\n").includes("/.codex/skills/grill-me/"));
+  assert.ok(!gitignore.split("\n").includes(".codex/skills/"));
+  assert.equal(result.gitignore.status, "created");
 });
 
 test("installBuiltinSkill copies architecture skill references into project scope", async () => {
