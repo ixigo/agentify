@@ -33,9 +33,9 @@ const JIRA_KEY = /\b([A-Z][A-Z0-9]{1,9})-(\d+)(?![\w-])/g;
 const NON_ISSUE_PREFIXES = new Set([
   "UTF", "UTF8", "UTF16", "UTF32",
   "SHA", "SHA1", "SHA256", "SHA512", "MD", "MD5",
-  "HTTP", "HTTPS", "HTTP2", "SSH", "TLS", "SSL", "SPF", "DKIM",
-  "ISO", "RFC", "ASCII", "ANSI", "BASE64", "OAUTH", "OAUTH2", "PBKDF2",
-  "IPV4", "IPV6", "EC2", "S3", "AES", "RSA", "DES", "ECMA", "ES",
+  "HTTP", "HTTPS", "HTTP2", "HTTP3", "SSH", "TLS", "SSL", "SPF", "DKIM",
+  "ISO", "IEC", "RFC", "PEP", "JSR", "ASCII", "ANSI", "BASE64", "OAUTH", "OAUTH2", "PBKDF2",
+  "IPV4", "IPV6", "EC2", "S3", "AES", "RSA", "DES", "3DES", "ECMA", "ES",
   "GB", "MB", "KB", "TB", "PB", "H", "X", "CP",
   // Security identifiers that share the PREFIX-NUMBER shape but are not issues.
   "CVE", "CWE", "CAPEC", "GHSA",
@@ -113,6 +113,33 @@ export function extractIssueKeys(text) {
     }
   }
   return keys;
+}
+
+// A parsed key's shape, for the tracker (#355). GitHub refs keep their leading
+// `#` and carry no project; Jira keys split into an uppercase project and a
+// number. The same stop-list that guards extraction guards this, so a token
+// that never became an issue key here can never become a tracker lookup either.
+const CLASSIFY_JIRA = /^([A-Z][A-Z0-9]{1,9})-(\d+)$/;
+
+/**
+ * Classify an already-extracted issue key as GitHub or Jira. Returns null for a
+ * value that is neither shape or whose Jira prefix is on the non-issue stop-list
+ * (so `UTF-8`, `SHA-256`, `RFC-2119` classify as null and are never looked up).
+ *
+ * @param {string} key
+ * @returns {{ kind: "github"|"jira", project: string|null, number: string }|null}
+ */
+export function classifyIssueKey(key) {
+  const value = String(key || "").trim();
+  const github = /^#(\d+)$/.exec(value);
+  if (github) {
+    return { kind: "github", project: null, number: github[1] };
+  }
+  const jira = CLASSIFY_JIRA.exec(value);
+  if (jira && !NON_ISSUE_PREFIXES.has(jira[1])) {
+    return { kind: "jira", project: jira[1], number: jira[2] };
+  }
+  return null;
 }
 
 // Body trailer left by `git revert`: `This reverts commit <sha>.`. The hash may

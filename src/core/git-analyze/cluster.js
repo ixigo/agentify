@@ -353,6 +353,55 @@ export function clusterCommits(commits, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Tracker enrichment (#355). Pure: fold network-resolved issue titles into an
+// already-built summary so every renderer surfaces them from `theme.title` /
+// `theme.tracker` without re-deriving anything. The resolution itself (the only
+// network in the whole command) happens in tracker.js and is handed in here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Annotate a summary's themes with resolved tracker entries, in place, and
+ * return the same summary. An issue-keyed theme whose key resolved gets its
+ * human title in `theme.title` (prefixed with the key, so the evidence trail is
+ * intact) and the full entry on `theme.tracker`; an unresolved key keeps its
+ * deterministic title but still carries any offline browse link. Non-issue
+ * themes gain a `tracker_refs` map for the issue keys they cite, so a scope- or
+ * branch-keyed theme can show a cited ticket's title too.
+ *
+ * @param {object} summary - the `git-analyze-v1` summary (mutated)
+ * @param {object|null} tracker - the `report.tracker` block (or null when off)
+ * @returns {object} the same summary
+ */
+export function applyTrackerTitles(summary, tracker) {
+  if (!summary || !tracker || !tracker.entries) return summary;
+  const entries = tracker.entries;
+  const lookup = (key) => (Object.prototype.hasOwnProperty.call(entries, key) ? entries[key] : null);
+
+  for (const theme of summary.themes || []) {
+    if (theme.key_kind === "issue" && theme.key) {
+      const entry = lookup(theme.key);
+      if (entry) {
+        theme.tracker = entry;
+        if (entry.resolved && entry.title) {
+          // Keep the key in the label so a figure still reconciles to its key;
+          // the title is what makes the theme readable.
+          theme.title = `${theme.key} — ${entry.title}`;
+        }
+      }
+    }
+    // Every cited key gets its entry surfaced, so a branch/scope theme citing a
+    // ticket can render the ticket's title too.
+    const refs = {};
+    for (const key of theme.issue_keys || []) {
+      const entry = lookup(key);
+      if (entry) refs[key] = entry;
+    }
+    if (Object.keys(refs).length > 0) theme.tracker_refs = refs;
+  }
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
 // Distributions.
 // ---------------------------------------------------------------------------
 

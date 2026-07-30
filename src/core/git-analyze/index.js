@@ -35,7 +35,12 @@ import {
 //              merges under `--include-merges`. Both are observable, so a v3
 //              consumer must not assume the old (summary-less, merge-excluded)
 //              contract.
-export const GIT_ANALYZE_SCHEMA_VERSION = 4;
+//   5 (#355) — under `--jira` a real run carries an optional `report.tracker`
+//              block (schema `git-analyze-tracker-v1`) and folds resolved issue
+//              titles into `summary.themes[].title`/`.tracker`. The block is
+//              absent by default (no `--jira`), but its presence and the retitled
+//              themes are observable, so a v4 consumer must not assume bare keys.
+export const GIT_ANALYZE_SCHEMA_VERSION = 5;
 
 export { resolveWindow };
 

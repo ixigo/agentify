@@ -52,6 +52,8 @@ import { runGitAnalyze } from "./core/git-analyze/index.js";
 import { renderText, renderMarkdown, renderJson } from "./core/git-analyze/render.js";
 import { renderGitAnalyzeHtml, detectEnvironment, defaultReportPath } from "./core/git-analyze/html.js";
 import { discoverRepositories, selectRepositories } from "./core/git-analyze/discover.js";
+import { resolveTracker, collectIssueKeys, normalizeMode as normalizeTrackerMode } from "./core/git-analyze/tracker.js";
+import { applyTrackerTitles } from "./core/git-analyze/cluster.js";
 import { buildNarrationPacket, packetPreview as narrationPacketPreview, collectThemeDiffs, resolveNarrationDepth } from "./core/git-analyze/packet.js";
 import {
   narrateGitAnalyze,
@@ -1398,7 +1400,7 @@ export async function runCli(argv, _runtime = {}) {
           "days", "months", "quarter", "year", "since", "until",
           "local", "global", "repo",
           "me", "author", "branch", "grep", "path", "type", "scope", "issue", "includeMerges",
-          "ai", "provider", "depth", "maxBudgetUsd", "jira",
+          "ai", "provider", "depth", "maxBudgetUsd", "jira", "jiraProject",
           "format", "output", "noOpen", "yes", "noCache",
           "json", "root", "ghost", "strict", "languages", "dryRun", "help", "version",
         ]);
@@ -1413,24 +1415,16 @@ export async function runCli(argv, _runtime = {}) {
         // real analysis to a window-only resolution. A non-dry-run local run now
         // streams commits (#349).
         const dryRun = args.dryRun === true;
-        // Flags whose BEHAVIOUR lands in later slices. They are registered in
-        // cli-args so they parse (and later slices need no re-edit), but this
-        // skeleton implements only the window + local dry-run. Using one now is
-        // a clear "not available yet" — never a silent no-op, and never a
-        // misleading acknowledgement of an option the command cannot honour.
-        // #350 discovery flags (--global/--repo/--root), #351 filter flags
-        // (--me/--author/--branch/--grep/--path/--type/--scope/--issue/
-        // --include-merges), and #354 narration flags (--ai/--provider/--depth/
-        // --max-budget-usd/--yes) are implemented in this build and no longer
-        // deferred. --output/--no-open (#353) and --jira (#355) stay rejected as
-        // "not yet" here; #353's report output is landing concurrently.
-        const DEFERRED_FLAGS = [
-          ["jira", "--jira", "tracker enrichment", 355],
-        ];
-        const usedDeferred = DEFERRED_FLAGS.filter(([key]) => hasOwn(args, key));
-        if (usedDeferred.length > 0) {
-          const parts = usedDeferred.map(([, label, subsystem, issue]) => `${label} (${subsystem}, #${issue})`);
-          throw new Error(`git analyze does not support ${parts.join(", ")} yet; this build collects and reports the window's commits, but those options land in later slices.`);
+        // Optional tracker enrichment (#355). `--jira` is the whole opt-in: absent
+        // means OFF (zero network). Validate the mode up front so a typo fails
+        // before any git read; a bare `--jira` means "auto". `--jira-project`
+        // scopes which Jira keys are looked up (an allowlist), repeatable.
+        const trackerMode = hasOwn(args, "jira") ? normalizeTrackerMode(args.jira) : "off";
+        const jiraProjects = hasOwn(args, "jiraProject")
+          ? [].concat(args.jiraProject).map((value) => String(value).trim()).filter(Boolean)
+          : [];
+        if (jiraProjects.length > 0 && trackerMode === "off") {
+          throw new Error("git analyze --jira-project narrows tracker lookups and requires --jira (auto|acli|rest).");
         }
         // Scope resolution (#350). --local is the default; --global switches to
         // repository discovery under the roots. They are mutually exclusive so a
@@ -1585,6 +1579,33 @@ export async function runCli(argv, _runtime = {}) {
         // the result to report.narration — then emit. Degrades to the
         // deterministic report on every failure, exit 0.
         const finish = async (report) => {
+          // Optional tracker enrichment (#355). The ONLY network in the command,
+          // and only when `--jira` is on. A dry run reaches nothing. Runs before
+          // narration so a resolved title reaches every downstream layer, and
+          // before emit so all four formats render the same titles. Fully
+          // fail-soft: a per-key miss annotates that key; only an explicit
+          // `--jira rest` with the env unset throws (an actionable misconfig).
+          if (trackerMode !== "off" && !dryRun && report.summary) {
+            const tracker = await resolveTracker({
+              keys: collectIssueKeys(report.summary),
+              mode: trackerMode,
+              projects: jiraProjects,
+              cwd: report.repository?.path || root,
+              ghScope: report.repository?.path || root,
+              env: process.env,
+              cache: args.noCache !== true,
+              deps: _runtime.tracker,
+              // Disclosed to stderr (never stdout, so --json stays clean) BEFORE
+              // any request leaves the machine — the #354 disclosure discipline,
+              // naming host and key count.
+              disclose: (lines) => { for (const line of lines) process.stderr.write(`${line}\n`); },
+            });
+            if (tracker) {
+              report.tracker = tracker;
+              applyTrackerTitles(report.summary, tracker);
+            }
+          }
+
           if (aiRequested && report.summary) {
             let diffHunksByTheme = null;
             let diffBytes = 0;

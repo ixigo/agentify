@@ -59,6 +59,8 @@ const REPEATABLE_FLAGS = new Set([
   "path",
   "author",
   "issue",
+  // git analyze tracker (#355): a project allowlist may be given more than once.
+  "jiraProject",
 ]);
 
 // Flags whose value is a git ref, date, pattern, or comma-list and must be
@@ -80,6 +82,11 @@ const STRING_FLAGS = new Set([
   // A path can legitimately be "0", "false", or all-digits; coercing it would
   // corrupt the target directory or fall back to cwd.
   "root",
+  // git analyze tracker (#355): the mode is a keyword (auto|off|acli|rest) and a
+  // project key is uppercase alphanumerics; neither must be coerced by
+  // parseValue (a project literally named "007" would otherwise become 7).
+  "jira",
+  "jiraProject",
 ]);
 
 function toCamelCaseFlag(key) {

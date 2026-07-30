@@ -243,27 +243,47 @@ test("git analyze labels the upper bound consistently in dry-run and real runs",
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("git analyze rejects not-yet-implemented surface flags with the slice they land in", async () => {
+test("git analyze accepts the full frozen surface — no flag is deferred", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-deferred-"));
   await initGitRepo(root);
 
-  // Everything through #354 is implemented and no longer rejected here:
-  // #350 (--global/--repo), #351 (the filter flags), #353 (--output/--no-open/
-  // --format html), and #354 (--ai/--provider/--depth/--max-budget-usd/--yes).
-  // Only #355 (--jira) stays deferred.
-  const cases = [
-    [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
-  ];
-  for (const [flags, pattern] of cases) {
-    await assert.rejects(
-      () => execFileAsync("node", [CLI, "git", "analyze", "--dry-run", ...flags], { cwd: root }),
-      (error) => {
-        assert.match(error.stderr, pattern);
-        assert.match(error.stderr, /land in later slices/);
-        return true;
-      },
-    );
-  }
+  // Every slice through #355 is implemented; the whole frozen surface is now
+  // accepted. --jira is the last flag to land (tracker enrichment). With nothing
+  // configured, `--jira auto` behaves exactly like the default: it succeeds,
+  // makes no network requests, and states one limitation rather than erroring.
+  const result = await execFileAsync(
+    "node",
+    [CLI, "git", "analyze", "--days", "7", "--jira", "auto", "--format", "json"],
+    { cwd: root, env: { ...process.env, JIRA_BASE_URL: "", JIRA_EMAIL: "", JIRA_API_TOKEN: "" } },
+  );
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.commits_read, true);
+  // A genuinely quiet auto: a tracker block is present and no key in the fixture
+  // means no network request was made (the REST env is unset above regardless).
+  assert.ok(payload.tracker, "expected a tracker block under --jira auto");
+  assert.equal(payload.tracker.mode, "auto");
+  assert.equal(payload.tracker.network_requests, 0);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("git analyze --jira rest without the env vars fails naming all three variables", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-git-rest-"));
+  await initGitRepo(root);
+
+  await assert.rejects(
+    () => execFileAsync(
+      "node",
+      [CLI, "git", "analyze", "--days", "7", "--jira", "rest", "--format", "json"],
+      { cwd: root, env: { ...process.env, JIRA_BASE_URL: "", JIRA_EMAIL: "", JIRA_API_TOKEN: "" } },
+    ),
+    (error) => {
+      assert.match(error.stderr, /JIRA_BASE_URL/);
+      assert.match(error.stderr, /JIRA_EMAIL/);
+      assert.match(error.stderr, /JIRA_API_TOKEN/);
+      return true;
+    },
+  );
 
   await fs.rm(root, { recursive: true, force: true });
 });
