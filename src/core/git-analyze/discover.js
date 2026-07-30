@@ -518,8 +518,14 @@ export async function discoverRepositories(options = {}) {
   // a discovered repo's path may still carry a symlinked prefix (e.g. macOS
   // `/var` -> `/private/var`), so canonicalising only the cache side would make
   // the same directory compare unequal and let the write through.
+  //
+  // Check against EVERY scanned path (state.repos, pre-deduplication), not just
+  // the deduplicated `repositories`: a linked worktree dropped during dedup is
+  // still a scanned repository, and a cache inside it would still be a write
+  // inside a scanned repository.
   const cacheResolved = await realpathNearest(cachePath);
-  const repoResolvedList = await Promise.all(repositories.map((repo) => realpathNearest(repo.path)));
+  const scannedPaths = state.repos.map((repo) => repo.path);
+  const repoResolvedList = await Promise.all(scannedPaths.map((p) => realpathNearest(p)));
   const cacheInsideRepo = repoResolvedList.some((repoResolved) =>
     cacheResolved === repoResolved || cacheResolved.startsWith(`${repoResolved}${path.sep}`));
   if (cacheInsideRepo) {

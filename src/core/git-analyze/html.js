@@ -789,13 +789,25 @@ export function defaultReportPath(report, env = process.env, repositoryPath = nu
   const configured = typeof env.XDG_CACHE_HOME === "string" ? env.XDG_CACHE_HOME.trim() : "";
   let cacheHome = configured.length > 0 && path.isAbsolute(configured) ? configured : homeCache;
 
-  // Even an absolute XDG_CACHE_HOME can point inside the analysed repository.
+  // Even an absolute XDG_CACHE_HOME can point inside an analysed repository.
   // The DEFAULT path must never do that — a report appearing in `git status`
   // fails the epic's constraint. (An explicit --output inside a repo is the
   // user's own choice and is honoured elsewhere.)
+  //
+  // Guard against EVERY analysed repository, not just the command root: under
+  // `--global` the command root (a discovery root, retained as the LAST --root)
+  // is not necessarily a parent of every discovered repo, so a cache inside a
+  // discovered repo under a different root would otherwise slip through.
+  const guardPaths = [];
+  if (repositoryPath) guardPaths.push(repositoryPath);
+  if (summary.scope === "global" || report?.scope === "global") {
+    for (const repo of (report?.repositories || [])) {
+      if (repo?.path) guardPaths.push(repo.path);
+    }
+  }
   const candidate = path.join(cacheHome, "agentify", "git-analyze");
-  if (repositoryPath && isInside(repositoryPath, candidate)) {
-    cacheHome = isInside(repositoryPath, homeCache) ? os.tmpdir() : homeCache;
+  if (guardPaths.some((repoPath) => isInside(repoPath, candidate))) {
+    cacheHome = guardPaths.some((repoPath) => isInside(repoPath, homeCache)) ? os.tmpdir() : homeCache;
   }
 
   return path.join(cacheHome, "agentify", "git-analyze", `${name}-${window}.html`);

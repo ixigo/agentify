@@ -26,6 +26,7 @@ import {
   runAnalyzeCli,
   snapshotTree,
   diffSnapshots,
+  findAgentifyArtifacts,
   findGitViolations,
   gitSubcommand,
   GIT_READONLY_SUBCOMMANDS,
@@ -117,6 +118,9 @@ test("rows 2 & 3: zero filesystem footprint inside the analysed repo, incl. giti
       // Row 2's trap: a cache written into a gitignored path would be invisible
       // to porcelain. Assert no .agentify/ appeared in the working tree at all.
       await assert.rejects(fs.access(path.join(repo.root, ".agentify")), "command must not create .agentify/ in the repo");
+      // And nothing Agentify-shaped anywhere, INCLUDING under .git (which the
+      // footprint snapshot excludes) — catches a cache dropped into .git.
+      assert.deepEqual(await findAgentifyArtifacts(repo.root), [], `variant ${args.join(" ")} left an Agentify artifact in the repo`);
     }
   } finally {
     await sandbox.cleanup();
@@ -419,9 +423,12 @@ test("rows 2/4/5/10 hold under --global across multiple discovered repositories"
     );
     assert.equal(r.code, 0, `--global run errored:\n${r.stderr}`);
 
-    // Row 2/3: neither discovered repo changed.
+    // Row 2/3: neither discovered repo changed, and neither carries an
+    // Agentify artifact anywhere (including under .git).
     assert.deepEqual(diffSnapshots(beforeA, await snapshotTree(repoA.root)), [], "--global wrote into repo A");
     assert.deepEqual(diffSnapshots(beforeB, await snapshotTree(repoB.root)), [], "--global wrote into repo B");
+    assert.deepEqual(await findAgentifyArtifacts(repoA.root), [], "--global left an Agentify artifact in repo A");
+    assert.deepEqual(await findAgentifyArtifacts(repoB.root), [], "--global left an Agentify artifact in repo B");
     // Row 4: read-only git only, across discovery + per-repo analysis.
     const violations = findGitViolations(await sandbox.gitCalls());
     assert.deepEqual(violations, [], `--global issued a non-read-only git call:\n${violations.join("\n")}`);

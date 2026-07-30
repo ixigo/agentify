@@ -309,6 +309,40 @@ export async function snapshotTree(root) {
   return { entries, porcelain: stdout };
 }
 
+// Signature of an Agentify write: its store, caches, notes, session events, or
+// generated reports. The working-tree snapshot excludes `.git/` to avoid
+// flaking on git's own read-side touches, which leaves a blind spot for a
+// deliberate write UNDER `.git` (e.g. `.git/agentify-cache`) that `git status`
+// also cannot see. This scan closes that gap for the realistic threat — the
+// command dropping its own artifacts anywhere inside the repo — by walking the
+// ENTIRE tree, `.git` included, for anything Agentify-shaped.
+const AGENTIFY_ARTIFACT = /(^|[/.])agentify|^events\.jsonl$|^notes\.jsonl$|^discovery\.json$/i;
+
+/**
+ * Every path under `root` (INCLUDING `.git/`) whose basename looks like an
+ * Agentify artifact. Empty means the command left none — the zero-install,
+ * observe-don't-record guarantee. Callers assert the array is empty.
+ */
+export async function findAgentifyArtifacts(root) {
+  const hits = [];
+  async function walk(dir) {
+    let dirents;
+    try {
+      dirents = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // unreadable dir: nothing to assert on
+    }
+    for (const dirent of dirents) {
+      const abs = path.join(dir, dirent.name);
+      const rel = path.relative(root, abs);
+      if (AGENTIFY_ARTIFACT.test(dirent.name)) hits.push(rel);
+      if (dirent.isDirectory()) await walk(abs);
+    }
+  }
+  await walk(root);
+  return hits.sort();
+}
+
 /**
  * Compare two snapshots. Returns an array of human-readable differences (empty
  * means byte-identical footprint). Callers assert the array is empty.
@@ -444,7 +478,13 @@ export async function createSandbox(opts = {}) {
   await writeShim(binDir, "which", whichShimSource());
   await writeShim(binDir, "where", whichShimSource());
   if (opts.providers) {
-    for (const name of ["claude", "codex", "acli", "gh"]) {
+    // The provider/tracker CLIs the command could spawn, plus common network
+    // fetchers (curl/wget/nc/ssh): if a future fail-soft path shelled out to one
+    // of these by bare name to reach the network, the proc-spy records it and
+    // row 5 fails. (A spawn by ABSOLUTE path would bypass a PATH shim — an
+    // inherent limitation of a PATH-based spy, noted here honestly; the
+    // in-process network guard covers the in-process side.)
+    for (const name of ["claude", "codex", "acli", "gh", "curl", "wget", "nc", "ssh"]) {
       await writeShim(binDir, name, procShimSource(name));
     }
   }

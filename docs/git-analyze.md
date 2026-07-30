@@ -168,9 +168,12 @@ This command **observes; it does not record**. Specifically:
 The zero-install property is enforced by a conformance suite
 (`test/git-analyze-conformance.test.js`) that runs the real command inside a
 sealed sandbox — a temp `HOME`, a minimal `PATH` with a git argv spy, and a
-pristine fixture repo with none of the Agentify install footprint — and fails
-loudly if any future change adds a write inside the analysed repo, a mutating
-git subcommand, or a default-path network call.
+pristine fixture repo with none of the Agentify install footprint. It fails
+loudly if a future change adds a write inside the analysed repo's working tree
+(byte-compared, gitignored paths included) or an Agentify artifact anywhere in
+the repo (including under `.git`), issues a git subcommand outside the read-only
+allowlist, spawns a provider/tracker process on the default path, or attempts an
+in-process network call on the default path.
 
 ## Optional: AI narration
 
