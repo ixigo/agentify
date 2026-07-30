@@ -1544,7 +1544,11 @@ export async function runCli(argv, _runtime = {}) {
             }
             const packet = buildNarrationPacket(report, { depth: narrationDepth, diffHunksByTheme });
             const preview = narrationPacketPreview(packet);
-            const availability = await detectDelegateProviders();
+            // Provider detection, the consent prompt, and the provider process
+            // are injectable for tests so the suite exercises consent/degrade
+            // paths without ever probing PATH or spawning a real CLI.
+            const detectProviders = _runtime.detectProviders || detectDelegateProviders;
+            const availability = await detectProviders();
             const { provider, requestedUnavailable } = resolveNarrationProvider({
               requested: hasOwn(args, "provider") ? args.provider : undefined,
               availability,
@@ -1598,7 +1602,9 @@ export async function runCli(argv, _runtime = {}) {
 
             let consented = args.yes === true;
             if (!consented) {
-              if (process.stdin.isTTY && process.stderr.isTTY) {
+              if (typeof _runtime.confirmConsent === "function") {
+                consented = await _runtime.confirmConsent() === true;
+              } else if (process.stdin.isTTY && process.stderr.isTTY) {
                 const readlinePromises = await import("node:readline/promises");
                 const prompt = readlinePromises.createInterface({ input: process.stdin, output: process.stderr });
                 try {
@@ -1626,6 +1632,7 @@ export async function runCli(argv, _runtime = {}) {
               model: null,
               budgetUsd: narrationBudgetUsd,
               timeoutSec: narrationTimeoutSec,
+              exec: _runtime.narrateExec,
             });
           }
           emitGitAnalyzeReport(report, format);

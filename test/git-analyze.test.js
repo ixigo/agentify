@@ -248,12 +248,10 @@ test("git analyze rejects not-yet-implemented surface flags with the slice they 
   await initGitRepo(root);
 
   // #351 filter flags (--me/--author/--branch/--grep/--path/--type/--scope/
-  // --issue/--include-merges) are implemented and no longer rejected here; the
-  // remaining slices' flags stay deferred.
+  // --issue/--include-merges) and #354 narration flags (--ai/--provider/--depth/
+  // --max-budget-usd/--yes) are implemented and no longer rejected here; only
+  // #353 (--output/--no-open) and #355 (--jira) stay deferred.
   const cases = [
-    // --global/--repo (#350) and the filter flags (#351) are now implemented
-    // and no longer deferred; only later slices' flags remain.
-    [["--provider", "claude"], /--provider \(provider narration, #354\)/],
     [["--jira", "auto"], /--jira \(tracker enrichment, #355\)/],
     [["--output", "/tmp/x.html"], /--output \(report output, #353\)/],
   ];
