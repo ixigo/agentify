@@ -3,6 +3,34 @@
 Define thresholds before implementation. Use stricter repository or
 user-provided requirements when present.
 
+## Visual fidelity gate
+
+This gate outranks every other gate in this file. See
+`visual-parity-checklist.md` for the full procedure.
+
+| Metric | Target |
+| --- | --- |
+| Full-page pixel mismatch per viewport | at most 0.20% |
+| Full-page height delta | at most 2px |
+| Element geometry delta | at most 1px per edge or dimension |
+| Computed-style mismatches | 0 |
+| Missing reference content elements | 0 |
+
+```bash
+node .codex/skills/migrate-php-to-astro-iui/scripts/compare-visual-parity.mjs \
+  --reference <reference-spec-dir> \
+  --candidate <candidate-spec-dir> \
+  --out <parity-out-dir>
+```
+
+The command exits non-zero until the route matches. Run it for every captured
+state, not only the default one.
+
+When this gate conflicts with anything below — a Lighthouse score, a bundle
+budget, an accessibility improvement that changes rendered pixels — fidelity
+wins and the conflict is reported to the user with evidence. Do not resolve it
+by changing the appearance, and do not resolve it by loosening a tolerance.
+
 ## Indexable route contract
 
 Verify the production-rendered response:
@@ -45,6 +73,16 @@ At minimum verify:
 - Contrast and zoom/reflow at mobile and desktop widths.
 
 Lint is evidence, not a complete accessibility audit.
+
+Corrections that do not change rendered pixels — landmarks, `alt` text, labels,
+correct native elements, heading levels, ARIA, focus order — are always in
+scope. When a native element changes appearance through user-agent styles, reset
+those styles so the output stays identical.
+
+A correction that *does* change appearance — contrast, focus-ring visibility,
+hit-area size, font size — must be raised with the user and approved before it
+ships. Report it as a recommendation with the reference values and the proposed
+values; do not apply it unilaterally and do not drop it silently.
 
 ## Production validation
 
@@ -99,6 +137,13 @@ Inspect regressions in:
 Do not lower a threshold to make a run pass. Fix owned causes, rerun the
 production build, and disclose external or noisy limitations.
 
+Fix performance without touching the output: preload and prioritize the LCP
+resource, serve modern formats at the same rendered size, subset and preload the
+reference fonts with matching metrics, defer or shrink hydration, remove
+render-blocking work. If a target remains unreachable without a visible change,
+report the trade-off and let the user choose. Never ship the visible change and
+call the score a pass.
+
 ## Evidence table
 
 Report each gate as `pass`, `fail`, `blocked`, or `not run`, with:
@@ -107,4 +152,8 @@ Report each gate as `pass`, `fail`, `blocked`, or `not run`, with:
 gate | command or URL | result | artifact | limitation
 ```
 
-Never collapse partial validation into a generic "all checks passed."
+Include one visual-fidelity row per viewport and per captured state, each with
+its pixel mismatch percent and element-diff counts.
+
+Never collapse partial validation into a generic "all checks passed," and never
+report fidelity as a qualitative judgement when the numbers exist.

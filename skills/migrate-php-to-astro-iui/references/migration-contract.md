@@ -13,15 +13,23 @@ legacy surface | source owner | input/data | public behavior | destination owner
 
 Allowed treatments:
 
-- `preserve`: behavior and presentation remain materially the same.
-- `adapt`: preserve intent through the destination architecture or design
-  system.
-- `replace`: use an existing destination component with the same contract.
-- `retire`: remove obsolete behavior with an explicit reason.
+- `preserve`: behavior and presentation are reproduced exactly.
+- `adapt`: behavior is re-expressed through the destination architecture while
+  the rendered output stays identical.
+- `replace`: an existing destination component takes over, verified to render
+  identically to the reference.
+- `retire`: remove obsolete behavior with an explicit reason and user approval
+  when anything visible changes.
 - `defer`: keep out of the current phase with a named follow-up boundary.
 
+`adapt` and `replace` describe the implementation, never the appearance. A
+treatment that produces a visible difference is not `adapt` — it is a
+divergence, and it needs the user's approval before it ships.
+
 Do not use `copy` as a treatment. Copying markup or CSS is an implementation
-choice, not evidence that behavior was preserved.
+choice, not evidence that behavior was preserved — and pasting a legacy
+stylesheet is not how fidelity is achieved. Reproduce the rendered result from
+the captured visual spec.
 
 ## Public route contract
 
@@ -76,10 +84,16 @@ Record:
 - Analytics event names and impression/click boundaries.
 - Existing ConfirmTkt, IUI, icon, token, layout, and footer/header owners.
 
-Visual similarity is judged on hierarchy, geometry, typography, color,
-content, and state behavior. Do not preserve AMP wrappers, duplicated
-responsive trees, utility class names, or obsolete CSS merely because they
-exist.
+Visual parity is judged by measurement, not by resemblance: pixel diff plus
+element geometry and computed styles, at every captured viewport and state. See
+`visual-parity-checklist.md` for the gates.
+
+Reproduce the rendered result, not the source that produced it. Do not carry
+over AMP wrappers, duplicated responsive trees, utility class names, or obsolete
+CSS — and do not let dropping them change a single rendered pixel.
+
+Every visible surface in this section needs a fidelity plan: the exact values it
+must hit, and which component defaults must be overridden to hit them.
 
 ## Evidence required at completion
 
@@ -88,10 +102,14 @@ For every `preserve`, `adapt`, or `replace` row, link at least one of:
 - Unit or integration test.
 - Rendered HTML audit.
 - HTTP assertion.
-- Desktop/mobile screenshot.
 - Accessibility check.
 - Production build output.
 - Lighthouse report.
+
+Every row that owns a visible surface additionally requires the parity report
+entry covering it: pixel mismatch percent for its viewports plus a clean element
+diff. A screenshot on its own is not evidence of parity — it is evidence that
+something was captured.
 
 For every `retire` or `defer` row, state the product or technical rationale and
 who owns the follow-up decision.
