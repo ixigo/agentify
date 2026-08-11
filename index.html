@@ -367,7 +367,7 @@ img { display: block; max-width: 100%; }
       <section id="mcp" class="doc-scroll" style="padding:52px 56px;border-bottom:2px solid var(--color-divider)">
         <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 12px">10 — MCP server</div>
         <h2 style="font-size:34px;margin:0 0 16px">Every other agent speaks MCP</h2>
-        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Hooks are Claude Code-specific and <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">AGENTS.md</code> guidance is best-effort. For Cursor, Zed, Windsurf, Gemini CLI, or Claude Desktop, Agentify speaks <a href="https://modelcontextprotocol.io" style="color:var(--color-accent-700)">MCP</a> — the server is part of the CLI, no extra dependencies.</p>
+        <p style="font-size:16px;max-width:64ch;color:var(--color-neutral-800);margin:0 0 26px">Hooks are Claude Code-specific and <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">AGENTS.md</code> guidance is best-effort. For Cursor, Zed, Windsurf, Gemini CLI, or Claude Desktop, Agentify speaks <a href="https://modelcontextprotocol.io" style="color:var(--color-accent-700)">MCP</a>. The bundled stdio server supports legacy 2025-era clients and the stateless <code style="font-family:var(--mono);font-size:13px;background:var(--color-surface);padding:1px 6px">2026-07-28</code> protocol with discovery, request validation, and cacheable tool lists.</p>
 
         <div data-term data-label="agentify serve" style="border:2px solid var(--color-text);background:var(--term-bg);margin:0 0 26px"></div>
 
@@ -375,6 +375,8 @@ img { display: block; max-width: 100%; }
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_load</span>
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_note</span>
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_match</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_decisions</span>
+          <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">ctx_handoff</span>
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">query</span>
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">risk</span>
           <span style="font:500 12px/1 var(--mono);padding:7px 12px;border:1px solid var(--color-text)">test_select</span>

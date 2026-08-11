@@ -237,7 +237,7 @@ claude mcp add agentify -- agentify serve
 # Cursor/Zed/anything else: register `agentify serve` as a stdio MCP server
 ```
 
-Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the decision log before re-proposing a settled direction), `ctx_handoff` (leave a handoff at the end of a long task) — the persistent-context set — plus `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). No extra dependencies — the server is part of the CLI.
+Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions` (read the decision log before re-proposing a settled direction), `ctx_handoff` (leave a handoff at the end of a long task) — the persistent-context set — plus `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). The server is bundled with the CLI and supports both legacy 2025-era clients and the stateless MCP `2026-07-28` protocol, including discovery, validated per-request metadata, and cacheable tool lists.
 
 ## Full-agent sessions over ACP
 
