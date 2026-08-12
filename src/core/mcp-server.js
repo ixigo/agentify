@@ -1,5 +1,8 @@
 import path from "node:path";
-import readline from "node:readline";
+
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport, serveStdio } from "@modelcontextprotocol/server/stdio";
+import * as z from "zod/v4";
 
 import { runScan } from "./commands.js";
 import { addNote, listDecisions, loadContextSnapshot, matchContext, renderContextDigest, renderDecisions, renderMatchDigest, writeHandoff } from "./ctx.js";
@@ -21,9 +24,48 @@ import { buildRiskReport, renderRiskReport } from "./risk.js";
 import { buildTestSelection, renderTestSelection } from "./test-select.js";
 import { VERSION } from "./cli-fast-paths.js";
 
-const PROTOCOL_VERSION = "2025-06-18";
-
 const QUERY_KINDS = ["search", "def", "refs", "callers", "impacts", "owner", "deps", "changed"];
+
+const MCP_CACHE_HINT = { ttlMs: 300000, cacheScope: "private" };
+
+const MCP_TOOL_INPUTS = {
+  ctx_load: z.strictObject({}),
+  ctx_note: z.strictObject({
+    text: z.string().describe("The note to record"),
+    type: z.enum(["note", "decision"]).optional().describe("Kind of note (default: note)"),
+  }),
+  ctx_match: z.strictObject({
+    task: z.string().describe("Description of the task you are about to work on"),
+  }),
+  query: z.strictObject({
+    kind: z.enum(QUERY_KINDS).describe("Query kind"),
+    term: z.string().optional().describe("Search term (kind: search)"),
+    symbol: z.string().optional().describe("Symbol name (kinds: def, refs, callers)"),
+    file: z.string().optional().describe("File path (kinds: impacts, owner)"),
+    module: z.string().optional().describe("Module id (kind: deps)"),
+    since: z.string().optional().describe("Commit or ref (kind: changed)"),
+    depth: z.number().optional().describe("Traversal depth (kind: impacts)"),
+  }),
+  risk: z.strictObject({
+    since: z.string().optional().describe("Commit or ref to diff against (defaults to working tree changes)"),
+  }),
+  test_select: z.strictObject({
+    since: z.string().optional().describe("Commit or ref to diff against (defaults to working tree changes)"),
+  }),
+  ctx_decisions: z.strictObject({
+    topic: z.string().optional().describe("Topic to look up (e.g. \"retry backoff\", \"state management\"); omit to review recorded decisions"),
+  }),
+  ctx_handoff: z.strictObject({
+    task: z.string().optional().describe("Short description of the task being handed off"),
+  }),
+};
+
+function defineMcpTool(definition) {
+  return {
+    ...definition,
+    inputSchema: z.toJSONSchema(definition.inputValidator),
+  };
+}
 
 // Two ablatable description sets for the eight tools (#334). Set "a" is the
 // current, shipped wording (part descriptive, part trigger). Set "b" is written
@@ -359,63 +401,37 @@ export function buildMcpTools(root, config = {}) {
   }
 
   return [
-    {
+    defineMcpTool({
       name: "ctx_load",
       description: descriptions.ctx_load,
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputValidator: MCP_TOOL_INPUTS.ctx_load,
       async handler() {
         const snapshot = await loadContextSnapshot(root);
         return renderContextDigest(snapshot) || "No tracked context yet.";
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "ctx_note",
       description: descriptions.ctx_note,
-      inputSchema: {
-        type: "object",
-        properties: {
-          text: { type: "string", description: "The note to record" },
-          type: { type: "string", enum: ["note", "decision"], description: "Kind of note (default: note)" },
-        },
-        required: ["text"],
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.ctx_note,
       async handler(args) {
         const result = await addNote(root, args.text, { type: args.type });
         return `${result.record.type === "decision" ? "Decision recorded" : "Noted"}: ${result.record.note}`;
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "ctx_match",
       description: descriptions.ctx_match,
-      inputSchema: {
-        type: "object",
-        properties: { task: { type: "string", description: "Description of the task you are about to work on" } },
-        required: ["task"],
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.ctx_match,
       async handler(args) {
         const matches = await matchContext(root, args.task, { recordInjection: false, config });
         return renderMatchDigest(matches) || "No related context found.";
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "query",
       description: descriptions.query,
-      inputSchema: {
-        type: "object",
-        properties: {
-          kind: { type: "string", enum: QUERY_KINDS, description: "Query kind" },
-          term: { type: "string", description: "Search term (kind: search)" },
-          symbol: { type: "string", description: "Symbol name (kinds: def, refs, callers)" },
-          file: { type: "string", description: "File path (kinds: impacts, owner)" },
-          module: { type: "string", description: "Module id (kind: deps)" },
-          since: { type: "string", description: "Commit or ref (kind: changed)" },
-          depth: { type: "number", description: "Traversal depth (kind: impacts)" },
-        },
-        required: ["kind"],
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.query,
       async handler(args) {
         // Validate the request before any recovery work so a malformed call
         // fails fast and never triggers an auto-scan.
@@ -497,54 +513,38 @@ export function buildMcpTools(root, config = {}) {
         }
         return JSON.stringify(result, null, 2);
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "risk",
       description: descriptions.risk,
-      inputSchema: {
-        type: "object",
-        properties: { since: { type: "string", description: "Commit or ref to diff against (defaults to working tree changes)" } },
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.risk,
       async handler(args) {
         const report = await buildRiskReport(root, { since: args.since || null, config, artifactPaths: config._agentifyPaths });
         return renderRiskReport(report);
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "test_select",
       description: descriptions.test_select,
-      inputSchema: {
-        type: "object",
-        properties: { since: { type: "string", description: "Commit or ref to diff against (defaults to working tree changes)" } },
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.test_select,
       async handler(args) {
         const selection = await buildTestSelection(root, { since: args.since || null, config, artifactPaths: config._agentifyPaths });
         return renderTestSelection(selection);
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "ctx_decisions",
       description: descriptions.ctx_decisions,
-      inputSchema: {
-        type: "object",
-        properties: { topic: { type: "string", description: "Topic to look up (e.g. \"retry backoff\", \"state management\"); omit to review recorded decisions" } },
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.ctx_decisions,
       async handler(args) {
         const result = await listDecisions(root, args.topic);
         return renderDecisions(result, { limit: MAX_RENDERED_DECISIONS, maxChars: MAX_RENDERED_DECISION_CHARS });
       },
-    },
-    {
+    }),
+    defineMcpTool({
       name: "ctx_handoff",
       description: descriptions.ctx_handoff,
-      inputSchema: {
-        type: "object",
-        properties: { task: { type: "string", description: "Short description of the task being handed off" } },
-        additionalProperties: false,
-      },
+      inputValidator: MCP_TOOL_INPUTS.ctx_handoff,
       async handler(args) {
         const result = await writeHandoff(root, { task: args.task });
         const preview = result.markdown.length > HANDOFF_PREVIEW_CHARS
@@ -552,94 +552,59 @@ export function buildMcpTools(root, config = {}) {
           : result.markdown;
         return `Handoff written to ${result.relative_path}:\n\n${preview}`;
       },
-    },
+    }),
   ];
 }
 
-function jsonRpcResult(id, result) {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function jsonRpcError(id, code, message) {
-  return { jsonrpc: "2.0", id, error: { code, message } };
-}
-
-export async function handleMcpMessage(tools, message) {
-  if (!message || typeof message !== "object" || Array.isArray(message)) {
-    return jsonRpcError(null, -32600, "Invalid request");
-  }
-  const { id, method, params } = message;
-  const isNotification = id === undefined || id === null;
-
-  if (method === "initialize") {
-    return jsonRpcResult(id, {
-      protocolVersion: typeof params?.protocolVersion === "string" ? params.protocolVersion : PROTOCOL_VERSION,
-      capabilities: { tools: {} },
-      serverInfo: { name: "agentify", version: VERSION },
-    });
-  }
-
-  if (typeof method === "string" && method.startsWith("notifications/")) {
-    return null;
-  }
-
-  if (method === "ping") {
-    return jsonRpcResult(id, {});
-  }
-
-  if (method === "tools/list") {
-    return jsonRpcResult(id, {
-      tools: tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      })),
-    });
-  }
-
-  if (method === "tools/call") {
-    const tool = tools.find((candidate) => candidate.name === params?.name);
-    if (!tool) {
-      return jsonRpcError(id, -32602, `Unknown tool "${params?.name}"`);
-    }
-    try {
-      const text = await tool.handler(params?.arguments && typeof params.arguments === "object" ? params.arguments : {});
-      return jsonRpcResult(id, { content: [{ type: "text", text: String(text ?? "") }] });
-    } catch (error) {
-      return jsonRpcResult(id, {
-        content: [{ type: "text", text: error?.message || String(error) }],
-        isError: true,
-      });
-    }
-  }
-
-  if (isNotification) {
-    return null;
-  }
-  return jsonRpcError(id, -32601, `Method not found: ${method}`);
-}
-
-export async function runMcpServer(root, config = {}, options = {}) {
-  const input = options.input || process.stdin;
-  const output = options.output || process.stdout;
+export function buildMcpServer(root, config = {}, options = {}) {
   const tools = options.tools || buildMcpTools(root, config);
+  const server = new McpServer(
+    { name: "agentify", version: VERSION },
+    {
+      cacheHints: {
+        "server/discover": MCP_CACHE_HINT,
+        "tools/list": MCP_CACHE_HINT,
+      },
+    },
+  );
 
-  const rl = readline.createInterface({ input, crlfDelay: Infinity });
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    let message;
-    try {
-      message = JSON.parse(trimmed);
-    } catch {
-      output.write(`${JSON.stringify(jsonRpcError(null, -32700, "Parse error"))}\n`);
-      continue;
-    }
-    const response = await handleMcpMessage(tools, message);
-    if (response) {
-      output.write(`${JSON.stringify(response)}\n`);
-    }
+  for (const tool of tools) {
+    server.registerTool(
+      tool.name,
+      {
+        description: tool.description,
+        inputSchema: tool.inputValidator,
+      },
+      (args) => invokeMcpTool(tool, args),
+    );
   }
+
+  return server;
+}
+
+export async function invokeMcpTool(tool, args = {}) {
+  try {
+    const text = await tool.handler(args);
+    return { content: [{ type: "text", text: String(text ?? "") }] };
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: error?.message || String(error) }],
+      isError: true,
+    };
+  }
+}
+
+export function runMcpServer(root, config = {}, options = {}) {
+  const transport = options.transport || (
+    options.input || options.output
+      ? new StdioServerTransport(options.input || process.stdin, options.output || process.stdout)
+      : undefined
+  );
+  return serveStdio(
+    () => buildMcpServer(root, config, { tools: options.tools }),
+    {
+      ...(transport ? { transport } : {}),
+      onerror: options.onerror,
+    },
+  );
 }

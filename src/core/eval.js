@@ -1061,7 +1061,7 @@ function probeMcpServer(command, args, { env, cwd, timeoutMs = 15000 } = {}) {
     });
     child.on("close", () => finish({ ok: false, tools: [] }));
     try {
-      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } })}\n`);
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "agentify-eval", version: VERSION } } })}\n`);
       child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`);
       child.stdin.end();
     } catch {

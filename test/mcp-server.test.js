@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -29,7 +30,43 @@ async function initAgentifyGitRepo(root) {
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
 import { addNote, resolveContextPaths, trackEvent } from "../src/core/ctx.js";
-import { buildMcpTools, handleMcpMessage, runMcpServer } from "../src/core/mcp-server.js";
+import { buildMcpTools, invokeMcpTool, runMcpServer } from "../src/core/mcp-server.js";
+
+async function handleMcpMessage(tools, message) {
+  assert.equal(message?.method, "tools/call", "unit helper only invokes tool handlers");
+  const tool = tools.find((candidate) => candidate.name === message.params?.name);
+  if (!tool) {
+    return { jsonrpc: "2.0", id: message.id, error: { code: -32602, message: `Unknown tool "${message.params?.name}"` } };
+  }
+  return {
+    jsonrpc: "2.0",
+    id: message.id,
+    result: await invokeMcpTool(tool, message.params?.arguments || {}),
+  };
+}
+
+function parseMessages(chunks) {
+  return chunks.join("").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+async function waitForMessages(chunks, count) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const messages = parseMessages(chunks);
+    if (messages.length >= count) {
+      return messages;
+    }
+    await delay(10);
+  }
+  assert.fail(`Timed out waiting for ${count} MCP responses; received ${chunks.join("")}`);
+}
+
+function modernMeta(version = "2026-07-28") {
+  return {
+    "io.modelcontextprotocol/protocolVersion": version,
+    "io.modelcontextprotocol/clientCapabilities": {},
+    "io.modelcontextprotocol/clientInfo": { name: "agentify-test", version: "1.0.0" },
+  };
+}
 
 async function withSourceRepo(prefix) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -66,39 +103,18 @@ async function withContextFixture() {
   return root;
 }
 
-test("initialize, tools/list, and ping follow the MCP handshake", async () => {
+test("tool catalog exposes all eight tools with strict object schemas", () => {
   const tools = buildMcpTools("/tmp/nowhere", {});
-
-  const init = await handleMcpMessage(tools, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test" } },
-  });
-  assert.equal(init.result.protocolVersion, "2025-03-26");
-  assert.equal(init.result.serverInfo.name, "agentify");
-  assert.ok(init.result.capabilities.tools);
-
-  const initialized = await handleMcpMessage(tools, { jsonrpc: "2.0", method: "notifications/initialized" });
-  assert.equal(initialized, null);
-
-  const list = await handleMcpMessage(tools, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-  const names = list.result.tools.map((tool) => tool.name);
+  const names = tools.map((tool) => tool.name);
   for (const expected of ["ctx_load", "ctx_note", "ctx_match", "query", "risk", "test_select", "ctx_decisions", "ctx_handoff"]) {
     assert.ok(names.includes(expected), `missing tool ${expected}`);
   }
-  assert.equal(list.result.tools.length, 8, "expected eight MCP tools");
-  assert.ok(list.result.tools.every((tool) => tool.inputSchema?.type === "object"));
+  assert.equal(tools.length, 8, "expected eight MCP tools");
+  assert.ok(tools.every((tool) => tool.inputSchema?.type === "object"));
   assert.ok(
-    list.result.tools.every((tool) => tool.inputSchema?.additionalProperties === false),
+    tools.every((tool) => tool.inputSchema?.additionalProperties === false),
     "every tool must set additionalProperties: false",
   );
-
-  const ping = await handleMcpMessage(tools, { jsonrpc: "2.0", id: 3, method: "ping" });
-  assert.deepEqual(ping.result, {});
-
-  const unknown = await handleMcpMessage(tools, { jsonrpc: "2.0", id: 4, method: "bogus/method" });
-  assert.equal(unknown.error.code, -32601);
 });
 
 test("tools/call runs ctx tools against the store", async () => {
@@ -569,7 +585,7 @@ test("ctx_handoff bounds its inline preview while persisting the full handoff to
   }
 });
 
-test("runMcpServer speaks newline-delimited JSON-RPC over streams", async () => {
+test("runMcpServer preserves the legacy initialize and tools flow", async () => {
   const root = await withContextFixture();
   try {
     const input = new PassThrough();
@@ -577,22 +593,95 @@ test("runMcpServer speaks newline-delimited JSON-RPC over streams", async () => 
     const chunks = [];
     output.on("data", (chunk) => chunks.push(chunk.toString()));
 
-    const serverDone = runMcpServer(root, {}, { input, output });
+    const server = runMcpServer(root, {}, { input, output });
 
-    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "agentify-test", version: "1.0.0" } } })}\n`);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-    input.write("this is not json\n");
-    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ctx_load", arguments: {} } })}\n`);
-    input.end();
-    await serverDone;
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_load", arguments: {} } })}\n`);
 
-    const responses = chunks.join("").trim().split("\n").map((line) => JSON.parse(line));
+    const responses = await waitForMessages(chunks, 3);
+    const byId = Object.fromEntries(responses.map((response) => [response.id, response]));
     assert.equal(responses.length, 3);
-    assert.equal(responses[0].id, 1);
-    assert.equal(responses[1].error.code, -32700);
-    assert.equal(responses[2].id, 2);
-    assert.match(responses[2].result.content[0].text, /payment retries/);
+    assert.equal(byId[1].result.protocolVersion, "2025-06-18");
+    assert.equal(byId[1].result.serverInfo.name, "agentify");
+    assert.equal(byId[2].result.tools.length, 8);
+    assert.equal(byId[2].result.resultType, undefined, "legacy responses must not gain modern fields");
+    assert.match(byId[3].result.content[0].text, /payment retries/);
+    assert.equal(byId[3].result.resultType, undefined, "legacy tool results must remain byte-compatible");
+
+    await server.close();
+    input.end();
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("runMcpServer serves 2026-07-28 discovery, cacheable tools, and validated calls", async () => {
+  const root = await withContextFixture();
+  try {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const chunks = [];
+    output.on("data", (chunk) => chunks.push(chunk.toString()));
+    const server = runMcpServer(root, {}, { input, output });
+    const _meta = modernMeta();
+
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_load", arguments: {}, _meta } })}\n`);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "ctx_decisions", arguments: { topic: 42 }, _meta } })}\n`);
+
+    const responses = await waitForMessages(chunks, 4);
+    const byId = Object.fromEntries(responses.map((response) => [response.id, response]));
+    const discover = byId[1];
+    const list = byId[2];
+    const call = byId[3];
+    const invalidCall = byId[4];
+    assert.equal(discover.result.resultType, "complete");
+    assert.deepEqual(discover.result.supportedVersions, ["2026-07-28"]);
+    assert.ok(discover.result.capabilities.tools);
+    assert.equal(discover.result.ttlMs, 300000);
+    assert.equal(discover.result.cacheScope, "private");
+    assert.equal(discover.result._meta["io.modelcontextprotocol/serverInfo"].name, "agentify");
+
+    assert.equal(list.result.resultType, "complete");
+    assert.equal(list.result.tools.length, 8);
+    assert.equal(list.result.ttlMs, 300000);
+    assert.equal(list.result.cacheScope, "private");
+    assert.equal(list.result._meta["io.modelcontextprotocol/serverInfo"].name, "agentify");
+
+    assert.equal(call.result.resultType, "complete");
+    assert.match(call.result.content[0].text, /payment retries/);
+    assert.equal(call.result._meta["io.modelcontextprotocol/serverInfo"].name, "agentify");
+    assert.equal(invalidCall.result.resultType, "complete");
+    assert.equal(invalidCall.result.isError, true);
+    assert.match(invalidCall.result.content[0].text, /validation/i);
+
+    await server.close();
+    input.end();
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runMcpServer rejects unsupported or malformed modern envelopes", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks = [];
+  output.on("data", (chunk) => chunks.push(chunk.toString()));
+  const errors = [];
+  const server = runMcpServer("/tmp/nowhere", {}, { input, output, onerror: (error) => errors.push(error) });
+
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernMeta("2099-01-01") } })}\n`);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" } } })}\n`);
+
+  const responses = await waitForMessages(chunks, 2);
+  assert.equal(responses[0].error.code, -32022);
+  assert.deepEqual(responses[0].error.data.supported, ["2026-07-28"]);
+  assert.equal(responses[1].error.code, -32602);
+  assert.ok(errors.length >= 1, "protocol rejections should remain observable on stderr hooks");
+
+  await server.close();
+  input.end();
 });
