@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+// Verify (or regenerate) the committed benchmark receipts under evals/results/.
+//
+// Every published benchmark number must be reproducible from the committed
+// raw run artifacts by the current report code. This script rebuilds each
+// run's report from its committed run dir in an isolated temp store and
+// compares it against the committed report.json:
+//
+//   node evals/results/verify.mjs           # verify: exit 1 on any mismatch
+//   node evals/results/verify.mjs --write   # regenerate report.json files
+//
+// A mismatch means the report/statistics code now computes different numbers
+// than the ones published from these runs — either fix the regression or
+// regenerate the receipts with --write in the same change that alters the
+// math, so the published numbers and the code never drift apart silently.
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+
+import { buildEvalReport } from "../../src/core/eval-report.js";
+
+const RESULTS_ROOT = path.dirname(fileURLToPath(import.meta.url));
+const WRITE = process.argv.includes("--write");
+
+async function listRunDirs() {
+  const out = [];
+  for (const entry of await fs.readdir(RESULTS_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const runsRoot = path.join(RESULTS_ROOT, entry.name, "runs");
+    let runEntries;
+    try {
+      runEntries = await fs.readdir(runsRoot, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const run of runEntries) {
+      if (run.isDirectory()) out.push({ dataset: entry.name, runId: run.name, runDir: path.join(runsRoot, run.name) });
+    }
+  }
+  return out.sort((a, b) => a.runId.localeCompare(b.runId));
+}
+
+// Rebuild one run's report inside a fresh temp store so nothing on the host
+// (a real .agentify store, other runs) can leak into the receipt.
+async function rebuildReport({ runId, runDir }) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-receipts-"));
+  try {
+    const storeRun = path.join(root, ".agentify", "evals", "runs", runId);
+    await fs.mkdir(path.dirname(storeRun), { recursive: true });
+    await fs.cp(runDir, storeRun, { recursive: true });
+    return await buildEvalReport(root, {}, runId);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+const runs = await listRunDirs();
+if (runs.length === 0) {
+  console.error("no committed run dirs found under evals/results/*/runs/");
+  process.exit(1);
+}
+
+let failures = 0;
+// campaign/runId -> the manifest job that claims it, so job membership is
+// pinned per job, not just as a flat union across the campaign.
+const manifestJobByRun = new Map();
+
+// Campaign manifests pin the exact run set (so deleting a run+receipt pair
+// cannot pass silently) and the published aggregate numbers (so the totals
+// quoted in README/docs stay backed by the committed receipts, not just the
+// per-run reports). Campaigns are discovered from the directory tree, not
+// from surviving runs — a campaign whose runs were all deleted still has its
+// manifest inspected and fails. (Deleting the entire campaign directory,
+// manifest included, is only visible in git history.)
+const campaignDirs = (await fs.readdir(RESULTS_ROOT, { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
+const campaigns = [...new Set([...campaignDirs, ...runs.map((run) => run.dataset)])].sort();
+const manifests = new Map();
+for (const campaign of campaigns) {
+  const manifestPath = path.join(RESULTS_ROOT, campaign, "campaign.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+  } catch {
+    console.error(`MISSING manifest: ${campaign}/campaign.json (every campaign must pin its run set)`);
+    failures += 1;
+    continue;
+  }
+  manifests.set(campaign, manifest);
+  const manifestRuns = Object.values(manifest.jobs ?? {}).flatMap((job) => job.runs ?? []);
+  for (const [job, spec] of Object.entries(manifest.jobs ?? {})) {
+    for (const runId of spec.runs ?? []) {
+      manifestJobByRun.set(`${campaign}/${runId}`, job);
+    }
+  }
+  const committedRuns = runs.filter((run) => run.dataset === campaign).map((run) => run.runId);
+  for (const runId of manifestRuns) {
+    if (!committedRuns.includes(runId)) {
+      console.error(`MISSING run: ${campaign}/runs/${runId} is in campaign.json but not committed`);
+      failures += 1;
+    }
+  }
+  for (const runId of committedRuns) {
+    if (!manifestRuns.includes(runId)) {
+      console.error(`UNLISTED run: ${campaign}/runs/${runId} is committed but not in campaign.json`);
+      failures += 1;
+    }
+  }
+  // A receipt without a raw run dir is an orphan: it asserts numbers nothing
+  // committed can reproduce.
+  let reportNames = [];
+  try {
+    reportNames = await fs.readdir(path.join(RESULTS_ROOT, campaign, "reports"));
+  } catch {
+    // handled by the per-run MISSING receipt check below
+  }
+  for (const name of reportNames) {
+    const runId = name.replace(/\.report\.json$/, "");
+    if (name.endsWith(".report.json") && !committedRuns.includes(runId)) {
+      console.error(`ORPHAN receipt: ${campaign}/reports/${name} has no committed run dir`);
+      failures += 1;
+    }
+  }
+}
+
+// Aggregates per (campaign, harness job), summed from the rebuilt reports.
+const jobTotals = new Map();
+for (const run of runs) {
+  const reportPath = path.join(path.dirname(path.dirname(run.runDir)), "reports", `${run.runId}.report.json`);
+  const rebuilt = await rebuildReport(run);
+  const job = rebuilt.harbor?.job ?? rebuilt.swebench?.job ?? "native";
+  // The run's own provenance must land under the manifest job that claims it —
+  // swapping run ids between jobs keeps the union identical but is a lie about
+  // which campaign job produced which numbers.
+  const claimedJob = manifestJobByRun.get(`${run.dataset}/${run.runId}`);
+  if (claimedJob !== undefined && claimedJob !== job) {
+    console.error(`JOB MISMATCH ${run.dataset}/${run.runId}: campaign.json lists it under "${claimedJob}" but its provenance says "${job}"`);
+    failures += 1;
+  }
+  const jobKey = `${run.dataset} ${job}`;
+  if (!jobTotals.has(jobKey)) jobTotals.set(jobKey, new Map());
+  for (const [arm, metrics] of Object.entries(rebuilt.arms ?? {})) {
+    const totals = jobTotals.get(jobKey);
+    if (!totals.has(arm)) totals.set(arm, { passes: 0, attempts: 0 });
+    totals.get(arm).passes += metrics.passes ?? 0;
+    totals.get(arm).attempts += metrics.attempts ?? 0;
+  }
+  if (WRITE) {
+    await fs.mkdir(path.dirname(reportPath), { recursive: true });
+    await fs.writeFile(reportPath, `${JSON.stringify(rebuilt, null, 2)}\n`);
+    console.log(`wrote ${path.relative(RESULTS_ROOT, reportPath)}`);
+    continue;
+  }
+  let committed;
+  try {
+    committed = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  } catch {
+    console.error(`MISSING receipt: ${path.relative(RESULTS_ROOT, reportPath)} (regenerate with --write)`);
+    failures += 1;
+    continue;
+  }
+  if (isDeepStrictEqual(rebuilt, committed)) {
+    console.log(`ok ${run.dataset}/${run.runId}`);
+  } else {
+    console.error(`MISMATCH ${run.dataset}/${run.runId}: current report code no longer reproduces the committed receipt`);
+    failures += 1;
+  }
+}
+
+// Published aggregates: what README/docs quote must equal what the receipts
+// sum to, per campaign job.
+for (const [campaign, manifest] of manifests) {
+  for (const [job, spec] of Object.entries(manifest.jobs ?? {})) {
+    const publishedArms = spec.published?.arms;
+    if (!publishedArms) continue;
+    const totals = jobTotals.get(`${campaign} ${job}`) ?? new Map();
+    for (const [arm, expected] of Object.entries(publishedArms)) {
+      const actual = totals.get(arm) ?? { passes: 0, attempts: 0 };
+      if (actual.passes !== expected.passes || actual.attempts !== expected.attempts) {
+        console.error(
+          `AGGREGATE MISMATCH ${campaign}/${job} arm "${arm}": published ${expected.passes}/${expected.attempts}, receipts sum to ${actual.passes}/${actual.attempts}`,
+        );
+        failures += 1;
+      } else if (!WRITE) {
+        console.log(`ok aggregate ${campaign}/${job} ${arm} ${actual.passes}/${actual.attempts}`);
+      }
+    }
+  }
+}
+
+if (failures > 0) {
+  console.error(`\n${failures} receipt(s) failed verification.`);
+  process.exit(1);
+}
+console.log(WRITE ? `\nwrote ${runs.length} receipt(s).` : `\nall ${runs.length} receipts reproducible.`);

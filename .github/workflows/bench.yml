@@ -1,0 +1,57 @@
+name: Benchmarks (token-free)
+
+# Scheduled drift watch for the benchmark surface. Paid suites stay opt-in and
+# local per docs/harbor.md CI policy — this workflow spends no tokens and
+# launches no containers. It exists so dataset/doc drift, broken pins, and
+# ceiling changes surface weekly even between paid runs, and so the committed
+# receipts under evals/results/ are re-verified on a schedule (not only on the
+# PRs that happen to touch them).
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Harbor dataset (schema + answer-leak checks)
+        run: node src/cli.js eval harbor validate
+
+      - name: Validate SWE-bench dataset (pins + contamination rules)
+        run: node src/cli.js eval swebench validate
+
+      - name: Verify committed benchmark receipts
+        run: node evals/results/verify.mjs
+
+      - name: Print suite spend ceilings
+        run: |
+          {
+            echo "## Suite spend ceilings (worst case before any paid launch)"
+            echo '```'
+            for suite in smoke nightly full profiles downshift multisession crossvendor; do
+              node src/cli.js eval harbor plan --suite "$suite" 2>&1 || exit 1
+              echo "---"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
