@@ -659,10 +659,17 @@ agentify install                       # detect everything present, register, in
 agentify install --provider claude     # force a provider (registers even if that CLI is absent)
 agentify install --skip-mcp            # guidance + hooks only; no MCP registration
 agentify install --no-index            # skip the structural index build
+agentify install --no-progress         # suppress the interactive progress display
 agentify install --global              # global-scope guidance (no project baseline)
 agentify install --home <dir>          # override the home used for MCP registration (tests/CI; never your real config)
 agentify install --json                # machine-readable receipt (single payload)
 ```
+
+Interactive installs show the live phase (provider checks, project setup,
+integrations, MCP registration, indexing, and first-run summary), then retain a
+completed line with elapsed time for each phase. The display is TTY-only and can
+be disabled with `--no-progress`; JSON stdout remains a single clean payload and
+records the same durations in `timings`.
 
 A provider that is installed but **not authenticated** produces a warning and the install continues — the MCP registration is written regardless (auth is a separate concern), and the receipt prints the login command to run when you are ready.
 

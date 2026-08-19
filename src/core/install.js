@@ -16,6 +16,44 @@ import {
 import { detectCapabilities } from "./toolchain.js";
 import { buildConfigAudit } from "./session-analysis/config-audit.js";
 
+function createInstallProgress(onProgress, now = Date.now) {
+  const emit = typeof onProgress === "function" ? onProgress : () => {};
+  const installStartedAt = now();
+  const phaseStartedAt = new Map();
+  const phases = {};
+
+  function dispatch(event) {
+    try {
+      const pending = emit(event);
+      if (pending && typeof pending.then === "function") {
+        void Promise.resolve(pending).catch(() => {});
+      }
+    } catch {
+      // Progress is presentation-only and must never make installation fail.
+    }
+  }
+
+  return {
+    start(id, message) {
+      phaseStartedAt.set(id, now());
+      dispatch({ id, status: "start", message });
+    },
+    finish(id, status, message) {
+      const startedAt = phaseStartedAt.get(id) ?? now();
+      const durationMs = Math.max(0, now() - startedAt);
+      phases[id] = durationMs;
+      phaseStartedAt.delete(id);
+      dispatch({ id, status, message, duration_ms: durationMs });
+    },
+    summary() {
+      return {
+        total_ms: Math.max(0, now() - installStartedAt),
+        phases: { ...phases },
+      };
+    },
+  };
+}
+
 async function readFileOrNull(filePath) {
   try {
     return await fs.readFile(filePath, "utf8");
@@ -106,11 +144,26 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   const isGlobal = options.global === true;
   const skipMcp = options.skipMcp === true;
   const buildIndex = options.buildIndex !== false;
+  const progress = createInstallProgress(options.onProgress, options.now);
 
   const detect = options.detect || (() => detectCapabilities({ ...config, root, homeDir }));
-  const capabilities = await detect();
+  progress.start("detect", "Checking tools and AI providers");
+  let capabilities;
+  try {
+    capabilities = await detect();
+  } catch (error) {
+    progress.finish("detect", "error", "Could not inspect tools and AI providers");
+    throw error;
+  }
   const providerInfos = MCP_REGISTRABLE_PROVIDERS.map((provider) => normalizeProviderInfo(provider, capabilities));
   const installedProviders = providerInfos.filter((info) => info.installed);
+  progress.finish(
+    "detect",
+    "complete",
+    installedProviders.length === 1
+      ? `Detected ${installedProviders[0].provider}`
+      : `Detected ${installedProviders.length} installed AI providers`,
+  );
 
   // Explicit --provider wins; otherwise configure whatever is installed, and
   // fall back to Claude when nothing is detected so a bare CLI environment
@@ -146,6 +199,12 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       wrote.push(file);
     }
   };
+  progress.start(
+    "workspace",
+    dryRun
+      ? isGlobal ? "Previewing global configuration" : "Previewing project files"
+      : isGlobal ? "Preparing global configuration" : "Preparing project files",
+  );
   if (!isGlobal && !dryRun) {
     // Baseline scaffolding is written-if-missing and, for .gitignore, updated
     // in place. Snapshot each file's content beforehand and report it only when
@@ -174,8 +233,16 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       pushWrote(".agentify");
     }
   }
+  progress.finish(
+    "workspace",
+    "complete",
+    dryRun
+      ? isGlobal ? "Global configuration previewed" : "Project files previewed"
+      : isGlobal ? "Global configuration ready" : "Project files ready",
+  );
 
   const integrations = [];
+  progress.start("integrations", dryRun ? "Previewing guidance and hooks" : "Wiring guidance and hooks");
   for (const provider of integrationProviders) {
     const integration = await installIntegration(root, { provider, global: isGlobal, homeDir, dryRun });
     integrations.push(integration);
@@ -220,8 +287,17 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       pushWrote(".gitignore");
     }
   }
+  progress.finish(
+    "integrations",
+    "complete",
+    `Guidance and hooks ${dryRun ? "previewed" : "ready"} for ${integrationProviders.join(", ")}`,
+  );
 
   const registrations = [];
+  progress.start(
+    "mcp",
+    skipMcp ? "Skipping MCP registration" : dryRun ? "Previewing MCP registration" : "Registering the MCP server",
+  );
   if (!skipMcp) {
     for (const provider of mcpProviders) {
       const registration = await registerMcpServer({ provider, root, homeDir, dryRun });
@@ -234,8 +310,21 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       }
     }
   }
+  const registrationIssues = registrations.filter((registration) => registration.error);
+  progress.finish(
+    "mcp",
+    registrationIssues.length > 0 ? "warning" : "complete",
+    skipMcp
+      ? "MCP registration skipped"
+      : registrationIssues.length > 0
+        ? "MCP registration finished with issues"
+        : registrations.length === 0
+          ? "No installed provider needed MCP registration"
+          : `MCP registration ${dryRun ? "previewed" : "ready"} for ${registrations.map((item) => item.provider).join(", ")}`,
+  );
 
   let index = { built: false, status: "skipped" };
+  progress.start("index", buildIndex && !isGlobal && !dryRun ? "Building repository index" : "Checking repository index");
   if (buildIndex && !isGlobal && !dryRun) {
     // The index build is best-effort. runScan's lock-contention path sets
     // process.exitCode = 1 without throwing; capture and restore the exit code
@@ -270,8 +359,27 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   } else if (dryRun) {
     index = { built: false, status: "skipped_dry_run" };
   }
+  progress.finish(
+    "index",
+    index.status === "error" || index.status === "blocked" ? "warning" : "complete",
+    index.built
+      ? `Repository index ${index.status}`
+      : index.status === "error"
+        ? "Repository index could not be built"
+        : index.status === "blocked"
+          ? "Repository index is busy in another process"
+          : "Repository index skipped",
+  );
 
-  const firstRun = await buildFirstRunWin(root, { homeDir });
+  progress.start("summary", "Preparing first-run summary");
+  let firstRun;
+  try {
+    firstRun = await buildFirstRunWin(root, { homeDir });
+  } catch (error) {
+    progress.finish("summary", "error", "Could not prepare the first-run summary");
+    throw error;
+  }
+  progress.finish("summary", "complete", "First-run summary ready");
 
   // ACP client registration depends on #335. Detect its capability rather than
   // assume it: skip cleanly and say so in the receipt if it is not on this build.
@@ -297,7 +405,7 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   // A registration that did not take (unparseable config, a conflicting Codex
   // table) is a real failure of the command's primary job — surface it as a
   // warning and let the caller reflect it in the exit code.
-  const registrationErrors = registrations.filter((registration) => registration.error);
+  const registrationErrors = registrationIssues;
   for (const registration of registrationErrors) {
     warnings.push(`MCP registration for ${registration.provider} did not complete: ${registration.error}`);
   }
@@ -323,5 +431,6 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
     acp,
     wrote,
     read,
+    timings: progress.summary(),
   };
 }

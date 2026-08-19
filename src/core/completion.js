@@ -27,6 +27,7 @@ const COMMANDS = [
       flag("--provider", { values: ["claude", "codex", "all"], description: "Force a provider instead of auto-detecting" }),
       flag("--skip-mcp", { description: "Skip MCP server registration (guidance + hooks only)" }),
       flag("--no-index", { description: "Skip building the structural index" }),
+      flag("--no-progress", { description: "Suppress interactive install progress" }),
       flag("--home", { description: "Home dir for MCP registration (default: your home)" }),
     ],
   }),
