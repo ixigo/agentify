@@ -414,7 +414,8 @@ Every quoted run's raw artifacts and derived report are committed under
 fails CI if the current report code stops reproducing them.
 
 First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
-× 3 attempts, `claude-haiku-4-5`, `max_turns` 16, $2.10 spent of the
+× 3 attempts, `claude-haiku-4-5`, `max_turns` 16 per the suite config at the
+time — imported Harbor receipts do not record turn caps — $2.10 spent of the
 then-8-task nightly's $16.80 ceiling, 48/48 trials, zero flakes — receipts in
 `evals/results/harbor-20260714/`). The dataset has since grown to 23 tasks and
 the nightly suite to 15; the results below predate that growth and have not
