@@ -159,6 +159,7 @@ test("runOneCommandInstall does not ignore pre-existing mixed-ownership files", 
 test("runOneCommandInstall reports ok:false when a registration cannot complete", async () => {
   const root = await tmpDir("agentify-install-fail-");
   const home = await tmpDir("agentify-install-fail-home-");
+  const progress = [];
   // A claude.json that cannot be parsed must be left untouched, and the install
   // must not claim success.
   await fs.writeFile(path.join(home, ".claude.json"), "{ broken", "utf8");
@@ -170,12 +171,14 @@ test("runOneCommandInstall reports ok:false when a registration cannot complete"
       claude: { available: true, version: "1.4.0", auth: { state: "ready" } },
       codex: { available: false },
     }),
+    onProgress: (event) => progress.push(event),
   });
 
   assert.equal(result.ok, false);
   assert.ok(result.warnings.some((message) => /did not complete/.test(message)));
   const claudeMcp = result.mcp.registrations.find((item) => item.provider === "claude");
   assert.equal(claudeMcp.registered, false);
+  assert.equal(progress.find((event) => event.id === "mcp" && event.status !== "start").status, "warning");
   // File untouched.
   assert.equal(await fs.readFile(path.join(home, ".claude.json"), "utf8"), "{ broken");
 });
@@ -183,11 +186,13 @@ test("runOneCommandInstall reports ok:false when a registration cannot complete"
 test("runOneCommandInstall dry-run previews without writing or claiming registration", async () => {
   const root = await tmpDir("agentify-install-dry-");
   const home = await tmpDir("agentify-install-dry-home-");
+  const progress = [];
 
   const result = await runOneCommandInstall(root, { dryRun: true }, {
     homeDir: home,
     buildIndex: false,
     detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
+    onProgress: (event) => progress.push(event),
   });
 
   assert.equal(result.dry_run, true);
@@ -197,6 +202,8 @@ test("runOneCommandInstall dry-run previews without writing or claiming registra
   assert.equal(claudeMcp.changed, true);
   assert.equal(claudeMcp.registered, false);
   assert.equal(claudeMcp.action, "would-added");
+  assert.match(progress.find((event) => event.id === "integrations" && event.status === "complete").message, /previewed/);
+  assert.match(progress.find((event) => event.id === "mcp" && event.status === "complete").message, /previewed/);
   await assert.rejects(() => fs.access(path.join(home, ".claude.json")));
 });
 
@@ -215,4 +222,50 @@ test("runOneCommandInstall falls back to claude when no provider CLI is detected
   assert.equal(result.integrations.length, 1);
   assert.equal(result.integrations[0].provider, "claude");
   assert.equal(result.mcp.registrations.length, 0);
+});
+
+test("runOneCommandInstall reports real install phases and timings", async () => {
+  const root = await tmpDir("agentify-install-progress-");
+  const home = await tmpDir("agentify-install-progress-home-");
+  const events = [];
+
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
+    onProgress: (event) => events.push(event),
+  });
+
+  assert.deepEqual(
+    events.map(({ id, status }) => [id, status]),
+    [
+      ["detect", "start"], ["detect", "complete"],
+      ["workspace", "start"], ["workspace", "complete"],
+      ["integrations", "start"], ["integrations", "complete"],
+      ["mcp", "start"], ["mcp", "complete"],
+      ["index", "start"], ["index", "complete"],
+      ["summary", "start"], ["summary", "complete"],
+    ],
+  );
+  assert.match(events.find((event) => event.id === "index" && event.status === "complete").message, /skipped/);
+  assert.equal(typeof result.timings.total_ms, "number");
+  assert.deepEqual(Object.keys(result.timings.phases), ["detect", "workspace", "integrations", "mcp", "index", "summary"]);
+});
+
+test("runOneCommandInstall ignores failures in presentation-only progress callbacks", async () => {
+  const root = await tmpDir("agentify-install-progress-safe-");
+  const home = await tmpDir("agentify-install-progress-safe-home-");
+
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    detect: fakeDetect({ claude: { available: false }, codex: { available: false } }),
+    onProgress: (event) => {
+      if (event.status === "start") return Promise.reject(new Error("async renderer failed"));
+      throw new Error("sync renderer failed");
+    },
+  });
+
+  assert.equal(result.ok, true);
+  await new Promise((resolve) => setImmediate(resolve));
 });

@@ -88,7 +88,7 @@ import { VERSION, printHelp } from "./core/cli-fast-paths.js";
 import { resolveAgentifyPaths } from "./core/project-store.js";
 import { writePrivateText } from "./core/fs.js";
 import { openInBrowser } from "./core/browser.js";
-import { withSilent, bold, dim, green, yellow, red, success, warn, log } from "./core/ui.js";
+import { createStatusLoader, withSilent, bold, dim, green, yellow, red, success, warn, log } from "./core/ui.js";
 
 export { parseArgs };
 
@@ -290,14 +290,38 @@ async function runInstall(root, config, args) {
   const requestedProviders = args.provider ? resolveIntegrationProviders(args.provider) : null;
   const skipMcp = args.skipMcp === true || args.noMcp === true;
   const buildIndex = args.noIndex !== true;
+  const suppressProgress = args.noProgress === true || config._suppressProgress === true;
+  const loader = suppressProgress ? createStatusLoader({ enabled: false }) : createStatusLoader();
 
-  const result = await runOneCommandInstall(root, config, {
-    homeDir,
-    global: isGlobal,
-    providers: requestedProviders,
-    skipMcp,
-    buildIndex,
-  });
+  const onProgress = (event) => {
+    if (!loader.enabled) return;
+    if (event.status === "start") {
+      loader.start(event.message);
+      return;
+    }
+    const duration = event.duration_ms < 1000
+      ? `${event.duration_ms}ms`
+      : `${(event.duration_ms / 1000).toFixed(1)}s`;
+    const message = `${event.message} ${dim(`(${duration})`)}`;
+    if (event.status === "warning") loader.warn(message);
+    else if (event.status === "error") loader.error(message);
+    else loader.success(message);
+  };
+
+  let result;
+  try {
+    result = await runOneCommandInstall(root, config, {
+      homeDir,
+      global: isGlobal,
+      providers: requestedProviders,
+      skipMcp,
+      buildIndex,
+      onProgress,
+    });
+  } catch (error) {
+    if (loader.active) loader.error("Installation failed");
+    throw error;
+  }
 
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));

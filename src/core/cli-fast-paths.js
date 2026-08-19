@@ -69,6 +69,7 @@ export async function printHelp() {
     `    ${c("--provider")} ${d("<claude|codex|all>")}  Force an integration for install/uninstall/status (default: auto-detect installed providers)`,
     `    ${c("--skip-mcp")}                   Skip MCP server registration on install (guidance + hooks only)`,
     `    ${c("--no-index")}                   Skip building the structural index on install`,
+    `    ${c("--no-progress")}                Suppress interactive install/analyze progress`,
     `    ${c("--mcp")}                        On uninstall, also unregister the user-scoped MCP server`,
     `    ${c("--home")} ${d("<dir>")}                Home dir for MCP registration (install/uninstall/status; default: your home)`,
     `    ${c("--strict")} ${d("<true|false>")}         Fail closed on validation issues`,

@@ -165,27 +165,31 @@ async function detectProviderReadiness(provider, root, { homeDir } = {}) {
 }
 
 export async function detectCapabilities(config = {}) {
-  const results = {};
-  for (const [name, spec] of Object.entries(TOOLS)) {
-    if (name === "zoekt" && !config.toolchain?.zoekt) {
-      results[name] = { ...spec, available: false, version: null, reason: "opt-in disabled" };
-      continue;
-    }
-    const detection = await detectTool(name);
-    results[name] = { ...spec, ...detection };
-  }
-
+  // Every probe is read-only and independent. Run tools, provider CLIs, auth,
+  // and the package manager concurrently so the slowest probe defines startup
+  // time instead of making install/doctor pay for each process serially.
+  const [toolEntries, providerEntries, packageManager] = await Promise.all([
+    Promise.all(Object.entries(TOOLS).map(async ([name, spec]) => {
+      if (name === "zoekt" && !config.toolchain?.zoekt) {
+        return [name, { ...spec, available: false, version: null, reason: "opt-in disabled" }];
+      }
+      const detection = await detectTool(name);
+      return [name, { ...spec, ...detection }];
+    })),
+    Promise.all(
+      EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root, { homeDir: config.homeDir })])
+    ),
+    detectPackageManagerReadiness(),
+  ]);
+  const results = Object.fromEntries(toolEntries);
   const tier1Ready = results.rg.available && results.fd.available;
   const tier2Ready = tier1Ready && results["ast-grep"].available && results["tree-sitter"].available;
-  const providerEntries = await Promise.all(
-    EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root, { homeDir: config.homeDir })])
-  );
 
   return {
     tools: results,
     tier: tier2Ready ? 2 : tier1Ready ? 1 : 0,
     zoekt: results.zoekt.available,
-    package_manager: await detectPackageManagerReadiness(),
+    package_manager: packageManager,
     providers: Object.fromEntries(providerEntries),
   };
 }
