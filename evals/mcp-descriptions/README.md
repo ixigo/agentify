@@ -142,7 +142,7 @@ agentify eval run evals/mcp-descriptions/query-before-edit.yaml
 
 ## Status: executed 2026-07-29 — no descriptions changed, adoption is the bottleneck
 
-First paid runs executed 2026-07-29 (Claude Code 2.1.220, 6 runs, 51
+First paid runs executed 2026-07-29 (Claude Code 2.1.220, 6 runs, 39
 attempts; receipts committed under `evals/results/native-20260729/` and
 verified by `test/eval-receipts.test.js`):
 
@@ -160,15 +160,17 @@ Findings, stated plainly:
 
 1. **The premise was not reached: agents barely call the tools at all.** From
    the local provider streams, exactly one attempt made any
-   `mcp__agentify__*` call (2 `query` calls) across all 51 attempts — set A
-   and set B alike. The ablation compared 0-vs-0 on its headline metric, so
+   `mcp__agentify__*` call (2 `query` calls) across the six runs' 39
+   attempts — set A and set B alike. The ablation compared 0-vs-0 on its
+   headline metric, so
    **neither description set is adopted** and set A remains the default by
    status quo, not by evidence. (This preliminary stream-derived rate is not
    receipt-backed — those attempts predate the per-attempt tally; see the
    campaign notes. Future runs record `claude_tool_calls` per attempt and
    `eval report` aggregates the per-arm call rate.)
-2. **Agentify never beat plain-safe in these runs** (tied 3 tasks, lost 2,
-   both arms 0/3 on `impact-before-done`) and cost 25–160% more per task.
+2. **Agentify never beat plain-safe in these runs** (tied 4 tasks, lost 2,
+   both arms 0/3 on both `impact-before-done` variants) and cost ≈19–160%
+   more per task.
    With no tool calls, the agentify arm pays the MCP/context overhead and
    collects none of the value — consistent with, not contradicting, the
    adoption diagnosis above.
