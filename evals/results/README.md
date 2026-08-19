@@ -12,6 +12,7 @@ backing runs move here as a permanent, reviewable receipt.
 evals/results/
   verify.mjs                     # reproduce receipts from run dirs; --write regenerates
   <dataset-or-campaign>/         # e.g. harbor-20260714
+    campaign.json                # pins the exact run set per job + the published aggregates
     runs/<run-id>/               # the imported run, verbatim: run.json + attempts/*/result.json
     reports/<run-id>.report.json # eval report built from that run by the code at commit time
 ```
@@ -26,10 +27,18 @@ evals/results/
 ## Verification (runs on every PR)
 
 `test/eval-receipts.test.js` executes `node evals/results/verify.mjs`, which
-rebuilds each report from its committed run dir in an isolated temp store and
-requires deep equality with the committed `report.json`. If a change to the
-report or statistics code alters what these runs compute, the test fails —
-regenerate with:
+checks four things per campaign:
+
+1. every report is rebuilt from its committed run dir in an isolated temp
+   store and must deep-equal the committed `report.json`;
+2. the committed run set exactly matches `campaign.json` (a deleted run+receipt
+   pair fails, so the documented campaign cannot shrink silently);
+3. a receipt with no raw run dir behind it is an orphan and fails;
+4. the `published.arms` aggregates in `campaign.json` (the totals quoted in
+   README/docs, e.g. 24/24 vs 21/24) must equal the sums of the receipts.
+
+If a change to the report or statistics code alters what these runs compute,
+the test fails — regenerate with:
 
 ```
 node evals/results/verify.mjs --write

@@ -39,7 +39,8 @@ evals/harbor/
     solution/solve.sh   # oracle solution for token-free smokes
   suites/
     smoke.yaml          # 1 task × 2 agents × 1 attempt
-    paired-once.yaml    # one paired pass over the baseline tasks, 1 attempt
+    paired-once.yaml    # historical: first paired pass (original 8 tasks × 2 × 1);
+                        # not in dataset.json suites, so `plan` doesn't price it
     nightly.yaml        # 15 tasks × 2 agents × 3 attempts
     full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
@@ -519,9 +520,10 @@ docker system prune                    # reclaim task images when done
   reproduces every committed report under `evals/results/` from its raw run
   dir).
 - Weekly (`.github/workflows/bench.yml`, also runnable via workflow dispatch):
-  token-free dataset validation for Harbor and SWE-bench plus the printed
-  spend ceiling for every suite, so dataset/doc drift and ceiling changes
-  surface on a schedule even between paid runs.
+  token-free dataset validation for Harbor and SWE-bench, receipt
+  verification, and the printed spend ceiling for every suite in the dataset
+  manifest, so dataset/doc drift and ceiling changes surface on a schedule
+  even between paid runs.
 - Paid smoke/nightly/profile/downshift suites are opt-in or scheduled, never
   implicit on PRs, and always behind the plan's printed ceiling (the
   `downshift` matrix multiplies by its model ladder, so its ceiling is the
