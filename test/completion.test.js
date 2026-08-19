@@ -88,18 +88,25 @@ test("completion values rejects removed dynamic kinds", async () => {
 });
 
 test("cli completion command writes only the script to stdout", async () => {
-  const result = await execFileAsync(process.execPath, ["src/cli.js", "completion", "bash"], {
-    cwd: path.resolve(new URL("..", import.meta.url).pathname),
-  });
+  const cacheHome = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-cache-"));
+  try {
+    const result = await execFileAsync(process.execPath, ["src/cli.js", "completion", "bash"], {
+      cwd: path.resolve(new URL("..", import.meta.url).pathname),
+      env: { ...process.env, XDG_CACHE_HOME: cacheHome },
+    });
 
-  assert.match(result.stdout, /^# bash completion for agentify/);
-  assert.equal(result.stderr, "");
+    assert.match(result.stdout, /^# bash completion for agentify/);
+    assert.equal(result.stderr, "");
+  } finally {
+    await fs.rm(cacheHome, { recursive: true, force: true });
+  }
 });
 
 test("cli completion command suppresses banner after global flags", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-completion-root-"));
   const result = await execFileAsync(process.execPath, ["src/cli.js", "--root", root, "completion", "bash"], {
     cwd: path.resolve(new URL("..", import.meta.url).pathname),
+    env: { ...process.env, XDG_CACHE_HOME: path.join(root, "global-cache") },
   });
 
   assert.match(result.stdout, /^# bash completion for agentify/);

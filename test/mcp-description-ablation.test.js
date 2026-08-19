@@ -239,7 +239,10 @@ test("resolveMcpPrecondition handshakes the real server and verifies the descrip
       path.join(dir, ".mcp.json"),
       JSON.stringify({ mcpServers: { agentify: { command: process.execPath, args: [CLI_PATH, "serve"] } } }),
     );
-    const ok = await resolveMcpPrecondition(dir, "b");
+    const ok = await resolveMcpPrecondition(dir, "b", {
+      ...process.env,
+      XDG_CACHE_HOME: path.join(dir, "global-cache"),
+    });
     assert.equal(ok.registered, true);
     assert.equal(ok.tool_count, 8);
     assert.equal(ok.description_switch_supported, true);

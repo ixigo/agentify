@@ -53,7 +53,7 @@ export async function printHelp() {
     `    ${c("test")}            ${d("Select and run only the tests affected by a change (--since, --run)")}`,
     `    ${c("serve")}           ${d("MCP server over stdio: ctx/query/risk/test tools for any MCP-capable agent")}`,
     `    ${c("acp")}             ${d("Agent Client Protocol pass-through proxy to a downstream agent (--provider, --command)")}`,
-    `    ${c("stats")}           ${d("Session and delegation usage: runs, tokens, cost by kind and model (--days)")}`,
+    `    ${c("stats")}           ${d("Machine-wide invocations plus session and delegation usage (--days)")}`,
     `    ${c("value")}           ${d("Evidence-backed impact report: context, guardrails, delegation, focused tests (--days, --format)")}`,
     `    ${c("analyze")}         ${d("Privacy-first local Claude/Codex usage report; writes HTML and opens it by default (--days, --scope, --format, --no-open, --yes)")}`,
     `    ${c("review")}          ${d("Cross-vendor review of a change (--diff <ref>, --push for outgoing commits)")}`,

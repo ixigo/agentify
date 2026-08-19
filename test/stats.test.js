@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildStatsReport, estimateTokens, recordDelegation, renderStatsReport } from "../src/core/stats.js";
+import { recordInvocation } from "../src/core/invocations.js";
 import { parseClaudeJsonOutput, runDelegate } from "../src/core/models.js";
 import { trackEvent } from "../src/core/ctx.js";
 
@@ -65,6 +66,7 @@ test("parseClaudeJsonOutput keeps cache categories separate and resolves the mod
 test("buildStatsReport aggregates delegations by kind and target within the window", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-"));
   try {
+    const invocationsPath = path.join(dir, "global-cache", "invocations.json");
     await recordDelegation(dir, {
       kind: "quick", provider: "claude", model: "haiku", exit_code: 0,
       duration_ms: 1000, input_tokens: 100, output_tokens: 50, tokens_estimated: false, cost_usd: 0.01,
@@ -84,8 +86,10 @@ test("buildStatsReport aggregates delegations by kind and target within the wind
       tool_input: { command: "pnpm test" },
       tool_response: { exit_code: 1, stderr: "boom" },
     });
+    await recordInvocation({ command: "ctx.track", source: "hook" }, { path: invocationsPath });
+    await recordInvocation({ command: "stats", source: "cli" }, { path: invocationsPath });
 
-    const report = await buildStatsReport(dir, { days: 7 });
+    const report = await buildStatsReport(dir, { days: 7, invocations: { path: invocationsPath } });
     assert.equal(report.delegations.totals.count, 3);
     assert.equal(report.delegations.totals.failures, 1);
     assert.equal(report.delegations.totals.fallbacks, 1);
@@ -98,8 +102,12 @@ test("buildStatsReport aggregates delegations by kind and target within the wind
     assert.ok(report.delegations.by_target.codex);
     assert.equal(report.sessions.commands, 1);
     assert.equal(report.sessions.failed_commands, 1);
+    assert.equal(report.invocations.total, 2);
+    assert.deepEqual(report.invocations.by_source, { cli: 1, hook: 1, mcp: 0 });
 
     const rendered = renderStatsReport(report);
+    assert.match(rendered, /Invocations \(machine-wide\):/);
+    assert.match(rendered, /ctx\.track: 1 \(1 hook\)/);
     assert.match(rendered, /quick: 2 run\(s\)/);
     assert.match(rendered, /estimates/);
   } finally {
@@ -110,7 +118,8 @@ test("buildStatsReport aggregates delegations by kind and target within the wind
 test("buildStatsReport excludes records outside the window and handles empty stores", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-window-"));
   try {
-    const empty = await buildStatsReport(dir, {});
+    const invocationsPath = path.join(dir, "global-cache", "invocations.json");
+    const empty = await buildStatsReport(dir, { invocations: { path: invocationsPath } });
     assert.equal(empty.delegations.totals.count, 0);
     assert.match(renderStatsReport(empty), /none recorded/);
 
@@ -119,8 +128,36 @@ test("buildStatsReport excludes records outside the window and handles empty sto
     const old = { ts: "2020-01-01T00:00:00Z", kind: "quick", provider: "claude", model: "haiku", exit_code: 0, input_tokens: 1, output_tokens: 1 };
     await fs.mkdir(path.dirname(resolveDelegationsPath(dir)), { recursive: true });
     await fs.appendFile(resolveDelegationsPath(dir), `${JSON.stringify(old)}\n`, "utf8");
-    const report = await buildStatsReport(dir, { days: 30 });
+    const report = await buildStatsReport(dir, { days: 30, invocations: { path: invocationsPath } });
     assert.equal(report.delegations.totals.count, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("stats uses the same UTC calendar-day window for invocations and repo telemetry", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-calendar-window-"));
+  try {
+    const { resolveDelegationsPath } = await import("../src/core/stats.js");
+    const delegationsPath = resolveDelegationsPath(dir);
+    const invocationsPath = path.join(dir, "global-cache", "invocations.json");
+    await fs.mkdir(path.dirname(delegationsPath), { recursive: true });
+    await fs.writeFile(delegationsPath, [
+      JSON.stringify({ ts: "2026-08-18T23:59:59.999Z", kind: "quick", exit_code: 0 }),
+      JSON.stringify({ ts: "2026-08-19T00:00:00.000Z", kind: "review", exit_code: 0 }),
+    ].join("\n"), "utf8");
+    await recordInvocation({ command: "scan", source: "cli" }, { path: invocationsPath, now: "2026-08-18T23:59:59.999Z" });
+    await recordInvocation({ command: "stats", source: "cli" }, { path: invocationsPath, now: "2026-08-19T00:00:00.000Z" });
+
+    const report = await buildStatsReport(dir, {
+      days: 1,
+      now: "2026-08-19T00:05:00.000Z",
+      invocations: { path: invocationsPath },
+    });
+    assert.equal(report.delegations.totals.count, 1);
+    assert.equal(report.delegations.by_kind.review.count, 1);
+    assert.equal(report.invocations.total, 1);
+    assert.equal(report.invocations.by_command.stats.total, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -165,8 +202,11 @@ test("buildStatsReport separates cache categories, reports percentiles, daily tr
     ];
     await fs.appendFile(resolveDelegationsPath(dir), `${lines.join("\n")}\n`, "utf8");
 
-    const report = await buildStatsReport(dir, { days: 7 });
-    assert.equal(report.schema_version, "stats-v2");
+    const report = await buildStatsReport(dir, {
+      days: 7,
+      invocations: { path: path.join(dir, "global-cache", "invocations.json") },
+    });
+    assert.equal(report.schema_version, "stats-v3");
     assert.equal(report.delegations.totals.count, 3);
     assert.equal(report.delegations.totals.fresh_input_tokens, 3000);
     assert.equal(report.delegations.totals.cache_read_tokens, 500000);

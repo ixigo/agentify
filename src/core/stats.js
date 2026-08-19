@@ -3,8 +3,9 @@ import path from "node:path";
 
 import { ensureDir, exists, readText } from "./fs.js";
 import { resolveContextPaths } from "./ctx.js";
+import { buildInvocationReport, INVOCATION_SOURCES } from "./invocations.js";
 
-const STATS_SCHEMA_VERSION = "stats-v2";
+const STATS_SCHEMA_VERSION = "stats-v3";
 const DELEGATION_SCHEMA_VERSION = "delegation-v2";
 const DEFAULT_WINDOW_DAYS = 30;
 // Rough chars-per-token used when the provider CLI reports no usage.
@@ -115,8 +116,12 @@ function percentile(sortedValues, fraction) {
 }
 
 export async function buildStatsReport(root, options = {}) {
-  const days = Number.isFinite(options.days) && options.days > 0 ? options.days : DEFAULT_WINDOW_DAYS;
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const days = Number.isInteger(options.days) && options.days > 0 ? options.days : DEFAULT_WINDOW_DAYS;
+  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
+  const windowStart = new Date(now);
+  windowStart.setUTCHours(0, 0, 0, 0);
+  windowStart.setUTCDate(windowStart.getUTCDate() - (days - 1));
+  const cutoff = windowStart.toISOString();
 
   const delegations = (await readDelegationRecords(root))
     .filter((record) => String(record.ts || "") >= cutoff);
@@ -169,6 +174,7 @@ export async function buildStatsReport(root, options = {}) {
   const notes = (await readJsonLines(paths.notesPath)).filter((note) => String(note.ts || "") >= cutoff).length;
 
   const summaries = await buildSummaryMaintenance(paths, cutoff);
+  const invocations = await buildInvocationReport({ ...options.invocations, days, now });
 
   return {
     schema_version: STATS_SCHEMA_VERSION,
@@ -206,6 +212,7 @@ export async function buildStatsReport(root, options = {}) {
         .map(([date, bucket]) => ({ date, ...bucket, cost_usd: Number(bucket.cost_usd.toFixed(6)) })),
       legacy_records: totals.legacy_records,
     },
+    invocations,
     summaries,
   };
 }
@@ -276,6 +283,29 @@ function bucketLine(label, bucket) {
 
 export function renderStatsReport(report) {
   const lines = [`Agentify stats — last ${report.window_days} day(s)`];
+
+  const invocations = report.invocations;
+  lines.push("", "Invocations (machine-wide):");
+  if (!invocations || invocations.total === 0) {
+    lines.push("- none recorded");
+  } else {
+    const sourceSummary = INVOCATION_SOURCES
+      .filter((source) => invocations.by_source[source] > 0)
+      .map((source) => `${invocations.by_source[source]} ${source}`)
+      .join(", ");
+    lines.push(`- ${invocations.total} total (${sourceSummary})`);
+    if (invocations.top_commands.length > 0) {
+      lines.push("- top commands:");
+      for (const entry of invocations.top_commands) {
+        const sources = INVOCATION_SOURCES
+          .filter((source) => entry.by_source[source] > 0)
+          .map((source) => `${entry.by_source[source]} ${source}`)
+          .join(", ");
+        lines.push(`  - ${entry.command}: ${entry.total} (${sources})`);
+      }
+    }
+  }
+  if (invocations?.limitation) lines.push(`- ${invocations.limitation}`);
 
   lines.push(
     "",

@@ -204,7 +204,7 @@ const COMMANDS = [
       flag("--push", { description: "Review outgoing commits against upstream" }),
     ],
   }),
-  command("stats", "Session and delegation usage stats", {
+  command("stats", "Machine-wide invocation, session, and delegation usage stats", {
     flags: [flag("--days", { valueKind: "number", description: "Window in days (default 30)" })],
   }),
   command("value", "Evidence-backed Agentify impact report", {

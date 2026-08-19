@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
+const ignoreInvocation = async () => {};
 
 async function initGitRepo(root) {
   await execFileAsync("git", ["init"], { cwd: root });
@@ -41,7 +42,7 @@ async function handleMcpMessage(tools, message) {
   return {
     jsonrpc: "2.0",
     id: message.id,
-    result: await invokeMcpTool(tool, message.params?.arguments || {}),
+    result: await invokeMcpTool(tool, message.params?.arguments || {}, { recordInvocation: ignoreInvocation }),
   };
 }
 
@@ -115,6 +116,28 @@ test("tool catalog exposes all eight tools with strict object schemas", () => {
     tools.every((tool) => tool.inputSchema?.additionalProperties === false),
     "every tool must set additionalProperties: false",
   );
+});
+
+test("MCP dispatch counts each tool call and telemetry failures are fail-open", async () => {
+  const recorded = [];
+  const okTool = { name: "ctx_load", async handler() { return "loaded"; } };
+  const ok = await invokeMcpTool(okTool, {}, {
+    recordInvocation: async (invocation) => { recorded.push(invocation); },
+  });
+  assert.equal(ok.content[0].text, "loaded");
+  assert.deepEqual(recorded, [{ command: "ctx_load", source: "mcp" }]);
+
+  const recorderFailure = await invokeMcpTool(okTool, {}, {
+    recordInvocation: async () => { throw new Error("cache unavailable"); },
+  });
+  assert.equal(recorderFailure.content[0].text, "loaded");
+
+  const failedTool = { name: "risk", async handler() { throw new Error("tool failed"); } };
+  const failed = await invokeMcpTool(failedTool, {}, {
+    recordInvocation: async (invocation) => { recorded.push(invocation); },
+  });
+  assert.equal(failed.isError, true);
+  assert.deepEqual(recorded[1], { command: "risk", source: "mcp" });
 });
 
 test("tools/call runs ctx tools against the store", async () => {
@@ -593,7 +616,7 @@ test("runMcpServer preserves the legacy initialize and tools flow", async () => 
     const chunks = [];
     output.on("data", (chunk) => chunks.push(chunk.toString()));
 
-    const server = runMcpServer(root, {}, { input, output });
+    const server = runMcpServer(root, {}, { input, output, recordInvocation: ignoreInvocation });
 
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "agentify-test", version: "1.0.0" } } })}\n`);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
@@ -624,7 +647,7 @@ test("runMcpServer serves 2026-07-28 discovery, cacheable tools, and validated c
     const output = new PassThrough();
     const chunks = [];
     output.on("data", (chunk) => chunks.push(chunk.toString()));
-    const server = runMcpServer(root, {}, { input, output });
+    const server = runMcpServer(root, {}, { input, output, recordInvocation: ignoreInvocation });
     const _meta = modernMeta();
 
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta } })}\n`);
@@ -671,7 +694,12 @@ test("runMcpServer rejects unsupported or malformed modern envelopes", async () 
   const chunks = [];
   output.on("data", (chunk) => chunks.push(chunk.toString()));
   const errors = [];
-  const server = runMcpServer("/tmp/nowhere", {}, { input, output, onerror: (error) => errors.push(error) });
+  const server = runMcpServer("/tmp/nowhere", {}, {
+    input,
+    output,
+    onerror: (error) => errors.push(error),
+    recordInvocation: ignoreInvocation,
+  });
 
   input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernMeta("2099-01-01") } })}\n`);
   input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" } } })}\n`);
