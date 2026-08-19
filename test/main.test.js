@@ -366,14 +366,30 @@ test("runCli clean --json emits a machine-readable cleanup report", async () => 
   assert.equal("removed_cache_blobs" in payload, false);
 });
 
+test("runCli stats requires a positive integer day window", async () => {
+  const root = await tmpRoot("agentify-main-stats-days-");
+  await assert.rejects(
+    () => runCli(["stats", "--days", "1.5", "--root", root]),
+    /stats --days requires a positive integer/,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // CLI binary smoke check
 // ---------------------------------------------------------------------------
 
 test("cli.js --version prints the version and no stderr", async () => {
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
-  const result = await execFileAsync(process.execPath, ["src/cli.js", "--version"], { cwd: repoRoot });
-  assert.match(result.stdout, /^agentify v\d+\.\d+\.\d+/);
+  const cacheHome = await tmpRoot("agentify-main-version-cache-");
+  try {
+    const result = await execFileAsync(process.execPath, ["src/cli.js", "--version"], {
+      cwd: repoRoot,
+      env: { ...process.env, XDG_CACHE_HOME: cacheHome },
+    });
+    assert.match(result.stdout, /^agentify v\d+\.\d+\.\d+/);
+  } finally {
+    await fs.rm(cacheHome, { recursive: true, force: true });
+  }
 });
 
 test("plan-to-html hook script renders manual markdown to plans html", async () => {

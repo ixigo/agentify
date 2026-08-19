@@ -8,10 +8,11 @@ import { fileURLToPath } from "node:url";
 
 const CLI_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
 
-function runCli(args, { stdin, cwd } = {}) {
+function runCli(args, { stdin, cwd, env } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI_PATH, ...args], {
       cwd: cwd || process.cwd(),
+      env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -30,6 +31,7 @@ function runCli(args, { stdin, cwd } = {}) {
 test("ctx track --hook records a redacted event end-to-end through the real CLI", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-e2e-"));
   try {
+    const cacheHome = path.join(root, "global-cache");
     const payload = JSON.stringify({
       session_id: "e2e-session",
       hook_event_name: "PostToolUse",
@@ -41,7 +43,10 @@ test("ctx track --hook records a redacted event end-to-end through the real CLI"
       tool_response: { exitCode: 0 },
     });
 
-    const result = await runCli(["ctx", "track", "--hook", "--root", root], { stdin: payload });
+    const result = await runCli(["ctx", "track", "--hook", "--root", root], {
+      stdin: payload,
+      env: { XDG_CACHE_HOME: cacheHome },
+    });
     assert.equal(result.code, 0, `stderr: ${result.stderr}`);
     // Hook mode must stay silent so it never pollutes the transcript.
     assert.equal(result.stdout, "");
@@ -53,6 +58,10 @@ test("ctx track --hook records a redacted event end-to-end through the real CLI"
     assert.equal(event.type, "cmd");
     assert.ok(event.cmd.includes("[REDACTED]"), `expected redacted cmd, got: ${event.cmd}`);
     assert.ok(!event.cmd.includes("abcdef123456789012"));
+
+    const invocations = JSON.parse(await fs.readFile(path.join(cacheHome, "agentify", "invocations.json"), "utf8"));
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(invocations[today]["ctx.track"].hook, 1);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -61,9 +70,38 @@ test("ctx track --hook records a redacted event end-to-end through the real CLI"
 test("ctx track --hook exits cleanly on malformed stdin", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-e2e-"));
   try {
-    const result = await runCli(["ctx", "track", "--hook", "--root", root], { stdin: "not json {" });
+    const result = await runCli(["ctx", "track", "--hook", "--root", root], {
+      stdin: "not json {",
+      env: { XDG_CACHE_HOME: path.join(root, "global-cache") },
+    });
     assert.equal(result.code, 0, `stderr: ${result.stderr}`);
     assert.equal(result.stdout, "");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("AGENTIFY_CTX=off suppresses context writes but not the global invocation tick", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-e2e-paused-"));
+  try {
+    const cacheHome = path.join(root, "global-cache");
+    const payload = JSON.stringify({
+      session_id: "paused-session",
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "pnpm test" },
+      tool_response: { exitCode: 0 },
+    });
+    const result = await runCli(["ctx", "track", "--hook", "--root", root], {
+      stdin: payload,
+      env: { AGENTIFY_CTX: "off", XDG_CACHE_HOME: cacheHome },
+    });
+    assert.equal(result.code, 0, `stderr: ${result.stderr}`);
+    await assert.rejects(fs.access(path.join(root, ".agentify", "context", "events.jsonl")));
+
+    const invocations = JSON.parse(await fs.readFile(path.join(cacheHome, "agentify", "invocations.json"), "utf8"));
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(invocations[today]["ctx.track"].hook, 1);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -177,7 +177,7 @@ All commands accept `--json` for machine-readable output — which is how agents
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
 | `agentify models` | Model routing table + provider availability |
 | `agentify route explain "<task>"` | Dry-run the routing decision for a task |
-| `agentify stats [--days N]` | Session + delegation usage: runs, tokens, cost by kind and model |
+| `agentify stats [--days N]` | Machine-wide CLI/hook/MCP invocations plus session and delegation usage |
 | `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, and focused tests |
 | `agentify analyze [--days N] [--scope current-repo\|global] [--format text\|json\|html] [--no-open]` | Privacy-first analysis of your local Claude Code/Codex session history: usage, tool patterns, evidence-backed Agentify opportunities, a 0–100 usage scorecard that grades model-vs-task matchups ("a gun at a fist fight" gets called out as a delegation candidate), and exactly one roast. Metadata only, consent-gated (`--yes`), zero AI spend; `--dry-run` previews what would be read |
 
@@ -341,7 +341,7 @@ Profiles feed on locally recorded `agentify eval` runs; recommendations never re
 
 Want a second vendor's eyes on every push? Enable the opt-in pre-push hook (`hooks.prePush: true` in `.agentify.yaml`, then `agentify hooks install`): each `git push` triggers `agentify review --push` — an independent review of the outgoing commits by the other vendor's model. Advisory only; it never blocks the push.
 
-Every delegation is logged locally with duration, token usage, and cost (real numbers where the provider CLI reports them, ~4 chars/token estimates otherwise). `agentify stats` breaks it down by kind and model — so you can see what routing cheap work to cheap models is actually saving.
+Every CLI, hook, and MCP tool invocation contributes a private machine-wide daily count with no arguments, paths, or repo identity. Every delegation is also logged repo-locally with duration, token usage, and cost (real numbers where the provider CLI reports them, ~4 chars/token estimates otherwise). `agentify stats` breaks usage down by source and command, and delegations by kind and model — so you can see adoption and what routing cheap work to cheap models is actually saving.
 
 ## Make the invisible value visible
 

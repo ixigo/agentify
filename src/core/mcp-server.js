@@ -9,6 +9,7 @@ import { addNote, listDecisions, loadContextSnapshot, matchContext, renderContex
 import { walkFiles } from "./fs.js";
 import { isGitRepository, isPathIgnoredByGit } from "./git.js";
 import { getIndexFreshness } from "./index-freshness.js";
+import { recordInvocation } from "./invocations.js";
 import { resolveAgentifyPaths } from "./project-store.js";
 import {
   queryCallers,
@@ -575,14 +576,27 @@ export function buildMcpServer(root, config = {}, options = {}) {
         description: tool.description,
         inputSchema: tool.inputValidator,
       },
-      (args) => invokeMcpTool(tool, args),
+      (args) => invokeMcpTool(tool, args, {
+        recordInvocation: options.recordInvocation,
+        invocationOptions: options.invocationOptions,
+      }),
     );
   }
 
   return server;
 }
 
-export async function invokeMcpTool(tool, args = {}) {
+export async function invokeMcpTool(tool, args = {}, options = {}) {
+  const recorder = options.recordInvocation || recordInvocation;
+  try {
+    await recorder(
+      { command: tool.name, source: "mcp" },
+      options.invocationOptions,
+    );
+  } catch {
+    // Usage telemetry is fail-open and must never affect the tool result.
+  }
+
   try {
     const text = await tool.handler(args);
     return { content: [{ type: "text", text: String(text ?? "") }] };
@@ -601,7 +615,11 @@ export function runMcpServer(root, config = {}, options = {}) {
       : undefined
   );
   return serveStdio(
-    () => buildMcpServer(root, config, { tools: options.tools }),
+    () => buildMcpServer(root, config, {
+      tools: options.tools,
+      recordInvocation: options.recordInvocation,
+      invocationOptions: options.invocationOptions,
+    }),
     {
       ...(transport ? { transport } : {}),
       onerror: options.onerror,

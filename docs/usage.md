@@ -317,13 +317,15 @@ Run:
 
 **When to use:** the guidance block teaches the agent to run `agentify test --since <ref> --run` before finishing a change instead of the full suite. Requires `agentify scan` (the index).
 
-## Delegation usage: agentify stats
+## Agentify usage: agentify stats
 
-**Why:** model routing only pays off if you can see it working. Stats make the delegate traffic — and what it costs — visible.
+**Why:** adoption and model routing only become useful signals when you can see them. Stats show how often Agentify is invoked across the machine, plus delegate traffic and what it costs.
 
-**How:** every `agentify delegate` run is logged locally (`.agentify/context/delegations.jsonl`) as a versioned `delegation-v2` record: fresh input, cache-read, cache-write, and output tokens kept separate; provider-reported cost (never fabricated); the requested alias vs the resolved model ID; latency phases; and the budget ceiling the run operated under. Prompts are stored only as a hash — no prompt text or command arguments land in telemetry. Claude delegations run with `--output-format json`, so token counts and `total_cost_usd` are the provider's real numbers; Codex runs with `--json` for its usage stream (its final answer comes via `--output-last-message`); anything unreported gets ~4 chars/token estimates, and estimated rows are labeled as such. Old `stats-v1` lines still count in totals and are marked as legacy aggregates.
+**How:** every CLI dispatch records one aggregated daily count by command and source (`cli` or `hook`); every MCP tool call records one `mcp` count by tool name. The machine-wide store is `$XDG_CACHE_HOME/agentify/invocations.json` when `XDG_CACHE_HOME` is absolute, otherwise `~/.cache/agentify/invocations.json`. It contains counts only — never arguments, task text, paths, repo names, or repo identifiers — and is atomically rewritten as a private file. A symlink-aware containment guard disables the store if that path would land inside any Git repository. The report therefore shows the same invocation totals from every working directory.
 
-The report includes P50/P95 latency, cache read/write/fresh ratios, daily cost trend, cost-reporting coverage, fallback reasons, budget-stopped runs, and a session-summary maintenance view (count, LLM spend, injection rate).
+Delegation details remain repo-local: every `agentify delegate` run is logged to `.agentify/context/delegations.jsonl` as a versioned `delegation-v2` record with fresh input, cache-read, cache-write, and output tokens kept separate; provider-reported cost (never fabricated); the requested alias versus resolved model ID; latency phases; and the active budget ceiling. Prompts are stored only as a hash. Claude delegations run with `--output-format json`, while Codex runs with `--json`; anything unreported gets ~4 chars/token estimates, and estimated rows are labeled as such. Old `stats-v1` lines still count in totals and are marked as legacy aggregates.
+
+The report uses one inclusive UTC calendar-day window for every section. It includes invocation totals split by source and top command, plus delegation P50/P95 latency, cache read/write/fresh ratios, daily cost trend, cost-reporting coverage, fallback reasons, budget-stopped runs, and a session-summary maintenance view (count, LLM spend, injection rate).
 
 ```bash
 agentify stats            # last 30 days
@@ -334,6 +336,13 @@ Real output after one Haiku research delegation and one Codex review in a demo r
 
 ```text
 Agentify stats — last 30 day(s)
+
+Invocations (machine-wide):
+- 184 total (37 cli, 139 hook, 8 mcp)
+- top commands:
+  - ctx.track: 92 (92 hook)
+  - ctx.match: 31 (31 hook)
+  - query: 8 (8 mcp)
 
 Sessions:
 - 1 session(s), 0 edit(s), 1 command(s) (1 failed), 4 note(s)
@@ -354,6 +363,8 @@ CLI reported no usage.
 ```
 
 Failures and cross-vendor fallbacks are counted per bucket, so a route whose CLI keeps falling back stands out.
+
+Invocation counting is usage telemetry, not repo context: `agentify ctx pause` and `AGENTIFY_CTX=off` do not stop it, and `agentify ctx clear` does not remove it. To reset the counter, delete the resolved global `invocations.json` file (normally `~/.cache/agentify/invocations.json`). Recording is always fail-open, so an unavailable or unsafe cache never changes a CLI command or MCP tool result.
 
 ## Session history analysis: agentify analyze
 

@@ -466,7 +466,10 @@ test("summary injection usage is recorded for the stats maintenance view", async
     assert.equal(usage.summary_ts, written.record.ts);
 
     const { buildStatsReport } = await import("../src/core/stats.js");
-    const report = await buildStatsReport(dir, { days: 7 });
+    const report = await buildStatsReport(dir, {
+      days: 7,
+      invocations: { path: path.join(dir, "global-cache", "invocations.json") },
+    });
     assert.equal(report.summaries.count, 1);
     assert.equal(report.summaries.by_mode.extractive, 1);
     assert.equal(report.summaries.injected_unique, 1);

@@ -1097,8 +1097,8 @@ export async function runCli(argv, _runtime = {}) {
 
       case "stats": {
         const days = args.days !== undefined ? Number(args.days) : undefined;
-        if (args.days !== undefined && (!Number.isFinite(days) || days <= 0)) {
-          throw new Error("stats --days requires a positive number");
+        if (args.days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+          throw new Error("stats --days requires a positive integer");
         }
         const report = await buildStatsReport(root, { days });
         if (config.json) {
