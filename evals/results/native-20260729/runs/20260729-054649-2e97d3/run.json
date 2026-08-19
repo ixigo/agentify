@@ -1,0 +1,223 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-07-29T05:46:49.759Z",
+  "run_id": "20260729-054649-2e97d3",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "plan": {
+    "task": {
+      "schema": "eval-task-v1",
+      "id": "trivial-edit-no-lookup",
+      "description": "Over-triggering control. A one-line, zero-blast-radius edit where consulting the index, scoring impact, or reviewing prior decisions is unnecessary. A description set that makes the agent reach for a tool here is over-triggering, which is a regression — reported alongside under-calling, not ignored. Setup plants the typo so the grader fails on an unchanged workspace; both sets should complete this with few or no tool calls.",
+      "prompt": "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+      "base_ref": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null,
+      "max_budget_usd": 0.25,
+      "max_turns": 6,
+      "timeout_seconds": 300,
+      "repeat": 3,
+      "setup": [
+        "printf '%s\\n' '// helper note - recieve the payload, then validate it' > ablation-scratch-note.js"
+      ],
+      "grader": {
+        "commands": [
+          "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'"
+        ]
+      },
+      "forbidden_paths": [
+        ".claude/**",
+        "CLAUDE.md"
+      ],
+      "arms": [
+        "agentify",
+        "plain-safe"
+      ],
+      "profile": "balanced",
+      "seed_context": true,
+      "context_ablations": null,
+      "mcp_tools": true,
+      "description_ablations": null
+    },
+    "task_path": "../../../../../private/tmp/claude-549990265/-Users-ranveer-kumar-Projects-agent-project-agentify/23580757-b555-4f58-965b-668a52292f47/scratchpad/eval-run/trivial-edit-no-lookup.yaml",
+    "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+    "arms": [
+      "agentify",
+      "plain-safe"
+    ],
+    "repeat": 3,
+    "max_spend_usd": 1.5,
+    "order": [
+      {
+        "attempt_id": "plain-safe-1",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "agentify-2",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-3",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "agentify-3",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-2",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "A tracked file in the working tree has a spelling mistake in a code comment: the word \"recieve\" should be \"receive\". Find that comment and correct only that one word. Change nothing else.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.25",
+          "--max-turns",
+          "6",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      }
+    ]
+  }
+}

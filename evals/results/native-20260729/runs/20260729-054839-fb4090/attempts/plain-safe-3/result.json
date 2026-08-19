@@ -1,0 +1,76 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260729-054839-fb4090",
+  "attempt_id": "plain-safe-3",
+  "arm": "plain-safe",
+  "base_arm": "plain-safe",
+  "context_ablation": null,
+  "description_set": null,
+  "repeat_index": 3,
+  "task_id": "query-before-edit-cap16",
+  "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": 16,
+    "timeout_seconds": 600
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 19013,
+    "subtype": "success",
+    "num_turns": 9,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.06951339999999999,
+    "usage": {
+      "fresh_input_tokens": 34,
+      "cache_write_tokens": 22456,
+      "cache_read_tokens": 117084,
+      "output_tokens": 2439
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "test -z \"$(git grep -n 'firstFinite' -- src test || true)\"",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "git grep -nq 'function firstNumber' -- src/core/harbor.js",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(git grep -oh 'firstNumber' -- src test | wc -l | tr -d ' ')\" -ge 10",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      }
+    ],
+    "changed_paths": [
+      "src/core/harbor.js"
+    ]
+  },
+  "pass": true,
+  "duration_ms": 19719,
+  "artifacts": {
+    "patch": "attempts/plain-safe-3/patch.diff",
+    "provider_stdout": "attempts/plain-safe-3/provider-stdout.json",
+    "provider_stream": "attempts/plain-safe-3/provider-stream.jsonl"
+  }
+}

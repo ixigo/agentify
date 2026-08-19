@@ -31,7 +31,7 @@ async function initAgentifyGitRepo(root) {
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
 import { addNote, resolveContextPaths, trackEvent } from "../src/core/ctx.js";
-import { buildMcpTools, invokeMcpTool, runMcpServer } from "../src/core/mcp-server.js";
+import { MCP_SERVER_INSTRUCTIONS, buildMcpTools, invokeMcpTool, runMcpServer } from "../src/core/mcp-server.js";
 
 async function handleMcpMessage(tools, message) {
   assert.equal(message?.method, "tools/call", "unit helper only invokes tool handlers");
@@ -712,4 +712,29 @@ test("runMcpServer rejects unsupported or malformed modern envelopes", async () 
 
   await server.close();
   input.end();
+});
+
+test("initialize result carries the server usage instructions", async () => {
+  const root = await withContextFixture();
+  try {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const chunks = [];
+    output.on("data", (chunk) => chunks.push(chunk.toString()));
+    const server = runMcpServer(root, {}, { input, output });
+
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "agentify-test", version: "1.0.0" } } })}\n`);
+
+    const responses = await waitForMessages(chunks, 1);
+    // The instructions are the "when to reach for a tool" affordance: the
+    // 2026-07-29 ablation measured a near-zero call rate with per-tool
+    // descriptions alone, so the server states the trigger moments itself.
+    assert.equal(responses[0].result.instructions, MCP_SERVER_INSTRUCTIONS);
+    assert.match(responses[0].result.instructions, /Before declaring a change done: call risk/);
+
+    await server.close();
+    input.end();
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

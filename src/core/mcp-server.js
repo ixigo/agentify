@@ -29,6 +29,23 @@ const QUERY_KINDS = ["search", "def", "refs", "callers", "impacts", "owner", "de
 
 const MCP_CACHE_HINT = { ttlMs: 300000, cacheScope: "private" };
 
+// Server-level usage instructions, surfaced to the client at initialize.
+// The 2026-07-29 description-ablation runs measured a near-zero tool-call
+// rate: agents that had the tools listed never reached for them. Per-tool
+// descriptions say what a tool does; this says WHEN to reach for one, at the
+// moments agents actually face. Deliberately shared by both ablatable
+// description sets (a/b) so the ablation keeps varying description wording
+// only — changing these instructions is a product change, not an ablation arm.
+export const MCP_SERVER_INSTRUCTIONS = [
+  "Agentify holds this repository's durable cross-session memory and structural index. Reach for these tools at these moments, without waiting to be asked:",
+  "- Starting a task: call ctx_load (or ctx_match with the task description) before rediscovering the project — earlier sessions may already hold the answer.",
+  "- Before proposing, endorsing, or implementing a technical direction: call ctx_decisions so you do not re-litigate a settled choice.",
+  "- Before editing an unfamiliar symbol or file: call query (def/refs/callers/impacts) instead of broad text searches.",
+  "- Before declaring a change done: call risk for blast radius, then test_select to run only the affected tests.",
+  "- When you learn a durable gotcha or make a decision worth keeping: call ctx_note.",
+  "- Wrapping up a long task: call ctx_handoff so the next session starts warm.",
+].join("\n");
+
 const MCP_TOOL_INPUTS = {
   ctx_load: z.strictObject({}),
   ctx_note: z.strictObject({
@@ -566,6 +583,7 @@ export function buildMcpServer(root, config = {}, options = {}) {
         "server/discover": MCP_CACHE_HINT,
         "tools/list": MCP_CACHE_HINT,
       },
+      instructions: MCP_SERVER_INSTRUCTIONS,
     },
   );
 

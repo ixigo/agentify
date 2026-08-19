@@ -206,6 +206,28 @@ function armMetrics(allRecords) {
     stopReasons[stop] = (stopReasons[stop] || 0) + 1;
   }
 
+  // Agentify MCP tool adoption (mcp_tools tasks only). The runner persists
+  // per-attempt tallies as mcp_precondition.claude_tool_calls/_errors
+  // (inspectClaudeMcpConnection in eval.js); attempts recorded before that
+  // field existed are counted as unreported, never as zero — a missing tally
+  // and a measured zero-call attempt are different findings. The 2026-07-29
+  // ablation runs showed a near-zero call rate that nothing aggregated, so
+  // the description ablation's headline metric was invisible in reports.
+  let mcpReportedAttempts = 0;
+  let mcpCallingAttempts = 0;
+  let mcpCalls = 0;
+  let mcpErrors = 0;
+  for (const record of records) {
+    const calls = record.mcp_precondition?.claude_tool_calls;
+    if (typeof calls !== "number") continue;
+    mcpReportedAttempts += 1;
+    mcpCalls += calls;
+    if (calls > 0) mcpCallingAttempts += 1;
+    if (typeof record.mcp_precondition?.claude_tool_errors === "number") {
+      mcpErrors += record.mcp_precondition.claude_tool_errors;
+    }
+  }
+
   providerDurations.sort((a, b) => a - b);
   const mean = (values) => (values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
   const fullyCosted = attempts > 0 && reportedAttempts === attempts;
@@ -251,6 +273,24 @@ function armMetrics(allRecords) {
     changed_files: { mean: round(mean(changedCounts), 2), max: changedCounts.length > 0 ? Math.max(...changedCounts) : null },
     failure_breakdown: failureBreakdown,
     stop_reasons: stopReasons,
+    // Omitted entirely when no attempt carries a tool-call tally, so runs
+    // that never exposed MCP tools (and receipts generated before this field)
+    // keep their exact report shape.
+    ...(mcpReportedAttempts > 0
+      ? {
+        mcp_tools: {
+          total_calls: mcpCalls,
+          total_errors: mcpErrors,
+          attempts_with_calls: mcpCallingAttempts,
+          reported_attempts: mcpReportedAttempts,
+          unreported_attempts: attempts - mcpReportedAttempts,
+          // Share of measured attempts that made at least one Agentify MCP
+          // call — the description ablation's headline adoption metric.
+          call_rate: round(mcpCallingAttempts / mcpReportedAttempts, 4),
+          calls_per_attempt: round(mcpCalls / mcpReportedAttempts, 2),
+        },
+      }
+      : {}),
   };
 }
 
@@ -1107,6 +1147,17 @@ export function renderEvalReportMarkdown(report) {
         ? `${metrics.context_ablation.mode}${metrics.context_ablation.max_injected_tokens !== null ? `@${metrics.context_ablation.max_injected_tokens}` : ""}`
         : "default";
       lines.push(`| ${arm} | ${ablation} | ${metrics.budget_max_tokens ?? "n/a"} | ${metrics.injections} | ${metrics.injected_items} | ${metrics.estimated_tokens} | ${metrics.decisions_reused} | ${metrics.stale_context_rejected} | ${metrics.truncated_items} | ${metrics.over_budget_skips} | ${metrics.max_match_ms !== null ? `${metrics.max_match_ms}ms` : "n/a"} |`);
+    }
+  }
+
+  const mcpArms = Object.entries(report.arms).filter(([, metrics]) => metrics.mcp_tools);
+  if (mcpArms.length > 0) {
+    lines.push("", "## MCP tool adoption (mcp_tools arms)", "");
+    lines.push("| arm | call rate | calls/attempt | total calls | errors | measured attempts | unmeasured |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+    for (const [arm, metrics] of mcpArms) {
+      const mcp = metrics.mcp_tools;
+      lines.push(`| ${arm} | ${formatRate(mcp.call_rate)} | ${mcp.calls_per_attempt} | ${mcp.total_calls} | ${mcp.total_errors} | ${mcp.reported_attempts} | ${mcp.unreported_attempts} |`);
     }
   }
 

@@ -1,0 +1,26 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "native-20260729",
+  "date": "2026-07-29",
+  "notes": "First executed runs of the evals/mcp-descriptions suite (native harness, Claude Code 2.1.220). Raw provider streams are withheld from the receipts (full transcripts, ~10 MB); pass/cost numbers are fully backed by the committed result.json files. Attempts predate the per-attempt claude_tool_calls tally, so the tool-call rate observed from the local streams (one attempt with 2 mcp__agentify__query calls across 51 attempts) is a preliminary observation, not a receipt-backed metric — future runs record it per attempt and aggregate it per arm in eval report.",
+  "jobs": {
+    "native": {
+      "runs": [
+        "20260729-054008-048e4f",
+        "20260729-054252-70dac7",
+        "20260729-054649-2e97d3",
+        "20260729-054839-fb4090",
+        "20260729-055129-ba25af",
+        "20260729-055655-5fa89c"
+      ],
+      "published": {
+        "where": ["evals/mcp-descriptions/README.md"],
+        "arms": {
+          "agentify": { "passes": 9, "attempts": 18 },
+          "plain-safe": { "passes": 12, "attempts": 18 },
+          "agentify-desc-b": { "passes": 2, "attempts": 3 }
+        }
+      }
+    }
+  }
+}

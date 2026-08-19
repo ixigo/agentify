@@ -1,0 +1,221 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-07-29T05:40:08.297Z",
+  "run_id": "20260729-054008-048e4f",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "plan": {
+    "task": {
+      "schema": "eval-task-v1",
+      "id": "query-before-edit",
+      "description": "Repo-wide rename that only succeeds if the agent finds every usage before editing. Weighted toward the situation where consulting the structural index before touching code is the correct move. Measures whether trigger-condition descriptions (set b) raise the tool-call rate versus the shipped wording (set a) without regressing task outcome.",
+      "prompt": "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+      "base_ref": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null,
+      "max_budget_usd": 0.35,
+      "max_turns": 12,
+      "timeout_seconds": 600,
+      "repeat": 3,
+      "setup": [],
+      "grader": {
+        "commands": [
+          "test -z \"$(git grep -n 'firstFinite' -- src test || true)\"",
+          "git grep -nq 'function firstNumber' -- src/core/harbor.js",
+          "test \"$(git grep -oh 'firstNumber' -- src test | wc -l | tr -d ' ')\" -ge 10"
+        ]
+      },
+      "forbidden_paths": [
+        ".claude/**",
+        "CLAUDE.md"
+      ],
+      "arms": [
+        "agentify",
+        "plain-safe"
+      ],
+      "profile": "balanced",
+      "seed_context": true,
+      "context_ablations": null,
+      "mcp_tools": true,
+      "description_ablations": null
+    },
+    "task_path": "../../../../../private/tmp/claude-549990265/-Users-ranveer-kumar-Projects-agent-project-agentify/23580757-b555-4f58-965b-668a52292f47/scratchpad/eval-run/query-before-edit.yaml",
+    "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+    "arms": [
+      "agentify",
+      "plain-safe"
+    ],
+    "repeat": 3,
+    "max_spend_usd": 2.1,
+    "order": [
+      {
+        "attempt_id": "agentify-2",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-3",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-2",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "agentify-3",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-1",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstFinite in src/core/harbor.js is being renamed to firstNumber. Rename its definition and update every place in the codebase that uses it. Do not leave any use of the old name behind.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      }
+    ]
+  }
+}

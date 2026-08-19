@@ -62,3 +62,4 @@ in the same change, so the diff shows exactly how published numbers moved.
 | campaign | date | what | runs |
 | --- | --- | --- | --- |
 | `harbor-20260714` | 2026-07-14 | First Harbor paired campaign on `agentify-context-bench` v1.0.0 (`claude-haiku-4-5`): `paired-full` job (6 runs) + `nightly-20260714` job (8 runs, the results quoted in README and `docs/harbor.md` — 24/24 vs 21/24, no winner declared, p = 0.25) | 14 |
+| `native-20260729` | 2026-07-29 | First executed runs of the `evals/mcp-descriptions` suite (native harness, Claude Code 2.1.220): agentify 9/18, plain-safe 12/18, desc-b 2/3, near-zero tool-call rate — the adoption finding written up in `evals/mcp-descriptions/README.md`. Provider streams withheld (see campaign notes) | 6 |

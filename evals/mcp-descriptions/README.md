@@ -90,12 +90,16 @@ because #334 runs no paid experiments — the rate is intentionally unproduced,
 consistent with "built but unexecuted." Outcome metrics (pass rate, cost) come
 from `agentify eval report` as usual.
 
-**Known dependency gap:** #331's detector currently enumerates the original
-**six** tools; it does not yet recognize `ctx_decisions` / `ctx_handoff` (added
-by #332). The shipped tasks below deliberately exercise only tools the detector
-already recognizes (`query`, `risk`) plus the no-lookup control, so the suite is
-measurable as-is. Extending #331's tool list to the eight #332 ships is a
-prerequisite for ever measuring the decision/handoff triggers.
+**Dependency status (was a gap, now closed):** #331's detector enumerates all
+**eight** tools including `ctx_decisions` / `ctx_handoff`, and
+`test/session-analysis.test.js` asserts its list equals `buildMcpTools()`'s so
+the next added tool fails a test instead of drifting. The runner also now
+persists a per-attempt tally (`mcp_precondition.claude_tool_calls` /
+`claude_tool_errors`, from `inspectClaudeMcpConnection` in `eval.js`) and
+`agentify eval report` aggregates it per arm (`arms.<arm>.mcp_tools`: call
+rate, calls/attempt, errors) — so future runs measure the headline metric
+in-repo. Attempts recorded before the tally existed are reported as
+*unmeasured*, never as zero-call.
 
 ## The task set is weighted toward "calling is correct"
 
@@ -136,11 +140,44 @@ agentify eval run evals/mcp-descriptions/query-before-edit.yaml --dry-run --json
 agentify eval run evals/mcp-descriptions/query-before-edit.yaml
 ```
 
-## Status: built, unexecuted — no descriptions changed
+## Status: executed 2026-07-29 — no descriptions changed, adoption is the bottleneck
 
-Per #334's own guidance, **no description is adopted without evidence.** This
-suite is built and ready to run but has **not** been executed (no paid runs), so
-there is no evidence and **set A remains the untouched default**. Set B ships
-only as the opt-in ablation arm. Both sets are snapshotted in
+First paid runs executed 2026-07-29 (Claude Code 2.1.220, 6 runs, 51
+attempts; receipts committed under `evals/results/native-20260729/` and
+verified by `test/eval-receipts.test.js`):
+
+| task | agentify (set A) | agentify-desc-b | plain-safe |
+| --- | --- | --- | --- |
+| query-before-edit | 2/3 | — | 3/3 |
+| impact-before-done | 0/3 | — | 0/3 |
+| trivial-edit-no-lookup (control) | 3/3 | — | 3/3 |
+| query-before-edit-cap16 | 3/3 | — | 3/3 |
+| impact-before-done-cap16 | 0/3 | — | 0/3 |
+| query-before-edit-ablation-cap16 | 1/3 | 2/3 | 3/3 |
+| **total** | **9/18** | **2/3** | **12/18** |
+
+Findings, stated plainly:
+
+1. **The premise was not reached: agents barely call the tools at all.** From
+   the local provider streams, exactly one attempt made any
+   `mcp__agentify__*` call (2 `query` calls) across all 51 attempts — set A
+   and set B alike. The ablation compared 0-vs-0 on its headline metric, so
+   **neither description set is adopted** and set A remains the default by
+   status quo, not by evidence. (This preliminary stream-derived rate is not
+   receipt-backed — those attempts predate the per-attempt tally; see the
+   campaign notes. Future runs record `claude_tool_calls` per attempt and
+   `eval report` aggregates the per-arm call rate.)
+2. **Agentify never beat plain-safe in these runs** (tied 3 tasks, lost 2,
+   both arms 0/3 on `impact-before-done`) and cost 25–160% more per task.
+   With no tool calls, the agentify arm pays the MCP/context overhead and
+   collects none of the value — consistent with, not contradicting, the
+   adoption diagnosis above.
+3. **Consequence shipped:** the server now sends initialize `instructions`
+   (`MCP_SERVER_INSTRUCTIONS` in `mcp-server.js`) stating *when* to reach for
+   each tool — a product change shared by both description sets, so this
+   ablation continues to vary description wording only. Re-run the suite after
+   the instructions change to measure whether the base call rate moves.
+
+Both description sets remain snapshotted in
 `test/mcp-description-ablation.test.js` so a later edit cannot silently drift
 from the ablated text.

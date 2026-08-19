@@ -1,0 +1,96 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260729-054252-70dac7",
+  "attempt_id": "agentify-3",
+  "arm": "agentify",
+  "base_arm": "agentify",
+  "context_ablation": null,
+  "description_set": null,
+  "repeat_index": 3,
+  "task_id": "impact-before-done",
+  "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": 12,
+    "timeout_seconds": 600
+  },
+  "mcp_precondition": {
+    "alias": "agentify",
+    "registered": true,
+    "description_set": null,
+    "tool_count": 8,
+    "description_switch_supported": true,
+    "available": true,
+    "claude_connected": true
+  },
+  "context_metrics": {
+    "injections": 1,
+    "injected_items": 10,
+    "estimated_tokens": 473,
+    "decisions_reused": 3,
+    "stale_context_rejected": 2,
+    "truncated_items": 0,
+    "over_budget_skips": 0,
+    "max_match_ms": 12,
+    "budget_max_tokens": 1200
+  },
+  "status": "provider_error",
+  "provider": {
+    "exit_code": 1,
+    "timed_out": false,
+    "duration_ms": 47464,
+    "subtype": "error_max_turns",
+    "num_turns": 13,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.11643,
+    "usage": {
+      "fresh_input_tokens": 98,
+      "cache_write_tokens": 28241,
+      "cache_read_tokens": 402000,
+      "output_tokens": 3930
+    }
+  },
+  "grade": {
+    "pass": false,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+        "exit_code": 1,
+        "passed": false,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      }
+    ],
+    "changed_paths": [
+      "src/core/harbor.js"
+    ]
+  },
+  "pass": false,
+  "duration_ms": 49020,
+  "artifacts": {
+    "patch": "attempts/agentify-3/patch.diff",
+    "provider_stdout": "attempts/agentify-3/provider-stdout.json",
+    "provider_stream": "attempts/agentify-3/provider-stream.jsonl"
+  }
+}

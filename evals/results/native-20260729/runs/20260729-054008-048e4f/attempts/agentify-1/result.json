@@ -1,0 +1,96 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260729-054008-048e4f",
+  "attempt_id": "agentify-1",
+  "arm": "agentify",
+  "base_arm": "agentify",
+  "context_ablation": null,
+  "description_set": null,
+  "repeat_index": 1,
+  "task_id": "query-before-edit",
+  "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": 12,
+    "timeout_seconds": 600
+  },
+  "mcp_precondition": {
+    "alias": "agentify",
+    "registered": true,
+    "description_set": null,
+    "tool_count": 8,
+    "description_switch_supported": true,
+    "available": true,
+    "claude_connected": true
+  },
+  "context_metrics": {
+    "injections": 1,
+    "injected_items": 11,
+    "estimated_tokens": 848,
+    "decisions_reused": 3,
+    "stale_context_rejected": 1,
+    "truncated_items": 0,
+    "over_budget_skips": 0,
+    "max_match_ms": 11,
+    "budget_max_tokens": 1200
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 34263,
+    "subtype": "success",
+    "num_turns": 14,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.1021685,
+    "usage": {
+      "fresh_input_tokens": 494,
+      "cache_write_tokens": 28495,
+      "cache_read_tokens": 288995,
+      "output_tokens": 3157
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "test -z \"$(git grep -n 'firstFinite' -- src test || true)\"",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "git grep -nq 'function firstNumber' -- src/core/harbor.js",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(git grep -oh 'firstNumber' -- src test | wc -l | tr -d ' ')\" -ge 10",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      }
+    ],
+    "changed_paths": [
+      "src/core/harbor.js"
+    ]
+  },
+  "pass": true,
+  "duration_ms": 35765,
+  "artifacts": {
+    "patch": "attempts/agentify-1/patch.diff",
+    "provider_stdout": "attempts/agentify-1/provider-stdout.json",
+    "provider_stream": "attempts/agentify-1/provider-stream.jsonl"
+  }
+}
