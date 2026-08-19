@@ -1,0 +1,76 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260729-054252-70dac7",
+  "attempt_id": "plain-safe-1",
+  "arm": "plain-safe",
+  "base_arm": "plain-safe",
+  "context_ablation": null,
+  "description_set": null,
+  "repeat_index": 1,
+  "task_id": "impact-before-done",
+  "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": 12,
+    "timeout_seconds": 600
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 45124,
+    "subtype": "success",
+    "num_turns": 11,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.10766459999999999,
+    "usage": {
+      "fresh_input_tokens": 90,
+      "cache_write_tokens": 23560,
+      "cache_read_tokens": 392086,
+      "output_tokens": 4109
+    }
+  },
+  "grade": {
+    "pass": false,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+        "exit_code": 1,
+        "passed": false,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      }
+    ],
+    "changed_paths": [
+      "src/core/harbor.js"
+    ]
+  },
+  "pass": false,
+  "duration_ms": 46186,
+  "artifacts": {
+    "patch": "attempts/plain-safe-1/patch.diff",
+    "provider_stdout": "attempts/plain-safe-1/provider-stdout.json",
+    "provider_stream": "attempts/plain-safe-1/provider-stream.jsonl"
+  }
+}

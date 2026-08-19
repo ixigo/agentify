@@ -1,0 +1,221 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-07-29T05:42:52.172Z",
+  "run_id": "20260729-054252-70dac7",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "plan": {
+    "task": {
+      "schema": "eval-task-v1",
+      "id": "impact-before-done",
+      "description": "A rename with a wide blast radius across a single module, where the correct move is to confirm nothing that depends on the symbol is left broken before declaring the task done. Weighted toward that situation. The grader fails on an unchanged workspace (the old name is still present at base), so a no-op attempt cannot pass. Measures set a vs set b on tool-call rate and outcome.",
+      "prompt": "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+      "base_ref": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null,
+      "max_budget_usd": 0.35,
+      "max_turns": 12,
+      "timeout_seconds": 600,
+      "repeat": 3,
+      "setup": [],
+      "grader": {
+        "commands": [
+          "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16"
+        ]
+      },
+      "forbidden_paths": [
+        ".claude/**",
+        "CLAUDE.md"
+      ],
+      "arms": [
+        "agentify",
+        "plain-safe"
+      ],
+      "profile": "balanced",
+      "seed_context": true,
+      "context_ablations": null,
+      "mcp_tools": true,
+      "description_ablations": null
+    },
+    "task_path": "../../../../../private/tmp/claude-549990265/-Users-ranveer-kumar-Projects-agent-project-agentify/23580757-b555-4f58-965b-668a52292f47/scratchpad/eval-run/impact-before-done.yaml",
+    "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+    "arms": [
+      "agentify",
+      "plain-safe"
+    ],
+    "repeat": 3,
+    "max_spend_usd": 2.1,
+    "order": [
+      {
+        "attempt_id": "agentify-3",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-3",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 3,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "agentify-2",
+        "arm": "agentify",
+        "base_arm": "agentify",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--mcp-config",
+          ".mcp.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          "mcp__agentify"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-1",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 1,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      },
+      {
+        "attempt_id": "plain-safe-2",
+        "arm": "plain-safe",
+        "base_arm": "plain-safe",
+        "context_ablation": null,
+        "description_set": null,
+        "repeat_index": 2,
+        "argv": [
+          "claude",
+          "-p",
+          "The helper firstString in src/core/harbor.js is being renamed to firstNonEmptyString. It is used throughout that module. Rename its definition and update every place that uses it. Before you consider this task complete, make sure you have not left any reference to the old name anywhere that would break something depending on it.",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--model",
+          "claude-haiku-4-5-20251001",
+          "--max-budget-usd",
+          "0.35",
+          "--max-turns",
+          "12",
+          "--no-session-persistence",
+          "--permission-mode",
+          "acceptEdits",
+          "--safe-mode"
+        ]
+      }
+    ]
+  }
+}

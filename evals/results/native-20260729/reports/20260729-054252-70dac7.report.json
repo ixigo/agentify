@@ -1,0 +1,708 @@
+{
+  "schema": "eval-report-v1",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20260729-054252-70dac7",
+  "run_ts": "2026-07-29T05:42:52.172Z",
+  "harness": "native",
+  "artifacts_root": ".agentify/evals/runs/20260729-054252-70dac7",
+  "task": {
+    "id": "impact-before-done",
+    "prompt_sha256": "c3d305b0748bfd46a6a4bd7c377eaf842095d092face0334a22daa0931491415",
+    "fingerprint_sha256": "e06ddfd79bd46dec2133d8b421323a17e273019ec62909eabd5c06642aa09a16",
+    "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": "balanced",
+    "category": null,
+    "phases": null,
+    "max_budget_usd": 0.35,
+    "max_turns": 12,
+    "timeout_seconds": 600,
+    "forbidden_paths": [
+      ".claude/**",
+      "CLAUDE.md"
+    ],
+    "arms": [
+      "agentify",
+      "plain-safe"
+    ],
+    "repeat": 3
+  },
+  "versions": {
+    "agentify": "0.4.0",
+    "claude": "2.1.220 (Claude Code)"
+  },
+  "completeness": {
+    "planned_attempts": 6,
+    "completed_attempts": 6,
+    "partial": false,
+    "paired": true,
+    "underpowered": true,
+    "min_attempts_per_arm": 5,
+    "labels": [
+      "underpowered"
+    ]
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 3,
+      "passes": 0,
+      "failures": 3,
+      "invalid": 0,
+      "pass_rate": 0,
+      "pass_rate_ci95": {
+        "low": 0,
+        "high": 0.5615
+      },
+      "cost": {
+        "reported_usd": 0.332749,
+        "reported_attempts": 3,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.110916,
+        "per_pass_usd": null
+      },
+      "tokens": {
+        "fresh_input": 286,
+        "cache_read": 1172678,
+        "cache_write": 82995,
+        "output": 9841,
+        "usage_reported_attempts": 3,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 38328,
+        "provider_p95_ms": 47464,
+        "provider_mean_ms": 41029,
+        "total_mean_ms": 42548
+      },
+      "turns": {
+        "mean": 12.33,
+        "max": 13,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 3
+      },
+      "changed_files": {
+        "mean": 1,
+        "max": 1
+      },
+      "failure_breakdown": {
+        "provider_error": 2,
+        "grader_failed": 1
+      },
+      "stop_reasons": {
+        "error_max_turns": 2,
+        "success": 1
+      }
+    },
+    "plain-safe": {
+      "attempts": 3,
+      "passes": 0,
+      "failures": 3,
+      "invalid": 0,
+      "pass_rate": 0,
+      "pass_rate_ci95": {
+        "low": 0,
+        "high": 0.5615
+      },
+      "cost": {
+        "reported_usd": 0.274805,
+        "reported_attempts": 3,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.091602,
+        "per_pass_usd": null
+      },
+      "tokens": {
+        "fresh_input": 222,
+        "cache_read": 929637,
+        "cache_write": 67473,
+        "output": 8918,
+        "usage_reported_attempts": 3,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 30747,
+        "provider_p95_ms": 45124,
+        "provider_mean_ms": 35406,
+        "total_mean_ms": 36276
+      },
+      "turns": {
+        "mean": 9,
+        "max": 11,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 3
+      },
+      "changed_files": {
+        "mean": 1,
+        "max": 1
+      },
+      "failure_breakdown": {
+        "grader_failed": 3
+      },
+      "stop_reasons": {
+        "success": 3
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "plain-safe",
+      "pairs": 3,
+      "paired_sample_ids": [
+        "repeat-3",
+        "repeat-1",
+        "repeat-2"
+      ],
+      "pass_rate_delta": 0,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 1,
+      "cost_per_pass_delta_usd": null,
+      "provider_p95_delta_ms": 2340
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "plain-safe",
+        "paired_attempts": 3,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": null,
+          "baseline_usd": null
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 0,
+        "cost_per_pass_usd": null,
+        "total_reported_usd": 0.332749,
+        "passes": 0,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "plain-safe",
+        "pass_rate": 0,
+        "cost_per_pass_usd": null,
+        "total_reported_usd": 0.274805,
+        "passes": 0,
+        "costed": true,
+        "on_frontier": false
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": false,
+    "reason": "no winner declared: fewer than 5 attempts per arm"
+  },
+  "context_metrics": {
+    "agentify": {
+      "context_ablation": null,
+      "attempts_with_metrics": 3,
+      "injections": 3,
+      "injected_items": 28,
+      "estimated_tokens": 1403,
+      "decisions_reused": 9,
+      "stale_context_rejected": 6,
+      "truncated_items": 0,
+      "over_budget_skips": 0,
+      "max_match_ms": 12,
+      "budget_max_tokens": 1200
+    }
+  },
+  "attempts": [
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 10,
+        "estimated_tokens": 473,
+        "decisions_reused": 3,
+        "stale_context_rejected": 2,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 12,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 3,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": "error_max_turns",
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 47464,
+      "duration_ms": 49020,
+      "cost_usd": 0.11643,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 98,
+        "cache_write_tokens": 28241,
+        "cache_read_tokens": 402000,
+        "output_tokens": 3930
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-3/patch.diff",
+        "provider_stdout": "attempts/agentify-3/provider-stdout.json",
+        "provider_stream": "attempts/agentify-3/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 9,
+        "estimated_tokens": 465,
+        "decisions_reused": 3,
+        "stale_context_rejected": 2,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 12,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": "success",
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 38328,
+      "duration_ms": 39820,
+      "cost_usd": 0.1026417,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 90,
+        "cache_write_tokens": 26963,
+        "cache_read_tokens": 369457,
+        "output_tokens": 2336
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-1/patch.diff",
+        "provider_stdout": "attempts/agentify-1/provider-stdout.json",
+        "provider_stream": "attempts/agentify-1/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "plain-safe-3",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": "success",
+      "num_turns": 9,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 30747,
+      "duration_ms": 31446,
+      "cost_usd": 0.09088850000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 74,
+        "cache_write_tokens": 22722,
+        "cache_read_tokens": 308545,
+        "output_tokens": 2763
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-3/patch.diff",
+        "provider_stdout": "attempts/plain-safe-3/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-3/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 9,
+        "estimated_tokens": 465,
+        "decisions_reused": 3,
+        "stale_context_rejected": 2,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 11,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 2,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": "error_max_turns",
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37295,
+      "duration_ms": 38805,
+      "cost_usd": 0.1136771,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 98,
+        "cache_write_tokens": 27791,
+        "cache_read_tokens": 401221,
+        "output_tokens": 3575
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-2/patch.diff",
+        "provider_stdout": "attempts/agentify-2/provider-stdout.json",
+        "provider_stream": "attempts/agentify-2/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "plain-safe-1",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": "success",
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 45124,
+      "duration_ms": 46186,
+      "cost_usd": 0.10766459999999999,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 90,
+        "cache_write_tokens": 23560,
+        "cache_read_tokens": 392086,
+        "output_tokens": 4109
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-1/patch.diff",
+        "provider_stdout": "attempts/plain-safe-1/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-1/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "plain-safe-2",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": "success",
+      "num_turns": 7,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 30346,
+      "duration_ms": 31197,
+      "cost_usd": 0.0762516,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 58,
+        "cache_write_tokens": 21191,
+        "cache_read_tokens": 229006,
+        "output_tokens": 2046
+      },
+      "changed_paths": [
+        "src/core/harbor.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'firstString' -- src test || true)\"",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "git grep -nq 'function firstNonEmptyString' -- src/core/harbor.js",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git grep -oh 'firstNonEmptyString' -- src test | wc -l | tr -d ' ')\" -ge 16",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-2/patch.diff",
+        "provider_stdout": "attempts/plain-safe-2/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-2/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    }
+  ]
+}

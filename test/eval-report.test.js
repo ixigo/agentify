@@ -856,3 +856,41 @@ test("invalid attempts are excluded from arm metrics, not counted as failures (#
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("armMetrics aggregates MCP tool adoption and omits it when unmeasured", async () => {
+  const root = await makeRoot();
+  try {
+    const attempts = [
+      // Measured attempts: one that called tools, one measured zero-call.
+      { ...makeAttempt("agentify", 1), mcp_precondition: { alias: "agentify", registered: true, claude_tool_calls: 2, claude_tool_errors: 1 } },
+      { ...makeAttempt("agentify", 2), mcp_precondition: { alias: "agentify", registered: true, claude_tool_calls: 0, claude_tool_errors: 0 } },
+      // Pre-tally attempt (2026-07-29 shape): no claude_tool_calls field —
+      // must count as unreported, never as a zero-call attempt.
+      { ...makeAttempt("agentify", 3), mcp_precondition: { alias: "agentify", registered: true } },
+      makeAttempt("plain-safe", 1),
+      makeAttempt("plain-safe", 2),
+      makeAttempt("plain-safe", 3),
+    ];
+    const runId = await writeRunFixture(root, attempts);
+    const report = await buildEvalReport(root, {}, runId);
+
+    const mcp = report.arms.agentify.mcp_tools;
+    assert.ok(mcp, "agentify arm must expose mcp_tools aggregation");
+    assert.equal(mcp.total_calls, 2);
+    assert.equal(mcp.total_errors, 1);
+    assert.equal(mcp.attempts_with_calls, 1);
+    assert.equal(mcp.reported_attempts, 2);
+    assert.equal(mcp.unreported_attempts, 1);
+    assert.equal(mcp.call_rate, 0.5);
+    assert.equal(mcp.calls_per_attempt, 1);
+
+    // Arms without any tally keep their exact shape (receipts stability).
+    assert.equal(report.arms["plain-safe"].mcp_tools, undefined);
+
+    const markdown = renderEvalReportMarkdown(report);
+    assert.match(markdown, /## MCP tool adoption/);
+    assert.match(markdown, /\| agentify \| 50% \| 1 \| 2 \| 1 \| 2 \| 1 \|/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

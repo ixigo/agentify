@@ -1,0 +1,702 @@
+{
+  "schema": "eval-report-v1",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20260729-054649-2e97d3",
+  "run_ts": "2026-07-29T05:46:49.759Z",
+  "harness": "native",
+  "artifacts_root": ".agentify/evals/runs/20260729-054649-2e97d3",
+  "task": {
+    "id": "trivial-edit-no-lookup",
+    "prompt_sha256": "f24eec96573cfed46398e17e7c9ac9b5599a7d7e4c20d16c1176c8614618a3ea",
+    "fingerprint_sha256": "30ba1b7267f923bd88ca7926a982a75f928f021dae4e7bf1de3c1d6dd424542c",
+    "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": "balanced",
+    "category": null,
+    "phases": null,
+    "max_budget_usd": 0.25,
+    "max_turns": 6,
+    "timeout_seconds": 300,
+    "forbidden_paths": [
+      ".claude/**",
+      "CLAUDE.md"
+    ],
+    "arms": [
+      "agentify",
+      "plain-safe"
+    ],
+    "repeat": 3
+  },
+  "versions": {
+    "agentify": "0.4.0",
+    "claude": "2.1.220 (Claude Code)"
+  },
+  "completeness": {
+    "planned_attempts": 6,
+    "completed_attempts": 6,
+    "partial": false,
+    "paired": true,
+    "underpowered": true,
+    "min_attempts_per_arm": 5,
+    "labels": [
+      "underpowered"
+    ]
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 3,
+      "passes": 3,
+      "failures": 0,
+      "invalid": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.4385,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.099579,
+        "reported_attempts": 3,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.033193,
+        "per_pass_usd": 0.033193
+      },
+      "tokens": {
+        "fresh_input": 102,
+        "cache_read": 297212,
+        "cache_write": 29478,
+        "output": 2160,
+        "usage_reported_attempts": 3,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 14305,
+        "provider_p95_ms": 16079,
+        "provider_mean_ms": 13683,
+        "total_mean_ms": 15816
+      },
+      "turns": {
+        "mean": 4,
+        "max": 4,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 3
+      },
+      "changed_files": {
+        "mean": 1,
+        "max": 1
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "success": 3
+      }
+    },
+    "plain-safe": {
+      "attempts": 3,
+      "passes": 3,
+      "failures": 0,
+      "invalid": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.4385,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.066329,
+        "reported_attempts": 3,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.02211,
+        "per_pass_usd": 0.02211
+      },
+      "tokens": {
+        "fresh_input": 102,
+        "cache_read": 251468,
+        "cache_write": 14262,
+        "output": 2135,
+        "usage_reported_attempts": 3,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 11971,
+        "provider_p95_ms": 16530,
+        "provider_mean_ms": 12776,
+        "total_mean_ms": 13884
+      },
+      "turns": {
+        "mean": 4,
+        "max": 4,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 3
+      },
+      "changed_files": {
+        "mean": 1,
+        "max": 1
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "success": 3
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "plain-safe",
+      "pairs": 3,
+      "paired_sample_ids": [
+        "repeat-2",
+        "repeat-3",
+        "repeat-1"
+      ],
+      "pass_rate_delta": 0,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 1,
+      "cost_per_pass_delta_usd": 0.011083,
+      "provider_p95_delta_ms": -451
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "plain-safe",
+        "paired_attempts": 3,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.033193,
+          "baseline_usd": 0.02211
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.033193,
+        "total_reported_usd": 0.099579,
+        "passes": 3,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "plain-safe",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.02211,
+        "total_reported_usd": 0.066329,
+        "passes": 3,
+        "costed": true,
+        "on_frontier": true
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": false,
+    "reason": "no winner declared: fewer than 5 attempts per arm"
+  },
+  "context_metrics": {
+    "agentify": {
+      "context_ablation": null,
+      "attempts_with_metrics": 3,
+      "injections": 3,
+      "injected_items": 15,
+      "estimated_tokens": 2709,
+      "decisions_reused": 9,
+      "stale_context_rejected": 0,
+      "truncated_items": 0,
+      "over_budget_skips": 0,
+      "max_match_ms": 10,
+      "budget_max_tokens": 1200
+    }
+  },
+  "attempts": [
+    {
+      "attempt_id": "plain-safe-1",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 11971,
+      "duration_ms": 13289,
+      "cost_usd": 0.022538,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 4843,
+        "cache_read_tokens": 84010,
+        "output_tokens": 758
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-1/patch.diff",
+        "provider_stdout": "attempts/plain-safe-1/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-1/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 5,
+        "estimated_tokens": 903,
+        "decisions_reused": 3,
+        "stale_context_rejected": 0,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 8,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 14305,
+      "duration_ms": 16463,
+      "cost_usd": 0.0337666,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 9854,
+        "cache_read_tokens": 99096,
+        "output_tokens": 823
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-2/patch.diff",
+        "provider_stdout": "attempts/agentify-2/provider-stdout.json",
+        "provider_stream": "attempts/agentify-2/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "plain-safe-3",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 16530,
+      "duration_ms": 17816,
+      "cost_usd": 0.022239299999999997,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 4718,
+        "cache_read_tokens": 83723,
+        "output_tokens": 754
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-3/patch.diff",
+        "provider_stdout": "attempts/plain-safe-3/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-3/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 5,
+        "estimated_tokens": 903,
+        "decisions_reused": 3,
+        "stale_context_rejected": 0,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 10,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 16079,
+      "duration_ms": 18482,
+      "cost_usd": 0.0326114,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 9821,
+        "cache_read_tokens": 99104,
+        "output_tokens": 605
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-3/patch.diff",
+        "provider_stdout": "attempts/agentify-3/provider-stdout.json",
+        "provider_stream": "attempts/agentify-3/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": {
+        "injections": 1,
+        "injected_items": 5,
+        "estimated_tokens": 903,
+        "decisions_reused": 3,
+        "stale_context_rejected": 0,
+        "truncated_items": 0,
+        "over_budget_skips": 0,
+        "max_match_ms": 7,
+        "budget_max_tokens": 1200
+      },
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 10666,
+      "duration_ms": 12504,
+      "cost_usd": 0.0332012,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 9803,
+        "cache_read_tokens": 99012,
+        "output_tokens": 732
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/agentify-1/patch.diff",
+        "provider_stdout": "attempts/agentify-1/provider-stdout.json",
+        "provider_stream": "attempts/agentify-1/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    },
+    {
+      "attempt_id": "plain-safe-2",
+      "arm": "plain-safe",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": "success",
+      "num_turns": 4,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 9826,
+      "duration_ms": 10546,
+      "cost_usd": 0.0215515,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 34,
+        "cache_write_tokens": 4701,
+        "cache_read_tokens": 83735,
+        "output_tokens": 623
+      },
+      "changed_paths": [
+        "ablation-scratch-note.js"
+      ],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        },
+        {
+          "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ""
+        }
+      ],
+      "artifacts": {
+        "patch": "attempts/plain-safe-2/patch.diff",
+        "provider_stdout": "attempts/plain-safe-2/provider-stdout.json",
+        "provider_stream": "attempts/plain-safe-2/provider-stream.jsonl"
+      },
+      "agentify_version": "0.4.0",
+      "claude_version": "2.1.220 (Claude Code)"
+    }
+  ]
+}

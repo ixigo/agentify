@@ -1,0 +1,76 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260729-054649-2e97d3",
+  "attempt_id": "plain-safe-3",
+  "arm": "plain-safe",
+  "base_arm": "plain-safe",
+  "context_ablation": null,
+  "description_set": null,
+  "repeat_index": 3,
+  "task_id": "trivial-edit-no-lookup",
+  "base_sha": "adebe135225db6f6c15c55b9efbedd4c4ec9f8a8",
+  "agentify_version": "0.4.0",
+  "claude_version": "2.1.220 (Claude Code)",
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.25,
+    "max_turns": 6,
+    "timeout_seconds": 300
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 16530,
+    "subtype": "success",
+    "num_turns": 4,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.022239299999999997,
+    "usage": {
+      "fresh_input_tokens": 34,
+      "cache_write_tokens": 4718,
+      "cache_read_tokens": 83723,
+      "output_tokens": 754
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "test -z \"$(git grep -n 'recieve' -- ablation-scratch-note.js || true)\"",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(cat ablation-scratch-note.js)\" = '// helper note - receive the payload, then validate it'",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      },
+      {
+        "command": "test \"$(git status --porcelain --untracked-files=all -- . ':(exclude).agentify' | sed 's/^...//' | sort -u)\" = 'ablation-scratch-note.js'",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": ""
+      }
+    ],
+    "changed_paths": [
+      "ablation-scratch-note.js"
+    ]
+  },
+  "pass": true,
+  "duration_ms": 17816,
+  "artifacts": {
+    "patch": "attempts/plain-safe-3/patch.diff",
+    "provider_stdout": "attempts/plain-safe-3/provider-stdout.json",
+    "provider_stream": "attempts/plain-safe-3/provider-stream.jsonl"
+  }
+}
