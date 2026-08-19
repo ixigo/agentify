@@ -26,7 +26,9 @@ evals/harbor/
   dataset.json          # versioned manifest: tasks, categories, pins, suites, spend caps
   agents/
     agentify_claude.py  # Harbor BaseInstalledAgent: Claude Code + Agentify + seeded fixtures
-  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (9 tasks; 1 multi-session)
+  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (23 tasks: 15 baseline, plus
+                        # medium/hard difficulty variants and two-phase
+                        # multi-session / cross-vendor tasks)
     task.toml
     instruction.md
     environment/
@@ -37,9 +39,13 @@ evals/harbor/
     solution/solve.sh   # oracle solution for token-free smokes
   suites/
     smoke.yaml          # 1 task × 2 agents × 1 attempt
-    nightly.yaml        # 8 tasks × 2 agents × 3 attempts
+    paired-once.yaml    # one paired pass over the baseline tasks, 1 attempt
+    nightly.yaml        # 15 tasks × 2 agents × 3 attempts
+    full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
     downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 3 model rungs
+    multisession.yaml   # two-phase write→recall task × 2 agents × 3
+    crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -324,7 +330,7 @@ rung, so it reduces to `tasks × agents × attempts × cap`):
 
 ```
 agentify eval harbor plan --suite smoke        # $0.70 ceiling (1×2×1×$0.35)
-agentify eval harbor plan --suite nightly      # 8 tasks × 2 × 3 × cap = $16.80
+agentify eval harbor plan --suite nightly      # 15 tasks × 2 × 3 × cap = $31.50
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
@@ -402,9 +408,16 @@ the same schema. Mapping:
 
 ## Results so far
 
+Every quoted run's raw artifacts and derived report are committed under
+[`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
+fails CI if the current report code stops reproducing them.
+
 First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
-× 3 attempts, `claude-haiku-4-5`, `max_turns` 16, $2.10 spent of the $16.80
-ceiling, 48/48 trials, zero flakes). Lead with successful-work economics; the
+× 3 attempts, `claude-haiku-4-5`, `max_turns` 16, $2.10 spent of the
+then-8-task nightly's $16.80 ceiling, 48/48 trials, zero flakes — receipts in
+`evals/results/harbor-20260714/`). The dataset has since grown to 23 tasks and
+the nightly suite to 15; the results below predate that growth and have not
+yet been re-run at the new size. Lead with successful-work economics; the
 per-attempt figure is context, not the headline:
 
 | arm | cost/passing task | passes | pooled Wilson 95% CI | total reported cost | cost/attempt |
@@ -478,7 +491,7 @@ harbor run -d "terminal-bench@2.0" -t <a-few-task-names> \
 ```
 
 Keep it small and directional. Public benchmark scores are not the product
-metric, and a private 8-task dataset earns no leaderboard claims.
+metric, and a private 23-task dataset earns no leaderboard claims.
 
 ## Versioning and provenance
 
@@ -502,7 +515,13 @@ docker system prune                    # reclaim task images when done
 
 - Every PR: `pnpm test` runs the schema/leak validation (`test/harbor.test.js`
   exercises `agentify eval harbor validate` on the committed dataset) — no
-  tokens, no containers.
+  tokens, no containers — plus the receipts gate (`test/eval-receipts.test.js`
+  reproduces every committed report under `evals/results/` from its raw run
+  dir).
+- Weekly (`.github/workflows/bench.yml`, also runnable via workflow dispatch):
+  token-free dataset validation for Harbor and SWE-bench plus the printed
+  spend ceiling for every suite, so dataset/doc drift and ceiling changes
+  surface on a schedule even between paid runs.
 - Paid smoke/nightly/profile/downshift suites are opt-in or scheduled, never
   implicit on PRs, and always behind the plan's printed ceiling (the
   `downshift` matrix multiplies by its model ladder, so its ceiling is the
