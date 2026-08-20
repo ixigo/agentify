@@ -450,31 +450,34 @@ First execution of the three suites built by epic #322 (agentify pinned to
 the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
 in `evals/results/harbor-20260819/`).
 
-- **downshift (the headline)** — with #367's gradeable-attempt rule (harness
-  errors excluded outcome-independently, like `invalid`), `agentify eval
-  grid` now computes the epic-#322 suite-level verdict itself, and on this
-  campaign it declares:
+- **downshift (the headline)** — with #367's gradeable-attempt rule (only
+  zero-model-activity attempts excluded, outcome-independently), `agentify
+  eval grid` now computes the epic-#322 suite-level verdict itself, and on
+  this campaign it reports, fail-closed:
 
-  > **WINNER: agentify** — pooled over 48 gradeable pairs: agentify 48/48 vs
-  > claude-code 35/48, discordant 13/0 spanning 3 tasks, sign-test
-  > p = 0.000244, Wilson CIs separated (92.6–100% vs 59–83.4%).
+  > **NO WINNER** — pooled over 48 gradeable pairs: discordant 13/0 spanning
+  > **1 task family**, sign-test p = 0.000244, Wilson CIs separated — every
+  > clause of the rule must hold to declare a winner.
 
-  Scope this claim honestly: it is Agentify's own 23-task context benchmark
-  (fail-closed protocol, receipts committed, grid regenerable from them), the
-  pooled pairs share three base tasks across difficulties and model rungs
-  (the rule's spans-tasks clause guards single-task domination), and the
-  per-cell #317 acceptance target (≥5 discordant in a *single* cell) remains
-  NOT MET — more attempts per cell is still the path there. Per-arm totals:
-  agentify **51/51 gradeable (100%) vs baseline 36/50 (72%)** — every
-  gradeable failure in the campaign is the baseline's (14 vs 0), and three
-  agentify attempts that hit a cap mid-run with the verifier passing grade as
-  run-time passes, not censored errors. Excluded as non-evidence: only
-  attempts with **zero model activity** — all 54 `claude-3-5-haiku` attempts
-  (API 404 — the subscription no longer serves that model; the suite is now a
-  2-rung ladder) plus 7 others — counted next to the verdict rather than
-  inside it. On the sonnet rungs the cost narrative flips: **cost/pass $0.150
-  vs $0.192 (hard)** and $0.154 vs $0.172 (medium) — recalled context is
-  cheaper than rediscovery at frontier-model prices.
+  Read that carefully, because it is the honest shape of the result: the
+  effect is large, one-directional, and replicated — agentify **51/51
+  gradeable (100%) vs baseline 36/50 (72%)**, all 13 discordant pairs favor
+  agentify, and the same scenario separated the arms in July — but **every
+  one of those 13 wins is the `avoid-cache-regression` family**
+  (prior-failure-avoidance) across its difficulty variants and model rungs.
+  One scenario, however replicated, is not a suite win; the winner rule's
+  spans-families clause exists precisely to say so. What this campaign proves
+  is therefore narrower and sharper: the baseline failed **13 of its 48
+  pooled gradeable attempts — every single failure a re-introduction of the
+  recorded regression — while the agentify arm failed 0 of 48** — and on
+  the sonnet rungs recalled context is also *cheaper* per passing task
+  (**$0.150 vs $0.192** at hard, $0.154 vs $0.172 at medium). The path to a
+  declared suite winner is exactly #318's job: more context-decisive task
+  *families*, not more repetitions of this one. Excluded as non-evidence:
+  all 54 `claude-3-5-haiku` attempts (API 404 — the subscription no longer
+  serves that model; the suite is now a 2-rung ladder) plus 7 other
+  zero-activity attempts, counted next to the verdict; run-time failures
+  (cap-hits with real work) stay in the denominators for both arms.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is

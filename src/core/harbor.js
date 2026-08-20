@@ -781,11 +781,15 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       // tokens, no cost — e.g. an API 404 for a model the account cannot
       // access) is a harness "error", which eval-report excludes from
       // denominators and paired stats as non-gradeable.
-      // "Ran" means actual model activity: at least one nonzero token count
-      // or nonzero spend. A zero-token usage envelope (what an API 404
-      // records) is not activity.
+      // "Ran" means actual model activity IN THE GRADED PHASE: at least one
+      // nonzero token count or nonzero spend. A zero-token usage envelope
+      // (what an API 404 records) is not activity. Two-phase trials must use
+      // the recall-phase cost, not the combined seed+recall total — a
+      // successful seed followed by a recall that never ran the model is
+      // still a non-gradeable graded phase (usage is already recall-only).
       const usageValues = trial.usage ? Object.values(trial.usage).filter((value) => typeof value === "number") : [];
-      const modelRan = usageValues.some((value) => value > 0) || (typeof trial.costUsd === "number" && trial.costUsd > 0);
+      const gradedCost = trial.multisession ? trial.recallCostUsd : trial.costUsd;
+      const modelRan = usageValues.some((value) => value > 0) || (typeof gradedCost === "number" && gradedCost > 0);
       const status = trial.exception ? (modelRan ? "provider_error" : "error") : "ok";
       records.push({
         schema: EVAL_ATTEMPT_SCHEMA_VERSION,

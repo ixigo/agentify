@@ -31,7 +31,7 @@ NOT MET: no cell reached >=5 discordant pairs favoring agentify at p<0.05 — co
 
 ## Suite-level verdict (#322 rule, pooled gradeable pairs)
 
-WINNER: **agentify** — pooled over 48 gradeable pairs: agentify 48/48 vs claude-code 35/48, discordant 13/0 spanning 3 task(s), sign-test p=0.000244, Wilson CIs separated
+NO WINNER: pooled over 48 gradeable pairs: discordant 13/0 spanning 1 task family(ies), sign-test p=0.000244, Wilson CIs separated — every clause of the rule must hold to declare a winner
 
 - agentify 48/48 (100%, Wilson 92.6–100%) vs claude-code 35/48 (73%, Wilson 59–83.4%)
 - non-gradeable excluded: agentify 30 harness error(s) + 0 invalid; claude-code 31 harness error(s) + 0 invalid

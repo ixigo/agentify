@@ -978,11 +978,16 @@ export async function buildEvalGrid(root, config, runIds) {
   const pooledBaseline = [];
   let pooledLeftOnly = 0;
   let pooledRightOnly = 0;
-  // Discordant wins per task id: pooled pairs repeat the same tasks across
-  // difficulties and rungs, so a single task's repeated outcome must not
-  // manufacture suite-level significance on its own — the winner rule
-  // additionally requires the discordant wins to span >=2 distinct tasks.
-  const discordantByTask = new Map();
+  // Discordant wins per task FAMILY: pooled pairs repeat the same scenarios
+  // across difficulties and rungs, and #317's difficulty variants
+  // (task, task-medium, task-hard) are the same scenario — so a single
+  // family's repeated outcome must not manufacture suite-level significance
+  // on its own. The winner rule requires discordant wins spanning >=2
+  // distinct families (review round 2: the 2026-08-19 campaign's 13
+  // discordant wins were all avoid-cache-regression variants, which a raw
+  // task-id guard wrongly counted as three tasks).
+  const discordantByFamily = new Map();
+  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard)$/, "");
   for (const cell of cellMap.values()) {
     // Everything the cell reports is computed over the PAIRED subset only: for
     // each run (one task), match the agentify and baseline attempts by
@@ -1008,7 +1013,8 @@ export async function buildEvalGrid(root, config, runIds) {
         pooledAgentify.push(pair.left);
         pooledBaseline.push(pair.right);
         if (pair.left.pass && !pair.right.pass) {
-          discordantByTask.set(run.taskId, (discordantByTask.get(run.taskId) || 0) + 1);
+          const family = taskFamily(run.taskId);
+          discordantByFamily.set(family, (discordantByFamily.get(family) || 0) + 1);
         }
       }
       leftOnly += l;
@@ -1089,14 +1095,14 @@ export async function buildEvalGrid(root, config, runIds) {
     && pooledA.pass_rate_ci95.low > pooledB.pass_rate_ci95.high;
   const suiteFavors = pooledLeftOnly > pooledRightOnly;
   // Correlated-outcome guard: the discordant wins must come from >=2 distinct
-  // tasks, so one task repeated across rungs/difficulties cannot carry the
-  // verdict alone.
-  const spansTasks = [...discordantByTask.keys()].length >= 2;
-  const suiteMet = suiteFavors && pooledLeftOnly >= 5 && pooledSignP !== null && pooledSignP < 0.05 && ciSeparated && spansTasks;
+  // task FAMILIES, so one scenario repeated across rungs and difficulty
+  // variants cannot carry the verdict alone.
+  const spansFamilies = [...discordantByFamily.keys()].length >= 2;
+  const suiteMet = suiteFavors && pooledLeftOnly >= 5 && pooledSignP !== null && pooledSignP < 0.05 && ciSeparated && spansFamilies;
   const suiteVerdict = {
-    rule: "pooled gradeable pairs: >=5 discordant favoring agentify spanning >=2 distinct tasks, sign-test p<0.05, non-overlapping Wilson CIs",
-    discordant_by_task: Object.fromEntries([...discordantByTask.entries()].sort()),
-    spans_tasks: spansTasks,
+    rule: "pooled gradeable pairs: >=5 discordant favoring agentify spanning >=2 distinct task families (difficulty variants are one family), sign-test p<0.05, non-overlapping Wilson CIs",
+    discordant_by_family: Object.fromEntries([...discordantByFamily.entries()].sort()),
+    spans_task_families: spansFamilies,
     paired_attempts: pooledAgentify.length,
     agentify: { passes: pooledA.passes, attempts: pooledA.attempts, pass_rate: pooledA.pass_rate, pass_rate_ci95: pooledA.pass_rate_ci95 },
     baseline: { arm: baselineArm, passes: pooledB.passes, attempts: pooledB.attempts, pass_rate: pooledB.pass_rate, pass_rate_ci95: pooledB.pass_rate_ci95 },
@@ -1109,8 +1115,8 @@ export async function buildEvalGrid(root, config, runIds) {
     non_gradeable_excluded: countNonGradeable(runs, baselineArm),
     winner: suiteMet ? "agentify" : null,
     reason: suiteMet
-      ? `pooled over ${pooledAgentify.length} gradeable pairs: agentify ${pooledA.passes}/${pooledA.attempts} vs ${baselineArm} ${pooledB.passes}/${pooledB.attempts}, discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByTask.size} task(s), sign-test p=${pooledSignP}, Wilson CIs separated`
-      : `pooled over ${pooledAgentify.length} gradeable pairs: discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByTask.size} task(s), sign-test p=${pooledSignP ?? "n/a"}, Wilson CIs ${ciSeparated ? "separated" : "overlapping"} — every clause of the rule must hold to declare a winner`,
+      ? `pooled over ${pooledAgentify.length} gradeable pairs: agentify ${pooledA.passes}/${pooledA.attempts} vs ${baselineArm} ${pooledB.passes}/${pooledB.attempts}, discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByFamily.size} task family(ies), sign-test p=${pooledSignP}, Wilson CIs separated`
+      : `pooled over ${pooledAgentify.length} gradeable pairs: discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByFamily.size} task family(ies), sign-test p=${pooledSignP ?? "n/a"}, Wilson CIs ${ciSeparated ? "separated" : "overlapping"} — every clause of the rule must hold to declare a winner`,
   };
 
   return {
