@@ -26,7 +26,7 @@ evals/harbor/
   dataset.json          # versioned manifest: tasks, categories, pins, suites, spend caps
   agents/
     agentify_claude.py  # Harbor BaseInstalledAgent: Claude Code + Agentify + seeded fixtures
-  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (23 tasks: 15 baseline, plus
+  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (29 tasks: 15 baseline, plus the #318 families, plus
                         # medium/hard difficulty variants and two-phase
                         # multi-session / cross-vendor tasks)
     task.toml
@@ -44,7 +44,7 @@ evals/harbor/
     nightly.yaml        # 15 tasks × 2 agents × 3 attempts
     full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
-    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
+    downshift.yaml      # 15 tasks (5 families × 3 difficulties, #318) × 2 agents × 3 × 2 rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
     headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 5
@@ -229,16 +229,18 @@ that the task was too easy to need it. The `downshift` suite makes context
 **load-bearing** by holding tasks, image, budget, and verifier fixed while
 varying two axes:
 
-- **difficulty** — the three context-decisive tasks (`recall-error-envelope`,
-  `avoid-cache-regression`, `reject-stale-config-path`) at `easy` (the
+- **difficulty** — the five context-decisive task families (`recall-error-envelope`,
+  `avoid-cache-regression`, `reject-stale-config-path`, and the #318 families
+  `avoid-unbounded-fanout`, `avoid-roster-mutation`) at `easy` (the
   originals) plus committed `-medium` and `-hard` variants. The harder variants
   strip the hint that leaks the convention from `instruction.md`, so the answer
   survives only in the seeded Agentify decision the agentify arm recalls. The
   `environment/`, `tests/test.sh`, and `solution/` are copied **verbatim** from
   the base task — only the prompt gets harder, so the verifier intent (the
   fair-comparison contract) never moves.
-- **model capability** — a ladder from a small/older model up to a stronger one
-  (`claude-3-5-haiku` → `claude-haiku-4-5` → `claude-sonnet-4-5`). As baseline
+- **model capability** — a two-rung ladder (`claude-haiku-4-5` →
+  `claude-sonnet-4-5`; the original weakest rung was retired in #367 after the
+  subscription stopped serving it). As baseline
   capability drops, durable context should hold the agentify arm's pass rate up
   while the plain arm degrades, widening the gap into a significant, discordant
   win.
@@ -279,8 +281,9 @@ Two verdicts, two questions (#367): the **per-cell** target above (#317) asks
 context is load-bearing?" — the strictest form. The **suite-level** verdict
 (epic #322's winner rule) asks "pooled across the whole matrix's gradeable
 pairs, does the agentify arm win?" — it requires ≥5 discordant pairs favoring
-agentify **spanning at least two distinct tasks** (so one task repeated across
-rungs cannot carry it), an exact sign-test p < 0.05, and non-overlapping
+agentify **spanning at least two distinct task families** (difficulty
+variants collapse into one family, so one scenario repeated across rungs and
+variants cannot carry it), an exact sign-test p < 0.05, and non-overlapping
 pooled Wilson intervals, and it is fail-closed on every clause. The grid
 prints both; a suite-level winner with no qualifying cell means the effect is
 real but spread across the matrix rather than concentrated in one cell.
@@ -292,7 +295,7 @@ from the cwd, so they run from the **repo root**, while `harbor run` needs the
 
 ```
 # from the repo root:
-agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $37.80 ceiling
+agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $63.00 ceiling
 
 # from evals/harbor/, after confirming the ceiling:
 cd evals/harbor
@@ -417,7 +420,7 @@ agentify eval harbor plan --suite nightly      # 15 tasks × 2 × 3 × cap = $31
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
-agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
+agentify eval harbor plan --suite downshift    # 15 tasks × 2 × 3 × 2 models × cap = $63.00
 agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 5 × cap = $56.00
 ```
 
@@ -550,7 +553,7 @@ First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
 × 3 attempts, `claude-haiku-4-5`, `max_turns` 16 per the suite config at the
 time — imported Harbor receipts do not record turn caps — $2.10 spent of the
 then-8-task nightly's $16.80 ceiling, 48/48 trials, zero flakes — receipts in
-`evals/results/harbor-20260714/`). The dataset has since grown to 23 tasks and
+`evals/results/harbor-20260714/`). The dataset has since grown to 29 tasks and
 the nightly suite to 15; the results below predate that growth and have not
 yet been re-run at the new size. Lead with successful-work economics; the
 per-attempt figure is context, not the headline:
@@ -626,7 +629,7 @@ harbor run -d "terminal-bench@2.0" -t <a-few-task-names> \
 ```
 
 Keep it small and directional. Public benchmark scores are not the product
-metric, and a private 23-task dataset earns no leaderboard claims.
+metric, and a private 29-task dataset earns no leaderboard claims.
 
 ## Versioning and provenance
 

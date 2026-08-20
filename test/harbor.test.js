@@ -602,12 +602,14 @@ test("import rejects empty or missing job directories", async () => {
 
 test("committed downshift suite plans the model×difficulty matrix and bounds its ceiling (#317)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "downshift" });
-  // 9 tasks × 2 arms × 3 attempts × 2 model rungs (#367: the old rung-1
-  // model claude-3-5-haiku is no longer served — API 404 on all 54 attempts
-  // of the 2026-08-19 campaign — and no weaker accessible model exists).
+  // 15 tasks × 2 arms × 3 attempts × 2 model rungs: the 9 original
+  // family×difficulty variants plus the #318 families (avoid-unbounded-fanout,
+  // avoid-roster-mutation; easy/medium/hard each, keeping every difficulty cell the same five-family composition) so suite-level discordant wins can
+  // span task families. 2 rungs per #367 (claude-3-5-haiku is no longer
+  // served — API 404 — and no weaker accessible model exists).
   assert.equal(plan.models_per_task, 2);
-  assert.equal(plan.trials, 108);
-  assert.equal(plan.max_spend_usd, 37.8); // 108 × $0.35
+  assert.equal(plan.trials, 180);
+  assert.equal(plan.max_spend_usd, 63); // 180 × $0.35
   assert.equal(plan.models.length, 2);
   assert.ok(plan.models.includes("anthropic/claude-haiku-4-5-20251001"));
   assert.ok(!plan.models.includes("anthropic/claude-3-5-haiku-20241022"));
@@ -770,7 +772,7 @@ test("eval grid auto-discovery keeps only the latest import batch, not a re-impo
 
 test("committed difficulty variants reuse the base verifier verbatim (#317)", async () => {
   const tasksRoot = path.join(REPO_ROOT, "evals", "harbor", "tasks");
-  const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path"];
+  const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path", "avoid-unbounded-fanout", "avoid-roster-mutation"];
   for (const base of bases) {
     const baseVerifier = await fs.readFile(path.join(tasksRoot, base, "tests", "test.sh"), "utf8");
     for (const level of ["medium", "hard"]) {

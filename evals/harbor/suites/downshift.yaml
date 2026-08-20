@@ -20,7 +20,7 @@
 # discordant-pair count, and cost/pass per cell, so we can pick the operating
 # point where the signal is largest and honest.
 #
-# This multiplies trials (9 tasks × 2 arms × 3 attempts × 2 model rungs = 108),
+# This multiplies trials (15 tasks × 2 arms × 3 attempts × 2 model rungs = 180),
 # so ALWAYS print and confirm the ceiling before launching:
 #   agentify eval harbor plan --suite downshift
 # Launch from evals/harbor/ with:  harbor run -c suites/downshift.yaml
@@ -49,6 +49,14 @@ datasets:
       - recall-error-envelope-hard
       - avoid-cache-regression-hard
       - reject-stale-config-path-hard
+      # new families (#318): different scenario mechanics so suite-level
+      # discordant wins can span families, at the separating difficulties
+      - avoid-unbounded-fanout
+      - avoid-unbounded-fanout-medium
+      - avoid-unbounded-fanout-hard
+      - avoid-roster-mutation
+      - avoid-roster-mutation-medium
+      - avoid-roster-mutation-hard
 
 # Four agent entries: one agentify arm and one plain baseline per model rung.
 # Same profile, budget, and turns across every rung — only model_name moves, so

@@ -1,0 +1,17 @@
+# Harbor task manifest (Terminal-Bench 2.0 task format).
+version = "1.0"
+
+[metadata]
+category = "prior-failure-avoidance"
+tags = ["agentify", "context", "prior-failure-avoidance"]
+difficulty = "hard"
+description = "Parallelize a sequential batch loader; a prior uncapped fan-out got the client blocked by the upstream API, and the eight-outstanding-requests rule lives only in an Agentify decision; the instruction carries no hint at all."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

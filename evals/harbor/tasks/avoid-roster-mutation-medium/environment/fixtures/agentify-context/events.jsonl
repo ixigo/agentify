@@ -1,0 +1,4 @@
+{"ts":"2026-05-10T10:05:31.000Z","sid":"c3d4e5f6","type":"cmd","cmd":"node --test","desc":"Run leaderboard suite","exit":0}
+{"ts":"2026-05-10T10:26:44.512Z","sid":"c3d4e5f6","type":"edit","file":"src/leaderboard.js","desc":"Add topPlayer and totalScore roster helpers"}
+{"ts":"2026-05-14T13:57:12.330Z","sid":"d4e5f6a7","type":"cmd","cmd":"node scripts/replay-matchday.js --incident INC-133","desc":"INC-133 replay: matchmaking paired wrong players after the roster was reordered in place","exit":1,"err":"pairings diverged from expected after roster order changed mid-tick"}
+{"ts":"2026-05-14T15:03:40.918Z","sid":"d4e5f6a7","type":"cmd","cmd":"node --test","desc":"Suite green after reverting the in-place ranking helper","exit":0}
