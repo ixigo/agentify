@@ -43,13 +43,24 @@ const read = (name) => {
       .split("\n").filter(Boolean).map((line) => JSON.parse(line));
   } catch { return []; }
 };
+// FULL knowledge parity with what Agentify holds: every note, every edited
+// file, and EVERY recorded command (not just failures) — Agentify surfaces
+// recent successful commands too, and an informative successful command must
+// not be knowledge only one arm can see (PR review, plan task 1.4).
 const notes = read("notes.jsonl");
-const failures = read("events.jsonl").filter((e) => e.type === "cmd" && e.fail);
+const events = read("events.jsonl");
+const edits = new Map();
+for (const e of events) if (e.type === "edit" && e.path) edits.set(e.path, (edits.get(e.path) || 0) + 1);
+const cmds = events.filter((e) => e.type === "cmd" && e.cmd);
 const lines = ["", "## Project memory (prior sessions)", ""];
 for (const n of notes) lines.push("- " + (n.type === "decision" ? "[decision] " : "") + n.note);
-if (failures.length) {
-  lines.push("", "### Commands that failed in earlier sessions", "");
-  for (const f of failures) lines.push("- `" + f.cmd + "`" + (f.err ? " — " + f.err : ""));
+if (edits.size) {
+  lines.push("", "### Files edited in earlier sessions", "");
+  for (const [file, count] of edits) lines.push("- " + file + (count > 1 ? " (" + count + " edits)" : ""));
+}
+if (cmds.length) {
+  lines.push("", "### Commands run in earlier sessions", "");
+  for (const c of cmds) lines.push("- `" + c.cmd + "`" + (c.fail ? " — FAILED" + (c.err ? ": " + c.err : "") : ""));
 }
 fs.appendFileSync("CLAUDE.md", lines.join("\n") + "\n");
 '; fi

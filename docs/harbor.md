@@ -338,7 +338,9 @@ each arm renders the SAME committed fixture source (`/opt/agentify-fixtures`,
 baked into every image) into **its own tool's native format at trial start** —
 `.agentify/context/` for Agentify, a `## Project memory` section in
 `CLAUDE.md` for the memory bank, `.serena/memories/*.md` for Serena. Same
-notes, same recorded failures, delivered each tool's way. No new fixture
+notes, same edited-file history, same recorded commands (failures marked) —
+the FULL fixture knowledge, so an informative successful command is never
+something only one arm can see — delivered each tool's way. No new fixture
 files are committed, so `answer_leak_patterns` validation keeps a single
 surface to scan. The provider invocation is shared code
 (`AgentifyClaudeAgent`), byte-identical across arms.

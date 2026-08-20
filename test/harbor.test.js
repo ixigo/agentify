@@ -628,6 +628,13 @@ test("committed head-to-head suite plans four arms and bounds its ceiling (plan 
   // underpowered by construction.
   assert.equal(plan.trials, 160);
   assert.equal(plan.max_spend_usd, 56); // 160 × $0.35
+  // The spend plan names the suite's OWN arms, not the whole roster — a
+  // paid-run confirmation listing agents that won't run is misleading.
+  assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "serena-claude", "plain-claude"]);
+  assert.equal(plan.pins.serena_agent, "1.7.0");
+
+  const nightly = await planHarborRun(REPO_ROOT, {}, { suite: "nightly" });
+  assert.deepEqual(nightly.agents, ["agentify-claude", "claude-code"]);
 });
 
 test("plan multiplies the spend ceiling by the suite's model ladder length (#317)", async () => {

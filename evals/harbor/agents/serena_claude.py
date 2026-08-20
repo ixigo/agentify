@@ -54,17 +54,31 @@ const read = (name) => {
       .split("\n").filter(Boolean).map((line) => JSON.parse(line));
   } catch { return []; }
 };
+// FULL knowledge parity with what Agentify holds: every note, every edited
+// file, and EVERY recorded command (not just failures) — an informative
+// successful command must not be knowledge only one arm can see (PR review,
+// plan task 1.4).
 const notes = read("notes.jsonl");
-const failures = read("events.jsonl").filter((e) => e.type === "cmd" && e.fail);
+const events = read("events.jsonl");
+const edits = new Map();
+for (const e of events) if (e.type === "edit" && e.path) edits.set(e.path, (edits.get(e.path) || 0) + 1);
+const cmds = events.filter((e) => e.type === "cmd" && e.cmd);
 if (notes.length) {
   const body = ["# Project decisions and gotchas from prior sessions", ""]
     .concat(notes.map((n) => "- " + (n.type === "decision" ? "[decision] " : "") + n.note));
   fs.writeFileSync(".serena/memories/project-history.md", body.join("\n") + "\n");
 }
-if (failures.length) {
-  const body = ["# Commands that failed in earlier sessions", ""]
-    .concat(failures.map((f) => "- `" + f.cmd + "`" + (f.err ? " — " + f.err : "")));
-  fs.writeFileSync(".serena/memories/failed-commands.md", body.join("\n") + "\n");
+if (edits.size || cmds.length) {
+  const body = ["# Activity from earlier sessions", ""];
+  if (edits.size) {
+    body.push("## Files edited", "");
+    for (const [file, count] of edits) body.push("- " + file + (count > 1 ? " (" + count + " edits)" : ""));
+  }
+  if (cmds.length) {
+    body.push("", "## Commands run", "");
+    for (const c of cmds) body.push("- `" + c.cmd + "`" + (c.fail ? " — FAILED" + (c.err ? ": " + c.err : "") : ""));
+  }
+  fs.writeFileSync(".serena/memories/prior-activity.md", body.join("\n") + "\n");
 }
 '; fi
 """
@@ -84,11 +98,14 @@ class SerenaClaudeAgent(AgentifyClaudeAgent):
             "npm install -g --no-fund --no-audit "
             f"@anthropic-ai/claude-code@{DEFAULT_CLAUDE_CODE_VERSION}",
         )
-        # uv bootstraps its own Python and puts the pinned serena on PATH for
-        # every user via /usr/local/bin.
+        # Task images are node:22-bookworm-slim with no curl — install it
+        # first (root, same apt the images already used for git/python3).
+        # uv then bootstraps its own Python and puts the pinned serena on
+        # PATH for every user via /usr/local/bin.
         await self.exec_as_root(
             environment,
-            "curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh"
+            "apt-get update && apt-get install -y --no-install-recommends curl"
+            " && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh"
             " && UV_TOOL_BIN_DIR=/usr/local/bin uv tool install -p 3.13"
             f" serena-agent=={SERENA_VERSION}",
         )
@@ -101,7 +118,7 @@ class SerenaClaudeAgent(AgentifyClaudeAgent):
         await self.exec_as_agent(
             environment,
             "cd /app && claude mcp add serena --"
-            " serena start-mcp-server --context ide-assistant --project /app",
+            " serena start-mcp-server --context claude-code --project /app",
         )
 
     async def run(self, instruction: str, environment, context) -> None:
@@ -111,11 +128,16 @@ class SerenaClaudeAgent(AgentifyClaudeAgent):
         # any graded token — the trial then imports as a zero-activity harness
         # error (non-gradeable infrastructure failure), never as a
         # plain-Claude result wearing Serena's name.
+        # The health line must positively assert success AND carry no failure
+        # marker: `claude mcp list` prints "✗ Failed to connect" on failure,
+        # which a naive `grep -i connect` would happily match.
         await self.exec_as_agent(
             environment,
             "cd /app && mkdir -p /logs/agent"
             " && claude mcp list > /logs/agent/mcp-list.txt 2>&1 || true"
-            " && if ! grep -i serena /logs/agent/mcp-list.txt | grep -qi connect; then"
+            " && serena_line=$(grep -i serena /logs/agent/mcp-list.txt || true)"
+            " && if ! printf '%s' \"$serena_line\" | grep -qiE 'connected|✓'"
+            " || printf '%s' \"$serena_line\" | grep -qiE 'fail|✗|error'; then"
             " echo 'serena MCP not connected — aborting trial as infrastructure failure' >&2;"
             " cat /logs/agent/mcp-list.txt >&2; exit 47; fi",
             env=self._auth_env(),

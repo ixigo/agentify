@@ -33,6 +33,16 @@
       "name": "plain-claude",
       "kind": "installed",
       "import_path": "agents.plain_claude:PlainClaudeAgent"
+    },
+    {
+      "name": "agentify-transfer",
+      "kind": "installed",
+      "import_path": "agents.agentify_transfer:AgentifyTransferAgent"
+    },
+    {
+      "name": "crossvendor-nomem",
+      "kind": "installed",
+      "import_path": "agents.agentify_transfer:CrossVendorNoMemoryAgent"
     }
   ],
   "tasks": [
@@ -287,7 +297,11 @@
         "recall-error-envelope"
       ],
       "attempts": 1,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "nightly": {
       "tasks": [
@@ -308,7 +322,11 @@
         "recall-webhook-signature"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "profiles": {
       "tasks": [
@@ -322,7 +340,11 @@
         "timezone-flake-gotcha"
       ],
       "attempts": 3,
-      "agents": 4
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "downshift": {
       "tasks": [
@@ -341,6 +363,10 @@
       "models": [
         "anthropic/claude-haiku-4-5-20251001",
         "anthropic/claude-sonnet-4-5-20250929"
+      ],
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
       ]
     },
     "multisession": {
@@ -348,7 +374,11 @@
         "recall-flaky-timezone"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "headtohead": {
       "tasks": [
@@ -362,7 +392,13 @@
         "mechanical-header-bump"
       ],
       "attempts": 5,
-      "agents": 4
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "memorybank-claude",
+        "serena-claude",
+        "plain-claude"
+      ]
     },
     "crossvendor": {
       "tasks": [
@@ -370,7 +406,11 @@
         "recall-utc-quarter"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-transfer",
+        "crossvendor-nomem"
+      ]
     },
     "full": {
       "tasks": [
@@ -391,7 +431,11 @@
         "recall-webhook-signature"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     }
   }
 }
