@@ -47,6 +47,7 @@ evals/harbor/
     downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
+    headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 3
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -318,6 +319,50 @@ re-import of the same job is never double-counted. To grid a specific subset or
 to aggregate runs across several imports, pass explicit run ids
 (`agentify eval grid <run-id>…`).
 
+## Competitor arms (head-to-head)
+
+Every suite above answers "does Agentify beat *nothing*?". The `headtohead`
+suite (plan task 1.4) asks the question the market asks: **does it beat the
+alternatives a team would actually reach for?** Four arms, same image, same
+model, same budget and turn caps, same verifier:
+
+| arm | what it represents |
+| --- | --- |
+| `agentify-claude` | Claude Code + Agentify: hooks, budgeted per-task injection, staleness handling |
+| `memorybank-claude` | Claude Code + the same knowledge stuffed verbatim into `CLAUDE.md` — the Cline-style zero-infrastructure memory bank. Tests the context-rot thesis: does budgeted retrieval beat stuffing? |
+| `serena-claude` | Claude Code + the [Serena](https://github.com/oraios/serena) MCP server (pinned `serena-agent==1.7.0` via uv), the widely-used free LSP code-intelligence competitor, with the same knowledge as native `.serena/memories/*.md`. **Experimental** — see the honest caveats in `agents/serena_claude.py` |
+| `claude-code` | Harbor's plain baseline: no memory, no tools |
+
+**Fairness contract.** The competitor arms are not handed Agentify's store:
+each arm renders the SAME committed fixture source (`/opt/agentify-fixtures`,
+baked into every image) into **its own tool's native format at trial start** —
+`.agentify/context/` for Agentify, a `## Project memory` section in
+`CLAUDE.md` for the memory bank, `.serena/memories/*.md` for Serena. Same
+notes, same recorded failures, delivered each tool's way. No new fixture
+files are committed, so `answer_leak_patterns` validation keeps a single
+surface to scan. The provider invocation is shared code
+(`AgentifyClaudeAgent`), byte-identical across arms.
+
+**Interpretation guardrails.**
+
+- `mechanical-header-bump` is the control: all four arms should tie. A
+  competitor arm separating on the control means the harness leaks, not that
+  a tool is good.
+- A competitor arm beating Agentify on a family is a **publishable finding**
+  under the same receipts convention — commit it, quote it, fix the product.
+- A Serena trial whose MCP server fails to start silently degrades toward
+  plain Claude Code with memory files on disk; read per-attempt trajectories
+  before quoting any Serena number in public.
+- Future arms, deliberately out of scope until their infrastructure fits a
+  hermetic container: ByteRover/Cipher (cloud account + API key),
+  claude-context (vector DB + embedding key). Both are documented here so
+  their absence reads as a constraint, not an omission.
+
+Run it like every other suite: `agentify eval harbor plan --suite headtohead`
+(96 trials, $33.60 ceiling), `harbor run -c suites/headtohead.yaml`, then
+import — `harborArmForAgent` passes competitor agent names through as their
+own arms, and `eval report` pairs agentify against each of them.
+
 ## Dataset categories
 
 The tasks cover the roadmap's context-value claims plus the two controls
@@ -366,6 +411,7 @@ agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
 agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
+agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 3 × cap = $33.60
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the

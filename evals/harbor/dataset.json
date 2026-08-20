@@ -304,6 +304,20 @@
       ],
       "attempts": 3
     },
+    "headtohead": {
+      "tasks": [
+        "recall-error-envelope",
+        "avoid-cache-regression",
+        "reject-stale-config-path",
+        "recall-retry-schedule",
+        "recall-webhook-signature",
+        "rename-shipping-rate-refs",
+        "select-affected-tests",
+        "mechanical-header-bump"
+      ],
+      "attempts": 3,
+      "agents": 4
+    },
     "crossvendor": {
       "tasks": [
         "recall-flaky-timezone",
