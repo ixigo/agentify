@@ -781,16 +781,24 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       // tokens, no cost — e.g. an API 404 for a model the account cannot
       // access) is a harness "error", which eval-report excludes from
       // denominators and paired stats as non-gradeable.
-      // "Ran" means actual model activity IN THE GRADED PHASE: at least one
-      // nonzero token count or nonzero spend. A zero-token usage envelope
-      // (what an API 404 records) is not activity. Two-phase trials must use
-      // the recall-phase cost, not the combined seed+recall total — a
-      // successful seed followed by a recall that never ran the model is
-      // still a non-gradeable graded phase (usage is already recall-only).
+      // Exception classification is evidence-based and fail-closed:
+      // - A usage envelope with graded-phase activity (nonzero tokens or
+      //   spend; recall-only cost for two-phase trials, and usage is already
+      //   recall-only) => the model ran and failed => provider_error, in the
+      //   denominators.
+      // - A usage envelope reported ALL-ZERO with no spend => the provider
+      //   itself said nothing ran (the API-404 shape: rejected in seconds)
+      //   => harness "error", non-gradeable.
+      // - NO usage envelope at all => telemetry was lost, not reported — in
+      //   the 2026-08-19 receipts these attempts ran 16min–8h before dying.
+      //   Absence of telemetry must never censor evidence, so this grades
+      //   provider_error (a failure for its own arm), never "error"
+      //   (PR #369 review: excluding them would inflate pass rates).
       const usageValues = trial.usage ? Object.values(trial.usage).filter((value) => typeof value === "number") : [];
       const gradedCost = trial.multisession ? trial.recallCostUsd : trial.costUsd;
-      const modelRan = usageValues.some((value) => value > 0) || (typeof gradedCost === "number" && gradedCost > 0);
-      const status = trial.exception ? (modelRan ? "provider_error" : "error") : "ok";
+      const hadActivity = usageValues.some((value) => value > 0) || (typeof gradedCost === "number" && gradedCost > 0);
+      const reportedInactive = Boolean(trial.usage) && !hadActivity;
+      const status = trial.exception ? (reportedInactive ? "error" : "provider_error") : "ok";
       records.push({
         schema: EVAL_ATTEMPT_SCHEMA_VERSION,
         run_id: runId,

@@ -8,16 +8,28 @@
   },
   "notes": "Runs re-imported 2026-08-20 from the original job artifacts with #367's status mapping (a Harbor exception with real model activity grades as provider_error, not a censored harness error) — which restores the originally-published nightly 24/24 (one agentify attempt hit its turn cap with the work complete and verifier passing; it is a gradeable pass) and captures all 8 paired-full runs (the July import had recorded 6). Run ids are import-timestamped (20260820-*); run.json carries the original job identity.",
   "jobs": {
+    "paired-full": {
+      "runs": [
+        "20260820-115322-278976",
+        "20260820-115322-511559",
+        "20260820-115322-5bdc17",
+        "20260820-115322-819f77",
+        "20260820-115322-8e00bb",
+        "20260820-115322-a8040d",
+        "20260820-115322-e45e48",
+        "20260820-115322-fa3a86"
+      ]
+    },
     "nightly-20260714": {
       "runs": [
-        "20260820-080722-4f609d",
-        "20260820-080722-720e6f",
-        "20260820-080722-79baa3",
-        "20260820-080722-7b1bc8",
-        "20260820-080722-7bb224",
-        "20260820-080722-7f4676",
-        "20260820-080722-92fd56",
-        "20260820-080722-a94faf"
+        "20260820-115322-4b4b95",
+        "20260820-115322-55766e",
+        "20260820-115322-7bde5f",
+        "20260820-115322-80090f",
+        "20260820-115322-9fe237",
+        "20260820-115322-d39ef1",
+        "20260820-115322-ddf033",
+        "20260820-115322-f7d74e"
       ],
       "published": {
         "where": [
@@ -35,18 +47,6 @@
           }
         }
       }
-    },
-    "paired-full": {
-      "runs": [
-        "20260820-080722-5b3752",
-        "20260820-080722-9232ac",
-        "20260820-080722-a2ca12",
-        "20260820-080722-aaaa6f",
-        "20260820-080722-bfdaae",
-        "20260820-080722-d0f5f4",
-        "20260820-080722-d891c0",
-        "20260820-080722-f6b08c"
-      ]
     }
   }
 }

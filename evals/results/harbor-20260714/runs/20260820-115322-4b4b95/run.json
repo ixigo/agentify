@@ -1,0 +1,74 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-07-14T07:30:17.860850Z",
+  "run_id": "20260820-115322-4b4b95",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "nightly-20260714",
+    "imported_at": "2026-08-20T11:53:22.707Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.0.0"
+    },
+    "agents": [
+      "agentify-claude",
+      "claude-code"
+    ]
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "plan": {
+    "task": {
+      "id": "reject-stale-config-path",
+      "model": "claude-haiku-4-5-20251001",
+      "difficulty": "easy",
+      "category": "stale-context-rejection",
+      "phases": null,
+      "profile": null,
+      "max_budget_usd": 0.35,
+      "forbidden_paths": []
+    },
+    "task_path": null,
+    "base_sha": null,
+    "arms": [
+      "agentify",
+      "claude-code"
+    ],
+    "repeat": 3,
+    "max_spend_usd": 2.1,
+    "order": [
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "claude-code-1",
+        "arm": "claude-code",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "claude-code-2",
+        "arm": "claude-code",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "agentify-2",
+        "arm": "agentify",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "claude-code-3",
+        "arm": "claude-code",
+        "repeat_index": 3
+      },
+      {
+        "attempt_id": "agentify-3",
+        "arm": "agentify",
+        "repeat_index": 3
+      }
+    ]
+  }
+}

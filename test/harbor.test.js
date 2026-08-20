@@ -495,9 +495,13 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
     // ran and died mid-attempt — run-time evidence, grades provider_error and
     // stays in the denominators (#367).
     trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "container died" }),
-    // Exception with ZERO model activity (the API-404 shape): infrastructure
-    // never ran the model — non-gradeable harness error.
+    // Exception with a REPORTED all-zero usage envelope (the API-404 shape):
+    // the provider said nothing ran — non-gradeable harness error.
     trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "model 404", cost: 0, inputTokens: 0, cacheRead: 0, outputTokens: 0, suffix: "-404" }),
+    // Exception with NO telemetry at all (crashed mid-run before usage/cost
+    // serialized): fail-closed as a run-time failure — absence of telemetry
+    // must never censor evidence (PR #369 review).
+    trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "killed", cost: null, inputTokens: null, cacheRead: null, outputTokens: null, suffix: "-killed" }),
     { trial_name: "task-a__broken", started_at: "2026-07-11T00:00:00Z" }, // no agent identity
   ]);
   const result = await importHarborJob(root, {}, jobDir);
@@ -510,10 +514,11 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   assert.equal(report.arms.agentify.passes, 0);
   assert.equal(report.attempts.find((attempt) => attempt.arm === "agentify").checks[0].output_tail, "reward 0.5");
   const claudeAttempts = report.attempts.filter((attempt) => attempt.arm === "claude-code");
-  assert.deepEqual(claudeAttempts.map((attempt) => attempt.status).sort(), ["error", "provider_error"]);
-  // The gradeable run-time failure is in the denominator; the zero-activity
-  // one is excluded and surfaced as a harness error.
-  assert.equal(report.arms["claude-code"].attempts, 1);
+  assert.deepEqual(claudeAttempts.map((attempt) => attempt.status).sort(), ["error", "provider_error", "provider_error"]);
+  // The two run-time failures (mid-run death with activity, lost telemetry)
+  // are in the denominator; only the provider-reported-inactive one is
+  // excluded and surfaced as a harness error.
+  assert.equal(report.arms["claude-code"].attempts, 2);
   assert.equal(report.arms["claude-code"].harness_errors, 1);
 });
 

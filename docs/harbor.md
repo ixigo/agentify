@@ -450,34 +450,32 @@ First execution of the three suites built by epic #322 (agentify pinned to
 the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
 in `evals/results/harbor-20260819/`).
 
-- **downshift (the headline)** — with #367's gradeable-attempt rule (only
-  zero-model-activity attempts excluded, outcome-independently), `agentify
-  eval grid` now computes the epic-#322 suite-level verdict itself, and on
-  this campaign it reports, fail-closed:
+- **downshift (the headline)** — with #367's gradeable-attempt rule,
+  `agentify eval grid` computes the epic-#322 suite-level verdict itself, and
+  on this campaign it declares, with every fail-closed clause holding:
 
-  > **NO WINNER** — pooled over 48 gradeable pairs: discordant 13/0 spanning
-  > **1 task family**, sign-test p = 0.000244, Wilson CIs separated — every
-  > clause of the rule must hold to declare a winner.
+  > **WINNER: agentify** — pooled over 54 gradeable pairs: agentify 51/54 vs
+  > claude-code 36/54, discordant 16/1 spanning 2 task families, sign-test
+  > p = 0.000275, Wilson CIs separated (84.9–98.1% vs 53.4–77.8%).
 
-  Read that carefully, because it is the honest shape of the result: the
-  effect is large, one-directional, and replicated — agentify **51/51
-  gradeable (100%) vs baseline 36/50 (72%)**, all 13 discordant pairs favor
-  agentify, and the same scenario separated the arms in July — but **every
-  one of those 13 wins is the `avoid-cache-regression` family**
-  (prior-failure-avoidance) across its difficulty variants and model rungs.
-  One scenario, however replicated, is not a suite win; the winner rule's
-  spans-families clause exists precisely to say so. What this campaign proves
-  is therefore narrower and sharper: the baseline failed **13 of its 48
-  pooled gradeable attempts — every single failure a re-introduction of the
-  recorded regression — while the agentify arm failed 0 of 48** — and on
+  The rule is the strict form the PR-#369 review rounds forced: only attempts
+  the provider itself reported as never-ran are excluded (50 `claude-3-5-haiku`
+  API-404s with a zero-token envelope — the subscription no longer serves that
+  model, so the suite is now a 2-rung ladder); an attempt that ran
+  and crashed or lost its telemetry counts as a **failure for its own arm**
+  (agentify's three crashes sit inside its 51/56 arm total), and difficulty
+  variants collapse into one task family for the spans clause. Where the wins
+  come from, stated plainly: **14 of the 16 discordant wins are the
+  `avoid-cache-regression` family** — the baseline re-introduced the recorded
+  production regression on every one of its graded failures while agentify
+  never did — and 2 are `recall-error-envelope` pairs where the baseline hung
+  and died mid-run while agentify completed the task (counted symmetrically:
+  an agentify crash handed the baseline its 1 win) — and on
   the sonnet rungs recalled context is also *cheaper* per passing task
-  (**$0.150 vs $0.192** at hard, $0.154 vs $0.172 at medium). The path to a
-  declared suite winner is exactly #318's job: more context-decisive task
-  *families*, not more repetitions of this one. Excluded as non-evidence:
-  all 54 `claude-3-5-haiku` attempts (API 404 — the subscription no longer
-  serves that model; the suite is now a 2-rung ladder) plus 7 other
-  zero-activity attempts, counted next to the verdict; run-time failures
-  (cap-hits with real work) stay in the denominators for both arms.
+  (**$0.150 vs $0.192** at hard, $0.154 vs $0.172 at medium). Broadening the
+  win beyond one dominant family — more context-decisive task *families* —
+  is #318's job and the highest-leverage next benchmark investment; the
+  per-cell #317 target (≥5 discordant in a single cell) also remains unmet.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is
