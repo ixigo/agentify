@@ -491,7 +491,13 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   const jobDir = await writeJob(root, "2026-07-11-profiles", [
     trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, profile: "cost" }),
     trialResult({ task: "task-a", agent: "agentify-claude", reward: 0.5 }),
+    // Exception WITH model activity (default fixture tokens/cost): the model
+    // ran and died mid-attempt — run-time evidence, grades provider_error and
+    // stays in the denominators (#367).
     trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "container died" }),
+    // Exception with ZERO model activity (the API-404 shape): infrastructure
+    // never ran the model — non-gradeable harness error.
+    trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "model 404", cost: 0, inputTokens: 0, cacheRead: 0, outputTokens: 0, suffix: "-404" }),
     { trial_name: "task-a__broken", started_at: "2026-07-11T00:00:00Z" }, // no agent identity
   ]);
   const result = await importHarborJob(root, {}, jobDir);
@@ -503,8 +509,12 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   // Partial reward is a fail, and the reward is preserved for the drill-down.
   assert.equal(report.arms.agentify.passes, 0);
   assert.equal(report.attempts.find((attempt) => attempt.arm === "agentify").checks[0].output_tail, "reward 0.5");
-  // An exception imports as a harness error, not a silent fail.
-  assert.equal(report.attempts.find((attempt) => attempt.arm === "claude-code").status, "error");
+  const claudeAttempts = report.attempts.filter((attempt) => attempt.arm === "claude-code");
+  assert.deepEqual(claudeAttempts.map((attempt) => attempt.status).sort(), ["error", "provider_error"]);
+  // The gradeable run-time failure is in the denominator; the zero-activity
+  // one is excluded and surfaced as a harness error.
+  assert.equal(report.arms["claude-code"].attempts, 1);
+  assert.equal(report.arms["claude-code"].harness_errors, 1);
 });
 
 test("imported runs cannot be resumed and cross-harness compare needs --force", async () => {

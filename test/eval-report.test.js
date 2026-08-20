@@ -556,7 +556,7 @@ test("compareEvalReports enforces gates with documented exit codes", async () =>
     const improving = compareEvalReports(baseline, current, ["pass_rate_drop>0.02", "cost_per_pass_increase>0.10"]);
     assert.equal(improving.passed, true);
 
-    assert.throws(() => compareEvalReports({ schema: "bogus" }, baseline, ["pass_rate_drop>0.02"]), /expected "eval-report-v1"/);
+    assert.throws(() => compareEvalReports({ schema: "bogus" }, baseline, ["pass_rate_drop>0.02"]), /expected "eval-report-v2"/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -1,0 +1,70 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260820-080722-79baa3",
+  "attempt_id": "claude-code-2",
+  "arm": "claude-code",
+  "base_arm": "claude-code",
+  "context_ablation": null,
+  "repeat_index": 2,
+  "task_id": "rename-shipping-rate-refs",
+  "difficulty": "easy",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "nightly-20260714",
+    "trial": "rename-shipping-rate-refs__R4ZXsym",
+    "agent": "claude-code",
+    "agent_version": "2.1.209",
+    "reward": 1,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.0.0"
+    },
+    "category": "repo-intelligence"
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": null,
+  "resolved_profile": null,
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 22870,
+    "subtype": null,
+    "num_turns": null,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.0391668,
+    "usage": {
+      "fresh_input_tokens": 4912,
+      "cache_read_tokens": 148718,
+      "cache_write_tokens": 0,
+      "output_tokens": 2904
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": "reward 1"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": true,
+  "duration_ms": 140815,
+  "artifacts": null
+}

@@ -1,0 +1,54 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-07-14T07:01:15.184267Z",
+  "run_id": "20260820-080722-5b3752",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "paired-full",
+    "imported_at": "2026-08-20T08:07:22.856Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.0.0"
+    },
+    "agents": [
+      "agentify-claude",
+      "claude-code"
+    ]
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "plan": {
+    "task": {
+      "id": "mechanical-header-bump",
+      "model": "claude-haiku-4-5-20251001",
+      "difficulty": "easy",
+      "category": "mechanical-control",
+      "phases": null,
+      "profile": null,
+      "max_budget_usd": 0.35,
+      "forbidden_paths": []
+    },
+    "task_path": null,
+    "base_sha": null,
+    "arms": [
+      "agentify",
+      "claude-code"
+    ],
+    "repeat": 1,
+    "max_spend_usd": 0.7,
+    "order": [
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "claude-code-1",
+        "arm": "claude-code",
+        "repeat_index": 1
+      }
+    ]
+  }
+}

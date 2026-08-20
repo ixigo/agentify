@@ -1,5 +1,5 @@
 {
-  "schema": "eval-report-v1",
+  "schema": "eval-report-v2",
   "command": "eval",
   "action": "report",
   "run_id": "20260729-055655-5fa89c",
@@ -62,7 +62,8 @@
         "reported_attempts": 3,
         "unreported_attempts": 0,
         "per_attempt_usd": 0.18858,
-        "per_pass_usd": 0.565739
+        "per_pass_usd": 0.565739,
+        "non_gradeable_reported_usd": 0
       },
       "tokens": {
         "fresh_input": 359,
@@ -116,7 +117,8 @@
         "reported_attempts": 3,
         "unreported_attempts": 0,
         "per_attempt_usd": 0.113994,
-        "per_pass_usd": 0.170991
+        "per_pass_usd": 0.170991,
+        "non_gradeable_reported_usd": 0
       },
       "tokens": {
         "fresh_input": 610,
@@ -170,7 +172,8 @@
         "reported_attempts": 3,
         "unreported_attempts": 0,
         "per_attempt_usd": 0.072546,
-        "per_pass_usd": 0.072546
+        "per_pass_usd": 0.072546,
+        "non_gradeable_reported_usd": 0
       },
       "tokens": {
         "fresh_input": 118,

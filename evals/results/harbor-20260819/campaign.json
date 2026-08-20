@@ -2,64 +2,97 @@
   "schema": "results-campaign-v1",
   "campaign": "harbor-20260819",
   "date": "2026-08-19",
-  "dataset": { "name": "agentify-context-bench", "version": "1.0.0" },
-  "notes": "First execution of the three suites built by epic #322, on agentify pinned to github:ixigo/agentify#c108d45 (post-#363/#364 main) with Claude subscription OAuth. Total reported spend $10.13 of the $69.30 combined ceiling (180 attempts, 11 with unreported cost: 4 on the haiku-3-5 rung, 4 on sonnet easy tasks, 3 on haiku-4-5 easy tasks). published.arms below are gradeable-attempt sums per the #367 rule: harness errors (status error) are excluded from denominators and paired stats outcome-independently, like invalid — notably ALL 54 haiku-3-5 attempts (API 404: the model is not served to subscription accounts; infrastructure void, not model weakness; the downshift ladder is now 2 rungs) and 10 scattered error attempts (3 of them agentify passes, excluded symmetrically). Tool verdicts on this campaign: eval grid suite-level (#322 rule) declares WINNER agentify — pooled 45 gradeable pairs, 45/45 vs claude-code 33/45, discordant 12/0, sign p=0.000488, Wilson CIs separated (92.1-100% vs 59-84%); the stricter per-cell #317 target (>=5 discordant in one cell) remains NOT MET. Every real graded failure in the campaign is the baseline's (14 grader_failed vs 0). Cost/pass flips agentify-cheaper on sonnet medium/hard ($0.154 vs $0.172, $0.150 vs $0.192). multisession: both arms 3/3 (tie) but the baseline burned 147,508 more phase-B tokens rediscovering — the first measured rediscovery-avoided receipt; cost break-even not reached at haiku prices. crossvendor: all ties (haiku-4-5 rediscovers the gotcha without memory).",
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.0.0"
+  },
+  "notes": "First execution of the three suites built by epic #322, on agentify pinned to github:ixigo/agentify#c108d45 (post-#363/#364 main) with Claude subscription OAuth. Total reported spend $10.13 of the $69.30 combined ceiling (180 attempts). Runs re-imported 2026-08-20 with #367's final status mapping: a Harbor exception with real model activity (any nonzero token count or spend) grades as provider_error — arm evidence, in the denominators — and only zero-activity attempts are excluded as harness errors (all 54 haiku-3-5 attempts, API 404: the model is not served to subscription accounts, infrastructure void not model weakness — the downshift ladder is now 2 rungs — plus 7 scattered zero-activity errors). published.arms are the tool-computed gradeable sums. Tool verdicts: eval grid suite-level (#322 rule) declares WINNER agentify — pooled 48 gradeable pairs, 48/48 vs claude-code 35/48, discordant 13/0 spanning 3 tasks, sign p=0.000244, Wilson CIs separated (92.6-100% vs 59-83.4%); the stricter per-cell #317 target (>=5 discordant in one cell) remains NOT MET. Every gradeable failure in the campaign is the baseline's (14 vs 0). Cost/pass flips agentify-cheaper on sonnet medium/hard ($0.154 vs $0.172, $0.150 vs $0.192). multisession: both arms 3/3 (tie) but the baseline burned 147,508 more phase-B tokens rediscovering — the first measured rediscovery-avoided receipt; cost break-even not reached at haiku prices. crossvendor: all ties (haiku-4-5 rediscovers the gotcha without memory).",
   "jobs": {
-    "2026-08-19__17-18-36": {
-      "runs": ["20260819-115516-869dc3"],
+    "2026-08-19__17-38-05": {
+      "runs": [
+        "20260820-080723-06c457",
+        "20260820-080723-131632",
+        "20260820-080723-13bafc",
+        "20260820-080723-149f88",
+        "20260820-080723-1d9f1d",
+        "20260820-080723-2187a9",
+        "20260820-080723-256356",
+        "20260820-080723-30396c",
+        "20260820-080723-31d700",
+        "20260820-080723-4afc61",
+        "20260820-080723-516092",
+        "20260820-080723-7a25ff",
+        "20260820-080723-7f6038",
+        "20260820-080723-97ec24",
+        "20260820-080723-9e802c",
+        "20260820-080723-a733c7",
+        "20260820-080723-b90a7f",
+        "20260820-080723-b98190",
+        "20260820-080723-ba7db1",
+        "20260820-080723-bb391d",
+        "20260820-080723-cb0316",
+        "20260820-080723-da7302",
+        "20260820-080723-dd5414",
+        "20260820-080723-e2c8a4",
+        "20260820-080723-e91b04",
+        "20260820-080723-fb9c64",
+        "20260820-080723-fcf304"
+      ],
       "published": {
-        "where": ["docs/harbor.md"],
+        "where": [
+          "docs/harbor.md",
+          "README.md"
+        ],
         "arms": {
-          "agentify": { "passes": 3, "attempts": 3 },
-          "claude-code": { "passes": 3, "attempts": 3 }
+          "agentify": {
+            "passes": 51,
+            "attempts": 51
+          },
+          "claude-code": {
+            "passes": 36,
+            "attempts": 50
+          }
+        }
+      }
+    },
+    "2026-08-19__17-18-36": {
+      "runs": [
+        "20260820-080723-09019d"
+      ],
+      "published": {
+        "where": [
+          "docs/harbor.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 3,
+            "attempts": 3
+          },
+          "claude-code": {
+            "passes": 3,
+            "attempts": 3
+          }
         }
       }
     },
     "2026-08-19__17-26-16": {
-      "runs": ["20260819-120735-c9ac65", "20260819-120735-fece87"],
-      "published": {
-        "where": ["docs/harbor.md"],
-        "arms": {
-          "agentify": { "passes": 6, "attempts": 6 },
-          "crossvendor-nomem": { "passes": 6, "attempts": 6 }
-        }
-      }
-    },
-    "2026-08-19__17-38-05": {
       "runs": [
-        "20260820-060243-1f35b7",
-        "20260820-060243-2a06b4",
-        "20260820-060243-301baf",
-        "20260820-060243-39df2d",
-        "20260820-060243-3d0dba",
-        "20260820-060243-4534cd",
-        "20260820-060243-5a2f46",
-        "20260820-060243-663f62",
-        "20260820-060243-6cf914",
-        "20260820-060243-6d0427",
-        "20260820-060243-78084a",
-        "20260820-060243-7f14cb",
-        "20260820-060243-8e3b50",
-        "20260820-060243-95d223",
-        "20260820-060243-9988fe",
-        "20260820-060243-9cf9c2",
-        "20260820-060243-ae5850",
-        "20260820-060243-b953a2",
-        "20260820-060243-c7c3f8",
-        "20260820-060243-ca9219",
-        "20260820-060243-cbe3ee",
-        "20260820-060243-cef5df",
-        "20260820-060243-d6896e",
-        "20260820-060243-e0bd02",
-        "20260820-060243-e54428",
-        "20260820-060243-f06589",
-        "20260820-060243-f81584"
+        "20260820-080723-1978fe",
+        "20260820-080723-bbbf7e"
       ],
       "published": {
-        "where": ["docs/harbor.md", "README.md"],
+        "where": [
+          "docs/harbor.md"
+        ],
         "arms": {
-          "agentify": { "passes": 48, "attempts": 48 },
-          "claude-code": { "passes": 36, "attempts": 50 }
+          "agentify": {
+            "passes": 6,
+            "attempts": 6
+          },
+          "crossvendor-nomem": {
+            "passes": 6,
+            "attempts": 6
+          }
         }
       }
     }

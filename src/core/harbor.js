@@ -773,7 +773,20 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       // Reward is graded pass/fail exactly like the native runner: only a
       // full reward passes; partial credit is a fail with the reward kept.
       const pass = trial.reward !== null && trial.reward >= 1;
-      const status = trial.exception ? "error" : "ok";
+      // Not every Harbor exception is an infrastructure failure (#367 review):
+      // an exception with recorded model activity (token usage or spend) is a
+      // RUN-TIME outcome — the model executed and hit a turn cap or crashed
+      // mid-run — which is arm evidence and grades like the native
+      // provider_error. Only an exception with no model activity at all (no
+      // tokens, no cost — e.g. an API 404 for a model the account cannot
+      // access) is a harness "error", which eval-report excludes from
+      // denominators and paired stats as non-gradeable.
+      // "Ran" means actual model activity: at least one nonzero token count
+      // or nonzero spend. A zero-token usage envelope (what an API 404
+      // records) is not activity.
+      const usageValues = trial.usage ? Object.values(trial.usage).filter((value) => typeof value === "number") : [];
+      const modelRan = usageValues.some((value) => value > 0) || (typeof trial.costUsd === "number" && trial.costUsd > 0);
+      const status = trial.exception ? (modelRan ? "provider_error" : "error") : "ok";
       records.push({
         schema: EVAL_ATTEMPT_SCHEMA_VERSION,
         run_id: runId,

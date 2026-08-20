@@ -2,36 +2,51 @@
   "schema": "results-campaign-v1",
   "campaign": "harbor-20260714",
   "date": "2026-07-14",
-  "dataset": { "name": "agentify-context-bench", "version": "1.0.0" },
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.0.0"
+  },
+  "notes": "Runs re-imported 2026-08-20 from the original job artifacts with #367's status mapping (a Harbor exception with real model activity grades as provider_error, not a censored harness error) — which restores the originally-published nightly 24/24 (one agentify attempt hit its turn cap with the work complete and verifier passing; it is a gradeable pass) and captures all 8 paired-full runs (the July import had recorded 6). Run ids are import-timestamped (20260820-*); run.json carries the original job identity.",
   "jobs": {
-    "paired-full": {
-      "runs": [
-        "20260714-071607-9bb98d",
-        "20260714-071607-a62977",
-        "20260714-071607-b279ed",
-        "20260714-071607-c63961",
-        "20260714-071607-e5aed1",
-        "20260714-071607-e6c11c"
-      ]
-    },
     "nightly-20260714": {
       "runs": [
-        "20260714-081154-01d6d1",
-        "20260714-081154-071eca",
-        "20260714-081154-540602",
-        "20260714-081154-69fdee",
-        "20260714-081154-a1c333",
-        "20260714-081154-adc9e6",
-        "20260714-081154-c48087",
-        "20260714-081154-da8d96"
+        "20260820-080722-4f609d",
+        "20260820-080722-720e6f",
+        "20260820-080722-79baa3",
+        "20260820-080722-7b1bc8",
+        "20260820-080722-7bb224",
+        "20260820-080722-7f4676",
+        "20260820-080722-92fd56",
+        "20260820-080722-a94faf"
       ],
       "published": {
-        "where": ["README.md", "docs/harbor.md"],
+        "where": [
+          "README.md",
+          "docs/harbor.md"
+        ],
         "arms": {
-          "agentify": { "passes": 23, "attempts": 23 },
-          "claude-code": { "passes": 21, "attempts": 24 }
+          "agentify": {
+            "passes": 24,
+            "attempts": 24
+          },
+          "claude-code": {
+            "passes": 21,
+            "attempts": 24
+          }
         }
       }
+    },
+    "paired-full": {
+      "runs": [
+        "20260820-080722-5b3752",
+        "20260820-080722-9232ac",
+        "20260820-080722-a2ca12",
+        "20260820-080722-aaaa6f",
+        "20260820-080722-bfdaae",
+        "20260820-080722-d0f5f4",
+        "20260820-080722-d891c0",
+        "20260820-080722-f6b08c"
+      ]
     }
   }
 }

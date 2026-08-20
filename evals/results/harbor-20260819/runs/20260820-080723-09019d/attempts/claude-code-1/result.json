@@ -1,0 +1,70 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260820-080723-09019d",
+  "attempt_id": "claude-code-1",
+  "arm": "claude-code",
+  "base_arm": "claude-code",
+  "context_ablation": null,
+  "repeat_index": 1,
+  "task_id": "recall-flaky-timezone",
+  "difficulty": "medium",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "2026-08-19__17-18-36",
+    "trial": "recall-flaky-timezone__NRtydx9",
+    "agent": "claude-code",
+    "agent_version": "2.1.235",
+    "reward": 1,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.0.0"
+    },
+    "category": "prior-failure-avoidance"
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": null,
+  "resolved_profile": null,
+  "limits": {
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 19840,
+    "subtype": null,
+    "num_turns": null,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.0319064,
+    "usage": {
+      "fresh_input_tokens": 2855,
+      "cache_read_tokens": 166534,
+      "cache_write_tokens": 0,
+      "output_tokens": 1920
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": "reward 1"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": true,
+  "duration_ms": 93633,
+  "artifacts": null
+}

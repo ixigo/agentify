@@ -18,8 +18,14 @@ import { EVAL_RUN_SCHEMA_VERSION, resolveEvalPaths } from "./eval.js";
 import { exists, readJson } from "./fs.js";
 import { redactSensitiveText } from "./redact.js";
 
-export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v1";
-export const EVAL_GRID_SCHEMA_VERSION = "eval-grid-v1";
+// v2 (#367): non-gradeable attempts (invalid + harness "error") are excluded
+// from denominators, cost/latency aggregates, and paired stats; arms gained
+// harness_errors and cost.non_gradeable_reported_usd; the grid gained the
+// pooled suite_verdict. v1 and v2 numbers are not comparable — a v1 report's
+// attempts included harness errors as failures — and compareEvalReports
+// rejects a version mismatch outright.
+export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v2";
+export const EVAL_GRID_SCHEMA_VERSION = "eval-grid-v2";
 // The grid renders as JSON or markdown only — it is a cross-run aggregate, so
 // the single-run HTML/promptfoo adapters don't apply.
 export const EVAL_GRID_FORMATS = ["json", "md"];
@@ -173,6 +179,15 @@ function armMetrics(allRecords) {
   const records = allRecords.filter(isGradeableAttempt);
   const invalid = allRecords.filter((record) => record.status === "invalid").length;
   const harnessErrors = allRecords.filter((record) => record.status === "error").length;
+  // Spend on excluded attempts leaves the outcome metrics but must not
+  // vanish from the books: real dollars were burned even when the attempt
+  // carries no arm evidence (#367 review round 2).
+  let excludedCost = 0;
+  for (const record of allRecords) {
+    if (isGradeableAttempt(record)) continue;
+    const cost = record.provider?.cost_usd;
+    if (typeof cost === "number" && Number.isFinite(cost)) excludedCost += cost;
+  }
   const attempts = records.length;
   const passes = records.filter((record) => record.pass).length;
 
@@ -272,6 +287,10 @@ function armMetrics(allRecords) {
       // Null when passes are zero or any attempt lacks reported cost — a
       // partial subtotal divided by all passes would read falsely cheap.
       per_pass_usd: fullyCosted && passes > 0 ? round(reportedCost / passes) : null,
+      // Spend on non-gradeable (invalid / harness-error) attempts: outside
+      // the outcome metrics above, but real money — kept visible so excluding
+      // an attempt can never make a campaign look cheaper than it was.
+      non_gradeable_reported_usd: round(excludedCost),
     },
     tokens: { ...tokens, usage_reported_attempts: usageAttempts, usage_missing_attempts: attempts - usageAttempts },
     latency: {
@@ -959,6 +978,11 @@ export async function buildEvalGrid(root, config, runIds) {
   const pooledBaseline = [];
   let pooledLeftOnly = 0;
   let pooledRightOnly = 0;
+  // Discordant wins per task id: pooled pairs repeat the same tasks across
+  // difficulties and rungs, so a single task's repeated outcome must not
+  // manufacture suite-level significance on its own — the winner rule
+  // additionally requires the discordant wins to span >=2 distinct tasks.
+  const discordantByTask = new Map();
   for (const cell of cellMap.values()) {
     // Everything the cell reports is computed over the PAIRED subset only: for
     // each run (one task), match the agentify and baseline attempts by
@@ -983,6 +1007,9 @@ export async function buildEvalGrid(root, config, runIds) {
         baselineRecords.push(pair.right);
         pooledAgentify.push(pair.left);
         pooledBaseline.push(pair.right);
+        if (pair.left.pass && !pair.right.pass) {
+          discordantByTask.set(run.taskId, (discordantByTask.get(run.taskId) || 0) + 1);
+        }
       }
       leftOnly += l;
       rightOnly += r;
@@ -1061,9 +1088,15 @@ export async function buildEvalGrid(root, config, runIds) {
   const ciSeparated = pooledA.pass_rate_ci95 !== null && pooledB.pass_rate_ci95 !== null
     && pooledA.pass_rate_ci95.low > pooledB.pass_rate_ci95.high;
   const suiteFavors = pooledLeftOnly > pooledRightOnly;
-  const suiteMet = suiteFavors && pooledLeftOnly >= 5 && pooledSignP !== null && pooledSignP < 0.05 && ciSeparated;
+  // Correlated-outcome guard: the discordant wins must come from >=2 distinct
+  // tasks, so one task repeated across rungs/difficulties cannot carry the
+  // verdict alone.
+  const spansTasks = [...discordantByTask.keys()].length >= 2;
+  const suiteMet = suiteFavors && pooledLeftOnly >= 5 && pooledSignP !== null && pooledSignP < 0.05 && ciSeparated && spansTasks;
   const suiteVerdict = {
-    rule: "pooled gradeable pairs: >=5 discordant favoring agentify, sign-test p<0.05, non-overlapping Wilson CIs",
+    rule: "pooled gradeable pairs: >=5 discordant favoring agentify spanning >=2 distinct tasks, sign-test p<0.05, non-overlapping Wilson CIs",
+    discordant_by_task: Object.fromEntries([...discordantByTask.entries()].sort()),
+    spans_tasks: spansTasks,
     paired_attempts: pooledAgentify.length,
     agentify: { passes: pooledA.passes, attempts: pooledA.attempts, pass_rate: pooledA.pass_rate, pass_rate_ci95: pooledA.pass_rate_ci95 },
     baseline: { arm: baselineArm, passes: pooledB.passes, attempts: pooledB.attempts, pass_rate: pooledB.pass_rate, pass_rate_ci95: pooledB.pass_rate_ci95 },
@@ -1076,8 +1109,8 @@ export async function buildEvalGrid(root, config, runIds) {
     non_gradeable_excluded: countNonGradeable(runs, baselineArm),
     winner: suiteMet ? "agentify" : null,
     reason: suiteMet
-      ? `pooled over ${pooledAgentify.length} gradeable pairs: agentify ${pooledA.passes}/${pooledA.attempts} vs ${baselineArm} ${pooledB.passes}/${pooledB.attempts}, discordant ${pooledLeftOnly}/${pooledRightOnly}, sign-test p=${pooledSignP}, Wilson CIs separated`
-      : `pooled over ${pooledAgentify.length} gradeable pairs: discordant ${pooledLeftOnly}/${pooledRightOnly}, sign-test p=${pooledSignP ?? "n/a"}, Wilson CIs ${ciSeparated ? "separated" : "overlapping"} — every clause of the rule must hold to declare a winner`,
+      ? `pooled over ${pooledAgentify.length} gradeable pairs: agentify ${pooledA.passes}/${pooledA.attempts} vs ${baselineArm} ${pooledB.passes}/${pooledB.attempts}, discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByTask.size} task(s), sign-test p=${pooledSignP}, Wilson CIs separated`
+      : `pooled over ${pooledAgentify.length} gradeable pairs: discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByTask.size} task(s), sign-test p=${pooledSignP ?? "n/a"}, Wilson CIs ${ciSeparated ? "separated" : "overlapping"} — every clause of the rule must hold to declare a winner`,
   };
 
   return {

@@ -273,6 +273,17 @@ job of the separate epic child #318 — this suite is the measurement harness,
 and its verdict engine reports "not yet load-bearing" honestly when no cell
 qualifies rather than overclaiming.
 
+Two verdicts, two questions (#367): the **per-cell** target above (#317) asks
+"is there a single (model × difficulty) operating point that alone proves
+context is load-bearing?" — the strictest form. The **suite-level** verdict
+(epic #322's winner rule) asks "pooled across the whole matrix's gradeable
+pairs, does the agentify arm win?" — it requires ≥5 discordant pairs favoring
+agentify **spanning at least two distinct tasks** (so one task repeated across
+rungs cannot carry it), an exact sign-test p < 0.05, and non-overlapping
+pooled Wilson intervals, and it is fail-closed on every clause. The grid
+prints both; a suite-level winner with no qualifying cell means the effect is
+real but spread across the matrix rather than concentrated in one cell.
+
 Read the frontier back with the grid report. Mind the working directory: the
 `agentify` commands resolve the eval root (and `evals/harbor/dataset.json`)
 from the cwd, so they run from the **repo root**, while `harbor run` needs the
@@ -444,23 +455,26 @@ in `evals/results/harbor-20260819/`).
   grid` now computes the epic-#322 suite-level verdict itself, and on this
   campaign it declares:
 
-  > **WINNER: agentify** — pooled over 45 gradeable pairs: agentify 45/45 vs
-  > claude-code 33/45, discordant 12/0, sign-test p = 0.000488, Wilson CIs
-  > separated (92.1–100% vs 59–84%).
+  > **WINNER: agentify** — pooled over 48 gradeable pairs: agentify 48/48 vs
+  > claude-code 35/48, discordant 13/0 spanning 3 tasks, sign-test
+  > p = 0.000244, Wilson CIs separated (92.6–100% vs 59–83.4%).
 
   Scope this claim honestly: it is Agentify's own 23-task context benchmark
   (fail-closed protocol, receipts committed, grid regenerable from them), the
-  pooled pairs share three base tasks across difficulties and model rungs,
-  and the per-cell #317 acceptance target (≥5 discordant in a *single* cell)
-  remains NOT MET — more attempts per cell is still the path there. Per-arm
-  totals: agentify **48/48 gradeable (100%) vs baseline 36/50 (72%)**; every
-  real graded failure in the campaign is the baseline's (14 `grader_failed`
-  vs 0). Excluded as non-evidence: **all 54 `claude-3-5-haiku` attempts
+  pooled pairs share three base tasks across difficulties and model rungs
+  (the rule's spans-tasks clause guards single-task domination), and the
+  per-cell #317 acceptance target (≥5 discordant in a *single* cell) remains
+  NOT MET — more attempts per cell is still the path there. Per-arm totals:
+  agentify **51/51 gradeable (100%) vs baseline 36/50 (72%)** — every
+  gradeable failure in the campaign is the baseline's (14 vs 0), and three
+  agentify attempts that hit a cap mid-run with the verifier passing grade as
+  run-time passes, not censored errors. Excluded as non-evidence: only
+  attempts with **zero model activity** — all 54 `claude-3-5-haiku` attempts
   (API 404 — the subscription no longer serves that model; the suite is now a
-  2-rung ladder)** plus 10 scattered error attempts, counted next to the
-  verdict rather than inside it. On the sonnet rungs the cost narrative
-  flips: **cost/pass $0.150 vs $0.192 (hard)** and $0.154 vs $0.172 (medium)
-  — recalled context is cheaper than rediscovery at frontier-model prices.
+  2-rung ladder) plus 7 others — counted next to the verdict rather than
+  inside it. On the sonnet rungs the cost narrative flips: **cost/pass $0.150
+  vs $0.192 (hard)** and $0.154 vs $0.172 (medium) — recalled context is
+  cheaper than rediscovery at frontier-model prices.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is
@@ -491,12 +505,6 @@ per-attempt figure is context, not the headline:
 | --- | --- | --- | --- | --- | --- |
 | agentify | ~$0.055 | 24/24 (100%) | 86.2–100% | ~$1.32 | $0.055 |
 | claude-code | ~$0.038 | 21/24 (87.5%) | 69.0–95.7% | ~$0.79 | $0.033 |
-
-(As published at the time. Under the current #367 gradeable-attempt rule the
-agentify row reads **23/23**: one attempt hit its turn cap with the work
-complete and is excluded outcome-independently as a harness error even though
-its verifier passed — the committed receipts' `campaign.json` validates the
-23/23 form.)
 
 This nightly was single-session, so it cannot honestly produce an amortized
 cost/recall or rediscovery-avoided number. Those fields remain `n/a` rather
