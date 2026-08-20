@@ -180,6 +180,25 @@ the single-vendor-cred norm noted below. Provide both:
 
 - Codex (phase A): `OPENAI_API_KEY`, or an in-container `auth.json` (from
   `codex login`) pointed at by `CODEX_AUTH_JSON_SRC` for subscription auth.
+  To get the host's `~/.codex/auth.json` *into* the container, make a local
+  (uncommitted) copy of `suites/crossvendor.yaml` adding a read-only bind
+  mount, and export the container path on the host — this is how the
+  2026-08-19 campaign ran:
+
+  ```yaml
+  environment:
+    mounts:
+      - type: bind
+        source: /home/you/.codex/auth.json
+        target: /opt/codex-auth/auth.json
+        read_only: true
+  ```
+
+  ```sh
+  export CODEX_AUTH_JSON_SRC=/opt/codex-auth/auth.json
+  ```
+
+  Never commit the variant: it hard-codes a host path to a credential file.
 - Claude (phase B): the same contract as `agentify-claude` — `ANTHROPIC_API_KEY`,
   or `CLAUDE_FORCE_OAUTH=1` + `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
 
@@ -412,6 +431,40 @@ the same schema. Mapping:
 Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
+
+### 2026-08-19 campaign: multisession + crossvendor + downshift
+
+First execution of the three suites built by epic #322 (agentify pinned to
+`github:ixigo/agentify#c108d45`, subscription OAuth, $10.13 reported spend of
+the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
+in `evals/results/harbor-20260819/`).
+
+- **downshift (the headline)** — agentify **51/81 vs 36/81** overall, and the
+  matrix behaves exactly as #317 predicted: `claude-3-5-haiku` floors at 0/9
+  in every cell (too weak for the tasks with or without memory), `sonnet-4-5`
+  at `easy` ties (strong model rediscovers), and in the five load-bearing
+  cells — `haiku-4-5` at every difficulty, `sonnet-4-5` at medium/hard —
+  agentify is **+33pp per cell** with 15 of 16 discordant pairs in its favor.
+  On the sonnet rungs the cost narrative flips: **cost/pass $0.150 vs $0.192
+  (hard)** and $0.154 vs $0.172 (medium) — recalled context is cheaper than
+  rediscovery at frontier-model prices. **Per the pre-registered per-cell rule
+  (≥5 discordant pairs at p < 0.05) the verdict is still NOT MET** — each
+  +33pp cell holds 3 discordant pairs (p = 0.25); crossing the threshold needs
+  more attempts on those cells, not new machinery.
+- **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
+  measured rediscovery receipt: the baseline burned **147,508 more phase-B
+  tokens** re-exploring what the agentify arm recalled. Cost break-even is
+  honestly `not reached` — at haiku prices the seed cost exceeds the token
+  savings.
+- **crossvendor** — all ties (agentify 6/6, no-memory baseline 6/6):
+  `haiku-4-5` rediscovers the seeded gotcha in phase B without memory. The
+  no-memory arm's expected failure did not materialize at this model
+  strength; these tasks need the same difficulty treatment as the downshift
+  variants before this suite can separate.
+
+The 11 attempts with unreported cost are all on the `claude-3-5-haiku` rung.
+
+### 2026-07-14 nightly (historical)
 
 First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
 × 3 attempts, `claude-haiku-4-5`, `max_turns` 16 per the suite config at the
