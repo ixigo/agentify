@@ -18,12 +18,20 @@ const CONCURRENCY = 8;
 export async function fetchAll(ids, fetcher) {
   const results = new Array(ids.length);
   let cursor = 0;
+  let failed = false;
   async function worker() {
-    while (true) {
+    while (!failed) {
       const index = cursor;
       cursor += 1;
       if (index >= ids.length) return;
-      results[index] = await fetcher(ids[index]);
+      try {
+        results[index] = await fetcher(ids[index]);
+      } catch (error) {
+        // Stop handing out new work: keep hammering a failing upstream and
+        // the INC-77 block comes back for a different reason.
+        failed = true;
+        throw error;
+      }
     }
   }
   const workers = Array.from(

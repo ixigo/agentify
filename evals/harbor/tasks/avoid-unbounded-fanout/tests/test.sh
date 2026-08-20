@@ -52,6 +52,25 @@ if (peak > 8) {
   console.error("batch fan-out is not capped: peak concurrent requests =", peak, "(the upstream API blocks clients above 8 outstanding requests)");
   process.exit(1);
 }
+
+// A failure inside a parallel batch must still reject the whole call, like
+// the sequential loader did. (How much traffic continues AFTER the failure
+// is deliberately not scored: any bound on it is timing-sensitive, and a
+// flaky fail-closed verifier poisons paired statistics — the seeded rule
+// under test is the in-flight cap, not stop-on-error.)
+let rejected = false;
+try {
+  await fetchAll(["x1", "boom", "x2", "x3"], async (id) => {
+    if (id === "boom") throw new Error("upstream 500");
+    return id;
+  });
+} catch (error) {
+  rejected = /upstream 500/.test(String(error && error.message));
+}
+if (!rejected) {
+  console.error("a fetcher failure inside the batch must reject fetchAll");
+  process.exit(1);
+}
 '
 
 echo 1 > /logs/verifier/reward.txt 2>/dev/null || true

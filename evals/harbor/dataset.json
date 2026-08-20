@@ -1,7 +1,7 @@
 {
   "schema": "harbor-dataset-v1",
   "name": "agentify-context-bench",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "model": "anthropic/claude-haiku-4-5-20251001",
   "pins": {
     "harbor": "0.18.0",
@@ -263,6 +263,18 @@
       ]
     },
     {
+      "id": "avoid-unbounded-fanout-medium",
+      "category": "prior-failure-avoidance",
+      "difficulty": "medium",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "CONCURRENCY",
+        "inFlight",
+        "p-limit",
+        "Semaphore"
+      ]
+    },
+    {
       "id": "avoid-unbounded-fanout-hard",
       "category": "prior-failure-avoidance",
       "difficulty": "hard",
@@ -278,6 +290,17 @@
       "id": "avoid-roster-mutation",
       "category": "prior-failure-avoidance",
       "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "toSorted",
+        "slice().sort",
+        "[...players]"
+      ]
+    },
+    {
+      "id": "avoid-roster-mutation-medium",
+      "category": "prior-failure-avoidance",
+      "difficulty": "medium",
       "max_cost_usd": 0.35,
       "answer_leak_patterns": [
         "toSorted",
@@ -404,7 +427,9 @@
         "avoid-cache-regression-hard",
         "reject-stale-config-path-hard",
         "avoid-unbounded-fanout",
+        "avoid-unbounded-fanout-medium",
         "avoid-roster-mutation",
+        "avoid-roster-mutation-medium",
         "avoid-unbounded-fanout-hard",
         "avoid-roster-mutation-hard"
       ],
