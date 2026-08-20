@@ -35,6 +35,10 @@ const roster = [
   { name: "kai", score: 88 },
 ];
 const originalOrder = [...roster];
+// Deep snapshot: "exactly as received" covers the player OBJECTS too — an
+// implementation that stamps rank onto the shared player objects mutates
+// state other modules read (the same INC-133 class of bug).
+const originalJson = roster.map((player) => JSON.stringify(player));
 
 const ranked = rankings(roster);
 
@@ -71,10 +75,46 @@ if (roster.length !== originalOrder.length) {
   process.exit(1);
 }
 
+for (let i = 0; i < originalJson.length; i++) {
+  if (JSON.stringify(roster[i]) !== originalJson[i]) {
+    console.error("a shared player object was mutated:", originalJson[i], "->", JSON.stringify(roster[i]));
+    process.exit(1);
+  }
+}
+
 // Existing helpers still work against the untouched roster.
 if (topPlayer(roster).name !== "lin") {
   console.error("topPlayer broken after rankings()");
   process.exit(1);
+}
+
+// A second, differently-shaped roster (tie at the TOP this time) guards
+// against an implementation hard-coded to the first fixture.
+const roster2 = [
+  { name: "zoe", score: 50 },
+  { name: "iris", score: 90 },
+  { name: "noor", score: 90 },
+];
+const original2 = roster2.map((player) => JSON.stringify(player));
+const ranked2 = rankings(roster2);
+const byName2 = new Map((ranked2 || []).map((row) => [row.name, row]));
+const want2 = [
+  { rank: 1, name: "iris", score: 90 },
+  { rank: 1, name: "noor", score: 90 },
+  { rank: 3, name: "zoe", score: 50 },
+];
+if (!Array.isArray(ranked2) || ranked2.length !== 3 || want2.some((want) => {
+  const got = byName2.get(want.name);
+  return !got || got.rank !== want.rank || got.score !== want.score;
+})) {
+  console.error("rankings() wrong on a second roster:", JSON.stringify(ranked2));
+  process.exit(1);
+}
+for (let i = 0; i < original2.length; i++) {
+  if (JSON.stringify(roster2[i]) !== original2[i]) {
+    console.error("second roster mutated:", original2[i], "->", JSON.stringify(roster2[i]));
+    process.exit(1);
+  }
 }
 '
 

@@ -229,16 +229,18 @@ that the task was too easy to need it. The `downshift` suite makes context
 **load-bearing** by holding tasks, image, budget, and verifier fixed while
 varying two axes:
 
-- **difficulty** — the three context-decisive tasks (`recall-error-envelope`,
-  `avoid-cache-regression`, `reject-stale-config-path`) at `easy` (the
+- **difficulty** — the five context-decisive task families (`recall-error-envelope`,
+  `avoid-cache-regression`, `reject-stale-config-path`, and the #318 families
+  `avoid-unbounded-fanout`, `avoid-roster-mutation`) at `easy` (the
   originals) plus committed `-medium` and `-hard` variants. The harder variants
   strip the hint that leaks the convention from `instruction.md`, so the answer
   survives only in the seeded Agentify decision the agentify arm recalls. The
   `environment/`, `tests/test.sh`, and `solution/` are copied **verbatim** from
   the base task — only the prompt gets harder, so the verifier intent (the
   fair-comparison contract) never moves.
-- **model capability** — a ladder from a small/older model up to a stronger one
-  (`claude-3-5-haiku` → `claude-haiku-4-5` → `claude-sonnet-4-5`). As baseline
+- **model capability** — a two-rung ladder (`claude-haiku-4-5` →
+  `claude-sonnet-4-5`; the original weakest rung was retired in #367 after the
+  subscription stopped serving it). As baseline
   capability drops, durable context should hold the agentify arm's pass rate up
   while the plain arm degrades, widening the gap into a significant, discordant
   win.
@@ -279,8 +281,9 @@ Two verdicts, two questions (#367): the **per-cell** target above (#317) asks
 context is load-bearing?" — the strictest form. The **suite-level** verdict
 (epic #322's winner rule) asks "pooled across the whole matrix's gradeable
 pairs, does the agentify arm win?" — it requires ≥5 discordant pairs favoring
-agentify **spanning at least two distinct tasks** (so one task repeated across
-rungs cannot carry it), an exact sign-test p < 0.05, and non-overlapping
+agentify **spanning at least two distinct task families** (difficulty
+variants collapse into one family, so one scenario repeated across rungs and
+variants cannot carry it), an exact sign-test p < 0.05, and non-overlapping
 pooled Wilson intervals, and it is fail-closed on every clause. The grid
 prints both; a suite-level winner with no qualifying cell means the effect is
 real but spread across the matrix rather than concentrated in one cell.

@@ -772,7 +772,7 @@ test("eval grid auto-discovery keeps only the latest import batch, not a re-impo
 
 test("committed difficulty variants reuse the base verifier verbatim (#317)", async () => {
   const tasksRoot = path.join(REPO_ROOT, "evals", "harbor", "tasks");
-  const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path"];
+  const bases = ["recall-error-envelope", "avoid-cache-regression", "reject-stale-config-path", "avoid-unbounded-fanout", "avoid-roster-mutation"];
   for (const base of bases) {
     const baseVerifier = await fs.readFile(path.join(tasksRoot, base, "tests", "test.sh"), "utf8");
     for (const level of ["medium", "hard"]) {

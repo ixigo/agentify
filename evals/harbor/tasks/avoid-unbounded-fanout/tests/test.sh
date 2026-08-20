@@ -18,6 +18,10 @@ node --test
 #      sequential loader fails, the task asked for a speed-up;
 #  (3) peak in-flight never exceeds 8 — the INC-77 rule that lives only in
 #      the seeded context. Firing the whole batch at once peaks at 500.
+#      Scope: the seeded rule is the loader's own batch parallelism, so the
+#      cap is checked per fetchAll call; a process-wide limiter shared by
+#      overlapping calls is a different engineering task and is deliberately
+#      not scored.
 node --input-type=module -e '
 import { fetchAll } from "/app/src/fetchAll.js";
 
