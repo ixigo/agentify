@@ -58,21 +58,22 @@
   },
   "arms": {
     "agentify": {
-      "attempts": 3,
+      "attempts": 2,
       "passes": 2,
-      "failures": 1,
+      "failures": 0,
       "invalid": 0,
-      "pass_rate": 0.6667,
+      "harness_errors": 1,
+      "pass_rate": 1,
       "pass_rate_ci95": {
-        "low": 0.2077,
-        "high": 0.9385
+        "low": 0.3424,
+        "high": 1
       },
       "cost": {
         "reported_usd": 0.250955,
         "reported_attempts": 2,
-        "unreported_attempts": 1,
-        "per_attempt_usd": null,
-        "per_pass_usd": null
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.125478,
+        "per_pass_usd": 0.125478
       },
       "tokens": {
         "fresh_input": 12212,
@@ -80,13 +81,13 @@
         "cache_write": 0,
         "output": 5199,
         "usage_reported_attempts": 2,
-        "usage_missing_attempts": 1
+        "usage_missing_attempts": 0
       },
       "latency": {
-        "provider_p50_ms": 56841,
-        "provider_p95_ms": 4120391,
-        "provider_mean_ms": 1408713,
-        "total_mean_ms": 1433783
+        "provider_p50_ms": 48906,
+        "provider_p95_ms": 56841,
+        "provider_mean_ms": 52874,
+        "total_mean_ms": 90480
       },
       "turns": {
         "mean": 7.5,
@@ -97,36 +98,34 @@
         "mean": null,
         "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
+        "unreported_attempts": 2
       },
       "changed_files": {
         "mean": 0,
         "max": 0
       },
-      "failure_breakdown": {
-        "harness_error": 1
-      },
+      "failure_breakdown": {},
       "stop_reasons": {
-        "error": 1,
         "ok": 2
       }
     },
     "claude-code": {
-      "attempts": 3,
+      "attempts": 2,
       "passes": 2,
-      "failures": 1,
+      "failures": 0,
       "invalid": 0,
-      "pass_rate": 0.6667,
+      "harness_errors": 1,
+      "pass_rate": 1,
       "pass_rate_ci95": {
-        "low": 0.2077,
-        "high": 0.9385
+        "low": 0.3424,
+        "high": 1
       },
       "cost": {
         "reported_usd": 0.210465,
         "reported_attempts": 2,
-        "unreported_attempts": 1,
-        "per_attempt_usd": null,
-        "per_pass_usd": null
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.105232,
+        "per_pass_usd": 0.105232
       },
       "tokens": {
         "fresh_input": 9696,
@@ -134,13 +133,13 @@
         "cache_write": 0,
         "output": 4891,
         "usage_reported_attempts": 2,
-        "usage_missing_attempts": 1
+        "usage_missing_attempts": 0
       },
       "latency": {
-        "provider_p50_ms": 52074,
-        "provider_p95_ms": 3510298,
-        "provider_mean_ms": 1201129,
-        "total_mean_ms": 1253675
+        "provider_p50_ms": 41014,
+        "provider_p95_ms": 52074,
+        "provider_mean_ms": 46544,
+        "total_mean_ms": 125363
       },
       "turns": {
         "mean": null,
@@ -151,17 +150,14 @@
         "mean": null,
         "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
+        "unreported_attempts": 2
       },
       "changed_files": {
         "mean": 0,
         "max": 0
       },
-      "failure_breakdown": {
-        "harness_error": 1
-      },
+      "failure_breakdown": {},
       "stop_reasons": {
-        "error": 1,
         "ok": 2
       }
     }
@@ -169,9 +165,8 @@
   "paired": [
     {
       "baseline": "claude-code",
-      "pairs": 3,
+      "pairs": 2,
       "paired_sample_ids": [
-        "repeat-1",
         "repeat-2",
         "repeat-3"
       ],
@@ -181,8 +176,8 @@
         "baseline_only_pass": 0
       },
       "sign_test_p": 1,
-      "cost_per_pass_delta_usd": null,
-      "provider_p95_delta_ms": 610093
+      "cost_per_pass_delta_usd": 0.020246,
+      "provider_p95_delta_ms": 4767
     }
   ],
   "economics": {
@@ -195,11 +190,11 @@
     "comparisons": [
       {
         "baseline": "claude-code",
-        "paired_attempts": 3,
+        "paired_attempts": 2,
         "multisession_pairs": 0,
         "cost_per_pass": {
-          "agentify_usd": null,
-          "baseline_usd": null
+          "agentify_usd": 0.125478,
+          "baseline_usd": 0.105232
         },
         "phase_b": {
           "tokens": {
@@ -280,21 +275,21 @@
     "points": [
       {
         "arm": "agentify",
-        "pass_rate": 0.6667,
-        "cost_per_pass_usd": null,
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.125478,
         "total_reported_usd": 0.250955,
         "passes": 2,
-        "costed": false,
+        "costed": true,
         "on_frontier": false
       },
       {
         "arm": "claude-code",
-        "pass_rate": 0.6667,
-        "cost_per_pass_usd": null,
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.105232,
         "total_reported_usd": 0.210465,
         "passes": 2,
-        "costed": false,
-        "on_frontier": false
+        "costed": true,
+        "on_frontier": true
       }
     ],
     "marginal": []

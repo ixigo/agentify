@@ -28,7 +28,7 @@
       "published": {
         "where": ["README.md", "docs/harbor.md"],
         "arms": {
-          "agentify": { "passes": 24, "attempts": 24 },
+          "agentify": { "passes": 23, "attempts": 23 },
           "claude-code": { "passes": 21, "attempts": 24 }
         }
       }

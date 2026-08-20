@@ -759,6 +759,97 @@ test("buildEvalGrid aggregates runs into a model x difficulty frontier (#317)", 
   }
 });
 
+test("harness-error attempts are excluded outcome-independently from metrics and pairs (#367)", async () => {
+  const root = await makeRoot();
+  try {
+    const attempts = [
+      makeAttempt("agentify", 1, { pass: true }),
+      // Error-but-passed: the symmetric rule must exclude it even though it
+      // would flatter the arm (a verifier pass on an attempt the harness
+      // failed to execute normally is not model evidence).
+      { ...makeAttempt("agentify", 2, { pass: true }), status: "error" },
+      // Error-and-failed: the 404-style case — must not count as a failure.
+      { ...makeAttempt("agentify", 3, { pass: false }), status: "error" },
+      makeAttempt("plain-safe", 1, { pass: false }),
+      makeAttempt("plain-safe", 2, { pass: true }),
+      makeAttempt("plain-safe", 3, { pass: true }),
+    ];
+    const runId = await writeRunFixture(root, attempts);
+    const report = await buildEvalReport(root, {}, runId);
+
+    const agentify = report.arms.agentify;
+    assert.equal(agentify.attempts, 1);
+    assert.equal(agentify.passes, 1);
+    assert.equal(agentify.harness_errors, 2);
+    assert.equal(agentify.failure_breakdown.harness_error, undefined, "excluded attempts must not appear as failures");
+    // Baseline untouched: all three attempts gradeable.
+    assert.equal(report.arms["plain-safe"].attempts, 3);
+    assert.equal(report.arms["plain-safe"].harness_errors, 0);
+
+    // Pairs with an error on either side are dropped: only repeat-1 remains.
+    const paired = report.paired.find((entry) => entry.baseline === "plain-safe");
+    assert.equal(paired.pairs, 1);
+    assert.deepEqual(paired.discordant, { agentify_only_pass: 1, baseline_only_pass: 0 });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("grid suite-level verdict declares a winner only when every #322 clause holds (#367)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-haiku-4-5-20251001";
+  const strong = "anthropic/claude-sonnet-4-5-20250929";
+  const pass3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: true }));
+  const fail3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: false }));
+  try {
+    // Two 3-0 discordant runs on the weak rung + one concordant strong run +
+    // one fully-errored run that must be excluded, not counted as baseline
+    // failures.
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-b", model: weak, difficulty: "hard" }) });
+    await writeRunFixture(root, [...pass3("agentify"), ...pass3("plain-safe")], { task: fixtureTask({ id: "task-a", model: strong, difficulty: "hard" }) });
+    await writeRunFixture(root, [
+      ...pass3("agentify").map((a) => ({ ...a, status: "error" })),
+      ...fail3("plain-safe").map((a) => ({ ...a, status: "error" })),
+    ], { task: fixtureTask({ id: "task-c", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, []);
+    const sv = grid.suite_verdict;
+    // Pooled gradeable pairs: 9 (errored run contributes none).
+    assert.equal(sv.paired_attempts, 9);
+    assert.deepEqual(sv.discordant, { agentify_only_pass: 6, baseline_only_pass: 0 });
+    assert.ok(sv.sign_test_p < 0.05);
+    assert.equal(sv.wilson_separated, true, `expected separated CIs, got ${JSON.stringify([sv.agentify.pass_rate_ci95, sv.baseline.pass_rate_ci95])}`);
+    assert.equal(sv.winner, "agentify");
+    assert.equal(sv.non_gradeable_excluded.agentify.harness_errors, 3);
+    assert.equal(sv.non_gradeable_excluded.baseline.harness_errors, 3);
+
+    const md = renderEvalGridMarkdown(grid);
+    assert.match(md, /Suite-level verdict/);
+    assert.match(md, /WINNER: \*\*agentify\*\*/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("grid suite-level verdict stays fail-closed below 5 discordant pairs (#367)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-haiku-4-5-20251001";
+  try {
+    await writeRunFixture(root, [
+      ...[1, 2, 3].map((i) => makeAttempt("agentify", i, { pass: true })),
+      ...[1, 2, 3].map((i) => makeAttempt("plain-safe", i, { pass: false })),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "hard" }) });
+
+    const grid = await buildEvalGrid(root, {}, []);
+    // 3 discordant pairs: direction is right but the count clause fails.
+    assert.equal(grid.suite_verdict.winner, null);
+    assert.match(renderEvalGridMarkdown(grid), /NO WINNER/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("buildEvalGrid throws when no run carries a model/difficulty axis", async () => {
   const root = await makeRoot();
   try {

@@ -49,10 +49,11 @@
     "planned_attempts": 6,
     "completed_attempts": 6,
     "partial": false,
-    "paired": true,
+    "paired": false,
     "underpowered": true,
     "min_attempts_per_arm": 5,
     "labels": [
+      "unpaired",
       "underpowered"
     ]
   },
@@ -62,6 +63,7 @@
       "passes": 3,
       "failures": 0,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 1,
       "pass_rate_ci95": {
         "low": 0.4385,
@@ -109,21 +111,22 @@
       }
     },
     "claude-code": {
-      "attempts": 3,
+      "attempts": 2,
       "passes": 2,
-      "failures": 1,
+      "failures": 0,
       "invalid": 0,
-      "pass_rate": 0.6667,
+      "harness_errors": 1,
+      "pass_rate": 1,
       "pass_rate_ci95": {
-        "low": 0.2077,
-        "high": 0.9385
+        "low": 0.3424,
+        "high": 1
       },
       "cost": {
         "reported_usd": 0.082455,
         "reported_attempts": 2,
-        "unreported_attempts": 1,
-        "per_attempt_usd": null,
-        "per_pass_usd": null
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.041227,
+        "per_pass_usd": 0.041227
       },
       "tokens": {
         "fresh_input": 10481,
@@ -131,13 +134,13 @@
         "cache_write": 0,
         "output": 4523,
         "usage_reported_attempts": 2,
-        "usage_missing_attempts": 1
+        "usage_missing_attempts": 0
       },
       "latency": {
-        "provider_p50_ms": 25495,
-        "provider_p95_ms": 18274878,
-        "provider_mean_ms": 6106674,
-        "total_mean_ms": 6158214
+        "provider_p50_ms": 19650,
+        "provider_p95_ms": 25495,
+        "provider_mean_ms": 22573,
+        "total_mean_ms": 99883
       },
       "turns": {
         "mean": null,
@@ -148,38 +151,34 @@
         "mean": null,
         "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
+        "unreported_attempts": 2
       },
       "changed_files": {
         "mean": 0,
         "max": 0
       },
-      "failure_breakdown": {
-        "harness_error": 1
-      },
+      "failure_breakdown": {},
       "stop_reasons": {
-        "ok": 2,
-        "error": 1
+        "ok": 2
       }
     }
   },
   "paired": [
     {
       "baseline": "claude-code",
-      "pairs": 3,
+      "pairs": 2,
       "paired_sample_ids": [
         "repeat-1",
-        "repeat-2",
-        "repeat-3"
+        "repeat-2"
       ],
-      "pass_rate_delta": 0.3333,
+      "pass_rate_delta": 0,
       "discordant": {
-        "agentify_only_pass": 1,
+        "agentify_only_pass": 0,
         "baseline_only_pass": 0
       },
       "sign_test_p": 1,
-      "cost_per_pass_delta_usd": null,
-      "provider_p95_delta_ms": -18228824
+      "cost_per_pass_delta_usd": 0.026119,
+      "provider_p95_delta_ms": 20559
     }
   ],
   "economics": {
@@ -192,11 +191,11 @@
     "comparisons": [
       {
         "baseline": "claude-code",
-        "paired_attempts": 3,
+        "paired_attempts": 2,
         "multisession_pairs": 0,
         "cost_per_pass": {
-          "agentify_usd": 0.064164,
-          "baseline_usd": null
+          "agentify_usd": 0.067346,
+          "baseline_usd": 0.041227
         },
         "phase_b": {
           "tokens": {
@@ -282,16 +281,16 @@
         "total_reported_usd": 0.192493,
         "passes": 3,
         "costed": true,
-        "on_frontier": true
+        "on_frontier": false
       },
       {
         "arm": "claude-code",
-        "pass_rate": 0.6667,
-        "cost_per_pass_usd": null,
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.041227,
         "total_reported_usd": 0.082455,
         "passes": 2,
-        "costed": false,
-        "on_frontier": false
+        "costed": true,
+        "on_frontier": true
       }
     ],
     "marginal": []
@@ -299,7 +298,7 @@
   "verdict": {
     "winner": null,
     "eligible": false,
-    "reason": "no winner declared: fewer than 5 attempts per arm"
+    "reason": "no winner declared: arms are not fully paired across repeat indices; fewer than 5 attempts per arm"
   },
   "context_metrics": null,
   "attempts": [

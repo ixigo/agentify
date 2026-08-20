@@ -58,73 +58,18 @@
   },
   "arms": {
     "agentify": {
-      "attempts": 3,
+      "attempts": 0,
       "passes": 0,
-      "failures": 3,
+      "failures": 0,
       "invalid": 0,
-      "pass_rate": 0,
-      "pass_rate_ci95": {
-        "low": 0,
-        "high": 0.5615
-      },
+      "harness_errors": 3,
+      "pass_rate": null,
+      "pass_rate_ci95": null,
       "cost": {
         "reported_usd": 0,
-        "reported_attempts": 3,
-        "unreported_attempts": 0,
-        "per_attempt_usd": 0,
-        "per_pass_usd": null
-      },
-      "tokens": {
-        "fresh_input": 0,
-        "cache_read": 0,
-        "cache_write": 0,
-        "output": 0,
-        "usage_reported_attempts": 3,
-        "usage_missing_attempts": 0
-      },
-      "latency": {
-        "provider_p50_ms": 3427,
-        "provider_p95_ms": 4035,
-        "provider_mean_ms": 3469,
-        "total_mean_ms": 51041
-      },
-      "turns": {
-        "mean": 1,
-        "max": 1,
-        "scope": "attempt"
-      },
-      "turns_to_first_edit": {
-        "mean": null,
-        "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
-      },
-      "changed_files": {
-        "mean": 0,
-        "max": 0
-      },
-      "failure_breakdown": {
-        "harness_error": 3
-      },
-      "stop_reasons": {
-        "error": 3
-      }
-    },
-    "claude-code": {
-      "attempts": 3,
-      "passes": 0,
-      "failures": 3,
-      "invalid": 0,
-      "pass_rate": 0,
-      "pass_rate_ci95": {
-        "low": 0,
-        "high": 0.5615
-      },
-      "cost": {
-        "reported_usd": 0,
-        "reported_attempts": 3,
         "unreported_attempts": 0,
-        "per_attempt_usd": 0,
+        "per_attempt_usd": null,
         "per_pass_usd": null
       },
       "tokens": {
@@ -132,14 +77,14 @@
         "cache_read": 0,
         "cache_write": 0,
         "output": 0,
-        "usage_reported_attempts": 3,
+        "usage_reported_attempts": 0,
         "usage_missing_attempts": 0
       },
       "latency": {
-        "provider_p50_ms": 2110,
-        "provider_p95_ms": 2273,
-        "provider_mean_ms": 2066,
-        "total_mean_ms": 81919
+        "provider_p50_ms": null,
+        "provider_p95_ms": null,
+        "provider_mean_ms": null,
+        "total_mean_ms": null
       },
       "turns": {
         "mean": null,
@@ -150,37 +95,76 @@
         "mean": null,
         "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
+        "unreported_attempts": 0
       },
       "changed_files": {
-        "mean": 0,
-        "max": 0
+        "mean": null,
+        "max": null
       },
-      "failure_breakdown": {
-        "harness_error": 3
+      "failure_breakdown": {},
+      "stop_reasons": {}
+    },
+    "claude-code": {
+      "attempts": 0,
+      "passes": 0,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 3,
+      "pass_rate": null,
+      "pass_rate_ci95": null,
+      "cost": {
+        "reported_usd": 0,
+        "reported_attempts": 0,
+        "unreported_attempts": 0,
+        "per_attempt_usd": null,
+        "per_pass_usd": null
       },
-      "stop_reasons": {
-        "error": 3
-      }
+      "tokens": {
+        "fresh_input": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "output": 0,
+        "usage_reported_attempts": 0,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": null,
+        "provider_p95_ms": null,
+        "provider_mean_ms": null,
+        "total_mean_ms": null
+      },
+      "turns": {
+        "mean": null,
+        "max": null,
+        "scope": null
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 0
+      },
+      "changed_files": {
+        "mean": null,
+        "max": null
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {}
     }
   },
   "paired": [
     {
       "baseline": "claude-code",
-      "pairs": 3,
-      "paired_sample_ids": [
-        "repeat-1",
-        "repeat-2",
-        "repeat-3"
-      ],
-      "pass_rate_delta": 0,
+      "pairs": 0,
+      "paired_sample_ids": [],
+      "pass_rate_delta": null,
       "discordant": {
         "agentify_only_pass": 0,
         "baseline_only_pass": 0
       },
       "sign_test_p": 1,
       "cost_per_pass_delta_usd": null,
-      "provider_p95_delta_ms": 1762
+      "provider_p95_delta_ms": null
     }
   ],
   "economics": {
@@ -193,7 +177,7 @@
     "comparisons": [
       {
         "baseline": "claude-code",
-        "paired_attempts": 3,
+        "paired_attempts": 0,
         "multisession_pairs": 0,
         "cost_per_pass": {
           "agentify_usd": null,
@@ -275,26 +259,7 @@
     ]
   },
   "frontier": {
-    "points": [
-      {
-        "arm": "agentify",
-        "pass_rate": 0,
-        "cost_per_pass_usd": null,
-        "total_reported_usd": 0,
-        "passes": 0,
-        "costed": true,
-        "on_frontier": false
-      },
-      {
-        "arm": "claude-code",
-        "pass_rate": 0,
-        "cost_per_pass_usd": null,
-        "total_reported_usd": 0,
-        "passes": 0,
-        "costed": true,
-        "on_frontier": false
-      }
-    ],
+    "points": [],
     "marginal": []
   },
   "verdict": {

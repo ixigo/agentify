@@ -49,55 +49,57 @@
     "planned_attempts": 6,
     "completed_attempts": 6,
     "partial": false,
-    "paired": true,
+    "paired": false,
     "underpowered": true,
     "min_attempts_per_arm": 5,
     "labels": [
+      "unpaired",
       "underpowered"
     ]
   },
   "arms": {
     "agentify": {
-      "attempts": 3,
-      "passes": 3,
+      "attempts": 2,
+      "passes": 2,
       "failures": 0,
       "invalid": 0,
+      "harness_errors": 1,
       "pass_rate": 1,
       "pass_rate_ci95": {
-        "low": 0.4385,
+        "low": 0.3424,
         "high": 1
       },
       "cost": {
-        "reported_usd": 0.25226,
-        "reported_attempts": 3,
+        "reported_usd": 0.139248,
+        "reported_attempts": 2,
         "unreported_attempts": 0,
-        "per_attempt_usd": 0.084087,
-        "per_pass_usd": 0.084087
+        "per_attempt_usd": 0.069624,
+        "per_pass_usd": 0.069624
       },
       "tokens": {
-        "fresh_input": 40294,
-        "cache_read": 982046,
+        "fresh_input": 20175,
+        "cache_read": 521255,
         "cache_write": 0,
-        "output": 14752,
-        "usage_reported_attempts": 3,
+        "output": 9387,
+        "usage_reported_attempts": 2,
         "usage_missing_attempts": 0
       },
       "latency": {
-        "provider_p50_ms": 52769,
-        "provider_p95_ms": 61807,
-        "provider_mean_ms": 53791,
-        "total_mean_ms": 86590
+        "provider_p50_ms": 46798,
+        "provider_p95_ms": 52769,
+        "provider_mean_ms": 49784,
+        "total_mean_ms": 82181
       },
       "turns": {
-        "mean": 12.33,
-        "max": 17,
+        "mean": 10,
+        "max": 11,
         "scope": "attempt"
       },
       "turns_to_first_edit": {
         "mean": null,
         "max": null,
         "reported_attempts": 0,
-        "unreported_attempts": 3
+        "unreported_attempts": 2
       },
       "changed_files": {
         "mean": 0,
@@ -105,8 +107,7 @@
       },
       "failure_breakdown": {},
       "stop_reasons": {
-        "ok": 2,
-        "error": 1
+        "ok": 2
       }
     },
     "claude-code": {
@@ -114,6 +115,7 @@
       "passes": 0,
       "failures": 3,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 0,
       "pass_rate_ci95": {
         "low": 0,
@@ -166,20 +168,19 @@
   "paired": [
     {
       "baseline": "claude-code",
-      "pairs": 3,
+      "pairs": 2,
       "paired_sample_ids": [
         "repeat-1",
-        "repeat-2",
-        "repeat-3"
+        "repeat-2"
       ],
       "pass_rate_delta": 1,
       "discordant": {
-        "agentify_only_pass": 3,
+        "agentify_only_pass": 2,
         "baseline_only_pass": 0
       },
-      "sign_test_p": 0.25,
+      "sign_test_p": 0.5,
       "cost_per_pass_delta_usd": null,
-      "provider_p95_delta_ms": 36927
+      "provider_p95_delta_ms": 28279
     }
   ],
   "economics": {
@@ -192,10 +193,10 @@
     "comparisons": [
       {
         "baseline": "claude-code",
-        "paired_attempts": 3,
+        "paired_attempts": 2,
         "multisession_pairs": 0,
         "cost_per_pass": {
-          "agentify_usd": 0.084087,
+          "agentify_usd": 0.069624,
           "baseline_usd": null
         },
         "phase_b": {
@@ -262,11 +263,11 @@
           "reason": "no paired two-phase attempts"
         },
         "repeated_failure_cost_avoided": {
-          "pairs": 3,
-          "costed_pairs": 3,
+          "pairs": 2,
+          "costed_pairs": 2,
           "turns_reported_pairs": 0,
-          "cost_avoided_usd": 0.131964,
-          "reported_cost_usd": 0.131964,
+          "cost_avoided_usd": 0.08036,
+          "reported_cost_usd": 0.08036,
           "turns_avoided": null,
           "reported_turns": 0
         }
@@ -278,9 +279,9 @@
       {
         "arm": "agentify",
         "pass_rate": 1,
-        "cost_per_pass_usd": 0.084087,
-        "total_reported_usd": 0.25226,
-        "passes": 3,
+        "cost_per_pass_usd": 0.069624,
+        "total_reported_usd": 0.139248,
+        "passes": 2,
         "costed": true,
         "on_frontier": true
       },
@@ -299,7 +300,7 @@
   "verdict": {
     "winner": null,
     "eligible": false,
-    "reason": "no winner declared: fewer than 5 attempts per arm"
+    "reason": "no winner declared: arms are not fully paired across repeat indices; fewer than 5 attempts per arm"
   },
   "context_metrics": null,
   "attempts": [

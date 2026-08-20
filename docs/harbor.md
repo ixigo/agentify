@@ -44,7 +44,7 @@ evals/harbor/
     nightly.yaml        # 15 tasks × 2 agents × 3 attempts
     full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
-    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 3 model rungs
+    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
@@ -280,7 +280,7 @@ from the cwd, so they run from the **repo root**, while `harbor run` needs the
 
 ```
 # from the repo root:
-agentify eval harbor plan --suite downshift            # prints the 3-rung ladder + $56.70 ceiling
+agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $37.80 ceiling
 
 # from evals/harbor/, after confirming the ceiling:
 cd evals/harbor
@@ -354,7 +354,7 @@ agentify eval harbor plan --suite nightly      # 15 tasks × 2 × 3 × cap = $31
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
-agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 3 models × cap = $56.70
+agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the
@@ -439,26 +439,28 @@ First execution of the three suites built by epic #322 (agentify pinned to
 the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
 in `evals/results/harbor-20260819/`).
 
-- **downshift (the headline)** — the mechanical totals are agentify **51/81
-  vs 36/81**, but read them with the failure breakdown, because harness
-  errors sit in the denominators: **every attempt on the `claude-3-5-haiku`
-  rung (54/54) errored with API 404** — the subscription no longer serves
-  that model, so the bottom rung is void infrastructure evidence, not "the
-  model is too weak" — and 7 scattered provider errors landed elsewhere. On
-  **gradeable attempts only**: agentify **48/48 (100%) vs baseline 36/50
-  (72%)**; 45 gradeable pairs with **discordant 12/0, all favoring agentify**
-  (exact two-sided sign p ≈ 0.0005, pooled Wilson CIs 93–100% vs 58–83%);
-  **every real graded failure in the campaign is the baseline's** (14
-  `grader_failed` vs 0). On the sonnet rungs the cost narrative flips:
-  **cost/pass $0.150 vs $0.192 (hard)** and $0.154 vs $0.172 (medium) —
-  recalled context is cheaper than rediscovery at frontier-model prices.
-  **Still no winner is declared**: the pre-registered per-cell rule (≥5
-  discordant pairs at p < 0.05) is NOT MET (max 3 per cell), and the
-  gradeable-only arithmetic above is a manual recomputation from the receipts
-  — the shipped `eval report`/`eval grid` do not yet exclude `harness_error`
-  attempts from denominators or paired stats the way `invalid` is excluded.
-  Crossing the line needs that tooling fix plus more attempts on the
-  discordant cells, not new machinery.
+- **downshift (the headline)** — with #367's gradeable-attempt rule (harness
+  errors excluded outcome-independently, like `invalid`), `agentify eval
+  grid` now computes the epic-#322 suite-level verdict itself, and on this
+  campaign it declares:
+
+  > **WINNER: agentify** — pooled over 45 gradeable pairs: agentify 45/45 vs
+  > claude-code 33/45, discordant 12/0, sign-test p = 0.000488, Wilson CIs
+  > separated (92.1–100% vs 59–84%).
+
+  Scope this claim honestly: it is Agentify's own 23-task context benchmark
+  (fail-closed protocol, receipts committed, grid regenerable from them), the
+  pooled pairs share three base tasks across difficulties and model rungs,
+  and the per-cell #317 acceptance target (≥5 discordant in a *single* cell)
+  remains NOT MET — more attempts per cell is still the path there. Per-arm
+  totals: agentify **48/48 gradeable (100%) vs baseline 36/50 (72%)**; every
+  real graded failure in the campaign is the baseline's (14 `grader_failed`
+  vs 0). Excluded as non-evidence: **all 54 `claude-3-5-haiku` attempts
+  (API 404 — the subscription no longer serves that model; the suite is now a
+  2-rung ladder)** plus 10 scattered error attempts, counted next to the
+  verdict rather than inside it. On the sonnet rungs the cost narrative
+  flips: **cost/pass $0.150 vs $0.192 (hard)** and $0.154 vs $0.172 (medium)
+  — recalled context is cheaper than rediscovery at frontier-model prices.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is
@@ -489,6 +491,12 @@ per-attempt figure is context, not the headline:
 | --- | --- | --- | --- | --- | --- |
 | agentify | ~$0.055 | 24/24 (100%) | 86.2–100% | ~$1.32 | $0.055 |
 | claude-code | ~$0.038 | 21/24 (87.5%) | 69.0–95.7% | ~$0.79 | $0.033 |
+
+(As published at the time. Under the current #367 gradeable-attempt rule the
+agentify row reads **23/23**: one attempt hit its turn cap with the work
+complete and is excluded outcome-independently as a harness error even though
+its verifier passed — the committed receipts' `campaign.json` validates the
+23/23 form.)
 
 This nightly was single-session, so it cannot honestly produce an amortized
 cost/recall or rediscovery-avoided number. Those fields remain `n/a` rather

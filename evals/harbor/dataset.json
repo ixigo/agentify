@@ -294,7 +294,6 @@
       "attempts": 3,
       "agents": 2,
       "models": [
-        "anthropic/claude-3-5-haiku-20241022",
         "anthropic/claude-haiku-4-5-20251001",
         "anthropic/claude-sonnet-4-5-20250929"
       ]

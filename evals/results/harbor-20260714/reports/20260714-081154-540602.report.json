@@ -62,6 +62,7 @@
       "passes": 3,
       "failures": 0,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 1,
       "pass_rate_ci95": {
         "low": 0.4385,
@@ -113,6 +114,7 @@
       "passes": 0,
       "failures": 3,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 0,
       "pass_rate_ci95": {
         "low": 0,
