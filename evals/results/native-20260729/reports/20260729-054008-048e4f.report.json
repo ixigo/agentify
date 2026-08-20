@@ -1,5 +1,5 @@
 {
-  "schema": "eval-report-v1",
+  "schema": "eval-report-v2",
   "command": "eval",
   "action": "report",
   "run_id": "20260729-054008-048e4f",
@@ -50,6 +50,7 @@
       "passes": 2,
       "failures": 1,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 0.6667,
       "pass_rate_ci95": {
         "low": 0.2077,
@@ -60,7 +61,8 @@
         "reported_attempts": 3,
         "unreported_attempts": 0,
         "per_attempt_usd": 0.086736,
-        "per_pass_usd": 0.130105
+        "per_pass_usd": 0.130105,
+        "non_gradeable_reported_usd": 0
       },
       "tokens": {
         "fresh_input": 658,
@@ -104,6 +106,7 @@
       "passes": 3,
       "failures": 0,
       "invalid": 0,
+      "harness_errors": 0,
       "pass_rate": 1,
       "pass_rate_ci95": {
         "low": 0.4385,
@@ -114,7 +117,8 @@
         "reported_attempts": 3,
         "unreported_attempts": 0,
         "per_attempt_usd": 0.072882,
-        "per_pass_usd": 0.072882
+        "per_pass_usd": 0.072882,
+        "non_gradeable_reported_usd": 0
       },
       "tokens": {
         "fresh_input": 142,

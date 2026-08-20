@@ -2,34 +2,49 @@
   "schema": "results-campaign-v1",
   "campaign": "harbor-20260714",
   "date": "2026-07-14",
-  "dataset": { "name": "agentify-context-bench", "version": "1.0.0" },
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.0.0"
+  },
+  "notes": "Runs re-imported 2026-08-20 from the original job artifacts with #367's status mapping (a Harbor exception with real model activity grades as provider_error, not a censored harness error) — which restores the originally-published nightly 24/24 (one agentify attempt hit its turn cap with the work complete and verifier passing; it is a gradeable pass) and captures all 8 paired-full runs (the July import had recorded 6). Run ids are import-timestamped (20260820-*); run.json carries the original job identity.",
   "jobs": {
     "paired-full": {
       "runs": [
-        "20260714-071607-9bb98d",
-        "20260714-071607-a62977",
-        "20260714-071607-b279ed",
-        "20260714-071607-c63961",
-        "20260714-071607-e5aed1",
-        "20260714-071607-e6c11c"
+        "20260820-115322-278976",
+        "20260820-115322-511559",
+        "20260820-115322-5bdc17",
+        "20260820-115322-819f77",
+        "20260820-115322-8e00bb",
+        "20260820-115322-a8040d",
+        "20260820-115322-e45e48",
+        "20260820-115322-fa3a86"
       ]
     },
     "nightly-20260714": {
       "runs": [
-        "20260714-081154-01d6d1",
-        "20260714-081154-071eca",
-        "20260714-081154-540602",
-        "20260714-081154-69fdee",
-        "20260714-081154-a1c333",
-        "20260714-081154-adc9e6",
-        "20260714-081154-c48087",
-        "20260714-081154-da8d96"
+        "20260820-115322-4b4b95",
+        "20260820-115322-55766e",
+        "20260820-115322-7bde5f",
+        "20260820-115322-80090f",
+        "20260820-115322-9fe237",
+        "20260820-115322-d39ef1",
+        "20260820-115322-ddf033",
+        "20260820-115322-f7d74e"
       ],
       "published": {
-        "where": ["README.md", "docs/harbor.md"],
+        "where": [
+          "README.md",
+          "docs/harbor.md"
+        ],
         "arms": {
-          "agentify": { "passes": 24, "attempts": 24 },
-          "claude-code": { "passes": 21, "attempts": 24 }
+          "agentify": {
+            "passes": 24,
+            "attempts": 24
+          },
+          "claude-code": {
+            "passes": 21,
+            "attempts": 24
+          }
         }
       }
     }

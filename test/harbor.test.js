@@ -491,7 +491,17 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   const jobDir = await writeJob(root, "2026-07-11-profiles", [
     trialResult({ task: "task-a", agent: "agentify-claude", reward: 1, profile: "cost" }),
     trialResult({ task: "task-a", agent: "agentify-claude", reward: 0.5 }),
+    // Exception WITH model activity (default fixture tokens/cost): the model
+    // ran and died mid-attempt — run-time evidence, grades provider_error and
+    // stays in the denominators (#367).
     trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "container died" }),
+    // Exception with a REPORTED all-zero usage envelope (the API-404 shape):
+    // the provider said nothing ran — non-gradeable harness error.
+    trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "model 404", cost: 0, inputTokens: 0, cacheRead: 0, outputTokens: 0, suffix: "-404" }),
+    // Exception with NO telemetry at all (crashed mid-run before usage/cost
+    // serialized): fail-closed as a run-time failure — absence of telemetry
+    // must never censor evidence (PR #369 review).
+    trialResult({ task: "task-a", agent: "claude-code", reward: null, exception: "killed", cost: null, inputTokens: null, cacheRead: null, outputTokens: null, suffix: "-killed" }),
     { trial_name: "task-a__broken", started_at: "2026-07-11T00:00:00Z" }, // no agent identity
   ]);
   const result = await importHarborJob(root, {}, jobDir);
@@ -503,8 +513,13 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   // Partial reward is a fail, and the reward is preserved for the drill-down.
   assert.equal(report.arms.agentify.passes, 0);
   assert.equal(report.attempts.find((attempt) => attempt.arm === "agentify").checks[0].output_tail, "reward 0.5");
-  // An exception imports as a harness error, not a silent fail.
-  assert.equal(report.attempts.find((attempt) => attempt.arm === "claude-code").status, "error");
+  const claudeAttempts = report.attempts.filter((attempt) => attempt.arm === "claude-code");
+  assert.deepEqual(claudeAttempts.map((attempt) => attempt.status).sort(), ["error", "provider_error", "provider_error"]);
+  // The two run-time failures (mid-run death with activity, lost telemetry)
+  // are in the denominator; only the provider-reported-inactive one is
+  // excluded and surfaced as a harness error.
+  assert.equal(report.arms["claude-code"].attempts, 2);
+  assert.equal(report.arms["claude-code"].harness_errors, 1);
 });
 
 test("imported runs cannot be resumed and cross-harness compare needs --force", async () => {
@@ -582,12 +597,15 @@ test("import rejects empty or missing job directories", async () => {
 
 test("committed downshift suite plans the model×difficulty matrix and bounds its ceiling (#317)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "downshift" });
-  // 9 tasks × 2 arms × 3 attempts × 3 model rungs.
-  assert.equal(plan.models_per_task, 3);
-  assert.equal(plan.trials, 162);
-  assert.equal(plan.max_spend_usd, 56.7); // 162 × $0.35
-  assert.equal(plan.models.length, 3);
+  // 9 tasks × 2 arms × 3 attempts × 2 model rungs (#367: the old rung-1
+  // model claude-3-5-haiku is no longer served — API 404 on all 54 attempts
+  // of the 2026-08-19 campaign — and no weaker accessible model exists).
+  assert.equal(plan.models_per_task, 2);
+  assert.equal(plan.trials, 108);
+  assert.equal(plan.max_spend_usd, 37.8); // 108 × $0.35
+  assert.equal(plan.models.length, 2);
   assert.ok(plan.models.includes("anthropic/claude-haiku-4-5-20251001"));
+  assert.ok(!plan.models.includes("anthropic/claude-3-5-haiku-20241022"));
   // Every planned task carries a difficulty rung for the grid.
   assert.ok(plan.tasks.every((task) => ["easy", "medium", "hard"].includes(task.difficulty)));
 

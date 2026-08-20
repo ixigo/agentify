@@ -20,7 +20,7 @@
 # discordant-pair count, and cost/pass per cell, so we can pick the operating
 # point where the signal is largest and honest.
 #
-# This multiplies trials (9 tasks × 2 arms × 3 attempts × 3 model rungs = 162),
+# This multiplies trials (9 tasks × 2 arms × 3 attempts × 2 model rungs = 108),
 # so ALWAYS print and confirm the ceiling before launching:
 #   agentify eval harbor plan --suite downshift
 # Launch from evals/harbor/ with:  harbor run -c suites/downshift.yaml
@@ -50,22 +50,20 @@ datasets:
       - avoid-cache-regression-hard
       - reject-stale-config-path-hard
 
-# Six agent entries: one agentify arm and one plain baseline per model rung.
+# Four agent entries: one agentify arm and one plain baseline per model rung.
 # Same profile, budget, and turns across every rung — only model_name moves, so
 # the model axis is the sole difference within an arm.
+#
+# The ladder is TWO rungs (#367): the original rung 1
+# (claude-3-5-haiku-20241022) returned API 404 on all 54 attempts of the
+# 2026-08-19 campaign — the model is no longer served to subscription
+# accounts — and no weaker-than-haiku-4-5 model is currently accessible.
+# Claude-5-tier models are accessible but a single ping costs close to the
+# $0.35 per-trial cap, so a stronger third rung would only produce cap-hit
+# noise at this budget. Before any run, verify both rungs still resolve:
+#   claude -p "reply ok" --model <id> --max-turns 1
 agents:
-  # --- rung 1: small/older model (weakest capability) ---
-  - import_path: agents.agentify_claude:AgentifyClaudeAgent
-    model_name: anthropic/claude-3-5-haiku-20241022
-    kwargs:
-      profile: balanced
-      max_budget_usd: 0.35
-      max_turns: 16
-  - name: claude-code
-    model_name: anthropic/claude-3-5-haiku-20241022
-    kwargs:
-      max_budget_usd: 0.35
-  # --- rung 2: the nightly pin (mid capability) ---
+  # --- rung 1: the nightly pin (weakest accessible capability) ---
   - import_path: agents.agentify_claude:AgentifyClaudeAgent
     model_name: anthropic/claude-haiku-4-5-20251001
     kwargs:
@@ -76,7 +74,7 @@ agents:
     model_name: anthropic/claude-haiku-4-5-20251001
     kwargs:
       max_budget_usd: 0.35
-  # --- rung 3: stronger model (highest capability) ---
+  # --- rung 2: stronger model (highest capability at this trial cap) ---
   - import_path: agents.agentify_claude:AgentifyClaudeAgent
     model_name: anthropic/claude-sonnet-4-5-20250929
     kwargs:

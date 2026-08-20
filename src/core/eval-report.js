@@ -18,8 +18,14 @@ import { EVAL_RUN_SCHEMA_VERSION, resolveEvalPaths } from "./eval.js";
 import { exists, readJson } from "./fs.js";
 import { redactSensitiveText } from "./redact.js";
 
-export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v1";
-export const EVAL_GRID_SCHEMA_VERSION = "eval-grid-v1";
+// v2 (#367): non-gradeable attempts (invalid + harness "error") are excluded
+// from denominators, cost/latency aggregates, and paired stats; arms gained
+// harness_errors and cost.non_gradeable_reported_usd; the grid gained the
+// pooled suite_verdict. v1 and v2 numbers are not comparable — a v1 report's
+// attempts included harness errors as failures — and compareEvalReports
+// rejects a version mismatch outright.
+export const EVAL_REPORT_SCHEMA_VERSION = "eval-report-v2";
+export const EVAL_GRID_SCHEMA_VERSION = "eval-grid-v2";
 // The grid renders as JSON or markdown only — it is a cross-run aggregate, so
 // the single-run HTML/promptfoo adapters don't apply.
 export const EVAL_GRID_FORMATS = ["json", "md"];
@@ -146,14 +152,42 @@ function classifyFailure(record) {
   return "grader_failed";
 }
 
+// A gradeable attempt is one the model actually ran to a gradeable outcome.
+// Two statuses carry no evidence about the arm and are excluded everywhere
+// (denominators, cost aggregates, paired discordance):
+// - "invalid" (#334): the tools under test were never available.
+// - "error" / harness_error (#367): the harness or provider infrastructure
+//   failed to execute the attempt at all — e.g. an API 404 for a model the
+//   account cannot access, with zero tokens. The 2026-08-19 campaign
+//   published a fully-404 model rung as "0/9, model too weak" before this
+//   rule existed.
+// The exclusion is outcome-independent and symmetric: an "error" attempt is
+// excluded even if its verifier recorded a pass, so infrastructure failures
+// can never help or hurt either arm. "provider_error" and timeouts stay
+// gradeable — there the model ran within its budget and failed, which IS arm
+// evidence.
+export function isGradeableAttempt(record) {
+  return record?.status !== "invalid" && record?.status !== "error";
+}
+
 function armMetrics(allRecords) {
-  // "invalid" attempts (e.g. the Agentify MCP server never registered, #334)
-  // are infrastructure failures, not arm outcomes: exclude them from the
-  // pass-rate denominator and cost/latency aggregates so they never read as a
-  // regression, and surface the count separately. This mirrors the runner's
-  // own summarizeAttempts (src/core/eval.js).
-  const records = allRecords.filter((record) => record.status !== "invalid");
-  const invalid = allRecords.length - records.length;
+  // Non-gradeable attempts (see isGradeableAttempt) are infrastructure
+  // failures, not arm outcomes: exclude them from the pass-rate denominator
+  // and cost/latency aggregates so they never read as a regression, and
+  // surface the counts separately so an all-error arm is visible rather than
+  // silently empty.
+  const records = allRecords.filter(isGradeableAttempt);
+  const invalid = allRecords.filter((record) => record.status === "invalid").length;
+  const harnessErrors = allRecords.filter((record) => record.status === "error").length;
+  // Spend on excluded attempts leaves the outcome metrics but must not
+  // vanish from the books: real dollars were burned even when the attempt
+  // carries no arm evidence (#367 review round 2).
+  let excludedCost = 0;
+  for (const record of allRecords) {
+    if (isGradeableAttempt(record)) continue;
+    const cost = record.provider?.cost_usd;
+    if (typeof cost === "number" && Number.isFinite(cost)) excludedCost += cost;
+  }
   const attempts = records.length;
   const passes = records.filter((record) => record.pass).length;
 
@@ -237,8 +271,10 @@ function armMetrics(allRecords) {
     passes,
     failures: attempts - passes,
     // Non-gradeable attempts excluded from the metrics above (never counted as
-    // failures); reported so an all-invalid arm is visible, not silently empty.
+    // failures); reported so an all-invalid or all-error arm is visible, not
+    // silently empty.
     invalid,
+    harness_errors: harnessErrors,
     pass_rate: attempts > 0 ? round(passes / attempts, 4) : null,
     pass_rate_ci95: wilsonInterval(passes, attempts),
     cost: {
@@ -251,6 +287,10 @@ function armMetrics(allRecords) {
       // Null when passes are zero or any attempt lacks reported cost — a
       // partial subtotal divided by all passes would read falsely cheap.
       per_pass_usd: fullyCosted && passes > 0 ? round(reportedCost / passes) : null,
+      // Spend on non-gradeable (invalid / harness-error) attempts: outside
+      // the outcome metrics above, but real money — kept visible so excluding
+      // an attempt can never make a campaign look cheaper than it was.
+      non_gradeable_reported_usd: round(excludedCost),
     },
     tokens: { ...tokens, usage_reported_attempts: usageAttempts, usage_missing_attempts: attempts - usageAttempts },
     latency: {
@@ -489,11 +529,11 @@ function discordantPairs(leftRecords, rightRecords) {
   for (const [index, leftRecord] of left) {
     const rightRecord = right.get(index);
     if (rightRecord) {
-      // A pair with a non-gradeable ("invalid") attempt on either arm carries
-      // no paired evidence (#334): dropping it here keeps it out of the
-      // discordant win/loss counts, the sign test, and the economics pairing,
-      // consistent with armMetrics excluding invalid attempts.
-      if (leftRecord.status === "invalid" || rightRecord.status === "invalid") {
+      // A pair with a non-gradeable attempt on either arm carries no paired
+      // evidence (#334 for "invalid", #367 for harness "error"): dropping it
+      // here keeps it out of the discordant win/loss counts, the sign test,
+      // and the economics pairing, consistent with armMetrics.
+      if (!isGradeableAttempt(leftRecord) || !isGradeableAttempt(rightRecord)) {
         continue;
       }
       pairs.push({ repeat_index: index, left: leftRecord, right: rightRecord });
@@ -688,7 +728,7 @@ export async function buildEvalReport(root, config, runIdInput) {
   // Power is measured over gradeable attempts only: an arm whose attempts were
   // all "invalid" (e.g. the MCP server never registered, #334) has no evidence
   // and must read as underpowered, not as a full-strength arm.
-  const gradeable = (records) => records.filter((record) => record.status !== "invalid");
+  const gradeable = (records) => records.filter(isGradeableAttempt);
   const counts = [...byArm.values()].map((records) => gradeable(records).length);
   // Paired means every arm completed the same repeat indices — equal counts
   // over disjoint repeats are not a paired sample. Invalid attempts are not
@@ -886,6 +926,22 @@ function isAgentifyArm(arm) {
   return arm === "agentify" || (typeof arm === "string" && arm.startsWith("agentify"));
 }
 
+function countNonGradeable(runs, baselineArm) {
+  const totals = {
+    agentify: { invalid: 0, harness_errors: 0 },
+    baseline: { arm: baselineArm, invalid: 0, harness_errors: 0 },
+  };
+  for (const run of runs) {
+    for (const record of run.attempts) {
+      const side = record.arm === "agentify" ? totals.agentify : record.arm === baselineArm ? totals.baseline : null;
+      if (!side) continue;
+      if (record.status === "invalid") side.invalid += 1;
+      if (record.status === "error") side.harness_errors += 1;
+    }
+  }
+  return totals;
+}
+
 export async function buildEvalGrid(root, config, runIds) {
   const { runs, skipped, scoped_to_job: scopedToJob, scoped_to_import: scopedToImport } = await loadGridRuns(root, config, runIds);
   if (runs.length === 0) {
@@ -915,6 +971,23 @@ export async function buildEvalGrid(root, config, runIds) {
   }
 
   const cells = [];
+  // Pooled across every cell for the epic-#322 suite-level winner rule. Only
+  // gradeable pairs reach these accumulators (discordantPairs drops pairs
+  // with an invalid or harness-error side).
+  const pooledAgentify = [];
+  const pooledBaseline = [];
+  let pooledLeftOnly = 0;
+  let pooledRightOnly = 0;
+  // Discordant wins per task FAMILY: pooled pairs repeat the same scenarios
+  // across difficulties and rungs, and #317's difficulty variants
+  // (task, task-medium, task-hard) are the same scenario — so a single
+  // family's repeated outcome must not manufacture suite-level significance
+  // on its own. The winner rule requires discordant wins spanning >=2
+  // distinct families (review round 2: the 2026-08-19 campaign's 13
+  // discordant wins were all avoid-cache-regression variants, which a raw
+  // task-id guard wrongly counted as three tasks).
+  const discordantByFamily = new Map();
+  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard)$/, "");
   for (const cell of cellMap.values()) {
     // Everything the cell reports is computed over the PAIRED subset only: for
     // each run (one task), match the agentify and baseline attempts by
@@ -937,9 +1010,17 @@ export async function buildEvalGrid(root, config, runIds) {
       for (const pair of pairs) {
         agentifyRecords.push(pair.left);
         baselineRecords.push(pair.right);
+        pooledAgentify.push(pair.left);
+        pooledBaseline.push(pair.right);
+        if (pair.left.pass && !pair.right.pass) {
+          const family = taskFamily(run.taskId);
+          discordantByFamily.set(family, (discordantByFamily.get(family) || 0) + 1);
+        }
       }
       leftOnly += l;
       rightOnly += r;
+      pooledLeftOnly += l;
+      pooledRightOnly += r;
     }
     const agentify = armMetrics(agentifyRecords);
     const baseline = armMetrics(baselineRecords);
@@ -1001,6 +1082,43 @@ export async function buildEvalGrid(root, config, runIds) {
     .sort((a, b) => (b.pass_rate_delta ?? -Infinity) - (a.pass_rate_delta ?? -Infinity));
   const best = qualifying[0] ?? null;
 
+  // Suite-level winner rule (epic #322), computed by the tool over the pooled
+  // gradeable pairs rather than by hand: >=5 discordant pairs favoring
+  // agentify, exact two-sided sign test p < 0.05, AND non-overlapping pooled
+  // Wilson 95% intervals. Fail-closed: every clause must hold or no winner is
+  // declared. Pooled pairs share tasks across cells, so this is the same
+  // paired-evidence basis as the per-run winner rule, stated at suite scope.
+  const pooledA = armMetrics(pooledAgentify);
+  const pooledB = armMetrics(pooledBaseline);
+  const pooledSignP = signTestPValue(pooledLeftOnly, pooledRightOnly);
+  const ciSeparated = pooledA.pass_rate_ci95 !== null && pooledB.pass_rate_ci95 !== null
+    && pooledA.pass_rate_ci95.low > pooledB.pass_rate_ci95.high;
+  const suiteFavors = pooledLeftOnly > pooledRightOnly;
+  // Correlated-outcome guard: the discordant wins must come from >=2 distinct
+  // task FAMILIES, so one scenario repeated across rungs and difficulty
+  // variants cannot carry the verdict alone.
+  const spansFamilies = [...discordantByFamily.keys()].length >= 2;
+  const suiteMet = suiteFavors && pooledLeftOnly >= 5 && pooledSignP !== null && pooledSignP < 0.05 && ciSeparated && spansFamilies;
+  const suiteVerdict = {
+    rule: "pooled gradeable pairs: >=5 discordant favoring agentify spanning >=2 distinct task families (difficulty variants are one family), sign-test p<0.05, non-overlapping Wilson CIs",
+    discordant_by_family: Object.fromEntries([...discordantByFamily.entries()].sort()),
+    spans_task_families: spansFamilies,
+    paired_attempts: pooledAgentify.length,
+    agentify: { passes: pooledA.passes, attempts: pooledA.attempts, pass_rate: pooledA.pass_rate, pass_rate_ci95: pooledA.pass_rate_ci95 },
+    baseline: { arm: baselineArm, passes: pooledB.passes, attempts: pooledB.attempts, pass_rate: pooledB.pass_rate, pass_rate_ci95: pooledB.pass_rate_ci95 },
+    discordant: { agentify_only_pass: pooledLeftOnly, baseline_only_pass: pooledRightOnly },
+    sign_test_p: pooledSignP,
+    wilson_separated: ciSeparated,
+    // Counted over every loaded attempt (not the surviving pairs), so the
+    // volume of excluded infrastructure evidence is visible next to the
+    // verdict rather than vanishing with the dropped pairs.
+    non_gradeable_excluded: countNonGradeable(runs, baselineArm),
+    winner: suiteMet ? "agentify" : null,
+    reason: suiteMet
+      ? `pooled over ${pooledAgentify.length} gradeable pairs: agentify ${pooledA.passes}/${pooledA.attempts} vs ${baselineArm} ${pooledB.passes}/${pooledB.attempts}, discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByFamily.size} task family(ies), sign-test p=${pooledSignP}, Wilson CIs separated`
+      : `pooled over ${pooledAgentify.length} gradeable pairs: discordant ${pooledLeftOnly}/${pooledRightOnly} spanning ${discordantByFamily.size} task family(ies), sign-test p=${pooledSignP ?? "n/a"}, Wilson CIs ${ciSeparated ? "separated" : "overlapping"} — every clause of the rule must hold to declare a winner`,
+  };
+
   return {
     schema: EVAL_GRID_SCHEMA_VERSION,
     command: "eval",
@@ -1025,6 +1143,7 @@ export async function buildEvalGrid(root, config, runIds) {
         ? `cell (model ${best.model}, difficulty ${best.difficulty}) is a significant agentify win: ${best.discordant.agentify_only_pass} discordant pairs favor agentify vs ${best.discordant.baseline_only_pass} for baseline, sign-test p=${best.sign_test_p}`
         : "no cell reached >=5 discordant pairs favoring agentify at p<0.05 — context is not yet decisively load-bearing in this grid",
     },
+    suite_verdict: suiteVerdict,
   };
 }
 
@@ -1256,6 +1375,19 @@ export function renderEvalGridMarkdown(grid) {
   lines.push("## Verdict");
   lines.push("");
   lines.push(grid.verdict.acceptance_met ? `PASS: ${grid.verdict.reason}` : `NOT MET: ${grid.verdict.reason}`);
+  if (grid.suite_verdict) {
+    const sv = grid.suite_verdict;
+    const ci = (interval) => (interval ? `${Math.round(interval.low * 1000) / 10}–${Math.round(interval.high * 1000) / 10}%` : "n/a");
+    lines.push("");
+    lines.push("## Suite-level verdict (#322 rule, pooled gradeable pairs)");
+    lines.push("");
+    lines.push(sv.winner
+      ? `WINNER: **${sv.winner}** — ${sv.reason}`
+      : `NO WINNER: ${sv.reason}`);
+    lines.push("");
+    lines.push(`- agentify ${sv.agentify.passes}/${sv.agentify.attempts} (${formatRate(sv.agentify.pass_rate)}, Wilson ${ci(sv.agentify.pass_rate_ci95)}) vs ${sv.baseline.arm} ${sv.baseline.passes}/${sv.baseline.attempts} (${formatRate(sv.baseline.pass_rate)}, Wilson ${ci(sv.baseline.pass_rate_ci95)})`);
+    lines.push(`- non-gradeable excluded: agentify ${sv.non_gradeable_excluded.agentify.harness_errors} harness error(s) + ${sv.non_gradeable_excluded.agentify.invalid} invalid; ${sv.baseline.arm} ${sv.non_gradeable_excluded.baseline.harness_errors} harness error(s) + ${sv.non_gradeable_excluded.baseline.invalid} invalid`);
+  }
   if (grid.generated_from.skipped.length > 0) {
     lines.push("");
     lines.push(`Skipped ${grid.generated_from.skipped.length} run(s): ${grid.generated_from.skipped.map((entry) => `${entry.run_id} (${entry.reason})`).join("; ")}`);
@@ -1494,7 +1626,7 @@ export function buildPromptfooExport(report) {
   // Non-gradeable ("invalid") attempts are excluded from the export: promptfoo
   // has no "skipped" state, so including them would count infrastructure
   // failures (e.g. the MCP server never registered, #334) as task failures.
-  const results = report.attempts.filter((attempt) => attempt.status !== "invalid").map((attempt) => {
+  const results = report.attempts.filter(isGradeableAttempt).map((attempt) => {
     const usage = attempt.usage || {};
     const prompt = (usage.fresh_input_tokens || 0) + (usage.cache_write_tokens || 0) + (usage.cache_read_tokens || 0);
     return {

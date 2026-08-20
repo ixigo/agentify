@@ -773,7 +773,32 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       // Reward is graded pass/fail exactly like the native runner: only a
       // full reward passes; partial credit is a fail with the reward kept.
       const pass = trial.reward !== null && trial.reward >= 1;
-      const status = trial.exception ? "error" : "ok";
+      // Not every Harbor exception is an infrastructure failure (#367 review):
+      // an exception with recorded model activity (token usage or spend) is a
+      // RUN-TIME outcome — the model executed and hit a turn cap or crashed
+      // mid-run — which is arm evidence and grades like the native
+      // provider_error. Only an exception with no model activity at all (no
+      // tokens, no cost — e.g. an API 404 for a model the account cannot
+      // access) is a harness "error", which eval-report excludes from
+      // denominators and paired stats as non-gradeable.
+      // Exception classification is evidence-based and fail-closed:
+      // - A usage envelope with graded-phase activity (nonzero tokens or
+      //   spend; recall-only cost for two-phase trials, and usage is already
+      //   recall-only) => the model ran and failed => provider_error, in the
+      //   denominators.
+      // - A usage envelope reported ALL-ZERO with no spend => the provider
+      //   itself said nothing ran (the API-404 shape: rejected in seconds)
+      //   => harness "error", non-gradeable.
+      // - NO usage envelope at all => telemetry was lost, not reported — in
+      //   the 2026-08-19 receipts these attempts ran 16min–8h before dying.
+      //   Absence of telemetry must never censor evidence, so this grades
+      //   provider_error (a failure for its own arm), never "error"
+      //   (PR #369 review: excluding them would inflate pass rates).
+      const usageValues = trial.usage ? Object.values(trial.usage).filter((value) => typeof value === "number") : [];
+      const gradedCost = trial.multisession ? trial.recallCostUsd : trial.costUsd;
+      const hadActivity = usageValues.some((value) => value > 0) || (typeof gradedCost === "number" && gradedCost > 0);
+      const reportedInactive = Boolean(trial.usage) && !hadActivity;
+      const status = trial.exception ? (reportedInactive ? "error" : "provider_error") : "ok";
       records.push({
         schema: EVAL_ATTEMPT_SCHEMA_VERSION,
         run_id: runId,

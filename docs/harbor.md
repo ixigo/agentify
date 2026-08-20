@@ -44,7 +44,7 @@ evals/harbor/
     nightly.yaml        # 15 tasks × 2 agents × 3 attempts
     full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
-    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 3 model rungs
+    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
@@ -273,6 +273,17 @@ job of the separate epic child #318 — this suite is the measurement harness,
 and its verdict engine reports "not yet load-bearing" honestly when no cell
 qualifies rather than overclaiming.
 
+Two verdicts, two questions (#367): the **per-cell** target above (#317) asks
+"is there a single (model × difficulty) operating point that alone proves
+context is load-bearing?" — the strictest form. The **suite-level** verdict
+(epic #322's winner rule) asks "pooled across the whole matrix's gradeable
+pairs, does the agentify arm win?" — it requires ≥5 discordant pairs favoring
+agentify **spanning at least two distinct tasks** (so one task repeated across
+rungs cannot carry it), an exact sign-test p < 0.05, and non-overlapping
+pooled Wilson intervals, and it is fail-closed on every clause. The grid
+prints both; a suite-level winner with no qualifying cell means the effect is
+real but spread across the matrix rather than concentrated in one cell.
+
 Read the frontier back with the grid report. Mind the working directory: the
 `agentify` commands resolve the eval root (and `evals/harbor/dataset.json`)
 from the cwd, so they run from the **repo root**, while `harbor run` needs the
@@ -280,7 +291,7 @@ from the cwd, so they run from the **repo root**, while `harbor run` needs the
 
 ```
 # from the repo root:
-agentify eval harbor plan --suite downshift            # prints the 3-rung ladder + $56.70 ceiling
+agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $37.80 ceiling
 
 # from evals/harbor/, after confirming the ceiling:
 cd evals/harbor
@@ -354,7 +365,7 @@ agentify eval harbor plan --suite nightly      # 15 tasks × 2 × 3 × cap = $31
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
-agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 3 models × cap = $56.70
+agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the
@@ -439,26 +450,32 @@ First execution of the three suites built by epic #322 (agentify pinned to
 the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
 in `evals/results/harbor-20260819/`).
 
-- **downshift (the headline)** — the mechanical totals are agentify **51/81
-  vs 36/81**, but read them with the failure breakdown, because harness
-  errors sit in the denominators: **every attempt on the `claude-3-5-haiku`
-  rung (54/54) errored with API 404** — the subscription no longer serves
-  that model, so the bottom rung is void infrastructure evidence, not "the
-  model is too weak" — and 7 scattered provider errors landed elsewhere. On
-  **gradeable attempts only**: agentify **48/48 (100%) vs baseline 36/50
-  (72%)**; 45 gradeable pairs with **discordant 12/0, all favoring agentify**
-  (exact two-sided sign p ≈ 0.0005, pooled Wilson CIs 93–100% vs 58–83%);
-  **every real graded failure in the campaign is the baseline's** (14
-  `grader_failed` vs 0). On the sonnet rungs the cost narrative flips:
-  **cost/pass $0.150 vs $0.192 (hard)** and $0.154 vs $0.172 (medium) —
-  recalled context is cheaper than rediscovery at frontier-model prices.
-  **Still no winner is declared**: the pre-registered per-cell rule (≥5
-  discordant pairs at p < 0.05) is NOT MET (max 3 per cell), and the
-  gradeable-only arithmetic above is a manual recomputation from the receipts
-  — the shipped `eval report`/`eval grid` do not yet exclude `harness_error`
-  attempts from denominators or paired stats the way `invalid` is excluded.
-  Crossing the line needs that tooling fix plus more attempts on the
-  discordant cells, not new machinery.
+- **downshift (the headline)** — with #367's gradeable-attempt rule,
+  `agentify eval grid` computes the epic-#322 suite-level verdict itself, and
+  on this campaign it declares, with every fail-closed clause holding:
+
+  > **WINNER: agentify** — pooled over 54 gradeable pairs: agentify 51/54 vs
+  > claude-code 36/54, discordant 16/1 spanning 2 task families, sign-test
+  > p = 0.000275, Wilson CIs separated (84.9–98.1% vs 53.4–77.8%).
+
+  The rule is the strict form the PR-#369 review rounds forced: only attempts
+  the provider itself reported as never-ran are excluded (50 `claude-3-5-haiku`
+  API-404s with a zero-token envelope — the subscription no longer serves that
+  model, so the suite is now a 2-rung ladder); an attempt that ran
+  and crashed or lost its telemetry counts as a **failure for its own arm**
+  (agentify's three crashes sit inside its 51/56 arm total), and difficulty
+  variants collapse into one task family for the spans clause. Where the wins
+  come from, stated plainly: **14 of the 16 discordant wins are the
+  `avoid-cache-regression` family** — the baseline re-introduced the recorded
+  production regression on every one of its graded failures while agentify
+  never did — and 2 are `recall-error-envelope` pairs where the baseline hung
+  and died mid-run while agentify completed the task (counted symmetrically:
+  an agentify crash handed the baseline its 1 win) — and on
+  the sonnet rungs recalled context is also *cheaper* per passing task
+  (**$0.150 vs $0.192** at hard, $0.154 vs $0.172 at medium). Broadening the
+  win beyond one dominant family — more context-decisive task *families* —
+  is #318's job and the highest-leverage next benchmark investment; the
+  per-cell #317 target (≥5 discordant in a single cell) also remains unmet.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is
