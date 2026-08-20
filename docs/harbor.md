@@ -47,7 +47,7 @@ evals/harbor/
     downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
-    headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 3
+    headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 5
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -331,7 +331,7 @@ model, same budget and turn caps, same verifier:
 | `agentify-claude` | Claude Code + Agentify: hooks, budgeted per-task injection, staleness handling |
 | `memorybank-claude` | Claude Code + the same knowledge stuffed verbatim into `CLAUDE.md` — the Cline-style zero-infrastructure memory bank. Tests the context-rot thesis: does budgeted retrieval beat stuffing? |
 | `serena-claude` | Claude Code + the [Serena](https://github.com/oraios/serena) MCP server (pinned `serena-agent==1.7.0` via uv), the widely-used free LSP code-intelligence competitor, with the same knowledge as native `.serena/memories/*.md`. **Experimental** — see the honest caveats in `agents/serena_claude.py` |
-| `claude-code` | Harbor's plain baseline: no memory, no tools |
+| `plain-claude` | Pinned plain Claude Code, nothing installed. Deliberately NOT harbor's builtin `claude-code` agent: the builtin pins no CLI version, applies no turn cap, and uses a different permission mode — provider-configuration confounds the head-to-head cannot afford. All four arms share the same invocation code |
 
 **Fairness contract.** The competitor arms are not handed Agentify's store:
 each arm renders the SAME committed fixture source (`/opt/agentify-fixtures`,
@@ -350,18 +350,23 @@ surface to scan. The provider invocation is shared code
   a tool is good.
 - A competitor arm beating Agentify on a family is a **publishable finding**
   under the same receipts convention — commit it, quote it, fix the product.
-- A Serena trial whose MCP server fails to start silently degrades toward
-  plain Claude Code with memory files on disk; read per-attempt trajectories
-  before quoting any Serena number in public.
+- A Serena trial preflights the MCP connection and **aborts before any graded
+  token** when the server is not connected — it imports as a zero-activity
+  harness error (non-gradeable), so a plain-Claude pass can never be
+  attributed to Serena and a broken server can never dilute its numbers.
 - Future arms, deliberately out of scope until their infrastructure fits a
   hermetic container: ByteRover/Cipher (cloud account + API key),
   claude-context (vector DB + embedding key). Both are documented here so
   their absence reads as a constraint, not an omission.
 
 Run it like every other suite: `agentify eval harbor plan --suite headtohead`
-(96 trials, $33.60 ceiling), `harbor run -c suites/headtohead.yaml`, then
-import — `harborArmForAgent` passes competitor agent names through as their
-own arms, and `eval report` pairs agentify against each of them.
+(160 trials — 5 attempts per arm so per-task reports clear the
+5-gradeable-attempt power floor — $56.00 ceiling), `harbor run -c
+suites/headtohead.yaml`, then import — `harborArmForAgent` passes competitor
+agent names through as their own arms, and `eval report` pairs agentify
+against each of them per task. Per-task pairwise significance needs ≥6
+unanimous discordant pairs; there is no multi-arm cross-task aggregator yet,
+so pooling across tasks is the reader's job, receipts in hand.
 
 ## Dataset categories
 
@@ -411,7 +416,7 @@ agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
 agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
-agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 3 × cap = $33.60
+agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 5 × cap = $56.00
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the

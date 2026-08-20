@@ -623,9 +623,11 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
 
 test("committed head-to-head suite plans four arms and bounds its ceiling (plan task 1.4)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "headtohead" });
-  // 8 tasks × 4 agents (agentify, memorybank, serena, plain) × 3 attempts.
-  assert.equal(plan.trials, 96);
-  assert.equal(plan.max_spend_usd, 33.6); // 96 × $0.35
+  // 8 tasks × 4 agents (agentify, memorybank, serena, plain) × 5 attempts —
+  // 5 so per-task reports clear MIN_ATTEMPTS_PER_ARM instead of being
+  // underpowered by construction.
+  assert.equal(plan.trials, 160);
+  assert.equal(plan.max_spend_usd, 56); // 160 × $0.35
 });
 
 test("plan multiplies the spend ceiling by the suite's model ladder length (#317)", async () => {

@@ -22,9 +22,12 @@ EXPERIMENTAL ARM — honest caveats, disclosed rather than hidden:
   use inside the trial container (network is available — the same network
   the npm installs use). Startup latency counts against the arm's wall
   clock, as it would for a real user.
-- A trial where Serena's MCP server fails to start degrades to plain Claude
-  Code with memory files on disk; the import marks nothing special. Read
-  per-attempt trajectories before quoting a Serena number in public.
+- run() preflights the MCP connection (`claude mcp list`) and ABORTS the
+  trial before any graded token is spent when Serena is not connected —
+  the exception then imports as a zero-activity harness error, excluded
+  from the arm's statistics as non-gradeable infrastructure failure, so a
+  plain-Claude pass can never be attributed to Serena and a broken server
+  can never dilute Serena's numbers (PR review, plan task 1.4).
 
 Written against harbor 0.18.0 (see dataset.json pins).
 """
@@ -100,3 +103,21 @@ class SerenaClaudeAgent(AgentifyClaudeAgent):
             "cd /app && claude mcp add serena --"
             " serena start-mcp-server --context ide-assistant --project /app",
         )
+
+    async def run(self, instruction: str, environment, context) -> None:
+        # Preflight: the trial is only a Serena trial if Claude actually holds
+        # a connected Serena server. `claude mcp list` health-checks each
+        # registered server; if serena is not connected, abort BEFORE spending
+        # any graded token — the trial then imports as a zero-activity harness
+        # error (non-gradeable infrastructure failure), never as a
+        # plain-Claude result wearing Serena's name.
+        await self.exec_as_agent(
+            environment,
+            "cd /app && mkdir -p /logs/agent"
+            " && claude mcp list > /logs/agent/mcp-list.txt 2>&1 || true"
+            " && if ! grep -i serena /logs/agent/mcp-list.txt | grep -qi connect; then"
+            " echo 'serena MCP not connected — aborting trial as infrastructure failure' >&2;"
+            " cat /logs/agent/mcp-list.txt >&2; exit 47; fi",
+            env=self._auth_env(),
+        )
+        await super().run(instruction, environment, context)

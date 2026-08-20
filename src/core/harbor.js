@@ -162,6 +162,9 @@ export async function loadHarborManifest(root, config = {}) {
       harbor: requirePinned(raw.pins?.harbor, "pins.harbor"),
       claude_code: requirePinned(raw.pins?.claude_code, "pins.claude_code"),
       agentify: requirePinned(raw.pins?.agentify, "pins.agentify"),
+      // Optional competitor pins (plan task 1.4): kept when declared so the
+      // provenance every import stamps carries the competitor version too.
+      ...(raw.pins?.serena_agent ? { serena_agent: requirePinned(raw.pins.serena_agent, "pins.serena_agent") } : {}),
     },
     agents: raw.agents,
     tasks: raw.tasks,
