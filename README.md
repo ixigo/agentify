@@ -202,7 +202,7 @@ All commands accept `--json` for machine-readable output — which is how agents
 | `agentify scan` | Build the SQLite structural index |
 | `agentify query <owner\|deps\|changed\|search\|def\|refs\|callers\|impacts>` | Structural queries over the index |
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
-| `agentify test [--since <ref>] [--run]` | Select (and run) only the tests affected by a change, via the structural index |
+| `agentify test [--since <ref>] [--run]` | Select (and run) only the tests affected by a change, via the structural index — npm scripts, pytest, `go test` (package-scoped), cargo, Maven/Gradle, and `dotnet test` runners |
 | `agentify up` | scan -> check |
 | `agentify check` | Validate index freshness and generated artifacts |
 

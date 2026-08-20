@@ -38,18 +38,45 @@ async function readTestScript(root, moduleRoot) {
   }
 }
 
-// `node --test <dir>` treats appended file paths as extra entry points and
-// crashes on directory arguments, so scripts based on node's test runner are
-// bypassed and the runner invoked directly with just the selected files.
-// Other runners (jest, vitest, mocha) treat extra positional args as filters,
-// where appending is safe.
+// Runner semantics differ per ecosystem (plan task 2.3):
+// - `node --test <dir>` treats appended file paths as extra entry points and
+//   crashes on directory arguments, so scripts based on node's test runner
+//   are bypassed and the runner invoked directly with just the selected
+//   files. Other JS runners (jest, vitest, mocha) treat extra positional
+//   args as filters, where appending is safe.
+// - pytest accepts file paths directly.
+// - `go test` selects PACKAGES, not files (a bare _test.go argument must be
+//   accompanied by the rest of its package), so selected files collapse to
+//   their unique package directories, replacing the indexed `./...`.
+// - cargo / dotnet / maven / gradle select by test NAME, not path; appending
+//   paths breaks the invocation, so the module's whole suite runs and the
+//   group says so.
 function buildRunnerArgs(script, commandInfo, testFiles) {
   if (script && /^node\s+(--[\w-]+(=\S+)?\s+)*--test(\s|$)/.test(script)) {
     return { command: "node", args: ["--test", ...testFiles] };
   }
+  const command = commandInfo.command;
+  const baseName = command.replace(/^\.\//, "");
+  if (command === "go" && commandInfo.args[0] === "test") {
+    const packages = [...new Set(testFiles.map((file) => {
+      const dir = path.posix.dirname(file);
+      return dir === "." ? "./" : `./${dir}`;
+    }))].sort();
+    return { command, args: ["test", ...packages] };
+  }
+  if (command === "pytest") {
+    return { command, args: [...commandInfo.args, ...testFiles] };
+  }
+  if (["cargo", "dotnet", "mvn"].includes(command) || baseName === "gradlew" || baseName === "gradle") {
+    return {
+      command,
+      args: [...commandInfo.args],
+      note: `${baseName} selects tests by name, not path; running the module's suite`,
+    };
+  }
   return {
-    command: commandInfo.command,
-    args: appendFileArgs(commandInfo.command, commandInfo.args, testFiles),
+    command,
+    args: appendFileArgs(command, commandInfo.args, testFiles),
   };
 }
 
@@ -155,6 +182,7 @@ export async function buildTestSelection(root, options = {}) {
       args: runner.args,
       command_line: [runner.command, ...runner.args].map(shellQuote).join(" "),
       test_files: group.test_files,
+      ...(runner.note ? { note: runner.note } : {}),
     };
   }))).sort((left, right) => String(left.module_id).localeCompare(String(right.module_id)));
 
@@ -242,7 +270,11 @@ export function renderTestSelection(selection) {
   if (selection.run_groups.length > 0) {
     lines.push("", "Run:");
     for (const group of selection.run_groups) {
-      lines.push(group.command_line ? `- ${group.command_line}` : `- ${group.test_files.join(" ")} (${group.note})`);
+      if (group.command_line) {
+        lines.push(group.note ? `- ${group.command_line} (${group.note})` : `- ${group.command_line}`);
+      } else {
+        lines.push(`- ${group.test_files.join(" ")} (${group.note})`);
+      }
     }
   }
   for (const note of selection.notes || []) {

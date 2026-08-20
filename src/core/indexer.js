@@ -83,7 +83,17 @@ function getLanguage(filePath) {
 }
 
 function isTestFile(filePath) {
-  return /(^|\/)(test|tests|__tests__)\//i.test(filePath) || /\.(test|spec)\.[^.]+$/i.test(filePath);
+  return /(^|\/)(test|tests|__tests__)\//i.test(filePath)
+    || /\.(test|spec)\.[^.]+$/i.test(filePath)
+    // Python: test_foo.py / foo_test.py; Go: foo_test.go (the ONLY Go
+    // convention — the toolchain ignores anything else).
+    || /(^|\/)test_[^/]+\.py$/.test(filePath)
+    || /_test\.(py|go)$/.test(filePath)
+    // JVM: Maven/Gradle test source roots, and FooTest.java/kt anywhere.
+    || /(^|\/)src\/test\//.test(filePath)
+    || /Tests?\.(java|kt)$/.test(filePath)
+    // .NET: FooTests.cs / FooTest.cs.
+    || /Tests?\.cs$/.test(filePath);
 }
 
 function isConfigFile(filePath) {
@@ -1148,7 +1158,14 @@ function resolveGenericImport(language, importInfo, fromFile, repoFileSet, resol
   return null;
 }
 
-function inferTestFramework(packageJson) {
+function inferTestFramework(packageJson, filePath = "") {
+  // Non-JS test files carry their ecosystem's runner regardless of what the
+  // root package.json says — a Go test in a mixed repo is not a jest test.
+  if (/\.py$/.test(filePath)) return "pytest";
+  if (/\.go$/.test(filePath)) return "go";
+  if (/\.rs$/.test(filePath)) return "cargo";
+  if (/\.(java|kt|kts)$/.test(filePath)) return "junit";
+  if (/\.cs$/.test(filePath)) return "dotnet";
   const deps = {
     ...(packageJson?.dependencies || {}),
     ...(packageJson?.devDependencies || {}),
@@ -1164,7 +1181,14 @@ function inferRelatedPath(testPath, repoFileSet) {
   const direct = testPath
     .replace(/__tests__\//g, "")
     .replace(/\.test(?=\.)/g, "")
-    .replace(/\.spec(?=\.)/g, "");
+    .replace(/\.spec(?=\.)/g, "")
+    // Python/Go naming: test_foo.py -> foo.py, foo_test.py|go -> foo.py|go.
+    .replace(/(^|\/)test_([^/]+\.py)$/, "$1$2")
+    .replace(/_test\.(py|go)$/, ".$1")
+    // JVM/.NET naming: FooTest.java|kt -> Foo.java|kt, FooTests.cs -> Foo.cs.
+    .replace(/Tests?\.(java|kt|cs)$/, ".$1")
+    // Maven/Gradle layout: src/test/java/... -> src/main/java/...
+    .replace(/(^|\/)src\/test\//, "$1src/main/");
   if (repoFileSet.has(direct)) {
     return direct;
   }
@@ -1213,12 +1237,100 @@ function rankKeyFiles(fileRows, entryFiles, importRows) {
     .map((row) => row.path);
 }
 
+// Test/build runners for non-npm ecosystems, resolved from the marker files
+// in a module root (plan task 2.3: the commands table was package.json-only,
+// so a Python/Go/Rust/JVM/.NET repo got a full symbol index and ZERO runnable
+// test commands — `agentify test --run` silently had nothing to run).
+// Ordered: the first marker found wins for a given module root. Commands are
+// conventional invocations, not guesses at custom scripts; a package.json
+// test script still takes precedence for JS/TS modules (unchanged behavior).
+const ECOSYSTEM_COMMANDS = [
+  {
+    markers: ["go.mod"],
+    commands: { test: ["go", "test", "./..."], build: ["go", "build", "./..."] },
+  },
+  {
+    markers: ["Cargo.toml"],
+    commands: { test: ["cargo", "test"], build: ["cargo", "build"] },
+  },
+  {
+    // pytest wins whenever its config or a conftest exists; a plain
+    // pyproject.toml (any Python project) still gets pytest as the
+    // conventional runner — running it in a pytest-less env fails loudly
+    // with "command not found", never silently.
+    markers: ["pytest.ini", "conftest.py", "pyproject.toml", "setup.cfg"],
+    requiresPythonTests: true,
+    commands: { test: ["pytest"] },
+  },
+  {
+    markers: ["pom.xml"],
+    commands: { test: ["mvn", "-q", "test"], build: ["mvn", "-q", "compile"] },
+  },
+  {
+    markers: ["build.gradle", "build.gradle.kts"],
+    gradle: true,
+    commands: { test: ["test"], build: ["build"] },
+  },
+];
+
+function findDotnetProject(moduleFiles) {
+  return moduleFiles.some((filePath) => /\.(sln|csproj)$/i.test(filePath));
+}
+
+function hasPythonTestFiles(moduleFiles) {
+  return moduleFiles.some((filePath) => /(^|\/)test_[^/]+\.py$/.test(filePath) || /_test\.py$/.test(filePath)
+    || (/(^|\/)(test|tests)\//i.test(filePath) && filePath.endsWith(".py")));
+}
+
+async function detectEcosystemCommands(root, moduleInfo, moduleFiles) {
+  const moduleRoot = moduleInfo.rootPath === "." ? "" : `${moduleInfo.rootPath}/`;
+  // A marker at the module root wins; a repo-root marker covers nested
+  // modules too (a Go workspace has ONE go.mod but many detected packages —
+  // each package's tests still run through the root toolchain, scoped to the
+  // package at selection time).
+  const inModule = (name) => moduleFiles.includes(`${moduleRoot}${name}`) || moduleFiles.includes(name);
+
+  for (const ecosystem of ECOSYSTEM_COMMANDS) {
+    if (!ecosystem.markers.some(inModule)) {
+      continue;
+    }
+    if (ecosystem.requiresPythonTests && !hasPythonTestFiles(moduleFiles)) {
+      continue;
+    }
+    let commandsByType = ecosystem.commands;
+    if (ecosystem.gradle) {
+      // Prefer the committed wrapper; it pins the Gradle version the repo
+      // expects. The wrapper lives at the repo root even for nested modules.
+      const gradle = moduleFiles.includes("gradlew") || inModule("gradlew") ? "./gradlew" : "gradle";
+      commandsByType = Object.fromEntries(
+        Object.entries(ecosystem.commands).map(([type, args]) => [type, [gradle, ...args]]),
+      );
+    }
+    return Object.entries(commandsByType).map(([commandType, [command, ...args]]) => ({
+      module_id: moduleInfo.id,
+      command_type: commandType,
+      command,
+      args,
+    }));
+  }
+
+  const files = moduleRoot
+    ? moduleFiles.filter((filePath) => filePath.startsWith(moduleRoot))
+    : moduleFiles;
+  if (findDotnetProject(files)) {
+    return [{ module_id: moduleInfo.id, command_type: "test", command: "dotnet", args: ["test"] }];
+  }
+  return [];
+}
+
 async function buildModuleCommands(root, rootFiles, moduleInfo) {
   const rootPackageJson = await readJsonIfExists(path.join(root, "package.json"));
   const packageJson = await readJsonIfExists(path.join(root, moduleInfo.rootPath, "package.json"))
     || (moduleInfo.rootPath === "." ? rootPackageJson : null);
   if (!packageJson?.scripts) {
-    return [];
+    // Not an npm module: fall back to ecosystem markers (go.mod, Cargo.toml,
+    // pytest config, pom.xml/gradle, .NET projects).
+    return detectEcosystemCommands(root, moduleInfo, rootFiles);
   }
 
   const packageManager = detectPackageManager(rootFiles, rootPackageJson);
@@ -1234,6 +1346,12 @@ async function buildModuleCommands(root, rootFiles, moduleInfo) {
       command: scriptCommand.command,
       args: scriptCommand.args,
     });
+  }
+  if (!commands.some((commandInfo) => commandInfo.command_type === "test")) {
+    // package.json exists but declares no test script — a mixed repo (e.g.
+    // docs tooling in npm, product code in Go) still deserves a runner.
+    commands.push(...(await detectEcosystemCommands(root, moduleInfo, rootFiles))
+      .filter((commandInfo) => !commands.some((existing) => existing.command_type === commandInfo.command_type)));
   }
   return commands;
 }
@@ -1358,7 +1476,7 @@ export async function buildRepositoryIndex(root, config) {
       testRows.push({
         file_path: filePath,
         module_id: moduleInfo?.id || null,
-        framework: inferTestFramework(rootPackageJson),
+        framework: inferTestFramework(rootPackageJson, filePath),
         related_path: relatedPath,
       });
     }
