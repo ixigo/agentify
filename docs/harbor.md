@@ -26,7 +26,7 @@ evals/harbor/
   dataset.json          # versioned manifest: tasks, categories, pins, suites, spend caps
   agents/
     agentify_claude.py  # Harbor BaseInstalledAgent: Claude Code + Agentify + seeded fixtures
-  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (23 tasks: 15 baseline, plus
+  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (27 tasks: 15 baseline, plus the #318 families, plus
                         # medium/hard difficulty variants and two-phase
                         # multi-session / cross-vendor tasks)
     task.toml
@@ -44,7 +44,7 @@ evals/harbor/
     nightly.yaml        # 15 tasks × 2 agents × 3 attempts
     full.yaml           # same 15 baseline tasks as nightly
     profiles.yaml       # 8 tasks × (cost|balanced|performance agentify + plain) × 3
-    downshift.yaml      # 9 tasks (easy/medium/hard) × 2 agents × 3 × 2 model rungs
+    downshift.yaml      # 13 tasks (families × difficulties, #318) × 2 agents × 3 × 2 rungs
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
     headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 5
@@ -292,7 +292,7 @@ from the cwd, so they run from the **repo root**, while `harbor run` needs the
 
 ```
 # from the repo root:
-agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $37.80 ceiling
+agentify eval harbor plan --suite downshift            # prints the 2-rung ladder + $54.60 ceiling
 
 # from evals/harbor/, after confirming the ceiling:
 cd evals/harbor
@@ -417,7 +417,7 @@ agentify eval harbor plan --suite nightly      # 15 tasks × 2 × 3 × cap = $31
 agentify eval harbor plan --suite profiles     # 8 tasks × 4 × 3 × cap = $33.60
 agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.20
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
-agentify eval harbor plan --suite downshift    # 9 tasks × 2 × 3 × 2 models × cap = $37.80
+agentify eval harbor plan --suite downshift    # 13 tasks × 2 × 3 × 2 models × cap = $54.60
 agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 5 × cap = $56.00
 ```
 
@@ -550,7 +550,7 @@ First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
 × 3 attempts, `claude-haiku-4-5`, `max_turns` 16 per the suite config at the
 time — imported Harbor receipts do not record turn caps — $2.10 spent of the
 then-8-task nightly's $16.80 ceiling, 48/48 trials, zero flakes — receipts in
-`evals/results/harbor-20260714/`). The dataset has since grown to 23 tasks and
+`evals/results/harbor-20260714/`). The dataset has since grown to 27 tasks and
 the nightly suite to 15; the results below predate that growth and have not
 yet been re-run at the new size. Lead with successful-work economics; the
 per-attempt figure is context, not the headline:
@@ -626,7 +626,7 @@ harbor run -d "terminal-bench@2.0" -t <a-few-task-names> \
 ```
 
 Keep it small and directional. Public benchmark scores are not the product
-metric, and a private 23-task dataset earns no leaderboard claims.
+metric, and a private 27-task dataset earns no leaderboard claims.
 
 ## Versioning and provenance
 

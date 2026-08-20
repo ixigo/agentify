@@ -1,0 +1,4 @@
+{"ts":"2026-04-01T09:12:04.000Z","sid":"b2c3d4e5","type":"cmd","cmd":"node --test","desc":"Run enricher suite","exit":0}
+{"ts":"2026-04-01T09:30:52.410Z","sid":"b2c3d4e5","type":"edit","file":"src/fetchAll.js","desc":"Add sequential batch loader for profile enrichment"}
+{"ts":"2026-04-07T22:18:33.907Z","sid":"c7d8e9f0","type":"cmd","cmd":"node scripts/backfill.js --all","desc":"INC-77: backfill opened thousands of concurrent connections and the upstream API blocked the client","exit":1,"err":"upstream profile API returned 429 then blocked the client id; backfill aborted"}
+{"ts":"2026-04-07T22:41:10.221Z","sid":"c7d8e9f0","type":"cmd","cmd":"node --test","desc":"Suite green after rolling the parallel loader back to sequential","exit":0}

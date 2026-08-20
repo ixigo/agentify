@@ -602,12 +602,14 @@ test("import rejects empty or missing job directories", async () => {
 
 test("committed downshift suite plans the model×difficulty matrix and bounds its ceiling (#317)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "downshift" });
-  // 9 tasks × 2 arms × 3 attempts × 2 model rungs (#367: the old rung-1
-  // model claude-3-5-haiku is no longer served — API 404 on all 54 attempts
-  // of the 2026-08-19 campaign — and no weaker accessible model exists).
+  // 13 tasks × 2 arms × 3 attempts × 2 model rungs: the 9 original
+  // family×difficulty variants plus the #318 families (avoid-unbounded-fanout,
+  // avoid-roster-mutation; easy+hard each) so suite-level discordant wins can
+  // span task families. 2 rungs per #367 (claude-3-5-haiku is no longer
+  // served — API 404 — and no weaker accessible model exists).
   assert.equal(plan.models_per_task, 2);
-  assert.equal(plan.trials, 108);
-  assert.equal(plan.max_spend_usd, 37.8); // 108 × $0.35
+  assert.equal(plan.trials, 156);
+  assert.equal(plan.max_spend_usd, 54.6); // 156 × $0.35
   assert.equal(plan.models.length, 2);
   assert.ok(plan.models.includes("anthropic/claude-haiku-4-5-20251001"));
   assert.ok(!plan.models.includes("anthropic/claude-3-5-haiku-20241022"));

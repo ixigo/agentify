@@ -1,0 +1,8 @@
+{
+  "name": "profile-enricher",
+  "version": "0.5.1",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

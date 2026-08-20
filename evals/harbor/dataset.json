@@ -251,6 +251,52 @@
       ]
     },
     {
+      "id": "avoid-unbounded-fanout",
+      "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "CONCURRENCY",
+        "inFlight",
+        "p-limit",
+        "Semaphore"
+      ]
+    },
+    {
+      "id": "avoid-unbounded-fanout-hard",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "CONCURRENCY",
+        "inFlight",
+        "p-limit",
+        "Semaphore"
+      ]
+    },
+    {
+      "id": "avoid-roster-mutation",
+      "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "toSorted",
+        "slice().sort",
+        "[...players]"
+      ]
+    },
+    {
+      "id": "avoid-roster-mutation-hard",
+      "category": "prior-failure-avoidance",
+      "difficulty": "hard",
+      "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "toSorted",
+        "slice().sort",
+        "[...players]"
+      ]
+    },
+    {
       "id": "recall-cursor-contract",
       "category": "decision-recall",
       "difficulty": "hard",
@@ -356,7 +402,11 @@
         "reject-stale-config-path-medium",
         "recall-error-envelope-hard",
         "avoid-cache-regression-hard",
-        "reject-stale-config-path-hard"
+        "reject-stale-config-path-hard",
+        "avoid-unbounded-fanout",
+        "avoid-roster-mutation",
+        "avoid-unbounded-fanout-hard",
+        "avoid-roster-mutation-hard"
       ],
       "attempts": 3,
       "agents": 2,
