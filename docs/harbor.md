@@ -439,18 +439,26 @@ First execution of the three suites built by epic #322 (agentify pinned to
 the $69.30 combined ceiling, 180 attempts — receipts and the regenerable grid
 in `evals/results/harbor-20260819/`).
 
-- **downshift (the headline)** — agentify **51/81 vs 36/81** overall, and the
-  matrix behaves exactly as #317 predicted: `claude-3-5-haiku` floors at 0/9
-  in every cell (too weak for the tasks with or without memory), `sonnet-4-5`
-  at `easy` ties (strong model rediscovers), and in the five load-bearing
-  cells — `haiku-4-5` at every difficulty, `sonnet-4-5` at medium/hard —
-  agentify is **+33pp per cell** with 15 of 16 discordant pairs in its favor.
-  On the sonnet rungs the cost narrative flips: **cost/pass $0.150 vs $0.192
-  (hard)** and $0.154 vs $0.172 (medium) — recalled context is cheaper than
-  rediscovery at frontier-model prices. **Per the pre-registered per-cell rule
-  (≥5 discordant pairs at p < 0.05) the verdict is still NOT MET** — each
-  +33pp cell holds 3 discordant pairs (p = 0.25); crossing the threshold needs
-  more attempts on those cells, not new machinery.
+- **downshift (the headline)** — the mechanical totals are agentify **51/81
+  vs 36/81**, but read them with the failure breakdown, because harness
+  errors sit in the denominators: **every attempt on the `claude-3-5-haiku`
+  rung (54/54) errored with API 404** — the subscription no longer serves
+  that model, so the bottom rung is void infrastructure evidence, not "the
+  model is too weak" — and 7 scattered provider errors landed elsewhere. On
+  **gradeable attempts only**: agentify **48/48 (100%) vs baseline 36/50
+  (72%)**; 45 gradeable pairs with **discordant 12/0, all favoring agentify**
+  (exact two-sided sign p ≈ 0.0005, pooled Wilson CIs 93–100% vs 58–83%);
+  **every real graded failure in the campaign is the baseline's** (14
+  `grader_failed` vs 0). On the sonnet rungs the cost narrative flips:
+  **cost/pass $0.150 vs $0.192 (hard)** and $0.154 vs $0.172 (medium) —
+  recalled context is cheaper than rediscovery at frontier-model prices.
+  **Still no winner is declared**: the pre-registered per-cell rule (≥5
+  discordant pairs at p < 0.05) is NOT MET (max 3 per cell), and the
+  gradeable-only arithmetic above is a manual recomputation from the receipts
+  — the shipped `eval report`/`eval grid` do not yet exclude `harness_error`
+  attempts from denominators or paired stats the way `invalid` is excluded.
+  Crossing the line needs that tooling fix plus more attempts on the
+  discordant cells, not new machinery.
 - **multisession** — both arms 3/3 (tie at `haiku-4-5`), but the first
   measured rediscovery receipt: the baseline burned **147,508 more phase-B
   tokens** re-exploring what the agentify arm recalled. Cost break-even is
@@ -462,7 +470,9 @@ in `evals/results/harbor-20260819/`).
   strength; these tasks need the same difficulty treatment as the downshift
   variants before this suite can separate.
 
-The 11 attempts with unreported cost are all on the `claude-3-5-haiku` rung.
+The 11 attempts with unreported cost split 4 on the (void) `haiku-3-5` rung,
+4 on sonnet easy tasks, and 3 on haiku-4-5 easy tasks — which is also why
+those easy cells show `n/a` cost/pass in the grid.
 
 ### 2026-07-14 nightly (historical)
 
