@@ -6,7 +6,8 @@
   "pins": {
     "harbor": "0.18.0",
     "claude_code": "2.1.208",
-    "agentify": "0.4.0"
+    "agentify": "0.4.0",
+    "serena_agent": "1.7.0"
   },
   "agents": [
     {
@@ -17,6 +18,31 @@
     {
       "name": "claude-code",
       "kind": "builtin"
+    },
+    {
+      "name": "memorybank-claude",
+      "kind": "installed",
+      "import_path": "agents.memorybank_claude:MemoryBankClaudeAgent"
+    },
+    {
+      "name": "serena-claude",
+      "kind": "installed",
+      "import_path": "agents.serena_claude:SerenaClaudeAgent"
+    },
+    {
+      "name": "plain-claude",
+      "kind": "installed",
+      "import_path": "agents.plain_claude:PlainClaudeAgent"
+    },
+    {
+      "name": "agentify-transfer",
+      "kind": "installed",
+      "import_path": "agents.agentify_transfer:AgentifyTransferAgent"
+    },
+    {
+      "name": "crossvendor-nomem",
+      "kind": "installed",
+      "import_path": "agents.agentify_transfer:CrossVendorNoMemoryAgent"
     }
   ],
   "tasks": [
@@ -169,7 +195,10 @@
       "category": "prior-failure-avoidance",
       "difficulty": "medium",
       "max_cost_usd": 0.7,
-      "phases": ["seed", "recall"],
+      "phases": [
+        "seed",
+        "recall"
+      ],
       "answer_leak_patterns": [
         "getUTCMonth",
         "getUTCFullYear",
@@ -181,7 +210,10 @@
       "category": "prior-failure-avoidance",
       "difficulty": "medium",
       "max_cost_usd": 0.7,
-      "phases": ["seed", "recall"],
+      "phases": [
+        "seed",
+        "recall"
+      ],
       "answer_leak_patterns": [
         "getUTCMonth",
         "getUTCFullYear",
@@ -193,49 +225,70 @@
       "category": "prior-failure-avoidance",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["settlement_event_conflict", "settledByEvent"]
+      "answer_leak_patterns": [
+        "settlement_event_conflict",
+        "settledByEvent"
+      ]
     },
     {
       "id": "avoid-email-identity-regression",
       "category": "prior-failure-avoidance",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["NFKC", "toLocaleLowerCase(\"en-US\")"]
+      "answer_leak_patterns": [
+        "NFKC",
+        "toLocaleLowerCase(\"en-US\")"
+      ]
     },
     {
       "id": "avoid-rate-window-regression",
       "category": "prior-failure-avoidance",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["timestamp > cutoff", "timestamp <= nowMs"]
+      "answer_leak_patterns": [
+        "timestamp > cutoff",
+        "timestamp <= nowMs"
+      ]
     },
     {
       "id": "recall-cursor-contract",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["cursorIndex", "base64url"]
+      "answer_leak_patterns": [
+        "cursorIndex",
+        "base64url"
+      ]
     },
     {
       "id": "recall-retry-schedule",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["RETRY_SECONDS", "Math.trunc(attempt)"]
+      "answer_leak_patterns": [
+        "RETRY_SECONDS",
+        "Math.trunc(attempt)"
+      ]
     },
     {
       "id": "recall-tax-rounding",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["roundHalfEven", "rateBasisPoints"]
+      "answer_leak_patterns": [
+        "roundHalfEven",
+        "rateBasisPoints"
+      ]
     },
     {
       "id": "recall-webhook-signature",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
-      "answer_leak_patterns": ["sha256=", "timestamp}:${rawBody"]
+      "answer_leak_patterns": [
+        "sha256=",
+        "timestamp}:${rawBody"
+      ]
     }
   ],
   "suites": {
@@ -243,7 +296,12 @@
       "tasks": [
         "recall-error-envelope"
       ],
-      "attempts": 1
+      "attempts": 1,
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "nightly": {
       "tasks": [
@@ -263,7 +321,12 @@
         "recall-tax-rounding",
         "recall-webhook-signature"
       ],
-      "attempts": 3
+      "attempts": 3,
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "profiles": {
       "tasks": [
@@ -277,7 +340,11 @@
         "timezone-flake-gotcha"
       ],
       "attempts": 3,
-      "agents": 4
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     },
     "downshift": {
       "tasks": [
@@ -296,13 +363,42 @@
       "models": [
         "anthropic/claude-haiku-4-5-20251001",
         "anthropic/claude-sonnet-4-5-20250929"
+      ],
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
       ]
     },
     "multisession": {
       "tasks": [
         "recall-flaky-timezone"
       ],
-      "attempts": 3
+      "attempts": 3,
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
+    },
+    "headtohead": {
+      "tasks": [
+        "recall-error-envelope",
+        "avoid-cache-regression",
+        "reject-stale-config-path",
+        "recall-retry-schedule",
+        "recall-webhook-signature",
+        "rename-shipping-rate-refs",
+        "select-affected-tests",
+        "mechanical-header-bump"
+      ],
+      "attempts": 5,
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "memorybank-claude",
+        "serena-claude",
+        "plain-claude"
+      ]
     },
     "crossvendor": {
       "tasks": [
@@ -310,7 +406,11 @@
         "recall-utc-quarter"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-transfer",
+        "crossvendor-nomem"
+      ]
     },
     "full": {
       "tasks": [
@@ -331,7 +431,11 @@
         "recall-webhook-signature"
       ],
       "attempts": 3,
-      "agents": 2
+      "agents": 2,
+      "agent_names": [
+        "agentify-claude",
+        "claude-code"
+      ]
     }
   }
 }

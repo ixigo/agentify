@@ -162,6 +162,9 @@ export async function loadHarborManifest(root, config = {}) {
       harbor: requirePinned(raw.pins?.harbor, "pins.harbor"),
       claude_code: requirePinned(raw.pins?.claude_code, "pins.claude_code"),
       agentify: requirePinned(raw.pins?.agentify, "pins.agentify"),
+      // Optional competitor pins (plan task 1.4): kept when declared so the
+      // provenance every import stamps carries the competitor version too.
+      ...(raw.pins?.serena_agent ? { serena_agent: requirePinned(raw.pins.serena_agent, "pins.serena_agent") } : {}),
     },
     agents: raw.agents,
     tasks: raw.tasks,
@@ -254,6 +257,23 @@ export async function loadHarborManifest(root, config = {}) {
     if (!Number.isInteger(agents) || agents < 2) {
       fail(`suite "${name}" agents must be an integer >= 2 (a single arm is not a paired run)`);
     }
+    // Optional per-suite arm inventory (plan task 1.4): with a multi-agent
+    // roster, "every roster agent" is the wrong default to display in a
+    // spend plan for a suite that runs a subset. Every declared name must be
+    // a roster agent so the inventory cannot drift into fiction.
+    let agentNames;
+    if (suite?.agent_names !== undefined) {
+      if (!Array.isArray(suite.agent_names) || suite.agent_names.length === 0) {
+        fail(`suite "${name}" agent_names must be a non-empty list of roster agent names`);
+      }
+      const roster = new Set(manifest.agents.map((agent) => agent.name));
+      for (const agentName of suite.agent_names) {
+        if (!roster.has(String(agentName))) {
+          fail(`suite "${name}" agent_names includes "${agentName}", which is not in the manifest agents roster`);
+        }
+      }
+      agentNames = suite.agent_names.map(String);
+    }
     // Optional model ladder (#317). A down-shift matrix reruns the same tasks
     // across a capability ladder, so its spend plan multiplies by the number of
     // rungs. Default is the manifest's single pinned model. Every rung must be a
@@ -266,7 +286,7 @@ export async function loadHarborManifest(root, config = {}) {
     } else {
       models = suite.models.map((model) => requirePinned(model, `suite "${name}" models[]`));
     }
-    suites[name] = { tasks: [...tasks], attempts, agents, models };
+    suites[name] = { tasks: [...tasks], attempts, agents, models, ...(agentNames ? { agent_names: agentNames } : {}) };
   }
   if (!suites.smoke) {
     fail('suites must include a low-cost "smoke" suite');
@@ -515,7 +535,8 @@ export async function planHarborRun(root, config = {}, options = {}) {
     // suite lists just the manifest pin; the down-shift matrix lists its rungs.
     models,
     pins: manifest.pins,
-    agents: manifest.agents.map((agent) => agent.name),
+    // The suite's own arm inventory when declared; the full roster otherwise.
+    agents: suite.agent_names ?? manifest.agents.map((agent) => agent.name),
     agents_per_task: suite.agents,
     models_per_task: models.length,
     tasks: tasks.map((task) => ({ id: task.id, category: task.category, difficulty: task.difficulty, max_cost_usd: task.max_cost_usd })),

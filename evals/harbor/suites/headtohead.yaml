@@ -1,0 +1,73 @@
+# Harbor job config: competitor head-to-head (plan task 1.4).
+#
+# Four arms on the SAME task image, model, budget, and verifier:
+#   1. agentify-claude  — Claude Code + Agentify (hooks, budgeted injection)
+#   2. memorybank-claude — Claude Code + the same knowledge stuffed verbatim
+#      into CLAUDE.md (the Cline-style zero-infrastructure memory bank; tests
+#      whether budgeted retrieval beats context stuffing)
+#   3. serena-claude    — Claude Code + the Serena MCP server (pinned), the
+#      free LSP code-intelligence competitor, with the same knowledge as
+#      native .serena/memories (EXPERIMENTAL — see agents/serena_claude.py)
+#   4. plain-claude     — pinned plain Claude Code baseline. NOT harbor's
+#      builtin claude-code agent: the builtin pins no CLI version, applies no
+#      turn cap, and uses a different permission mode, which would confound
+#      arm differences with provider configuration. This arm shares the exact
+#      invocation code of the other three.
+#
+# Fairness: arms 1-3 render the SAME committed fixture source
+# (/opt/agentify-fixtures, baked into every image) into their own native
+# formats at trial start; nothing else differs. See docs/harbor.md
+# "Competitor arms (head-to-head)".
+#
+# Task mix: the five memory families (decision recall, prior-failure
+# avoidance, stale rejection, two contract recalls), both repo-intelligence
+# tasks, and the mechanical control (all arms should tie there — a competitor
+# arm winning the control means the harness leaks, not that the tool is good).
+#
+# Launch from evals/harbor/ with:  harbor run -c suites/headtohead.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite headtohead
+jobs_dir: jobs
+
+# 5 attempts per arm: eval report refuses winner verdicts below 5 gradeable
+# attempts per arm (MIN_ATTEMPTS_PER_ARM), so 3-attempt head-to-head runs
+# would be underpowered by construction (PR review). Per-task pairwise
+# significance still needs >=6 unanimous discordant pairs; the per-task
+# reports are the evidence surface, pooling across tasks is the reader's job
+# until a multi-arm aggregator exists.
+n_attempts: 5
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-error-envelope
+      - avoid-cache-regression
+      - reject-stale-config-path
+      - recall-retry-schedule
+      - recall-webhook-signature
+      - rename-shipping-rate-refs
+      - select-affected-tests
+      - mechanical-header-bump
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.35
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35
+      max_turns: 16
+  - import_path: agents.serena_claude:SerenaClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35
+      max_turns: 16
+  - import_path: agents.plain_claude:PlainClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.35
+      max_turns: 16

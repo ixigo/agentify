@@ -328,6 +328,11 @@ test("harbor agent names map onto native arm labels", () => {
   // name (no "agentify" substring) so it never masquerades as the agentify arm.
   assert.equal(harborArmForAgent("agentify-transfer"), "agentify");
   assert.equal(harborArmForAgent("crossvendor-nomem"), "crossvendor-nomem");
+  // Competitor head-to-head arms (plan task 1.4): pass through under their own
+  // names — no "agentify" substring, so they can never masquerade as the
+  // agentify arm, and the report pairs agentify against each of them.
+  assert.equal(harborArmForAgent("memorybank-claude"), "memorybank-claude");
+  assert.equal(harborArmForAgent("serena-claude"), "serena-claude");
 });
 
 // ---------------------------------------------------------------------------
@@ -614,6 +619,22 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
   assert.equal(nightly.models_per_task, 1);
   assert.deepEqual(nightly.models, ["anthropic/claude-haiku-4-5-20251001"]);
   assert.equal(nightly.trials, 90); // 15 × 2 × 3 × 1
+});
+
+test("committed head-to-head suite plans four arms and bounds its ceiling (plan task 1.4)", async () => {
+  const plan = await planHarborRun(REPO_ROOT, {}, { suite: "headtohead" });
+  // 8 tasks × 4 agents (agentify, memorybank, serena, plain) × 5 attempts —
+  // 5 so per-task reports clear MIN_ATTEMPTS_PER_ARM instead of being
+  // underpowered by construction.
+  assert.equal(plan.trials, 160);
+  assert.equal(plan.max_spend_usd, 56); // 160 × $0.35
+  // The spend plan names the suite's OWN arms, not the whole roster — a
+  // paid-run confirmation listing agents that won't run is misleading.
+  assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "serena-claude", "plain-claude"]);
+  assert.equal(plan.pins.serena_agent, "1.7.0");
+
+  const nightly = await planHarborRun(REPO_ROOT, {}, { suite: "nightly" });
+  assert.deepEqual(nightly.agents, ["agentify-claude", "claude-code"]);
 });
 
 test("plan multiplies the spend ceiling by the suite's model ladder length (#317)", async () => {
