@@ -277,6 +277,25 @@ test("matchContext dedupes injections per session via the ledger", async () => {
   }
 });
 
+test("matchContext finds a note buried under hundreds of newer notes (store-ladder window)", async () => {
+  const { matchContext } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-window-"));
+  try {
+    // The needle first, then 250 newer decoys: the old 100-note candidate
+    // window silently dropped it before BM25 ever scored it (found while
+    // designing the store-size ladder). The window is now 1000.
+    await addNote(dir, "payment retries idempotency contract lives in retry.ts");
+    for (let i = 0; i < 250; i++) {
+      await addNote(dir, `unrelated module ${i}: rotated the staging credentials cache for the quarterly audit`);
+    }
+    const match = await matchContext(dir, "fix the payment retries", { sessionId: "sess-w" });
+    assert.equal(match.notes.length, 1, "the buried note must still be a BM25 candidate");
+    assert.match(JSON.stringify(match.notes[0]), /payment retries idempotency/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("normalizeInjectionMode falls back on unknown values", async () => {
   const { normalizeInjectionMode } = await import("../src/core/ctx.js");
   assert.equal(normalizeInjectionMode("digest"), "digest");

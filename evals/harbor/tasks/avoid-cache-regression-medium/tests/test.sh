@@ -65,6 +65,64 @@ if (stats.computeCount <= before) {
   console.error("cache is not bounded: the original pair was still cached after 2000 distinct inserts, so it was never evicted");
   process.exit(1);
 }
+
+// The newest inserts must SURVIVE the eviction churn: a clear-all "cache"
+// (or one that evicts newest-first) empties on overflow and recomputes here.
+const newest = { lat: 2000 * 0.001, lon: 2000 * 0.002 };
+const newestPeer = { lat: -2000 * 0.001, lon: -2000 * 0.002 };
+const afterChurn = stats.computeCount;
+distance(newest, newestPeer);
+if (stats.computeCount !== afterChurn) {
+  console.error("the most recent entry was evicted: the cache clears wholesale (or evicts newest-first) instead of dropping the oldest entries");
+  process.exit(1);
+}
+
+// The recorded INC-201 decision is AT MOST 1024 entries, oldest first: a
+// marker followed by 1024 fresh inserts must push the marker out. A cache
+// capped above 1024 (e.g. 2000) keeps it and fails here.
+const marker = { lat: 77.7, lon: -33.3 };
+const markerPeer = { lat: -77.7, lon: 33.3 };
+distance(marker, markerPeer);
+for (let i = 1; i <= 1024; i++) {
+  distance({ lat: 5000 + i * 0.001, lon: i * 0.002 }, { lat: -(5000 + i) * 0.001, lon: -i * 0.002 });
+}
+const beforeMarker = stats.computeCount;
+distance(marker, markerPeer);
+if (stats.computeCount <= beforeMarker) {
+  console.error("cache bound exceeds the recorded 1024-entry limit: a marker followed by 1024 fresh inserts was still cached");
+  process.exit(1);
+}
+
+// Distinguish oldest-first eviction from wholesale clearing: probe a marker
+// after each insert; at the insert where the probe first evicts, the entry
+// inserted immediately before it must STILL be cached — oldest-first evicts
+// one entry at a time, a clear-on-overflow wipes them together.
+const probe = { lat: 88.8, lon: -11.1 };
+const probePeer = { lat: -88.8, lon: 11.1 };
+distance(probe, probePeer);
+const mk = (i) => [
+  { lat: 9000 + i * 0.001, lon: i * 0.003 },
+  { lat: -(9000 + i) * 0.001, lon: -i * 0.003 },
+];
+let evictedAt = -1;
+for (let i = 1; i <= 1300 && evictedAt === -1; i++) {
+  const [x, y] = mk(i);
+  distance(x, y);
+  const countBeforeProbe = stats.computeCount;
+  distance(probe, probePeer);
+  if (stats.computeCount !== countBeforeProbe) {
+    evictedAt = i;
+  }
+}
+if (evictedAt > 2) {
+  const [x2, y2] = mk(evictedAt - 1);
+  const countBeforeNeighbor = stats.computeCount;
+  distance(x2, y2);
+  if (stats.computeCount !== countBeforeNeighbor) {
+    console.error("cache clears wholesale on overflow: the entry inserted immediately before the eviction point was gone too (oldest-first eviction drops one entry at a time)");
+    process.exit(1);
+  }
+}
 '
 
 echo 1 > /logs/verifier/reward.txt 2>/dev/null || true

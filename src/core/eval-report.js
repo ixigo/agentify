@@ -961,7 +961,14 @@ export async function buildEvalGrid(root, config, runIds) {
       }
     }
   }
-  const baselineArm = [...baselineCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  // Deterministic pick (PR review, three-arm suites): most attempts wins;
+  // ties break toward the plain no-tool floor (that is what "baseline"
+  // means here), then lexicographically — never encounter order. Competitor
+  // arms like memorybank-claude are still compared per run through
+  // report.paired; the grid's verdict is agentify vs the floor.
+  const plainRank = (arm) => (/^(plain-|claude-code$|plain-safe$)/.test(arm) ? 0 : 1);
+  const baselineArm = [...baselineCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || plainRank(a[0]) - plainRank(b[0]) || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
 
   const cellMap = new Map();
   for (const run of runs) {
@@ -987,7 +994,9 @@ export async function buildEvalGrid(root, config, runIds) {
   // discordant wins were all avoid-cache-regression variants, which a raw
   // task-id guard wrongly counted as three tasks).
   const discordantByFamily = new Map();
-  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard)$/, "");
+  // Difficulty variants (-medium/-hard) and store-size variants (-storeN)
+  // are the SAME scenario family — neither may manufacture family spread.
+  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard|store\d+)$/, "");
   for (const cell of cellMap.values()) {
     // Everything the cell reports is computed over the PAIRED subset only: for
     // each run (one task), match the agentify and baseline attempts by

@@ -1,0 +1,61 @@
+# Harbor job config: store-size ladder — the follow-up the 2026-08-20
+# head-to-head demanded. That campaign's CLAUDE.md-stuffing arm TIED Agentify
+# at tiny store sizes (a handful of notes); this suite holds task, image,
+# model, budget, and verifier fixed while growing ONLY the context store:
+#
+#   -store10  (small rung: the same knowledge among a handful of decoys)
+#   -store100 (same knowledge among ~98 deterministic decoy notes)
+#   -store300 (same knowledge among ~298 decoys)
+# All three rungs run under the SAME $0.70 cap — reusing the head-to-head's
+# $0.35-cap results as the small rung would confound budget with store size
+# (PR #375 review) — and larger rungs are strict supersets of smaller ones
+# (one decoy sequence per scenario, taken as prefixes), so the only variable
+# on the ladder is how much of the same store exists.
+#
+# The stuffing arm renders the WHOLE store into CLAUDE.md every trial — at
+# store300 that is the context-rot tax made physical. The agentify arm's
+# budgeted BM25 injection has to FIND the buried note. plain-claude anchors
+# the no-memory floor. Decoys are generated deterministically
+# (tools/gen-store-fixtures.mjs) and answer-leak-validated like everything
+# else.
+#
+# 9 tasks × 3 arms × 3 attempts = 81 trials, every task capped at $0.70 so
+# no arm is graded on hitting the budget ceiling instead of the task, and
+# the plan ceiling equals harbor's enforceable worst case exactly.
+# Launch from evals/harbor/ with:  harbor run -c suites/storeladder.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite storeladder
+jobs_dir: jobs
+
+n_attempts: 3
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - avoid-cache-regression-store10
+      - avoid-cache-regression-store100
+      - avoid-cache-regression-store300
+      - recall-retry-schedule-store10
+      - recall-retry-schedule-store100
+      - recall-retry-schedule-store300
+      - recall-webhook-signature-store10
+      - recall-webhook-signature-store100
+      - recall-webhook-signature-store300
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.plain_claude:PlainClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16

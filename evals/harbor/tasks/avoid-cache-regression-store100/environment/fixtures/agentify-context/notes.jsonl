@@ -1,0 +1,100 @@
+{"ts":"2026-01-07T02:04:00.000Z","sid":"d0000000","note":"pdf-renderer: re-keyed the cold-start warmer — clock skew broke ordering assumptions"}
+{"ts":"2026-04-17T02:09:00.000Z","sid":"d0000001","type":"decision","note":"decided for billing-ledger: hardened the i18n fallback chain because the framework upgrade changed defaults; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-03-19T10:01:00.000Z","sid":"d0000002","type":"decision","note":"decided for coupon-engine: re-keyed the healthcheck prober because clock skew broke ordering assumptions; any future change here needs a load test against the replay corpus first"}
+{"ts":"2026-03-13T21:18:00.000Z","sid":"d0000003","type":"decision","note":"decided for geo-fence: re-keyed the pagination cursor store because the compliance audit required it; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-02-11T11:38:00.000Z","sid":"d0000004","note":"notify-fanout: rolled back the nightly export — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-03-01T20:09:00.000Z","sid":"d0000005","note":"avatar-resizer: split the nightly export — the framework upgrade changed defaults"}
+{"ts":"2026-01-05T22:26:00.000Z","sid":"d0000006","note":"avatar-resizer: instrumented the queue consumer group — the framework upgrade changed defaults"}
+{"ts":"2026-02-13T08:39:00.000Z","sid":"d0000007","type":"decision","note":"decided for search-suggest: rolled back the i18n fallback chain because the vendor deprecated the v2 endpoint; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-03-11T07:06:00.000Z","sid":"d0000008","note":"backup-cycler: consolidated the cold-start warmer — the on-call rotation flagged alert fatigue"}
+{"ts":"2026-02-27T09:00:00.000Z","sid":"d0000009","note":"inbox-digest: re-keyed the S3 mirror — customers hit the tier limit unexpectedly"}
+{"ts":"2026-03-03T01:38:00.000Z","sid":"d000000a","type":"decision","note":"decided for avatar-resizer: refactored the queue consumer group because p95 latency doubled after the region move; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-03-07T01:20:00.000Z","sid":"d000000b","type":"decision","note":"decided for pdf-renderer: rolled back the i18n fallback chain because the vendor deprecated the v2 endpoint; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-04-07T18:13:00.000Z","sid":"d000000c","note":"avatar-resizer: throttled the nightly export — disk pressure tripped the pod evictions"}
+{"ts":"2026-01-25T07:36:00.000Z","sid":"d000000d","note":"pdf-renderer: hardened the metrics rollup — clock skew broke ordering assumptions"}
+{"ts":"2026-02-05T21:02:00.000Z","sid":"d000000e","note":"search-suggest: split the cold-start warmer — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-02-10T13:05:00.000Z","sid":"d000000f","type":"decision","note":"decided for org-directory: migrated the staging seed data because the framework upgrade changed defaults; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-02-01T09:18:00.000Z","sid":"d000000g","type":"decision","note":"decided for locale-bundles: deprecated the staging seed data because a canary showed a 3% error uptick; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-03-17T22:12:00.000Z","sid":"d000000h","type":"decision","note":"decided for session-refresh: rolled back the cold-start warmer because the vendor deprecated the v2 endpoint; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-02-02T03:11:00.000Z","sid":"d000000i","note":"quota-meter: consolidated the cold-start warmer — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-03-19T16:02:11.804Z","sid":"e5f6a7b8","type":"decision","note":"resolved in the INC-201 postmortem that every in-memory cache in this service must be bounded to at most 1024 entries and drop its oldest key first once that limit is passed. the trigger was a memoization layer added to the geo module that grew without any upper bound; over roughly six weeks the pod's resident memory climbed until the container hit an out-of-memory kill in production. the review conclusion was that an unbounded map keyed on request data is never acceptable here"}
+{"ts":"2026-03-17T06:08:00.000Z","sid":"d000000j","note":"geo-fence: re-keyed the healthcheck prober — a canary showed a 3% error uptick"}
+{"ts":"2026-01-26T02:32:00.000Z","sid":"d000000k","note":"search-suggest: instrumented the queue consumer group — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-02-13T23:16:00.000Z","sid":"d000000l","note":"inbox-digest: refactored the i18n fallback chain — clock skew broke ordering assumptions"}
+{"ts":"2026-04-14T09:40:00.000Z","sid":"d000000m","note":"session-refresh: deprecated the pagination cursor store — the on-call rotation flagged alert fatigue"}
+{"ts":"2026-01-24T04:40:00.000Z","sid":"d000000n","note":"billing-ledger: rolled back the schema linter — customers hit the tier limit unexpectedly"}
+{"ts":"2026-04-12T06:01:00.000Z","sid":"d000000o","note":"billing-ledger: hardened the S3 mirror — the framework upgrade changed defaults"}
+{"ts":"2026-01-21T05:21:00.000Z","sid":"d000000p","type":"decision","note":"decided for locale-bundles: consolidated the cold-start warmer because duplicate rows appeared during failover; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-02-26T07:41:00.000Z","sid":"d000000q","type":"decision","note":"decided for feature-flags: throttled the schema linter because duplicate rows appeared during failover; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-01-27T04:43:00.000Z","sid":"d000000r","note":"session-refresh: throttled the i18n fallback chain — clock skew broke ordering assumptions"}
+{"ts":"2026-02-06T09:06:00.000Z","sid":"d000000s","note":"audit-trail: hardened the cold-start warmer — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-04-25T15:38:00.000Z","sid":"d000000t","note":"pdf-renderer: consolidated the staging seed data — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-04-20T01:06:00.000Z","sid":"d000000u","note":"locale-bundles: rolled back the S3 mirror — disk pressure tripped the pod evictions"}
+{"ts":"2026-02-03T13:16:00.000Z","sid":"d000000v","type":"decision","note":"decided for coupon-engine: throttled the queue consumer group because p95 latency doubled after the region move; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-04-22T21:13:00.000Z","sid":"d000000w","note":"org-directory: throttled the healthcheck prober — p95 latency doubled after the region move"}
+{"ts":"2026-02-02T01:19:00.000Z","sid":"d000000x","type":"decision","note":"decided for avatar-resizer: consolidated the nightly export because the on-call rotation flagged alert fatigue; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-02-04T14:11:00.000Z","sid":"d000000y","note":"inbox-digest: throttled the staging seed data — clock skew broke ordering assumptions"}
+{"ts":"2026-03-01T22:37:00.000Z","sid":"d000000z","type":"decision","note":"decided for audit-trail: throttled the S3 mirror because the vendor deprecated the v2 endpoint; any future change here needs a load test against the replay corpus first"}
+{"ts":"2026-03-12T14:08:00.000Z","sid":"d0000010","note":"backup-cycler: instrumented the pagination cursor store — a canary showed a 3% error uptick"}
+{"ts":"2026-02-10T02:51:00.000Z","sid":"d0000011","type":"decision","note":"decided for locale-bundles: consolidated the cold-start warmer because duplicate rows appeared during failover; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-04-19T17:25:00.000Z","sid":"d0000012","note":"search-suggest: re-keyed the cold-start warmer — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-02-20T05:04:00.000Z","sid":"d0000013","note":"search-suggest: deprecated the metrics rollup — disk pressure tripped the pod evictions"}
+{"ts":"2026-01-01T03:58:00.000Z","sid":"d0000014","note":"locale-bundles: consolidated the i18n fallback chain — a canary showed a 3% error uptick"}
+{"ts":"2026-03-24T04:14:00.000Z","sid":"d0000015","note":"pdf-renderer: split the staging seed data — the on-call rotation flagged alert fatigue"}
+{"ts":"2026-02-16T12:43:00.000Z","sid":"d0000016","note":"billing-ledger: instrumented the S3 mirror — a canary showed a 3% error uptick"}
+{"ts":"2026-04-10T08:00:00.000Z","sid":"d0000017","note":"feature-flags: refactored the i18n fallback chain — the compliance audit required it"}
+{"ts":"2026-04-08T12:42:00.000Z","sid":"d0000018","note":"audit-trail: hardened the metrics rollup — the compliance audit required it"}
+{"ts":"2026-02-11T17:01:00.000Z","sid":"d0000019","note":"backup-cycler: consolidated the i18n fallback chain — a canary showed a 3% error uptick"}
+{"ts":"2026-03-10T02:58:00.000Z","sid":"d000001a","note":"coupon-engine: re-keyed the metrics rollup — duplicate rows appeared during failover"}
+{"ts":"2026-04-24T13:05:00.000Z","sid":"d000001b","type":"decision","note":"decided for quota-meter: throttled the S3 mirror because a canary showed a 3% error uptick; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-04-18T01:34:00.000Z","sid":"d000001c","note":"quota-meter: instrumented the nightly export — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-01-05T16:03:00.000Z","sid":"d000001d","note":"billing-ledger: rolled back the metrics rollup — a canary showed a 3% error uptick"}
+{"ts":"2026-02-05T20:55:00.000Z","sid":"d000001e","type":"decision","note":"decided for audit-trail: re-keyed the healthcheck prober because duplicate rows appeared during failover; the change is documented in the runbook and must not be reverted without a new review"}
+{"ts":"2026-03-20T09:14:52.113Z","sid":"e5f6a7b8","note":"distance() takes plain {lat, lon} objects in degrees. do not swap to {lon, lat}: an old refactor reordered the fields and every computed route came out mirrored across the equator before anyone noticed"}
+{"ts":"2026-04-12T03:23:00.000Z","sid":"d000001f","type":"decision","note":"decided for session-refresh: consolidated the cold-start warmer because disk pressure tripped the pod evictions; any future change here needs a load test against the replay corpus first"}
+{"ts":"2026-03-15T14:27:00.000Z","sid":"d000001g","note":"inbox-digest: migrated the nightly export — p95 latency doubled after the region move"}
+{"ts":"2026-02-11T15:31:00.000Z","sid":"d000001h","note":"avatar-resizer: instrumented the pagination cursor store — customers hit the tier limit unexpectedly"}
+{"ts":"2026-04-17T12:47:00.000Z","sid":"d000001i","type":"decision","note":"decided for backup-cycler: instrumented the metrics rollup because p95 latency doubled after the region move; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-03-20T07:02:00.000Z","sid":"d000001j","note":"geo-fence: rolled back the metrics rollup — customers hit the tier limit unexpectedly"}
+{"ts":"2026-03-17T19:36:00.000Z","sid":"d000001k","note":"avatar-resizer: instrumented the S3 mirror — p95 latency doubled after the region move"}
+{"ts":"2026-04-14T19:53:00.000Z","sid":"d000001l","type":"decision","note":"decided for pdf-renderer: hardened the S3 mirror because the vendor deprecated the v2 endpoint; the change is documented in the runbook and must not be reverted without a new review"}
+{"ts":"2026-03-01T18:10:00.000Z","sid":"d000001m","note":"geo-fence: consolidated the i18n fallback chain — customers hit the tier limit unexpectedly"}
+{"ts":"2026-02-22T18:51:00.000Z","sid":"d000001n","note":"pdf-renderer: split the S3 mirror — duplicate rows appeared during failover"}
+{"ts":"2026-04-01T13:10:00.000Z","sid":"d000001o","type":"decision","note":"decided for coupon-engine: split the staging seed data because a canary showed a 3% error uptick; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-02-26T14:03:00.000Z","sid":"d000001p","note":"geo-fence: instrumented the i18n fallback chain — clock skew broke ordering assumptions"}
+{"ts":"2026-03-02T00:27:00.000Z","sid":"d000001q","type":"decision","note":"decided for session-refresh: refactored the cold-start warmer because the on-call rotation flagged alert fatigue; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-04-13T12:40:00.000Z","sid":"d000001r","note":"inbox-digest: re-keyed the i18n fallback chain — p95 latency doubled after the region move"}
+{"ts":"2026-03-10T07:33:00.000Z","sid":"d000001s","type":"decision","note":"decided for billing-ledger: consolidated the staging seed data because the on-call rotation flagged alert fatigue; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-01-07T04:23:00.000Z","sid":"d000001t","type":"decision","note":"decided for quota-meter: rolled back the S3 mirror because the compliance audit required it; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-04-08T08:12:00.000Z","sid":"d000001u","type":"decision","note":"decided for session-refresh: throttled the healthcheck prober because duplicate rows appeared during failover; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-04-25T21:40:00.000Z","sid":"d000001v","type":"decision","note":"decided for locale-bundles: re-keyed the queue consumer group because clock skew broke ordering assumptions; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-01-19T17:08:00.000Z","sid":"d000001w","type":"decision","note":"decided for backup-cycler: throttled the staging seed data because the on-call rotation flagged alert fatigue; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-01-23T18:50:00.000Z","sid":"d000001x","type":"decision","note":"decided for search-suggest: instrumented the healthcheck prober because the compliance audit required it; alerting thresholds were retuned to match the new baseline"}
+{"ts":"2026-01-08T01:03:00.000Z","sid":"d000001y","note":"notify-fanout: hardened the pagination cursor store — a canary showed a 3% error uptick"}
+{"ts":"2026-02-20T08:04:00.000Z","sid":"d000001z","note":"org-directory: hardened the S3 mirror — clock skew broke ordering assumptions"}
+{"ts":"2026-01-08T20:25:00.000Z","sid":"d0000020","note":"inbox-digest: hardened the S3 mirror — a canary showed a 3% error uptick"}
+{"ts":"2026-01-02T11:02:00.000Z","sid":"d0000021","type":"decision","note":"decided for coupon-engine: migrated the metrics rollup because disk pressure tripped the pod evictions; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-01-12T03:57:00.000Z","sid":"d0000022","note":"search-suggest: instrumented the staging seed data — the framework upgrade changed defaults"}
+{"ts":"2026-02-21T11:43:00.000Z","sid":"d0000023","note":"backup-cycler: split the queue consumer group — duplicate rows appeared during failover"}
+{"ts":"2026-02-22T13:22:00.000Z","sid":"d0000024","note":"locale-bundles: refactored the nightly export — a canary showed a 3% error uptick"}
+{"ts":"2026-01-22T02:12:00.000Z","sid":"d0000025","note":"coupon-engine: consolidated the schema linter — disk pressure tripped the pod evictions"}
+{"ts":"2026-01-24T01:17:00.000Z","sid":"d0000026","note":"locale-bundles: migrated the i18n fallback chain — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-03-06T18:42:00.000Z","sid":"d0000027","note":"org-directory: consolidated the cold-start warmer — disk pressure tripped the pod evictions"}
+{"ts":"2026-01-13T13:34:00.000Z","sid":"d0000028","note":"quota-meter: hardened the staging seed data — customers hit the tier limit unexpectedly"}
+{"ts":"2026-03-16T14:38:00.000Z","sid":"d0000029","note":"pdf-renderer: hardened the metrics rollup — disk pressure tripped the pod evictions"}
+{"ts":"2026-03-10T13:01:00.000Z","sid":"d000002a","note":"coupon-engine: instrumented the staging seed data — clock skew broke ordering assumptions"}
+{"ts":"2026-03-19T11:40:00.000Z","sid":"d000002b","note":"locale-bundles: instrumented the cold-start warmer — the compliance audit required it"}
+{"ts":"2026-01-02T21:08:00.000Z","sid":"d000002c","type":"decision","note":"decided for inbox-digest: refactored the queue consumer group because clock skew broke ordering assumptions; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-02-03T07:06:00.000Z","sid":"d000002d","note":"avatar-resizer: throttled the schema linter — the framework upgrade changed defaults"}
+{"ts":"2026-03-14T00:41:00.000Z","sid":"d000002e","note":"billing-ledger: consolidated the i18n fallback chain — clock skew broke ordering assumptions"}
+{"ts":"2026-01-27T10:31:00.000Z","sid":"d000002f","type":"decision","note":"decided for pdf-renderer: instrumented the healthcheck prober because p95 latency doubled after the region move; any future change here needs a load test against the replay corpus first"}
+{"ts":"2026-04-23T09:37:00.000Z","sid":"d000002g","note":"avatar-resizer: hardened the queue consumer group — the compliance audit required it"}
+{"ts":"2026-01-13T21:53:00.000Z","sid":"d000002h","note":"notify-fanout: deprecated the nightly export — disk pressure tripped the pod evictions"}
+{"ts":"2026-04-02T11:47:30.006Z","sid":"a1b2c3d4","note":"stats.computeCount is read by the perf regression test and scraped by the metrics exporter, so it must keep counting only real haversine evaluations; do not delete it or reset it inside distance()"}
+{"ts":"2026-04-02T12:05:18.442Z","sid":"a1b2c3d4","note":"CI runs node --test on node 20; avoid node:test APIs added after 20.x"}
+{"ts":"2026-02-13T23:10:00.000Z","sid":"d000002i","note":"audit-trail: migrated the nightly export — duplicate rows appeared during failover"}
+{"ts":"2026-03-12T01:24:00.000Z","sid":"d000002j","note":"backup-cycler: deprecated the schema linter — the compliance audit required it"}
+{"ts":"2026-01-07T17:25:00.000Z","sid":"d000002k","type":"decision","note":"decided for avatar-resizer: migrated the cold-start warmer because the framework upgrade changed defaults; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-04-24T11:03:00.000Z","sid":"d000002l","note":"feature-flags: hardened the pagination cursor store — p95 latency doubled after the region move"}
+{"ts":"2026-03-03T04:17:00.000Z","sid":"d000002m","note":"geo-fence: instrumented the nightly export — duplicate rows appeared during failover"}
+{"ts":"2026-01-15T15:06:00.000Z","sid":"d000002n","note":"audit-trail: deprecated the S3 mirror — clock skew broke ordering assumptions"}

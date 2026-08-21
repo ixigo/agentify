@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "webhook-security"]
+difficulty = "hard"
+description = "Verify a webhook whose signature prefix and canonical payload separator exist only in a recorded security decision. Store-size ladder variant: the same knowledge buried among 98+ deterministic decoy notes (store size 100), so retrieval has to find the needle and stuffing has to pay the context tax."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

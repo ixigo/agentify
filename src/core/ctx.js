@@ -1042,7 +1042,13 @@ export function renderMatchDigest(matches) {
 async function computeMatchSelection(root, prompt, options = {}) {
   const startedAt = Date.now();
   const sid = String(options.sessionId || "unknown").slice(0, 8);
-  const snapshot = await loadContextSnapshot(root, { maxNotes: options.maxNotes || 100 });
+  // Candidate window: BM25 must see the WHOLE practical store, not just the
+  // newest notes — a months-old decision buried under newer notes is exactly
+  // what per-task retrieval exists to resurface (the store-size ladder
+  // exposed the old 100-note cutoff: at 300 notes the needle usually could
+  // not even become a candidate). 1000 matches the digest path's bound;
+  // scoring a thousand short notes is microseconds.
+  const snapshot = await loadContextSnapshot(root, { maxNotes: options.maxNotes || 1000 });
   const matches = matchSnapshotToPrompt(snapshot, prompt);
   const ledger = await readInjectionLedger(root);
   const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
