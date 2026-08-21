@@ -1,0 +1,1615 @@
+{
+  "schema": "eval-report-v2",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20260821-150643-655f34",
+  "run_ts": "2026-08-21T12:33:31.003980Z",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "2026-08-21__17-57-57",
+    "imported_at": "2026-08-21T15:06:43.787Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.1.0"
+    },
+    "agents": [
+      "agentify-claude",
+      "memorybank-claude",
+      "plain-claude"
+    ]
+  },
+  "artifacts_root": ".agentify/evals/runs/20260821-150643-655f34",
+  "task": {
+    "id": "recall-webhook-signature-store300",
+    "prompt_sha256": null,
+    "fingerprint_sha256": "d46375f2958d1789e05f17a6ebad351c5dda8b31363b60d20f8b81a45885d83b",
+    "base_sha": null,
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": null,
+    "category": "decision-recall",
+    "phases": null,
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null,
+    "forbidden_paths": [],
+    "arms": [
+      "agentify",
+      "memorybank-claude",
+      "plain-claude"
+    ],
+    "repeat": 9
+  },
+  "versions": {
+    "agentify": "0.4.0",
+    "claude": null,
+    "harbor": "0.18.0"
+  },
+  "completeness": {
+    "planned_attempts": 27,
+    "completed_attempts": 27,
+    "partial": false,
+    "paired": true,
+    "underpowered": false,
+    "min_attempts_per_arm": 5,
+    "labels": []
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 9,
+      "passes": 9,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.7008,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.691283,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.076809,
+        "per_pass_usd": 0.076809,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 83046,
+        "cache_read": 3311256,
+        "cache_write": 0,
+        "output": 39030,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 57626,
+        "provider_p95_ms": 63642,
+        "provider_mean_ms": 52081,
+        "total_mean_ms": 107388
+      },
+      "turns": {
+        "mean": 15.67,
+        "max": 19,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 6,
+        "provider_error": 3
+      }
+    },
+    "memorybank-claude": {
+      "attempts": 9,
+      "passes": 9,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.7008,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.629615,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.069957,
+        "per_pass_usd": 0.069957,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 44178,
+        "cache_read": 3983304,
+        "cache_write": 0,
+        "output": 28778,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 39143,
+        "provider_p95_ms": 70989,
+        "provider_mean_ms": 43676,
+        "total_mean_ms": 77028
+      },
+      "turns": {
+        "mean": 14.11,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 5,
+        "provider_error": 4
+      }
+    },
+    "plain-claude": {
+      "attempts": 9,
+      "passes": 0,
+      "failures": 9,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0,
+      "pass_rate_ci95": {
+        "low": 0,
+        "high": 0.2992
+      },
+      "cost": {
+        "reported_usd": 0.579422,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.06438,
+        "per_pass_usd": null,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 60612,
+        "cache_read": 3009999,
+        "cache_write": 0,
+        "output": 31644,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 43130,
+        "provider_p95_ms": 65217,
+        "provider_mean_ms": 42837,
+        "total_mean_ms": 75570
+      },
+      "turns": {
+        "mean": 15.33,
+        "max": 19,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "grader_failed": 5,
+        "provider_error": 4
+      },
+      "stop_reasons": {
+        "ok": 5,
+        "provider_error": 4
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "memorybank-claude",
+      "pairs": 9,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9"
+      ],
+      "pass_rate_delta": 0,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 1,
+      "cost_per_pass_delta_usd": 0.006852,
+      "provider_p95_delta_ms": -7347
+    },
+    {
+      "baseline": "plain-claude",
+      "pairs": 9,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9"
+      ],
+      "pass_rate_delta": 1,
+      "discordant": {
+        "agentify_only_pass": 9,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 0.003906,
+      "cost_per_pass_delta_usd": null,
+      "provider_p95_delta_ms": -1575
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "memorybank-claude",
+        "paired_attempts": 9,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.076809,
+          "baseline_usd": 0.069957
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      },
+      {
+        "baseline": "plain-claude",
+        "paired_attempts": 9,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.076809,
+          "baseline_usd": null
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.076809,
+        "total_reported_usd": 0.691283,
+        "passes": 9,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "memorybank-claude",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.069957,
+        "total_reported_usd": 0.629615,
+        "passes": 9,
+        "costed": true,
+        "on_frontier": true
+      },
+      {
+        "arm": "plain-claude",
+        "pass_rate": 0,
+        "cost_per_pass_usd": null,
+        "total_reported_usd": 0.579422,
+        "passes": 0,
+        "costed": true,
+        "on_frontier": false
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": true,
+    "reason": "no winner declared: pass-rate confidence intervals overlap"
+  },
+  "context_metrics": null,
+  "attempts": [
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33259,
+      "duration_ms": 87417,
+      "cost_usd": 0.0526591,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4738,
+        "cache_read_tokens": 283421,
+        "cache_write_tokens": 0,
+        "output_tokens": 2986
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-1",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 39143,
+      "duration_ms": 72588,
+      "cost_usd": 0.0708905,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4735,
+        "cache_read_tokens": 433755,
+        "cache_write_tokens": 0,
+        "output_tokens": 3630
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-1",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33981,
+      "duration_ms": 71704,
+      "cost_usd": 0.04272820000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3613,
+        "cache_read_tokens": 218402,
+        "cache_write_tokens": 0,
+        "output_tokens": 2747
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-2",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 10,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 19861,
+      "duration_ms": 51090,
+      "cost_usd": 0.03338200000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3260,
+        "cache_read_tokens": 168220,
+        "cache_write_tokens": 0,
+        "output_tokens": 2028
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-3",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 19,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 65217,
+      "duration_ms": 97476,
+      "cost_usd": 0.0800251,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9666,
+        "cache_read_tokens": 384861,
+        "cache_write_tokens": 0,
+        "output_tokens": 4466
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-2",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37298,
+      "duration_ms": 70303,
+      "cost_usd": 0.0630979,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4002,
+        "cache_read_tokens": 396209,
+        "cache_write_tokens": 0,
+        "output_tokens": 3114
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 62541,
+      "duration_ms": 110823,
+      "cost_usd": 0.09778660000000002,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 14139,
+        "cache_read_tokens": 453646,
+        "cache_write_tokens": 0,
+        "output_tokens": 4855
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-3",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 56713,
+      "duration_ms": 91143,
+      "cost_usd": 0.0845254,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5702,
+        "cache_read_tokens": 539654,
+        "cache_write_tokens": 0,
+        "output_tokens": 3857
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-4",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37495,
+      "duration_ms": 66842,
+      "cost_usd": 0.0641541,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4682,
+        "cache_read_tokens": 398191,
+        "cache_write_tokens": 0,
+        "output_tokens": 3020
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-5",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 43130,
+      "duration_ms": 73316,
+      "cost_usd": 0.0718944,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8064,
+        "cache_read_tokens": 396424,
+        "cache_write_tokens": 0,
+        "output_tokens": 3251
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-4",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 38977,
+      "duration_ms": 72855,
+      "cost_usd": 0.0826559,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5843,
+        "cache_read_tokens": 540539,
+        "cache_write_tokens": 0,
+        "output_tokens": 3409
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-6",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 47167,
+      "duration_ms": 78319,
+      "cost_usd": 0.0825273,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9461,
+        "cache_read_tokens": 406663,
+        "cache_write_tokens": 0,
+        "output_tokens": 4614
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-5",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 9,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 24894,
+      "duration_ms": 57961,
+      "cost_usd": 0.040471,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3142,
+        "cache_read_tokens": 227890,
+        "cache_write_tokens": 0,
+        "output_tokens": 2291
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 57712,
+      "duration_ms": 107100,
+      "cost_usd": 0.0650029,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8679,
+        "cache_read_tokens": 266549,
+        "cache_write_tokens": 0,
+        "output_tokens": 4235
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-4",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 57626,
+      "duration_ms": 109086,
+      "cost_usd": 0.09415000000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10961,
+        "cache_read_tokens": 444890,
+        "cache_write_tokens": 0,
+        "output_tokens": 5574
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-6",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 70989,
+      "duration_ms": 101098,
+      "cost_usd": 0.08184160000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6285,
+        "cache_read_tokens": 540156,
+        "cache_write_tokens": 0,
+        "output_tokens": 3077
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-5",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 31018,
+      "duration_ms": 94507,
+      "cost_usd": 0.046938400000000005,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4238,
+        "cache_read_tokens": 257434,
+        "cache_write_tokens": 0,
+        "output_tokens": 2560
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-7",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 56368,
+      "duration_ms": 89562,
+      "cost_usd": 0.0799193,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8857,
+        "cache_read_tokens": 405713,
+        "cache_write_tokens": 0,
+        "output_tokens": 4353
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-6",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 55635,
+      "duration_ms": 110043,
+      "cost_usd": 0.0819508,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10009,
+        "cache_read_tokens": 370598,
+        "cache_write_tokens": 0,
+        "output_tokens": 4996
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-7",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 45213,
+      "duration_ms": 79997,
+      "cost_usd": 0.0826705,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5582,
+        "cache_read_tokens": 540855,
+        "cache_write_tokens": 0,
+        "output_tokens": 3510
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-8",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 49660,
+      "duration_ms": 82985,
+      "cost_usd": 0.0745782,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8901,
+        "cache_read_tokens": 361562,
+        "cache_write_tokens": 0,
+        "output_tokens": 4147
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-8",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 41789,
+      "duration_ms": 74650,
+      "cost_usd": 0.0491876,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3484,
+        "cache_read_tokens": 295526,
+        "cache_write_tokens": 0,
+        "output_tokens": 2548
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-9",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 32653,
+      "duration_ms": 68833,
+      "cost_usd": 0.0502133,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4108,
+        "cache_read_tokens": 269963,
+        "cache_write_tokens": 0,
+        "output_tokens": 3018
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-7",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 18,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 48568,
+      "duration_ms": 112597,
+      "cost_usd": 0.0746586,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9554,
+        "cache_read_tokens": 355126,
+        "cache_write_tokens": 0,
+        "output_tokens": 4029
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-8",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 19,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 63642,
+      "duration_ms": 116474,
+      "cost_usd": 0.0892732,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10362,
+        "cache_read_tokens": 428622,
+        "cache_write_tokens": 0,
+        "output_tokens": 5162
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-9",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 38070,
+      "duration_ms": 72661,
+      "cost_usd": 0.074275,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5403,
+        "cache_read_tokens": 468720,
+        "cache_write_tokens": 0,
+        "output_tokens": 3342
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-9",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 58731,
+      "duration_ms": 118444,
+      "cost_usd": 0.08886299999999998,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10366,
+        "cache_read_tokens": 450970,
+        "cache_write_tokens": 0,
+        "output_tokens": 4633
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    }
+  ]
+}

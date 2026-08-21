@@ -83,7 +83,12 @@ for (const { base } of LADDER) {
   const maxDecoys = Math.max(...SIZES) - realNotes.length;
   const masterDecoys = Array.from({ length: maxDecoys }, (_, i) => JSON.stringify(decoyNote(decoyRand, i)));
   for (const size of SIZES) {
-    const variant = `${base}-store${size}`;
+    // Zero-padded so no rung id is a PREFIX of another: harbor's task
+    // resolution silently dropped all three `-store10` tasks from the
+    // 2026-08-21 run (lock.json resolved 6 of 9 names) because `-store10`
+    // prefixes `-store100`. Padding also keeps ids short enough to survive
+    // harbor's 32-character task-name truncation.
+    const variant = `${base}-store${String(size).padStart(3, "0")}`;
     const rand = mulberry32(seedFrom(`${variant}::placement`));
     const decoys = masterDecoys.slice(0, size - realNotes.length);
     // Bury the real notes at seeded positions (keeping their relative order):

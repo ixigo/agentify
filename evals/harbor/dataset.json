@@ -1,7 +1,7 @@
 {
   "schema": "harbor-dataset-v1",
   "name": "agentify-context-bench",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "model": "anthropic/claude-haiku-4-5-20251001",
   "pins": {
     "harbor": "0.18.0",
@@ -91,7 +91,7 @@
       ]
     },
     {
-      "id": "avoid-cache-regression-store10",
+      "id": "avoid-cache-regression-store010",
       "category": "prior-failure-avoidance",
       "difficulty": "easy",
       "max_cost_usd": 0.7,
@@ -373,7 +373,7 @@
       ]
     },
     {
-      "id": "recall-retry-schedule-store10",
+      "id": "recall-retry-schedule-store010",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.7,
@@ -423,7 +423,7 @@
       ]
     },
     {
-      "id": "recall-webhook-signature-store10",
+      "id": "recall-webhook-signature-store010",
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.7,
@@ -607,17 +607,31 @@
     },
     "storeladder": {
       "tasks": [
-        "avoid-cache-regression-store10",
+        "avoid-cache-regression-store010",
         "avoid-cache-regression-store100",
         "avoid-cache-regression-store300",
-        "recall-retry-schedule-store10",
+        "recall-retry-schedule-store010",
         "recall-retry-schedule-store100",
         "recall-retry-schedule-store300",
-        "recall-webhook-signature-store10",
+        "recall-webhook-signature-store010",
         "recall-webhook-signature-store100",
         "recall-webhook-signature-store300"
       ],
       "attempts": 3,
+      "agents": 3,
+      "agent_names": [
+        "agentify-claude",
+        "memorybank-claude",
+        "plain-claude"
+      ]
+    },
+    "storeladder-deep": {
+      "tasks": [
+        "avoid-cache-regression-store300",
+        "recall-retry-schedule-store300",
+        "recall-webhook-signature-store300"
+      ],
+      "attempts": 9,
       "agents": 3,
       "agent_names": [
         "agentify-claude",

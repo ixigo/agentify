@@ -3,7 +3,7 @@
 # at tiny store sizes (a handful of notes); this suite holds task, image,
 # model, budget, and verifier fixed while growing ONLY the context store:
 #
-#   -store10  (small rung: the same knowledge among a handful of decoys)
+#   -store010 (small rung: the same knowledge among a handful of decoys)
 #   -store100 (same knowledge among ~98 deterministic decoy notes)
 #   -store300 (same knowledge among ~298 decoys)
 # All three rungs run under the SAME $0.70 cap — reusing the head-to-head's
@@ -32,13 +32,13 @@ n_concurrent_trials: 2
 datasets:
   - path: tasks
     task_names:
-      - avoid-cache-regression-store10
+      - avoid-cache-regression-store010
       - avoid-cache-regression-store100
       - avoid-cache-regression-store300
-      - recall-retry-schedule-store10
+      - recall-retry-schedule-store010
       - recall-retry-schedule-store100
       - recall-retry-schedule-store300
-      - recall-webhook-signature-store10
+      - recall-webhook-signature-store010
       - recall-webhook-signature-store100
       - recall-webhook-signature-store300
 

@@ -1,0 +1,72 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260821-150643-61915c",
+  "attempt_id": "memorybank-claude-3",
+  "arm": "memorybank-claude",
+  "base_arm": "memorybank-claude",
+  "context_ablation": null,
+  "repeat_index": 3,
+  "task_id": "recall-webhook-signature-store100",
+  "difficulty": "hard",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "2026-08-21__16-41-00",
+    "trial": "recall-webhook-signature-store10__aGUSTFb",
+    "agent": "memorybank-claude",
+    "agent_version": "unknown",
+    "reward": 0,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.1.0"
+    },
+    "category": "decision-recall"
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": null,
+  "resolved_profile": null,
+  "limits": {
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "provider_error",
+  "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains cryptographic helpers used by a webhook receiver.\n\nAdd and export `verifyWebhook({ rawBody, timestamp, signature }, secret)` in\n`src/webhook.js`. It must verify the provider signature using the deployed\nwire contract and the existing constant-time comparison helper. Add focused\ntests for valid and tampered payloads.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+  "error_type": "NonZeroAgentExitCodeError",
+  "provider": {
+    "exit_code": 1,
+    "timed_out": false,
+    "duration_ms": 54078,
+    "subtype": null,
+    "num_turns": 17,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.092702,
+    "usage": {
+      "fresh_input_tokens": 10066,
+      "cache_read_tokens": 480060,
+      "cache_write_tokens": 0,
+      "output_tokens": 4939
+    }
+  },
+  "grade": {
+    "pass": false,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 1,
+        "passed": false,
+        "timed_out": false,
+        "output_tail": "reward 0"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": false,
+  "duration_ms": 83036,
+  "artifacts": null
+}

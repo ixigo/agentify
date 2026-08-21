@@ -1,0 +1,1633 @@
+{
+  "schema": "eval-report-v2",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20260821-150643-b4c90b",
+  "run_ts": "2026-08-21T12:30:56.932129Z",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "2026-08-21__17-57-57",
+    "imported_at": "2026-08-21T15:06:43.787Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.1.0"
+    },
+    "agents": [
+      "plain-claude",
+      "agentify-claude",
+      "memorybank-claude"
+    ]
+  },
+  "artifacts_root": ".agentify/evals/runs/20260821-150643-b4c90b",
+  "task": {
+    "id": "recall-retry-schedule-store300",
+    "prompt_sha256": null,
+    "fingerprint_sha256": "aa21c766f13453bb060e75d3964763bb0cfdf74678c5ed2191c0d5262de3a66f",
+    "base_sha": null,
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": null,
+    "category": "decision-recall",
+    "phases": null,
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null,
+    "forbidden_paths": [],
+    "arms": [
+      "plain-claude",
+      "agentify",
+      "memorybank-claude"
+    ],
+    "repeat": 9
+  },
+  "versions": {
+    "agentify": "0.4.0",
+    "claude": null,
+    "harbor": "0.18.0"
+  },
+  "completeness": {
+    "planned_attempts": 27,
+    "completed_attempts": 27,
+    "partial": false,
+    "paired": true,
+    "underpowered": false,
+    "min_attempts_per_arm": 5,
+    "labels": []
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 9,
+      "passes": 3,
+      "failures": 6,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0.3333,
+      "pass_rate_ci95": {
+        "low": 0.1206,
+        "high": 0.6458
+      },
+      "cost": {
+        "reported_usd": 0.622887,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.06921,
+        "per_pass_usd": 0.207629,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 54947,
+        "cache_read": 3632004,
+        "cache_write": 0,
+        "output": 30178,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 45350,
+        "provider_p95_ms": 56680,
+        "provider_mean_ms": 45605,
+        "total_mean_ms": 107123
+      },
+      "turns": {
+        "mean": 15.89,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "provider_error": 4,
+        "grader_failed": 2
+      },
+      "stop_reasons": {
+        "ok": 4,
+        "provider_error": 5
+      }
+    },
+    "memorybank-claude": {
+      "attempts": 9,
+      "passes": 6,
+      "failures": 3,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0.6667,
+      "pass_rate_ci95": {
+        "low": 0.3542,
+        "high": 0.8794
+      },
+      "cost": {
+        "reported_usd": 0.689536,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.076615,
+        "per_pass_usd": 0.114923,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 56229,
+        "cache_read": 4327394,
+        "cache_write": 0,
+        "output": 29132,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 42989,
+        "provider_p95_ms": 59067,
+        "provider_mean_ms": 40350,
+        "total_mean_ms": 73909
+      },
+      "turns": {
+        "mean": 15.11,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "provider_error": 2,
+        "grader_failed": 1
+      },
+      "stop_reasons": {
+        "ok": 3,
+        "provider_error": 6
+      }
+    },
+    "plain-claude": {
+      "attempts": 9,
+      "passes": 0,
+      "failures": 9,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0,
+      "pass_rate_ci95": {
+        "low": 0,
+        "high": 0.2992
+      },
+      "cost": {
+        "reported_usd": 0.58037,
+        "reported_attempts": 9,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.064486,
+        "per_pass_usd": null,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 50795,
+        "cache_read": 3374326,
+        "cache_write": 0,
+        "output": 28510,
+        "usage_reported_attempts": 9,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 39075,
+        "provider_p95_ms": 66039,
+        "provider_mean_ms": 44808,
+        "total_mean_ms": 76213
+      },
+      "turns": {
+        "mean": 16,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 9
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "grader_failed": 3,
+        "provider_error": 6
+      },
+      "stop_reasons": {
+        "ok": 3,
+        "provider_error": 6
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "memorybank-claude",
+      "pairs": 9,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9"
+      ],
+      "pass_rate_delta": -0.3334,
+      "discordant": {
+        "agentify_only_pass": 2,
+        "baseline_only_pass": 5
+      },
+      "sign_test_p": 0.453125,
+      "cost_per_pass_delta_usd": 0.092706,
+      "provider_p95_delta_ms": -2387
+    },
+    {
+      "baseline": "plain-claude",
+      "pairs": 9,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9"
+      ],
+      "pass_rate_delta": 0.3333,
+      "discordant": {
+        "agentify_only_pass": 3,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 0.25,
+      "cost_per_pass_delta_usd": null,
+      "provider_p95_delta_ms": -9359
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "memorybank-claude",
+        "paired_attempts": 9,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.207629,
+          "baseline_usd": 0.114923
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      },
+      {
+        "baseline": "plain-claude",
+        "paired_attempts": 9,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.207629,
+          "baseline_usd": null
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 0.3333,
+        "cost_per_pass_usd": 0.207629,
+        "total_reported_usd": 0.622887,
+        "passes": 3,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "memorybank-claude",
+        "pass_rate": 0.6667,
+        "cost_per_pass_usd": 0.114923,
+        "total_reported_usd": 0.689536,
+        "passes": 6,
+        "costed": true,
+        "on_frontier": true
+      },
+      {
+        "arm": "plain-claude",
+        "pass_rate": 0,
+        "cost_per_pass_usd": null,
+        "total_reported_usd": 0.58037,
+        "passes": 0,
+        "costed": true,
+        "on_frontier": false
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": true,
+    "reason": "no winner declared: pass-rate confidence intervals overlap"
+  },
+  "context_metrics": null,
+  "attempts": [
+    {
+      "attempt_id": "plain-claude-1",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 36185,
+      "duration_ms": 65696,
+      "cost_usd": 0.054633100000000004,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3917,
+        "cache_read_tokens": 340421,
+        "cache_write_tokens": 0,
+        "output_tokens": 2574
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 51812,
+      "duration_ms": 98910,
+      "cost_usd": 0.0706283,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6147,
+        "cache_read_tokens": 373473,
+        "cache_write_tokens": 0,
+        "output_tokens": 4220
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-2",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 39075,
+      "duration_ms": 73597,
+      "cost_usd": 0.062043600000000004,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4646,
+        "cache_read_tokens": 396456,
+        "cache_write_tokens": 0,
+        "output_tokens": 2647
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-1",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 28190,
+      "duration_ms": 59343,
+      "cost_usd": 0.047957900000000005,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3585,
+        "cache_read_tokens": 292789,
+        "cache_write_tokens": 0,
+        "output_tokens": 2374
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-3",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 46490,
+      "duration_ms": 81123,
+      "cost_usd": 0.0629012,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4729,
+        "cache_read_tokens": 395322,
+        "cache_write_tokens": 0,
+        "output_tokens": 2808
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-2",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 44961,
+      "duration_ms": 78328,
+      "cost_usd": 0.0819328,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5291,
+        "cache_read_tokens": 533898,
+        "cache_write_tokens": 0,
+        "output_tokens": 3618
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 44764,
+      "duration_ms": 105133,
+      "cost_usd": 0.06968450000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5801,
+        "cache_read_tokens": 427265,
+        "cache_write_tokens": 0,
+        "output_tokens": 3097
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 42824,
+      "duration_ms": 111283,
+      "cost_usd": 0.0722022,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6499,
+        "cache_read_tokens": 429482,
+        "cache_write_tokens": 0,
+        "output_tokens": 3277
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-4",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 45350,
+      "duration_ms": 94724,
+      "cost_usd": 0.0767989,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6705,
+        "cache_read_tokens": 428979,
+        "cache_write_tokens": 0,
+        "output_tokens": 4124
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-5",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 47580,
+      "duration_ms": 107930,
+      "cost_usd": 0.069086,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5534,
+        "cache_read_tokens": 425020,
+        "cache_write_tokens": 0,
+        "output_tokens": 3129
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-3",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 42989,
+      "duration_ms": 79971,
+      "cost_usd": 0.08564640000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6572,
+        "cache_read_tokens": 539514,
+        "cache_write_tokens": 0,
+        "output_tokens": 3736
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-4",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 40493,
+      "duration_ms": 78250,
+      "cost_usd": 0.0804833,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5132,
+        "cache_read_tokens": 534583,
+        "cache_write_tokens": 0,
+        "output_tokens": 3378
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-5",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 35424,
+      "duration_ms": 71472,
+      "cost_usd": 0.07135549999999999,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4653,
+        "cache_read_tokens": 463675,
+        "cache_write_tokens": 0,
+        "output_tokens": 3159
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-6",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 40690,
+      "duration_ms": 84603,
+      "cost_usd": 0.0702353,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6445,
+        "cache_read_tokens": 429693,
+        "cache_write_tokens": 0,
+        "output_tokens": 2901
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-7",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 56680,
+      "duration_ms": 155455,
+      "cost_usd": 0.07196820000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5995,
+        "cache_read_tokens": 427822,
+        "cache_write_tokens": 0,
+        "output_tokens": 3465
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-6",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 43015,
+      "duration_ms": 76367,
+      "cost_usd": 0.08649519999999998,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 7062,
+        "cache_read_tokens": 545902,
+        "cache_write_tokens": 0,
+        "output_tokens": 3582
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-7",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 59067,
+      "duration_ms": 89407,
+      "cost_usd": 0.10456250000000002,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 14277,
+        "cache_read_tokens": 588025,
+        "cache_write_tokens": 0,
+        "output_tokens": 3467
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-8",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34867,
+      "duration_ms": 94014,
+      "cost_usd": 0.06261820000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6169,
+        "cache_read_tokens": 371232,
+        "cache_write_tokens": 0,
+        "output_tokens": 2654
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-4",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33229,
+      "duration_ms": 64483,
+      "cost_usd": 0.0488552,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3891,
+        "cache_read_tokens": 268122,
+        "cache_write_tokens": 0,
+        "output_tokens": 2870
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-9",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 45876,
+      "duration_ms": 112052,
+      "cost_usd": 0.05966580000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5652,
+        "cache_read_tokens": 319038,
+        "cache_write_tokens": 0,
+        "output_tokens": 3311
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-5",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 63248,
+      "duration_ms": 93652,
+      "cost_usd": 0.07524420000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8791,
+        "cache_read_tokens": 403182,
+        "cache_write_tokens": 0,
+        "output_tokens": 3495
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-6",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 66039,
+      "duration_ms": 96299,
+      "cost_usd": 0.0828513,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9767,
+        "cache_read_tokens": 410153,
+        "cache_write_tokens": 0,
+        "output_tokens": 4507
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-8",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "provider_error",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 43716,
+      "duration_ms": 77539,
+      "cost_usd": 0.0830343,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6344,
+        "cache_read_tokens": 537253,
+        "cache_write_tokens": 0,
+        "output_tokens": 3350
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-7",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 15,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 46014,
+      "duration_ms": 74637,
+      "cost_usd": 0.0653338,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5100,
+        "cache_read_tokens": 371498,
+        "cache_write_tokens": 0,
+        "output_tokens": 3621
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-9",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 9,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 25299,
+      "duration_ms": 54508,
+      "cost_usd": 0.0480685,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3313,
+        "cache_read_tokens": 291755,
+        "cache_write_tokens": 0,
+        "output_tokens": 2468
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-8",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37205,
+      "duration_ms": 70378,
+      "cost_usd": 0.064915,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5102,
+        "cache_read_tokens": 393800,
+        "cache_write_tokens": 0,
+        "output_tokens": 3092
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "plain-claude-9",
+      "arm": "plain-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "provider_error",
+      "pass": false,
+      "failure_kind": "provider_error",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 35784,
+      "duration_ms": 66053,
+      "cost_usd": 0.0635922,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4852,
+        "cache_read_tokens": 395372,
+        "cache_write_tokens": 0,
+        "output_tokens": 2896
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.4.0",
+      "claude_version": null
+    }
+  ]
+}
