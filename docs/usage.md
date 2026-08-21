@@ -119,7 +119,7 @@ The agentify arm expands into one arm per ablation (`agentify`, `agentify-ctx-di
 
 ### Second harness: Harbor container benchmarks
 
-A portable 35-task dataset under `evals/harbor/` runs the same paired question through [Harbor](https://www.harborframework.com) (Terminal-Bench 2.0) with container isolation and Harbor's plain `claude-code` agent as the baseline — catching anything that only looks like a win inside Agentify's own runner. Harbor stays out of the npm runtime:
+A portable 38-task dataset under `evals/harbor/` runs the same paired question through [Harbor](https://www.harborframework.com) (Terminal-Bench 2.0) with container isolation and Harbor's plain `claude-code` agent as the baseline — catching anything that only looks like a win inside Agentify's own runner. Harbor stays out of the npm runtime:
 
 ```bash
 agentify eval harbor validate            # schema + fixture answer-leak checks (CI, token-free)

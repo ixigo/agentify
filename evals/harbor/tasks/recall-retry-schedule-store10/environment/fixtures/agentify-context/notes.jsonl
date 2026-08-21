@@ -1,0 +1,10 @@
+{"ts":"2026-02-02T09:28:00.000Z","sid":"d0000000","type":"decision","note":"decided for org-directory: hardened the schema linter because disk pressure tripped the pod evictions; owners agreed to revisit after the next quarterly capacity review"}
+{"ts":"2026-01-26T08:11:00.000Z","sid":"d0000001","note":"org-directory: deprecated the i18n fallback chain — the vendor deprecated the v2 endpoint"}
+{"ts":"2026-02-08T17:19:00.000Z","sid":"d0000002","type":"decision","note":"decided for search-suggest: hardened the nightly export because the framework upgrade changed defaults; any future change here needs a load test against the replay corpus first"}
+{"ts":"2026-05-06T10:12:00.000Z","sid":"retry42a","note":"ADR-42 chose one-based Fibonacci retry delays of 1s, 1s, 2s, 3s, then 5s capped forever; exponential backoff caused recovery storms to synchronize after the May outage."}
+{"ts":"2026-02-24T01:55:00.000Z","sid":"d0000003","type":"decision","note":"decided for avatar-resizer: split the cold-start warmer because the on-call rotation flagged alert fatigue; the fallback path stays enabled until two clean release cycles pass"}
+{"ts":"2026-01-16T23:49:00.000Z","sid":"d0000004","note":"quota-meter: instrumented the cold-start warmer — clock skew broke ordering assumptions"}
+{"ts":"2026-05-06T10:14:00.000Z","sid":"retry42a","note":"Recovery retries must keep the exact job object and enter the recoverable lane. The worker uses the lane to isolate retries from fresh traffic."}
+{"ts":"2026-03-12T15:47:00.000Z","sid":"d0000005","note":"coupon-engine: consolidated the pagination cursor store — the on-call rotation flagged alert fatigue"}
+{"ts":"2026-04-01T14:05:00.000Z","sid":"d0000006","note":"coupon-engine: split the queue consumer group — duplicate rows appeared during failover"}
+{"ts":"2026-03-09T06:25:00.000Z","sid":"d0000007","note":"inbox-digest: throttled the i18n fallback chain — duplicate rows appeared during failover"}

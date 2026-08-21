@@ -91,6 +91,17 @@
       ]
     },
     {
+      "id": "avoid-cache-regression-store10",
+      "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
+    },
+    {
       "id": "avoid-cache-regression-store100",
       "category": "prior-failure-avoidance",
       "difficulty": "easy",
@@ -362,6 +373,16 @@
       ]
     },
     {
+      "id": "recall-retry-schedule-store10",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "RETRY_SECONDS",
+        "Math.trunc(attempt)"
+      ]
+    },
+    {
       "id": "recall-retry-schedule-store100",
       "category": "decision-recall",
       "difficulty": "hard",
@@ -396,6 +417,16 @@
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "sha256=",
+        "timestamp}:${rawBody"
+      ]
+    },
+    {
+      "id": "recall-webhook-signature-store10",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
       "answer_leak_patterns": [
         "sha256=",
         "timestamp}:${rawBody"
@@ -576,10 +607,13 @@
     },
     "storeladder": {
       "tasks": [
+        "avoid-cache-regression-store10",
         "avoid-cache-regression-store100",
         "avoid-cache-regression-store300",
+        "recall-retry-schedule-store10",
         "recall-retry-schedule-store100",
         "recall-retry-schedule-store300",
+        "recall-webhook-signature-store10",
         "recall-webhook-signature-store100",
         "recall-webhook-signature-store300"
       ],

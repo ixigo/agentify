@@ -18,10 +18,18 @@ import { fileURLToPath } from "node:url";
 
 const HARBOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// Three rungs per scenario, including a store10 SMALL rung so every rung
+// runs under the same $0.70 cap (PR #375 review: reusing the head-to-head's
+// $0.35-cap results as the small rung would confound budget with store
+// size). Larger rungs are strict SUPERSETS of smaller ones: one decoy
+// sequence is generated per base task (seeded by base id only) and each rung
+// takes a prefix of it, so the ONLY thing that changes up the ladder is how
+// much of the same store exists — never the distractor wording.
+const SIZES = [10, 100, 300];
 const LADDER = [
-  { base: "avoid-cache-regression", sizes: [100, 300] },
-  { base: "recall-retry-schedule", sizes: [100, 300] },
-  { base: "recall-webhook-signature", sizes: [100, 300] },
+  { base: "avoid-cache-regression" },
+  { base: "recall-retry-schedule" },
+  { base: "recall-webhook-signature" },
 ];
 
 function mulberry32(seed) {
@@ -65,14 +73,19 @@ function decoyNote(rand, index) {
   return { ts, sid, ...(type === "decision" ? { type: "decision" } : {}), note: body };
 }
 
-for (const { base, sizes } of LADDER) {
+for (const { base } of LADDER) {
   const baseNotesPath = path.join(HARBOR_ROOT, "tasks", base, "environment", "fixtures", "agentify-context", "notes.jsonl");
   const realNotes = fs.readFileSync(baseNotesPath, "utf8").split("\n").filter(Boolean);
-  for (const size of sizes) {
+  // ONE deterministic decoy sequence per base task; every rung consumes a
+  // prefix of it (superset property). The placement PRNG is separate so
+  // consuming more decoys never reshuffles the smaller rungs' content.
+  const decoyRand = mulberry32(seedFrom(`${base}::decoys`));
+  const maxDecoys = Math.max(...SIZES) - realNotes.length;
+  const masterDecoys = Array.from({ length: maxDecoys }, (_, i) => JSON.stringify(decoyNote(decoyRand, i)));
+  for (const size of SIZES) {
     const variant = `${base}-store${size}`;
-    const rand = mulberry32(seedFrom(variant));
-    const decoyCount = size - realNotes.length;
-    const decoys = Array.from({ length: decoyCount }, (_, i) => JSON.stringify(decoyNote(rand, i)));
+    const rand = mulberry32(seedFrom(`${variant}::placement`));
+    const decoys = masterDecoys.slice(0, size - realNotes.length);
     // Bury the real notes at seeded positions (keeping their relative order):
     // never first, never last, so position alone can't give them away.
     const lines = [...decoys];
@@ -89,6 +102,6 @@ for (const { base, sizes } of LADDER) {
     if (fs.existsSync(baseEvents)) {
       fs.copyFileSync(baseEvents, path.join(outDir, "events.jsonl"));
     }
-    console.log(`${variant}: ${lines.length} notes (${realNotes.length} real + ${decoyCount} decoys)`);
+    console.log(`${variant}: ${lines.length} notes (${realNotes.length} real + ${decoys.length} decoys)`);
   }
 }

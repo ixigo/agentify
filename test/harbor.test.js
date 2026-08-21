@@ -625,12 +625,42 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
 
 test("committed store-size ladder plans three arms with mixed caps (head-to-head follow-up)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "storeladder" });
-  // 6 padded variants ($0.70 cap each) × 3 arms × 3 attempts — the small
-  // rung is the already-paid 2026-08-20 head-to-head, so the plan ceiling
-  // equals harbor's enforceable worst case exactly.
-  assert.equal(plan.trials, 54);
-  assert.equal(plan.max_spend_usd, 37.8);
+  // 9 tasks (3 scenarios × store10/100/300, ALL capped $0.70 so budget
+  // never confounds the size axis) × 3 arms × 3 attempts.
+  assert.equal(plan.trials, 81);
+  assert.equal(plan.max_spend_usd, 56.7);
   assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "plain-claude"]);
+});
+
+test("store-ladder rungs are strict supersets sharing one decoy sequence (PR #375 review)", async () => {
+  const tasksRoot = path.join(REPO_ROOT, "evals", "harbor", "tasks");
+  for (const base of ["avoid-cache-regression", "recall-retry-schedule", "recall-webhook-signature"]) {
+    const notesFor = async (size) => (await fs.readFile(
+      path.join(tasksRoot, `${base}-store${size}`, "environment", "fixtures", "agentify-context", "notes.jsonl"),
+      "utf8",
+    )).split("\n").filter(Boolean);
+    const baseNotes = (await fs.readFile(
+      path.join(tasksRoot, base, "environment", "fixtures", "agentify-context", "notes.jsonl"),
+      "utf8",
+    )).split("\n").filter(Boolean);
+    const [s10, s100, s300] = await Promise.all([notesFor(10), notesFor(100), notesFor(300)]);
+    assert.equal(s10.length, 10);
+    assert.equal(s100.length, 100);
+    assert.equal(s300.length, 300);
+    const set100 = new Set(s100);
+    const set300 = new Set(s300);
+    // Every note of a smaller rung exists in every larger rung — the ONLY
+    // thing that changes up the ladder is how much of the same store exists.
+    for (const line of s10) assert.ok(set100.has(line) && set300.has(line), `store10 note missing upward in ${base}`);
+    for (const line of s100) assert.ok(set300.has(line), `store100 note missing from store300 in ${base}`);
+    // The real knowledge is present at every rung, never first or last.
+    for (const real of baseNotes) {
+      for (const [label, rung] of [["10", s10], ["100", s100], ["300", s300]]) {
+        const at = rung.indexOf(real);
+        assert.ok(at > 0 && at < rung.length - 1, `real note misplaced in ${base}-store${label} (index ${at})`);
+      }
+    }
+  }
 });
 
 test("committed head-to-head suite plans four arms and bounds its ceiling (plan task 1.4)", async () => {
