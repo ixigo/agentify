@@ -9,7 +9,11 @@ import { createSearchSchema, refreshSearchIndexIfNeeded } from "./search-store.j
 import { toJson } from "./utils.js";
 
 const require = createRequire(import.meta.url);
-const DB_SCHEMA_VERSION = "3.1";
+// 3.2 adds the symbol_refs table (real TS/JS call-site references, plan task
+// 2.1). A version-mismatched database is treated as disposable and rebuilt
+// (see assertWritableIndexIsUsable / configureIndexConnection), so an index
+// built before this table existed is transparently regenerated on next open.
+const DB_SCHEMA_VERSION = "3.2";
 const SNAPSHOT_DIR_MODE = 0o700;
 const SNAPSHOT_FILE_MODE = 0o600;
 
@@ -219,6 +223,15 @@ function configureIndexConnection(db, implementation, { readOnly }) {
       FOREIGN KEY (to_module_id) REFERENCES modules(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS symbol_refs (
+      ref_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol_name TEXT NOT NULL,
+      from_path TEXT NOT NULL,
+      line INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      FOREIGN KEY (from_path) REFERENCES files(path) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS tests (
       test_id INTEGER PRIMARY KEY AUTOINCREMENT,
       file_path TEXT NOT NULL,
@@ -253,6 +266,7 @@ function configureIndexConnection(db, implementation, { readOnly }) {
     CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
     CREATE INDEX IF NOT EXISTS idx_symbols_module_id ON symbols(module_id);
     CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+    CREATE INDEX IF NOT EXISTS idx_symbol_refs_name ON symbol_refs(symbol_name);
     CREATE INDEX IF NOT EXISTS idx_imports_from_module_id ON imports(from_module_id);
     CREATE INDEX IF NOT EXISTS idx_imports_to_module_id ON imports(to_module_id);
     CREATE INDEX IF NOT EXISTS idx_tests_module_id ON tests(module_id);

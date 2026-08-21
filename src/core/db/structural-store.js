@@ -10,6 +10,7 @@ export function clearIndexedState(db) {
   db.exec(`
     DELETE FROM commands;
     DELETE FROM tests;
+    DELETE FROM symbol_refs;
     DELETE FROM imports;
     DELETE FROM symbols;
     DELETE FROM files;
@@ -170,6 +171,27 @@ export function writeRepositoryIndex(db, snapshot, { headCommit, provider }) {
       importInfo.kind,
       importInfo.from_module_id || null,
       importInfo.to_module_id || null
+    );
+  }
+
+  // Real call-site references for TS/JS (plan task 2.1). Non-TS languages
+  // contribute no rows here; query.js falls back to file-level import edges for
+  // them. snapshot.symbol_refs may be absent (older callers / hand-built test
+  // fixtures) — treat that as no references rather than failing.
+  const insertSymbolRef = db.prepare(`
+    INSERT INTO symbol_refs (
+      symbol_name,
+      from_path,
+      line,
+      kind
+    ) VALUES (?, ?, ?, ?)
+  `);
+  for (const refInfo of snapshot.symbol_refs || []) {
+    insertSymbolRef.run(
+      refInfo.symbol_name,
+      refInfo.from_path,
+      refInfo.line,
+      refInfo.kind
     );
   }
 

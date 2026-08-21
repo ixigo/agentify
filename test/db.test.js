@@ -166,7 +166,7 @@ test("openIndexDatabase read-only rejects unsupported index schema version", asy
 
   assert.throws(
     () => openIndexDatabase(root, { readOnly: true }),
-    /invalid index database at .*index\.db: index database schema version 0\.1 is not supported; expected 3\.1/,
+    /invalid index database at .*index\.db: index database schema version 0\.1 is not supported; expected 3\.2/,
   );
 });
 
@@ -179,7 +179,7 @@ test("openIndexDatabase writable open rebuilds a corrupt index database", async 
   const db = openIndexDatabase(root);
   try {
     const row = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version'").get();
-    assert.equal(JSON.parse(row.value_json), "3.1");
+    assert.equal(JSON.parse(row.value_json), "3.2");
   } finally {
     closeIndexDatabase(db);
   }
@@ -200,7 +200,7 @@ test("openIndexDatabase writable open rebuilds an index database with an old sch
   const db = openIndexDatabase(root);
   try {
     const version = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'schema_version'").get();
-    assert.equal(JSON.parse(version.value_json), "3.1");
+    assert.equal(JSON.parse(version.value_json), "3.2");
     const marker = db.prepare("SELECT value_json FROM repo_meta WHERE key = 'stale_marker'").get();
     assert.equal(marker, undefined);
   } finally {

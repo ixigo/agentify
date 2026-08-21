@@ -100,6 +100,85 @@ function shortSessionId(value) {
   return text ? text.slice(0, 8) : "unknown";
 }
 
+const COMMAND_SEGMENT_SPLIT = /\s*(?:\|\||&&|;|\|)\s*/;
+const ENV_ASSIGNMENT_TOKEN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const COMMAND_WRAPPER_TOKENS = new Set(["sudo"]);
+
+// A deterministic, whitespace/argument-insensitive fingerprint of a shell
+// command: the binary basename + first subcommand + the sorted set of flag
+// NAMES (values dropped). Only the first pipeline/boolean segment is used, so
+// `foo bar | grep x` and `foo bar | grep y` share a signature. Env-var prefixes
+// (FOO=bar) and `sudo` are stripped. Exported for tests.
+export function normalizeCommandSignature(command) {
+  const segments = String(command ?? "")
+    .split(COMMAND_SEGMENT_SPLIT)
+    .filter((segment) => segment.trim().length > 0);
+  const first = (segments[0] || "").trim();
+  if (!first) {
+    return "";
+  }
+  // Signatures are computed over the REDACTED command (review: a signature
+  // derived from the raw text stored `curl https://user:secret@host` secrets
+  // verbatim in events.jsonl and ledger keys while `cmd` was redacted).
+  // Precheck normalizes the incoming command through this same function, so
+  // both sides redact identically and matching is unaffected.
+  let tokens = redactSensitiveText(first).split(/\s+/).filter(Boolean);
+  while (tokens.length > 0 && (ENV_ASSIGNMENT_TOKEN.test(tokens[0]) || COMMAND_WRAPPER_TOKENS.has(tokens[0]))) {
+    tokens = tokens.slice(1);
+  }
+  if (tokens.length === 0) {
+    return "";
+  }
+  const bin = tokens[0].split("/").pop();
+  let subcommand = "";
+  const flags = new Set();
+  let ambiguousSubcommand = false;
+  let previousWasBareFlag = false;
+  for (const token of tokens.slice(1)) {
+    if (token.startsWith("-")) {
+      // Flag name only: `--budget=5` -> `--budget`; a bare `-` is ignored.
+      const name = token.split("=")[0];
+      if (name.length > 1) {
+        flags.add(name);
+      }
+      previousWasBareFlag = !token.includes("=");
+    } else if (!subcommand && !previousWasBareFlag) {
+      // First non-flag token is the subcommand.
+      subcommand = token;
+      previousWasBareFlag = false;
+    } else {
+      if (!subcommand && previousWasBareFlag) {
+        // This token follows a bare flag before any subcommand was found: it
+        // could be the flag's VALUE or the subcommand itself (`npm --silent
+        // test` vs `git -C /repo status` parse identically without per-tool
+        // flag specs) — the whole signature is ambiguous.
+        ambiguousSubcommand = true;
+      }
+      previousWasBareFlag = false;
+    }
+  }
+  // Ambiguity is fail-safe (PR #373 review): a warning about an unrelated
+  // command is worse than no warning, so an ambiguous command opts out of
+  // the signature tier entirely (exact-match precheck still covers it).
+  if (ambiguousSubcommand) {
+    return "";
+  }
+  const parts = [bin];
+  if (subcommand) {
+    parts.push(subcommand);
+  }
+  return [...parts, ...[...flags].sort()].join(" ");
+}
+
+// Whether the raw command chains more than one pipeline/boolean segment; the
+// signature only reflects the first, so we record this on the stored event.
+function commandHasMultipleSegments(command) {
+  return String(command ?? "")
+    .split(COMMAND_SEGMENT_SPLIT)
+    .filter((segment) => segment.trim().length > 0)
+    .length > 1;
+}
+
 async function appendJsonLine(targetPath, record) {
   await ensureDir(path.dirname(targetPath));
   await fs.appendFile(targetPath, `${JSON.stringify(record)}\n`, "utf8");
@@ -199,10 +278,13 @@ export function buildEventFromHookPayload(root, payload) {
       return null;
     }
     const failure = detectCommandFailure(payload.tool_response);
+    const signature = normalizeCommandSignature(toolInput.command);
     return {
       ...base,
       type: "cmd",
       cmd: clip(redactSensitiveText(toolInput.command)),
+      ...(signature ? { sig: signature } : {}),
+      ...(commandHasMultipleSegments(toolInput.command) ? { multi: true } : {}),
       ...(toolInput.description ? { desc: clip(redactSensitiveText(toolInput.description), 100) } : {}),
       ...(failure
         ? {
@@ -1205,29 +1287,41 @@ export async function precheckCommand(root, payload, options = {}) {
   if (!toolInput.command) {
     return null;
   }
-  const normalized = clip(toolInput.command);
+  const rawCommand = String(toolInput.command);
+  const normalized = clip(rawCommand);
+  const signature = normalizeCommandSignature(rawCommand);
   const sid = shortSessionId(payload.session_id);
 
   const paths = resolveContextPaths(root);
   const events = await readJsonLines(paths.eventsPath);
-  let last = null;
+  let lastExact = null;
+  let lastSignature = null;
   for (const event of events) {
-    if (event?.type === "cmd" && event.cmd === normalized) {
-      last = event;
+    if (event?.type !== "cmd") {
+      continue;
+    }
+    if (event.cmd === normalized) {
+      lastExact = event;
+    }
+    if (signature) {
+      // Older events predate the stored `sig`; recompute from the redacted cmd.
+      const eventSignature = event.sig || normalizeCommandSignature(event.cmd);
+      if (eventSignature && eventSignature === signature) {
+        lastSignature = event;
+      }
     }
   }
-  // Only warn when the most recent run of this exact command failed, and it
-  // happened in a different session — the agent already saw same-session failures.
-  if (!last?.fail || last.sid === sid) {
-    return null;
-  }
 
-  const key = `precheck:${normalized}`;
-  if (options.recordInjection !== false) {
+  // Once-per-session dedup: mark this precheck key as seen and record telemetry.
+  // Returns false if it was already warned this session (caller should bail).
+  const claimOnce = async (key, failedEvent) => {
+    if (options.recordInjection === false) {
+      return true;
+    }
     const ledger = await readInjectionLedger(root);
     const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
     if (seen.has(key)) {
-      return null;
+      return false;
     }
     ledger[sid] = [...seen, key];
     await writeInjectionLedger(root, ledger);
@@ -1235,14 +1329,34 @@ export async function precheckCommand(root, payload, options = {}) {
       await recordValueEvent(root, {
         type: "failed_command_repeat_intercepted",
         sid,
-        previous_failure_ts: last.ts || null,
+        previous_failure_ts: failedEvent.ts || null,
       });
     } catch {
       // Pre-run safety warnings must not depend on value telemetry.
     }
+    return true;
+  };
+
+  // Tier 1 — exact match: strongest wording. Only warn when the most recent run
+  // of this exact command failed in a different session (unchanged behavior).
+  if (lastExact?.fail && lastExact.sid !== sid) {
+    if (!(await claimOnce(`precheck:${normalized}`, lastExact))) {
+      return null;
+    }
+    return { command: normalized, event: lastExact };
   }
 
-  return { command: normalized, event: last };
+  // Tier 2 — signature match: a *similar* command (same binary + subcommand,
+  // differing only in argument/flag values) most recently failed in another
+  // session. Softer wording. Same cross-session + unresolved guarantees.
+  if (signature && lastSignature?.fail && lastSignature.sid !== sid && lastSignature.cmd !== normalized) {
+    if (!(await claimOnce(`precheck-sig:${signature}`, lastSignature))) {
+      return null;
+    }
+    return { command: normalized, event: lastSignature, match: "signature" };
+  }
+
+  return null;
 }
 
 export function renderPrecheckWarning(warning) {
@@ -1252,6 +1366,10 @@ export function renderPrecheckWarning(warning) {
   const when = String(warning.event.ts || "").slice(0, 10);
   const detail = warning.event.err ? `: ${warning.event.err}` : "";
   const exit = warning.event.exit !== undefined ? ` (exit ${warning.event.exit})` : "";
+  if (warning.match === "signature") {
+    const failed = warning.event.cmd ? ` (\`${warning.event.cmd}\`)` : "";
+    return `Agentify: a similar command failed in a previous session (${when})${exit}${failed}${detail}. This differs only in arguments/flags; if the underlying cause was not fixed, try a different approach instead of retrying a variant.`;
+  }
   return `Agentify: this exact command failed in a previous session (${when})${exit}${detail}. If the underlying cause was not fixed since, try a different approach instead of retrying it as-is.`;
 }
 
