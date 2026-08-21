@@ -28,6 +28,15 @@ import { redactSensitiveText } from "./redact.js";
 import { VERSION } from "./cli-fast-paths.js";
 
 export const HARBOR_MANIFEST_SCHEMA_VERSION = "harbor-dataset-v1";
+
+// Positive evidence that a trial died while INSTALLING or wiring the agent —
+// before any model ran. Deliberately matches only setup/install-PHASE
+// markers, never an exception CLASS on its own: a bare ConnectionError can
+// equally be a connection failure on the first model request, and treating
+// the class as sufficient would let a runtime failure escape its own arm's
+// denominator (PR #376 review). Applied only when the trial ALSO reported
+// zero model activity (see importHarborJob), so both signals must agree.
+const SETUP_FAILURE_PATTERN = /npm install|bootstrap\.sh|apt-get|apk add|uv tool install|pip install|docker build|image build|agent[_ -]setup|environment[_ -]setup|setup phase/i;
 export const HARBOR_IMPORT_SCHEMA_VERSION = "harbor-import-v1";
 
 // Task categories the portable dataset must cover (#298). Validation fails a
@@ -658,7 +667,19 @@ async function readTrial(trialDir) {
       result?.agent_info?.kwargs?.profile,
     ),
     reward,
-    exception: exception ? redactSensitiveText(String(exception.message ?? exception)).slice(0, 2000) : null,
+    // Harbor serializes failures as {exception_type, exception_message}; the
+    // old `.message` lookup fell through to String(object) and wrote a
+    // useless "[object Object]" into every receipt, so a reader could not
+    // tell a host network failure from arm behaviour (PR #376 review). Keep
+    // both fields, redacted and bounded.
+    exception: exception
+      ? redactSensitiveText(String(
+        exception.exception_message ?? exception.message ?? JSON.stringify(exception),
+      )).slice(0, 2000)
+      : null,
+    exceptionType: exception
+      ? redactSensitiveText(String(exception.exception_type ?? exception.type ?? "unknown")).slice(0, 200)
+      : null,
     startedAt: firstString(result?.started_at, result?.created_at),
     finishedAt: firstString(result?.finished_at, result?.ended_at),
     agentMs: durationMs(
@@ -819,7 +840,20 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       const gradedCost = trial.multisession ? trial.recallCostUsd : trial.costUsd;
       const hadActivity = usageValues.some((value) => value > 0) || (typeof gradedCost === "number" && gradedCost > 0);
       const reportedInactive = Boolean(trial.usage) && !hadActivity;
-      const status = trial.exception ? (reportedInactive ? "error" : "provider_error") : "ok";
+      // Setup-phase failures are infrastructure, never arm behaviour: the
+      // agent binary was still being installed, so the model never ran. With
+      // exception_type/message finally preserved (see above) these are
+      // identifiable, and leaving them as graded failures silently converted
+      // host network flakes into discordant WINS for the other arm — the
+      // 2026-08-21 campaign had four (PR #376 review). TWO signals must
+      // agree: zero model activity AND a setup/install-phase marker in the
+      // exception MESSAGE. The exception class alone is never enough — a
+      // bare ConnectionError may be a failed first model request, which is
+      // that arm's own failure and must stay in its denominator.
+      const setupFailure = !hadActivity && SETUP_FAILURE_PATTERN.test(String(trial.exception || ""));
+      const status = trial.exception
+        ? (reportedInactive || setupFailure ? "error" : "provider_error")
+        : "ok";
       records.push({
         schema: EVAL_ATTEMPT_SCHEMA_VERSION,
         run_id: runId,
@@ -851,6 +885,7 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
         limits: { max_budget_usd: datasetTask?.max_cost_usd ?? null, max_turns: null, timeout_seconds: null },
         status,
         ...(trial.exception ? { error: trial.exception } : {}),
+        ...(trial.exceptionType ? { error_type: trial.exceptionType } : {}),
         provider: {
           exit_code: trial.exception ? 1 : 0,
           timed_out: false,

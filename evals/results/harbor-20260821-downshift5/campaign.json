@@ -1,0 +1,62 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20260821-downshift5",
+  "date": "2026-08-21",
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.1.0"
+  },
+  "notes": "Second downshift campaign: the 5-family x 3-difficulty x 2-rung matrix from #318/#367 (15 tasks x 2 arms x 3 attempts x 2 model rungs = 180 trials), agentify pinned to github:ixigo/agentify#7cd5351, subscription OAuth. Interrupted twice by host-side background-process kills (at 145/180 and 177/180) and finished via `harbor job resume` (completed trials untouched; the two in-flight trials of the second interruption were re-run). CORRECTION HISTORY, because the first write-up of this campaign was wrong: it published 32/0 discordant across four families and four qualifying cells and asserted no crash-discordants. Review found four of those agentify wins had a crashed baseline opposite them; fixing the import to preserve Harbor's exception_type (it had been mangled to '[object Object]' for every failure) revealed the cause as two NetworkConnectionErrors and two non-zero exits INSIDE the agent install command, before any model ran. Zero-activity setup failures are now classified as non-gradeable harness errors, and error_type is persisted in every receipt. Published numbers are post-correction: suite-level (#322 rule) WINNER agentify — pooled 86 gradeable pairs, 84/86 (98%) vs claude-code 56/86 (65%), discordant 28/0 spanning 2 task families (avoid-unbounded-fanout 16, avoid-cache-regression 12; avoid-roster-mutation, recall-error-envelope and reject-stale-config-path tied), exact sign p = 7.45058e-9, Wilson CIs separated (91.9-99.4 vs 54.6-74.4); PER-CELL (#317 target) MET for the first time in two cells: haiku-4-5 hard 6/0 (p=0.03125) and sonnet-4-5 medium 6/0. Arm totals include agentify's 10 provider_error attempts (mid-run failures with real activity, graded against agentify per #367) and exclude the 4 baseline harness errors above.",
+  "jobs": {
+    "2026-08-21__11-42-57": {
+      "runs": [
+        "20260821-110430-044de4",
+        "20260821-110430-0761a6",
+        "20260821-110430-0797eb",
+        "20260821-110430-0c7c80",
+        "20260821-110430-1719b7",
+        "20260821-110430-27efaa",
+        "20260821-110430-35d4fb",
+        "20260821-110430-3d9490",
+        "20260821-110430-3e8963",
+        "20260821-110430-56e122",
+        "20260821-110430-5bb1bf",
+        "20260821-110430-5bf072",
+        "20260821-110430-5e8763",
+        "20260821-110430-5fbf4e",
+        "20260821-110430-82de57",
+        "20260821-110430-854ed0",
+        "20260821-110430-890184",
+        "20260821-110430-91c703",
+        "20260821-110430-96dfaf",
+        "20260821-110430-a213a1",
+        "20260821-110430-ac4992",
+        "20260821-110430-af67e4",
+        "20260821-110430-b7cc30",
+        "20260821-110430-be8065",
+        "20260821-110430-c06788",
+        "20260821-110430-c0e0db",
+        "20260821-110430-e761d7",
+        "20260821-110430-f0a06b",
+        "20260821-110430-f6f6be",
+        "20260821-110430-f90c92"
+      ],
+      "published": {
+        "where": [
+          "docs/harbor.md",
+          "README.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 88,
+            "attempts": 90
+          },
+          "claude-code": {
+            "passes": 56,
+            "attempts": 86
+          }
+        }
+      }
+    }
+  }
+}

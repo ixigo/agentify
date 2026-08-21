@@ -540,6 +540,44 @@ Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
 
+### 2026-08-21 campaign: the five-family downshift — both fail-closed verdicts met
+
+Second downshift campaign, first on the full #318 matrix (15 tasks = 5
+scenario families × 3 difficulties, 2 model rungs, 180 trials — receipts and
+the regenerable grid in `evals/results/harbor-20260821-downshift5/`). The run
+was interrupted twice by host-side process kills and completed via
+`harbor job resume`.
+
+> **Suite-level (#322 rule): WINNER agentify** — pooled over 86 gradeable
+> pairs: **84/86 (98%) vs plain claude-code 56/86 (65%)**, discordant
+> **28/0 spanning two task families**, exact sign p = 7.45×10⁻⁹, Wilson CIs
+> separated (91.9–99.4% vs 54.6–74.4%).
+>
+> **Per-cell (#317 target): MET for the first time**, in two cells —
+> `haiku-4-5` hard (6/0, p = 0.031) and `sonnet-4-5` medium (6/0).
+
+**Four baseline attempts are excluded as infrastructure, and that exclusion
+cost us the bigger headline.** The first write-up of this campaign claimed
+32/0 discordant across four families and four qualifying cells. Reviewing it
+exposed that four of those agentify wins had a *crashed* baseline on the
+other side — and once the import preserved Harbor's `exception_type`
+(previously mangled to `[object Object]`), the cause was visible: two
+`NetworkConnectionError`s and two non-zero exits, all inside the agent's own
+**install** command, before any model ran. Those are host failures, not arm
+behaviour, so the importer now classifies zero-activity setup failures as
+non-gradeable harness errors (the type is kept in every receipt for
+audit). The published numbers above are what survives that correction:
+28/0 across two families, two qualifying cells.
+
+Where the wins come from: `avoid-unbounded-fanout` 16 discordant wins (the
+new #318 family is the single biggest separator) and
+`avoid-cache-regression` 12; `avoid-roster-mutation`,
+`recall-error-envelope`, and `reject-stale-config-path` tied — honest
+control-like outcomes, published as such. Scope stays what it always was:
+this is Agentify's own context benchmark, and the claim is "durable repo
+memory turns these realistic regression traps from a coin flip into a
+near-certainty," receipts attached.
+
 ### 2026-08-20 campaign: the first competitor head-to-head
 
 First execution of the `headtohead` suite (8 tasks × 4 arms × 5 attempts =

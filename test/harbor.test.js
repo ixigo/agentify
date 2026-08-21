@@ -339,7 +339,7 @@ test("harbor agent names map onto native arm labels", () => {
 // Import -> native report
 // ---------------------------------------------------------------------------
 
-function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, profile = null, suffix = "", metadata = null, model = "anthropic/claude-haiku-4-5-20251001" }) {
+function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cacheRead = 600, outputTokens = 120, exception = null, exceptionType = null, profile = null, suffix = "", metadata = null, model = "anthropic/claude-haiku-4-5-20251001" }) {
   return {
     trial_name: `${task}__${agent}${profile ? `-${profile}` : ""}${suffix}`,
     task_name: task,
@@ -352,7 +352,15 @@ function trialResult({ task, agent, reward, cost = 0.04, inputTokens = 900, cach
     // harbor 0.18.0 artifacts (verified against an actual oracle job).
     verifier_result: { rewards: { reward } },
     agent_result: { cost_usd: cost, n_input_tokens: inputTokens, n_cache_tokens: cacheRead, n_output_tokens: outputTokens, ...(metadata ? { metadata } : {}) },
-    ...(exception ? { exception_info: { message: exception } } : {}),
+    // Real harbor 0.18.0 artifacts use exception_type/exception_message; the
+    // legacy `message` spelling stays covered by the default.
+    ...(exception
+      ? {
+        exception_info: exceptionType
+          ? { exception_type: exceptionType, exception_message: exception }
+          : { message: exception },
+      }
+      : {}),
   };
 }
 
@@ -525,6 +533,69 @@ test("import maps profiles, partial rewards, exceptions, and skips broken trials
   // excluded and surfaced as a harness error.
   assert.equal(report.arms["claude-code"].attempts, 2);
   assert.equal(report.arms["claude-code"].harness_errors, 1);
+});
+
+test("install-phase failures import as non-gradeable, with the provider's exception type preserved", async () => {
+  const root = await makeRoot();
+  await writeDataset(root, manifestFixture());
+  const jobDir = await writeJob(root, "2026-08-21-setup", [
+    trialResult({ task: "task-a", agent: "agentify-claude", reward: 1 }),
+    // Died inside the agent's own install command with zero model activity:
+    // infrastructure, never arm behaviour — it must not become a discordant
+    // win for the other arm (PR #376 review).
+    trialResult({
+      task: "task-a",
+      agent: "claude-code",
+      reward: null,
+      exception: "Command failed (exit 1): npm install -g @anthropic-ai/claude-code",
+      exceptionType: "NetworkConnectionError",
+      cost: null,
+      inputTokens: null,
+      cacheRead: null,
+      outputTokens: null,
+    }),
+    // A mid-run death WITH real activity still grades against its own arm.
+    trialResult({
+      task: "task-a",
+      agent: "claude-code",
+      reward: null,
+      exception: "agent exceeded its turn budget",
+      exceptionType: "AgentTimeoutError",
+      suffix: "-midrun",
+    }),
+    // A connection failure with NO telemetry but NO setup evidence either —
+    // e.g. the first model request never landed. The exception CLASS alone
+    // must not excuse it from this arm's denominator (PR #376 review).
+    trialResult({
+      task: "task-a",
+      agent: "claude-code",
+      reward: null,
+      exception: "connection reset while calling the model endpoint",
+      exceptionType: "ConnectionError",
+      cost: null,
+      inputTokens: null,
+      cacheRead: null,
+      outputTokens: null,
+      suffix: "-firstrequest",
+    }),
+  ]);
+  const result = await importHarborJob(root, {}, jobDir);
+  const report = await buildEvalReport(root, {}, result.runs[0].run_id);
+
+  // Only the install failure leaves the denominator; the turn-budget death and
+  // the telemetry-less first-request connection failure both stay in it.
+  assert.equal(report.arms["claude-code"].attempts, 2, "only the install failure may leave the denominator");
+  assert.equal(report.arms["claude-code"].harness_errors, 1);
+  const attempts = report.attempts.filter((attempt) => attempt.arm === "claude-code");
+  const setup = attempts.find((attempt) => attempt.status === "error");
+  assert.ok(setup, "install failure should import as a harness error");
+  // The receipt must be auditable: type preserved, message not "[object Object]".
+  assert.equal(setup.error_type, "NetworkConnectionError");
+  assert.match(setup.error, /npm install/);
+  const graded = attempts.filter((attempt) => attempt.status === "provider_error");
+  assert.equal(graded.length, 2, "mid-run death and no-setup-evidence connection failure both stay gradeable");
+  assert.ok(graded.some((attempt) => attempt.error_type === "ConnectionError"),
+    "a bare ConnectionError without setup evidence must not be excused from the arm");
 });
 
 test("imported runs cannot be resumed and cross-harness compare needs --force", async () => {
