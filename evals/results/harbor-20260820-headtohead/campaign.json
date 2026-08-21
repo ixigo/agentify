@@ -1,0 +1,30 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20260820-headtohead",
+  "date": "2026-08-20",
+  "dataset": { "name": "agentify-context-bench", "version": "1.1.0" },
+  "notes": "First execution of the headtohead suite (PR #370 machinery): 8 tasks x 4 arms x 5 attempts = 160 trials, 17h36m wall clock, $9.18 reported spend of the $56.00 ceiling, agentify pinned to github:ixigo/agentify#fa2ba71, subscription OAuth, Serena via its documented bind-mount-free uv install with the connection preflight (zero preflight aborts: every Serena trial had a connected MCP server; whether agents CALLED Serena's tools is not measured by harbor imports — disclosed). Findings, stated plainly: (1) vs plain Claude Code, agentify 36/40 vs 26/40, pooled discordant 10/0 across 3 task families — decisive. (2) vs Serena, 36/40 vs 27/40, discordant 9/0 — the free LSP code-intelligence competitor does not recover the seeded knowledge even when it sits in native .serena/memories (0/5 on avoid-cache-regression). (3) vs the CLAUDE.md memory-bank stuffing arm: a statistical TIE — memorybank 37/40 vs agentify 36/40, discordant 3/2 in memorybank's favor, at lower cost ($2.02 vs $2.54). At this suite's tiny fixture size (a handful of notes), stuffing everything into context is competitive; budgeted retrieval's advantage must come from store SCALE, which this suite does not yet test — a store-size ladder is the designed follow-up. Published per our own guardrail: a competitor arm matching Agentify is a finding to commit and act on, not to bury. No multi-arm suite-level tool verdict exists yet (the #322 rule engine is pairwise/grid-based); the pooled discordant counts above are per-run report sums, receipts attached.",
+  "jobs": {
+    "2026-08-20__17-57-57": {
+      "runs": [
+        "20260821-060430-08519d",
+        "20260821-060430-185330",
+        "20260821-060430-2233bd",
+        "20260821-060430-29cd94",
+        "20260821-060430-2bdda5",
+        "20260821-060430-41ff4c",
+        "20260821-060430-8fbb72",
+        "20260821-060430-be8fec"
+      ],
+      "published": {
+        "where": ["docs/harbor.md", "README.md"],
+        "arms": {
+          "agentify": { "passes": 36, "attempts": 40 },
+          "memorybank-claude": { "passes": 37, "attempts": 40 },
+          "serena-claude": { "passes": 27, "attempts": 40 },
+          "plain-claude": { "passes": 26, "attempts": 40 }
+        }
+      }
+    }
+  }
+}

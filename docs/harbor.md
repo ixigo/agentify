@@ -499,6 +499,44 @@ Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
 
+### 2026-08-20 campaign: the first competitor head-to-head
+
+First execution of the `headtohead` suite (8 tasks × 4 arms × 5 attempts =
+160 trials, 17h36m, **$9.18 spent of the $56.00 ceiling** — receipts and
+machine-validated aggregates in `evals/results/harbor-20260820-headtohead/`).
+Same image, model (`claude-haiku-4-5`), budget, turn cap, and verifier per
+arm; every armed arm rendered the SAME fixture knowledge into its own native
+format.
+
+| arm | gradeable passes | reported cost |
+| --- | --- | --- |
+| memorybank-claude (CLAUDE.md stuffing) | **37/40 (92.5%)** | $2.02 |
+| agentify | **36/40 (90%)** | $2.54 |
+| serena-claude (Serena MCP 1.7.0) | 27/40 (67.5%) | $2.37 |
+| plain-claude (pinned parity baseline) | 26/40 (65%) | $2.25 |
+
+- **vs plain Claude Code: pooled discordant 10/0** across three task
+  families — decisive, and the largest controlled uplift this benchmark has
+  measured.
+- **vs Serena: pooled discordant 9/0.** The free LSP code-intelligence
+  competitor did not recover the seeded knowledge even though it sat in
+  native `.serena/memories` (0/5 on `avoid-cache-regression`). Every Serena
+  trial passed the MCP connection preflight (zero aborts); whether agents
+  *called* Serena's tools is not measured by harbor imports — disclosed, not
+  hidden.
+- **vs CLAUDE.md stuffing: a statistical tie** — discordant 3/2 in the
+  memory bank's favor, at lower cost. Published under our own guardrail (a
+  competitor matching Agentify is a finding to commit and act on): at this
+  suite's tiny fixture size, stuffing everything into context is
+  competitive. Budgeted retrieval's advantage must come from store **scale**
+  — a store-size ladder (hundreds of notes, where stuffing pays the
+  context-rot tax every turn) is the designed follow-up, and until it is
+  run, Agentify does not claim superiority over memory-bank stuffing on
+  small stores.
+- No multi-arm suite-level tool verdict exists yet (the #322 rule engine is
+  pairwise); the pooled discordant counts are per-run report sums, receipts
+  attached.
+
 ### 2026-08-19 campaign: multisession + crossvendor + downshift
 
 First execution of the three suites built by epic #322 (agentify pinned to
