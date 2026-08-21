@@ -502,40 +502,48 @@ fails CI if the current report code stops reproducing them.
 ### 2026-08-20 campaign: the first competitor head-to-head
 
 First execution of the `headtohead` suite (8 tasks × 4 arms × 5 attempts =
-160 trials, 17h36m, **$9.18 spent of the $56.00 ceiling** — receipts and
-machine-validated aggregates in `evals/results/harbor-20260820-headtohead/`).
-Same image, model (`claude-haiku-4-5`), budget, turn cap, and verifier per
-arm; every armed arm rendered the SAME fixture knowledge into its own native
-format.
+160 trials, 17h36m, **$9.17 in reported provider subtotals** of the $56.00
+ceiling — cost telemetry is incomplete: 3 of 160 attempts reported no cost —
+receipts in `evals/results/harbor-20260820-headtohead/`, with pass/attempt
+aggregates machine-validated against the manifest). Same image, model
+(`claude-haiku-4-5`), budget, turn cap, and verifier per arm; every armed arm
+rendered the SAME fixture knowledge into its own native format.
 
-| arm | gradeable passes | reported cost |
+| arm | gradeable passes | reported cost subtotal (coverage) |
 | --- | --- | --- |
-| memorybank-claude (CLAUDE.md stuffing) | **37/40 (92.5%)** | $2.02 |
-| agentify | **36/40 (90%)** | $2.54 |
+| memorybank-claude (CLAUDE.md stuffing) | **37/40 (92.5%)** | $2.02 (38/40 attempts) |
+| agentify | **36/40 (90%)** | $2.54 (39/40 attempts) |
 | serena-claude (Serena MCP 1.7.0) | 27/40 (67.5%) | $2.37 |
 | plain-claude (pinned parity baseline) | 26/40 (65%) | $2.25 |
 
+Cost subtotals with incomplete coverage support no cheaper-arm conclusion —
+the report code itself withholds per-pass comparisons on partial telemetry,
+and so does this write-up.
+
 - **vs plain Claude Code: pooled discordant 10/0** across three task
-  families — decisive, and the largest controlled uplift this benchmark has
-  measured.
-- **vs Serena: pooled discordant 9/0.** The free LSP code-intelligence
-  competitor did not recover the seeded knowledge even though it sat in
-  native `.serena/memories` (0/5 on `avoid-cache-regression`). Every Serena
-  trial passed the MCP connection preflight (zero aborts); whether agents
-  *called* Serena's tools is not measured by harbor imports — disclosed, not
-  hidden.
+  families (exact sign p = 0.00195). The pooled Wilson intervals still
+  OVERLAP at five attempts per task (77.0–96.0% vs 49.5–77.9%), so under the
+  fail-closed winner rule this is a strong directional result, not a
+  declared win — more attempts per task is the path to declaration.
+- **vs Serena: pooled discordant 9/0** (sign p = 0.0039; the same Wilson
+  overlap caveat applies). The free LSP code-intelligence competitor did not
+  recover the seeded knowledge even though it sat in native
+  `.serena/memories` (0/5 on `avoid-cache-regression`). Every Serena trial
+  passed the MCP connection preflight (zero aborts); whether agents *called*
+  Serena's tools is not measured by harbor imports — disclosed, not hidden.
 - **vs CLAUDE.md stuffing: a statistical tie** — discordant 3/2 in the
-  memory bank's favor, at lower cost. Published under our own guardrail (a
-  competitor matching Agentify is a finding to commit and act on): at this
-  suite's tiny fixture size, stuffing everything into context is
-  competitive. Budgeted retrieval's advantage must come from store **scale**
-  — a store-size ladder (hundreds of notes, where stuffing pays the
-  context-rot tax every turn) is the designed follow-up, and until it is
-  run, Agentify does not claim superiority over memory-bank stuffing on
-  small stores.
+  memory bank's favor. Published under our own guardrail (a competitor
+  matching Agentify is a finding to commit and act on): at this suite's tiny
+  fixture size, stuffing everything into context is competitive. Budgeted
+  retrieval's advantage must come from store **scale** — a store-size ladder
+  (hundreds of notes, where stuffing pays the context-rot tax every turn) is
+  the designed follow-up, and until it is run, Agentify does not claim
+  superiority over memory-bank stuffing on small stores.
 - No multi-arm suite-level tool verdict exists yet (the #322 rule engine is
   pairwise); the pooled discordant counts are per-run report sums, receipts
-  attached.
+  attached. Only pass/attempt aggregates are machine-validated by the
+  receipts gate; cost, discordance, and preflight statements are backed by
+  the per-run reports, not the manifest check.
 
 ### 2026-08-19 campaign: multisession + crossvendor + downshift
 
