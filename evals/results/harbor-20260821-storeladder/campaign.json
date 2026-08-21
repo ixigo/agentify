@@ -1,0 +1,42 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20260821-storeladder",
+  "date": "2026-08-21",
+  "dataset": { "name": "agentify-context-bench", "version": "1.1.0" },
+  "notes": "The store-size ladder built to settle the 2026-08-20 head-to-head TIE between Agentify's budgeted retrieval and CLAUDE.md stuffing. Two jobs, both re-imported by the same current code: (A) 2026-08-21__16-41-00 — the rungs job, 3 attempts per arm at store100 and store300 (54 trials); (B) 2026-08-21__17-57-57 — the deep job, 9 attempts per arm at store300 only (81 trials), bought after (A) proved underpowered. ~$8 total against a $113 combined ceiling. ANSWER: Agentify shows NO advantage over stuffing at 100-300 note stores, and if anything trails it. Deep job pooled n=27/arm: memorybank 24/27 (88.9%, Wilson 71.9-96.2), agentify 20/27 (74.1%, 55.3-86.8), plain 2/27 (7.4%). Paired: vs plain discordant 18/0 sign p=8.0e-6 (decisive); vs memorybank discordant 2/6 sign p=0.289 (not significant, direction favours STUFFING). Cost parity — agentify $2.18, memorybank $2.09 — so the 'stuffing pays a context tax' premise also fails at this scale. Per scenario in the deep job: recall-retry-schedule 3/9 vs 6/9 (agentify weak), avoid-cache-regression 8/9 vs 9/9, recall-webhook-signature 9/9 vs 9/9. Two committed token-free diagnostics (evals/harbor/tools/diagnose-injection.mjs) rule out the comfortable explanations: the needle ranks #1-2 by BM25 and IS injected at both 100 and 300 notes, and every real note is delivered complete (2/2, 4/4, 2/2) — so this is neither a ranking failure nor budget truncation. Remaining hypotheses: injection FORMAT (compact digest block vs full notes re-read from CLAUDE.md every turn) or noise at n=9 per scenario. HARNESS DEFECT recorded here because it cost a rung: harbor silently dropped all three small-rung tasks from job (A) — lock.json resolved 6 of 9 task names with no warning — and it truncates task names at 32 characters (trial dirs read 'recall-webhook-signature-store30'). Rung ids are now zero-padded (store010) and a test guards both properties; the small rung is therefore ABSENT from these receipts rather than reported as a result.",
+  "jobs": {
+    "2026-08-21__16-41-00": {
+      "runs": [
+        "20260821-150643-3136cb",
+        "20260821-150643-61915c",
+        "20260821-150643-9922a4",
+        "20260821-150643-cd3245",
+        "20260821-150643-cf8089",
+        "20260821-150643-dcd44f"
+      ],
+      "published": {
+        "where": ["docs/harbor.md"],
+        "arms": {
+          "agentify": { "passes": 12, "attempts": 18 },
+          "memorybank-claude": { "passes": 13, "attempts": 18 },
+          "plain-claude": { "passes": 1, "attempts": 18 }
+        }
+      }
+    },
+    "2026-08-21__17-57-57": {
+      "runs": [
+        "20260821-150643-655f34",
+        "20260821-150643-b4c90b",
+        "20260821-150643-e9855c"
+      ],
+      "published": {
+        "where": ["docs/harbor.md", "README.md"],
+        "arms": {
+          "agentify": { "passes": 20, "attempts": 27 },
+          "memorybank-claude": { "passes": 24, "attempts": 27 },
+          "plain-claude": { "passes": 2, "attempts": 27 }
+        }
+      }
+    }
+  }
+}

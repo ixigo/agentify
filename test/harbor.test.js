@@ -696,11 +696,40 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
 
 test("committed store-size ladder plans three arms with mixed caps (head-to-head follow-up)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "storeladder" });
-  // 9 tasks (3 scenarios × store10/100/300, ALL capped $0.70 so budget
+  // 9 tasks (3 scenarios × store010/100/300, ALL capped $0.70 so budget
   // never confounds the size axis) × 3 arms × 3 attempts.
   assert.equal(plan.trials, 81);
   assert.equal(plan.max_spend_usd, 56.7);
   assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "plain-claude"]);
+});
+
+test("committed task ids survive harbor's name truncation and rung ids stay prefix-free", async () => {
+  const { manifest } = await loadHarborManifest(REPO_ROOT, {});
+  const ids = manifest.tasks.map((task) => task.id);
+
+  // DEMONSTRATED: harbor truncates task names at 32 characters (the
+  // 2026-08-21 ladder produced trial dirs named
+  // `recall-webhook-signature-store30`, i.e. `-store300` cut to 32). Two ids
+  // sharing a 32-char prefix therefore become one task and one silently
+  // disappears from a paid run.
+  const byTruncation = new Map();
+  const collisions = [];
+  for (const id of ids) {
+    const key = id.slice(0, 32);
+    if (byTruncation.has(key)) collisions.push(`${id} collides with ${byTruncation.get(key)} at 32 chars`);
+    byTruncation.set(key, id);
+  }
+  assert.deepEqual(collisions, [], collisions.join("; "));
+
+  // DEFENSIVE: that run also lost all three small-rung tasks (lock.json
+  // resolved 6 of 9 names, no warning), and only the webhook scenario is
+  // explained by truncation alone — the mechanism for the other two is not
+  // yet established. Note that base ids legitimately prefix their difficulty
+  // variants (`avoid-cache-regression` / `-hard`) and those coexist fine, so
+  // the invariant is scoped to numeric RUNG ids: zero-pad them so no rung id
+  // can prefix another (store010, never store10).
+  const badRungs = ids.filter((id) => /-store\d+$/.test(id) && !/-store\d{3}$/.test(id));
+  assert.deepEqual(badRungs, [], `store-rung ids must be zero-padded to three digits: ${badRungs.join(", ")}`);
 });
 
 test("store-ladder rungs are strict supersets sharing one decoy sequence (PR #375 review)", async () => {
@@ -714,7 +743,7 @@ test("store-ladder rungs are strict supersets sharing one decoy sequence (PR #37
       path.join(tasksRoot, base, "environment", "fixtures", "agentify-context", "notes.jsonl"),
       "utf8",
     )).split("\n").filter(Boolean);
-    const [s10, s100, s300] = await Promise.all([notesFor(10), notesFor(100), notesFor(300)]);
+    const [s10, s100, s300] = await Promise.all([notesFor("010"), notesFor(100), notesFor(300)]);
     assert.equal(s10.length, 10);
     assert.equal(s100.length, 100);
     assert.equal(s300.length, 300);
@@ -726,7 +755,7 @@ test("store-ladder rungs are strict supersets sharing one decoy sequence (PR #37
     for (const line of s100) assert.ok(set300.has(line), `store100 note missing from store300 in ${base}`);
     // The real knowledge is present at every rung, never first or last.
     for (const real of baseNotes) {
-      for (const [label, rung] of [["10", s10], ["100", s100], ["300", s300]]) {
+      for (const [label, rung] of [["010", s10], ["100", s100], ["300", s300]]) {
         const at = rung.indexOf(real);
         assert.ok(at > 0 && at < rung.length - 1, `real note misplaced in ${base}-store${label} (index ${at})`);
       }

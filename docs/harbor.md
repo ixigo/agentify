@@ -379,8 +379,8 @@ so pooling across tasks is the reader's job, receipts in hand.
 The 2026-08-20 head-to-head's sharpest finding was a TIE: at a handful of
 seeded notes, stuffing everything into `CLAUDE.md` matched Agentify's
 budgeted retrieval. The `storeladder` suite tests the regime that tie cannot
-survive — or honestly proves it can. Three context-decisive scenarios run at three store sizes (`-store10`,
-`-store100`, `-store300`) under ONE uniform $0.70 cap — the small rung is
+survive — or honestly proves it can. Three context-decisive scenarios run at three store sizes (`-store010`,
+`-store0100`, `-store300`) under ONE uniform $0.70 cap — the small rung is
 re-run at the shared cap rather than reusing the head-to-head's $0.35-cap
 results, so budget never confounds the size axis. Every rung carries the
 SAME real knowledge buried among deterministic decoy notes, and larger rungs
@@ -539,6 +539,68 @@ the same schema. Mapping:
 Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
+
+### 2026-08-21 campaign: the store-size ladder — the tie holds, and stuffing edges ahead
+
+The 2026-08-20 head-to-head ended in a TIE between Agentify's budgeted
+retrieval and CLAUDE.md stuffing, at a store of a handful of notes. This
+campaign was built to settle it at realistic store sizes. Two jobs, both
+re-imported by the same code (receipts in
+`evals/results/harbor-20260821-storeladder/`, ~$8 of a $113 combined
+ceiling):
+
+- **rungs** (`2026-08-21__16-41-00`) — 3 attempts per arm at store100 and
+  store300, 54 trials. Underpowered by design-in-hindsight: a two-attempt
+  swing was noise.
+- **deep** (`2026-08-21__17-57-57`) — 9 attempts per arm at store300, 81
+  trials, bought specifically to give the fail-closed rule enough pairs to
+  speak either way.
+
+**Deep job, pooled over the three scenarios (n = 27 per arm):**
+
+| arm | passes | Wilson 95% | reported cost |
+| --- | --- | --- | --- |
+| memorybank-claude (CLAUDE.md stuffing) | **24/27 (88.9%)** | 71.9–96.2% | $2.09 |
+| agentify | **20/27 (74.1%)** | 55.3–86.8% | $2.18 |
+| plain-claude | 2/27 (7.4%) | 2.1–23.4% | $1.76 |
+
+Paired, pooled: **vs plain-claude discordant 18/0, exact sign p = 8.0×10⁻⁶ —
+decisive**; **vs stuffing discordant 2/6, p = 0.29 — not significant, and the
+direction favours stuffing.**
+
+So the honest answer to the question this suite was built for: **at 100–300
+note stores Agentify shows no advantage over dumping the whole store into
+`CLAUDE.md`, and may trail it.** Cost parity ($2.18 vs $2.09) also sinks the
+"stuffing pays a context tax" premise at this scale. What the campaign *does*
+establish, overwhelmingly, is that **memory of any kind beats none**: 18/0
+against the no-memory floor.
+
+Per scenario in the deep job: `recall-retry-schedule` 3/9 vs 6/9 (where
+Agentify is weak), `avoid-cache-regression` 8/9 vs 9/9, and
+`recall-webhook-signature` 9/9 vs 9/9.
+
+**Two committed, token-free diagnostics rule out the comfortable
+explanations** (`evals/harbor/tools/diagnose-injection.mjs`, rerunnable):
+the seeded needle is retrieved at every rung and its BM25 rank does **not**
+degrade as the store grows (1st–3rd at 10, 100 and 300 notes), and **every**
+real note survives selection and the token budget (4/4, 2/2, 2/2). This is
+therefore neither a retrieval failure nor budget truncation — Agentify
+receives exactly the right knowledge and converts it less often on one
+scenario. The live hypotheses are **injection format** (a compact digest
+block versus full notes re-read from `CLAUDE.md` every turn) and plain
+noise at 9 attempts per scenario. The consequence for the roadmap is
+concrete: **store size does not justify semantic retrieval work** — BM25 is
+not the bottleneck here.
+
+**A harness defect this campaign paid for.** Job (A) silently lost all three
+small-rung tasks: `lock.json` resolved 6 of 9 requested task names with no
+warning, and harbor truncates task names at 32 characters (its trial dirs
+read `recall-webhook-signature-store30`). Rung ids are now zero-padded
+(`store010`) and `test/harbor.test.js` guards both the truncation collision
+and the padding. Only the truncation is *demonstrated*; the mechanism that
+dropped the two shorter-named small rungs is not established, so the small
+rung is simply **absent** from these receipts rather than reported as a
+result.
 
 ### 2026-08-21 campaign: the five-family downshift — both fail-closed verdicts met
 

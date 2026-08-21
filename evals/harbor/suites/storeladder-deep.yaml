@@ -1,0 +1,52 @@
+# Harbor job config: store-ladder DEEP rung — powered attempts at store300.
+#
+# The first ladder run (2026-08-21, jobs/2026-08-21__16-41-00) gave 3 attempts
+# per arm per task at each rung: 9 attempts per arm per rung pooled, where a
+# two-attempt swing is noise. It could not distinguish "budgeted retrieval and
+# CLAUDE.md stuffing are equivalent at 300 notes" from "one is better and we
+# cannot see it". A local (token-free) diagnostic separately confirmed the
+# needle is ranked #1-2 by BM25 and injected at every rung, so this is a
+# question about OUTCOMES, not about retrieval plumbing.
+#
+# This suite buys power where the uncertainty is: the three store300 tasks
+# only, 9 attempts per arm (27 pooled pairs per arm). At 27 paired
+# observations a unanimous discordant split reaches p ~ 1.5e-8, and even an
+# 8/1 split clears p < 0.05 — enough for the fail-closed rule to speak either
+# way, including "no winner".
+#
+# Same three arms, same $0.70 cap, same tasks as the parent suite: only the
+# attempt count moves, so results pool with the earlier job.
+#
+# 3 tasks × 3 arms × 9 attempts = 81 trials; ceiling $56.70, though the first
+# run averaged ~$0.04 per attempt (≈$3 expected).
+# Launch from evals/harbor/ with:  harbor run -c suites/storeladder-deep.yaml
+# Always check the ceiling first:  agentify eval harbor plan --suite storeladder-deep
+jobs_dir: jobs
+
+n_attempts: 9
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - avoid-cache-regression-store300
+      - recall-retry-schedule-store300
+      - recall-webhook-signature-store300
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.plain_claude:PlainClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16

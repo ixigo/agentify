@@ -1,0 +1,72 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260821-150643-b4c90b",
+  "attempt_id": "plain-claude-8",
+  "arm": "plain-claude",
+  "base_arm": "plain-claude",
+  "context_ablation": null,
+  "repeat_index": 8,
+  "task_id": "recall-retry-schedule-store300",
+  "difficulty": "hard",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "2026-08-21__17-57-57",
+    "trial": "recall-retry-schedule-store300__tzBLq6M",
+    "agent": "plain-claude",
+    "agent_version": "unknown",
+    "reward": 0,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.1.0"
+    },
+    "category": "decision-recall"
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": null,
+  "resolved_profile": null,
+  "limits": {
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "provider_error",
+  "error": "Command failed (exit 1): mkdir -p /logs/agent && cd /app && claude -p 'The repo at /app contains a small recovery queue.\n\nAdd and export `scheduleRetry(job, attempt)` in `src/retry.js`. It must enqueue\nthe original job through the existing queue primitive and follow the retry\ncontract used by the production worker. Add focused tests for the new helper.\n\nRun the existing tests before you finish; they must all still pass.\n' --output-format json --model claude-haiku-4-5-20251001 --max-budget-usd 0.7 --max-turns 16 --no-session-persistence --permission-mode acceptEdits > /logs/agent/trajectory.json\nstdout: None\nstderr: None",
+  "error_type": "NonZeroAgentExitCodeError",
+  "provider": {
+    "exit_code": 1,
+    "timed_out": false,
+    "duration_ms": 37205,
+    "subtype": null,
+    "num_turns": 17,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.064915,
+    "usage": {
+      "fresh_input_tokens": 5102,
+      "cache_read_tokens": 393800,
+      "cache_write_tokens": 0,
+      "output_tokens": 3092
+    }
+  },
+  "grade": {
+    "pass": false,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 1,
+        "passed": false,
+        "timed_out": false,
+        "output_tail": "reward 0"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": false,
+  "duration_ms": 70378,
+  "artifacts": null
+}
