@@ -499,6 +499,57 @@ Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
 
+### 2026-08-20 campaign: the first competitor head-to-head
+
+First execution of the `headtohead` suite (8 tasks × 4 arms × 5 attempts =
+160 trials, 17h36m, **$9.17 in reported provider subtotals covering 155 of
+160 attempts** of the $56.00 ceiling — the 5 uncosted attempts are
+lost-telemetry `provider_error` failures, counted against their own arms —
+receipts in `evals/results/harbor-20260820-headtohead/`, with pass/attempt
+aggregates machine-validated against the manifest). Same image, model
+(`claude-haiku-4-5`), budget, turn cap, and verifier per arm; every armed arm
+rendered the SAME fixture knowledge into its own native format.
+
+| arm | gradeable passes | reported cost subtotal (coverage) |
+| --- | --- | --- |
+| memorybank-claude (CLAUDE.md stuffing) | **37/40 (92.5%)** | $2.02 (38/40 attempts) |
+| agentify | **36/40 (90%)** | $2.54 (39/40 attempts) |
+| serena-claude (Serena MCP 1.7.0) | 27/40 (67.5%) | $2.37 (39/40 attempts) |
+| plain-claude (pinned parity baseline) | 26/40 (65%) | $2.25 (39/40 attempts) |
+
+Cost subtotals with incomplete coverage support no cheaper-arm conclusion —
+the report code itself withholds per-pass comparisons on partial telemetry,
+and so does this write-up.
+
+- **vs plain Claude Code: pooled discordant 10/0** across three task
+  families (exact sign p = 0.00195). The pooled Wilson intervals still
+  OVERLAP at five attempts per task (77.0–96.0% vs 49.5–77.9%), so under the
+  fail-closed winner rule this is a strong directional result, not a
+  declared win — more attempts per task is the path to declaration.
+- **vs Serena: pooled discordant 9/0** (sign p = 0.0039; the same Wilson
+  overlap caveat applies). The free LSP code-intelligence competitor did not
+  recover the seeded knowledge even though it sat in native
+  `.serena/memories` (0/5 on `avoid-cache-regression`). No attempt imported
+  as a preflight abort (which would be a zero-activity harness error), but
+  the receipts cannot positively prove a connected server for every trial:
+  one Serena attempt died after ~9h with no telemetry and is
+  indistinguishable from a degraded run — counted as a Serena failure, the
+  conservative direction. Whether agents *called* Serena's tools is not
+  measured by harbor imports — disclosed, not hidden.
+- **vs CLAUDE.md stuffing: a statistical tie** — discordant 3/2 in the
+  memory bank's favor. Published under our own guardrail (a competitor
+  matching Agentify is a finding to commit and act on): at this suite's tiny
+  fixture size, stuffing everything into context is competitive. Budgeted
+  retrieval's advantage must come from store **scale** — a store-size ladder
+  (hundreds of notes, where stuffing pays the context-rot tax every turn) is
+  the designed follow-up, and until it is run, Agentify does not claim
+  superiority over memory-bank stuffing on small stores.
+- No multi-arm suite-level tool verdict exists yet (the #322 rule engine is
+  pairwise); the pooled discordant counts are per-run report sums, receipts
+  attached. Only pass/attempt aggregates are machine-validated by the
+  receipts gate; cost, discordance, and preflight statements are backed by
+  the per-run reports, not the manifest check.
+
 ### 2026-08-19 campaign: multisession + crossvendor + downshift
 
 First execution of the three suites built by epic #322 (agentify pinned to
