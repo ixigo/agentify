@@ -1,0 +1,70 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20260821-110430-5fbf4e",
+  "attempt_id": "agentify-3",
+  "arm": "agentify",
+  "base_arm": "agentify",
+  "context_ablation": null,
+  "repeat_index": 3,
+  "task_id": "reject-stale-config-path",
+  "difficulty": "easy",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "2026-08-21__11-42-57",
+    "trial": "reject-stale-config-path__sZaMZ6r",
+    "agent": "agentify-claude",
+    "agent_version": "unknown",
+    "reward": 1,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.1.0"
+    },
+    "category": "stale-context-rejection"
+  },
+  "agentify_version": "0.4.0",
+  "claude_version": null,
+  "model": "claude-sonnet-4-5-20250929",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "ok",
+  "provider": {
+    "exit_code": 0,
+    "timed_out": false,
+    "duration_ms": 39165,
+    "subtype": null,
+    "num_turns": 11,
+    "resolved_model": "claude-sonnet-4-5-20250929",
+    "cost_usd": 0.12719069999999996,
+    "usage": {
+      "fresh_input_tokens": 8375,
+      "cache_read_tokens": 176129,
+      "cache_write_tokens": 0,
+      "output_tokens": 1712
+    }
+  },
+  "grade": {
+    "pass": true,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 0,
+        "passed": true,
+        "timed_out": false,
+        "output_tail": "reward 1"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": true,
+  "duration_ms": 71095,
+  "artifacts": null
+}

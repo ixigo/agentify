@@ -82,7 +82,11 @@ export function signTestPValue(wins, losses) {
     }
     cumulative += Math.exp(logTerm);
   }
-  return round(Math.min(1, 2 * cumulative), 6);
+  const p = Math.min(1, 2 * cumulative);
+  // Six DECIMAL places would round a strongly significant tail (32/0 discordant
+  // => 4.66e-10) to a literal 0, publishing an impossible exact zero. Below the
+  // decimal grid, keep six SIGNIFICANT digits instead.
+  return p > 0 && p < 1e-6 ? Number(p.toPrecision(6)) : round(p, 6);
 }
 
 // Wilson score interval: sane behavior at small n and at 0%/100%, unlike the
@@ -703,6 +707,10 @@ function attemptDrilldown(record) {
       output_tail: redactSensitiveText(check.output_tail || ""),
     })),
     ...(record.error ? { error: redactSensitiveText(record.error) } : {}),
+    // The provider's own failure class, when the harness captured one: it is
+    // what lets a reader tell a host/setup failure from arm behaviour without
+    // the (gitignored) job artifacts.
+    ...(record.error_type ? { error_type: redactSensitiveText(record.error_type) } : {}),
     artifacts: record.artifacts ?? null,
     ...(record.swebench ? { swebench: record.swebench } : {}),
     agentify_version: record.agentify_version ?? null,
