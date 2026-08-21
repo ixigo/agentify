@@ -87,19 +87,22 @@ for (const base of SCENARIOS) {
     }
   }
 }
-// Rank stability is MEASURED here, not asserted: compare each scenario's
-// needle rank at its largest rung against its smallest.
+// Rank stability is MEASURED here, not asserted. Every rung is compared
+// against the smallest, not just the largest: a 1 -> 5 -> 1 excursion is a
+// real regression that a first-vs-last check would report as "no decay".
 console.log("\nNeedle rank by rung (lower is better):");
 let decayed = 0;
 for (const [base, ranks] of ranksByScenario) {
   const ordered = ranks.slice().sort((a, b) => Number(a.rung) - Number(b.rung));
-  const first = ordered[0];
-  const last = ordered[ordered.length - 1];
-  const worse = last.rank > first.rank;
-  if (worse) decayed += 1;
+  const baseline = ordered[0];
+  const regressions = ordered.filter((r) => r.rank > baseline.rank);
+  if (regressions.length) decayed += 1;
   console.log(
     `  ${base.padEnd(26)} ${ordered.map((r) => `store${r.rung}=${r.rank}`).join("  ")}`,
-    worse ? `  DEGRADED (${first.rank} -> ${last.rank})` : "  no decay",
+    regressions.length
+      ? `  DEGRADED (store${baseline.rung}=${baseline.rank} -> ` +
+          `${regressions.map((r) => `store${r.rung}=${r.rank}`).join(", ")})`
+      : "  no decay",
   );
 }
 
@@ -108,7 +111,7 @@ if (failures > 0) {
   process.exit(1);
 }
 if (decayed > 0) {
-  console.error(`\n${decayed} scenario(s) ranked the needle WORSE at the largest store than the smallest.`);
+  console.error(`\n${decayed} scenario(s) ranked the needle WORSE at some larger rung than at the smallest.`);
   process.exit(1);
 }
-console.log("\nEvery rung: needle retrieved, every real note delivered, and no scenario's rank degraded with store size.");
+console.log("\nEvery rung: needle retrieved, every real note delivered, and no rung ranked the needle worse than the smallest store did.");

@@ -38,7 +38,7 @@ The arms that recur below:
 | --- | --- | --- | --- |
 | 2026-07-14 | Harbor nightly, 8 tasks | agentify 24/24 vs 21/24 | **No winner** (3 discordant, p = 0.25) |
 | 2026-07-29 | MCP description ablation (native) | agentify 9/18 vs plain-safe 12/18 | **Lost**; ~zero tool calls |
-| 2026-08-19 | multisession + crossvendor + downshift | downshift 51/56 vs 36/56 | **Winner** (16/1, p = 2.8e-4) |
+| 2026-08-19 | multisession + crossvendor + downshift | downshift 51/54 vs 36/54 pairs | **Winner** (16/1, p = 2.8e-4) |
 | 2026-08-20 | First competitor head-to-head, 4 arms | stuffing 37/40, agentify 36/40, serena 27/40, plain 26/40 | **No difference detected** vs stuffing; strong vs plain/serena |
 | 2026-08-21 | Five-family downshift, 180 trials | agentify 84/86 vs 56/86 | **Winner** (28/0, p = 7.5e-9) + per-cell target met |
 | 2026-08-21 | Store-size ladder, 135 trials | stuffing 24/27 vs agentify 20/27 vs plain 2/27 | **No difference detected** vs stuffing; decisive vs plain |
@@ -65,10 +65,13 @@ was adopted**. Consequence shipped: the server now sends initialize
 
 ### 2026-08-19 — multisession, cross-vendor, and the first downshift matrix
 
-- **downshift** (3 families × 3 difficulties × 2 model rungs): **51/56 vs
-  36/56**, discordant **16/1 spanning two task families**, sign p = 2.75e-4,
-  Wilson separated. Cost per passing task flips agentify-cheaper on the
-  `sonnet-4-5` rungs ($0.150 vs $0.192 at hard).
+- **downshift** (3 families × 3 difficulties × 2 usable model rungs): arm
+  totals **51/56 vs 36/56** gradeable attempts. The paired verdict is computed
+  over the **54 pairs** where both arms have a gradeable attempt — **51/54 vs
+  36/54** — discordant **16/1 spanning two task families**, sign p = 2.75e-4,
+  Wilson separated (84.9–98.1% vs 53.4–77.8%). Read the CIs against the
+  54-pair denominator, not the 56-attempt one. Cost per passing task flips
+  agentify-cheaper on the `sonnet-4-5` rungs ($0.150 vs $0.192 at hard).
 - **multisession**: 3/3 both arms — a tie, but with the first measured
   rediscovery receipt: the baseline burned **147,508 more phase-B tokens**
   re-exploring what the agentify arm recalled. Cost break-even honestly
@@ -77,9 +80,12 @@ was adopted**. Consequence shipped: the server now sends initialize
   rediscovers the seeded gotcha without memory, so these tasks need harder
   variants before the suite can separate.
 
-Receipts: `harbor-20260819`. The whole `claude-3-5-haiku` rung (54 attempts)
-is excluded as void — the subscription stopped serving that model and every
-attempt returned API 404 — which is why the ladder is now two rungs.
+Receipts: `harbor-20260819`. The `claude-3-5-haiku` rung is why the ladder is
+now two rungs: of its 54 attempts, **50 returned the API-404 shape** with an
+all-zero usage envelope (the model is not served to subscription accounts —
+infrastructure void, not model weakness) and are excluded as non-gradeable.
+The other **4 lost telemetry mid-run and are graded as failures**, so they are
+inside the 56-attempt totals above. The rung is mostly, not entirely, void.
 
 ### 2026-08-20 — first competitor head-to-head
 
@@ -160,11 +166,17 @@ BM25 is not the bottleneck here. Receipts: `harbor-20260821-storeladder`.
 
 ## What we claim, and what we don't
 
-**Supported today.** Durable repo memory turns realistic regression traps —
-where the fix lives only in recorded project history — from a coin flip into a
-near-certainty, versus the same agent with no memory layer: 28/0 discordant at
-p = 7.5e-9 on the five-family matrix, 18/0 at p = 8e-6 on the store ladder,
-9/0 against Serena.
+**Supported today.** Against the same agent with **no memory layer**, durable
+repo memory turns realistic regression traps — where the fix lives only in
+recorded project history — from a coin flip into a near-certainty: 28/0
+discordant at p = 7.5e-9 on the five-family matrix, 18/0 at p = 8e-6 on the
+store ladder.
+
+Separately, and against a **memory-enabled competitor**: 9/0 discordant
+against Serena, which was given the same seeded knowledge in its own native
+`.serena/memories` and still did not recover it (0/5 on
+`avoid-cache-regression`). That is a result about one competitor's retrieval,
+not about having a memory layer at all, and it belongs in its own row.
 
 **Not supported.** That Agentify beats a hand-maintained `CLAUDE.md` memory
 bank. Two independent campaigns detected no significant difference at small
@@ -190,6 +202,9 @@ benchmark whose corrections are invisible is not evidence.
 | Cost quoted without coverage | Head-to-head cost shown as subtotals over 155/160 attempts; cheaper-arm conclusion withdrawn |
 | `sign_test_p` rounded to six decimals | Published an impossible exact `p = 0`; now six significant digits |
 | Harbor silently dropped three tasks | Rung ids zero-padded, guard test added; the small rung is absent rather than reported |
+| Downshift quoted `51/56` attempts alongside CIs computed over 54 *pairs* | Both denominators now stated, with the paired figure (`51/54`) as the headline |
+| "The whole void rung was excluded" | 50 of its 54 attempts were API-404s; the other **4 count as failures** inside the arm totals |
+| Serena's 9/0 was pooled with the no-memory results | Split out: Serena had the same knowledge in its own native memories, so it is a competitor result, not a no-memory one |
 
 ## Reproducing
 

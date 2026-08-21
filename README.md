@@ -402,15 +402,18 @@ after review — is in **[docs/benchmarks.md](docs/benchmarks.md)**.
 | Date | Campaign | Headline | Verdict |
 | --- | --- | --- | --- |
 | 2026-07-14 | Harbor nightly, 8 tasks | 24/24 vs 21/24 | No winner (p = 0.25) |
-| 2026-08-19 | Downshift matrix, 162 trials | 51/56 vs 36/56 | **Winner** (16/1, p = 2.8e-4) |
-| 2026-08-20 | Head-to-head, 4 arms | stuffing 37/40 · agentify 36/40 · Serena 27/40 · plain 26/40 | Tie vs stuffing; 9/0 vs Serena |
+| 2026-08-19 | Downshift matrix, 162 trials | 51/54 vs 36/54 pairs | **Winner** (16/1, p = 2.8e-4) |
+| 2026-08-20 | Head-to-head, 4 arms | stuffing 37/40 · agentify 36/40 · Serena 27/40 · plain 26/40 | No difference vs stuffing; 9/0 vs Serena |
 | 2026-08-21 | Five-family downshift, 180 trials | **84/86 vs 56/86** | **Winner** (28/0, p = 7.5e-9) |
-| 2026-08-21 | Store-size ladder, 135 trials | stuffing 24/27 · agentify 20/27 · plain 2/27 | Null vs stuffing; 18/0 vs plain |
+| 2026-08-21 | Store-size ladder, 135 trials | stuffing 24/27 · agentify 20/27 · plain 2/27 | No difference vs stuffing; 18/0 vs plain |
 
 **What that adds up to.** Against the same agent with *no* memory layer the
 result is consistent and large — 28/0 discordant pairs at p = 7.5e-9 on the
-five-family matrix, 18/0 at p = 8e-6 on the store ladder, 9/0 against
-[Serena](https://github.com/oraios/serena)'s code-intelligence MCP. Against a
+five-family matrix, 18/0 at p = 8e-6 on the store ladder. Separately, against
+a *memory-enabled* competitor, 9/0 against
+[Serena](https://github.com/oraios/serena)'s code-intelligence MCP, which was
+given the same knowledge in its own native memories and still did not recover
+it. Against a
 hand-maintained `CLAUDE.md` memory bank holding the same knowledge, two
 campaigns found **no significant difference, with the point estimate favouring
 the memory bank** — published rather than buried, along with the diagnostics
