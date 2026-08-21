@@ -1,0 +1,50 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20260821-downshift5",
+  "date": "2026-08-21",
+  "dataset": { "name": "agentify-context-bench", "version": "1.1.0" },
+  "notes": "Second downshift campaign: the 5-family x 3-difficulty x 2-rung matrix from #318/#367 (15 tasks x 2 arms x 3 attempts x 2 model rungs = 180 trials), agentify pinned to github:ixigo/agentify#7cd5351, subscription OAuth. The run was interrupted twice by background-process kills at 145/180 and 177/180 and finished via `harbor job resume` (completed trials untouched; the two in-flight trials of the second interruption were re-run) — trial provenance is per-trial in the job artifacts, and every one of the 180 trials graded: ZERO harness errors, zero exclusions, no manual arithmetic anywhere in the published numbers. Tool verdicts (eval grid, fail-closed): SUITE-LEVEL (#322 rule) WINNER agentify — pooled 90 gradeable pairs, 88/90 (98%) vs claude-code 56/90 (62%), discordant 32/0 spanning 4 task families (avoid-unbounded-fanout 16, avoid-cache-regression 14, recall-error-envelope 1, reject-stale-config-path 1 — avoid-roster-mutation tied), sign p reported 0 (exact 2x2^-32 ~= 4.7e-10), Wilson CIs separated (92.3-99.4 vs 51.9-71.5). PER-CELL (#317 target, >=5 discordant at p<0.05 in a single cell) MET FOR THE FIRST TIME, in four cells: haiku-4-5 medium 6/0 and hard 7/0, sonnet-4-5 medium 6/0 and hard 7/0. The #318 families did their job — the new avoid-unbounded-fanout family is the single biggest separator — and unlike the previous campaign the verdict rests entirely on graded outcomes, not crash-discordants.",
+  "jobs": {
+    "2026-08-21__11-42-57": {
+      "runs": [
+        "20260821-092721-125b6b",
+        "20260821-092721-1802d6",
+        "20260821-092721-20df0b",
+        "20260821-092721-2217a7",
+        "20260821-092721-32b303",
+        "20260821-092721-3d9983",
+        "20260821-092721-471299",
+        "20260821-092721-490b23",
+        "20260821-092721-4d990d",
+        "20260821-092721-518e20",
+        "20260821-092721-53f497",
+        "20260821-092721-554b3a",
+        "20260821-092721-55f3a3",
+        "20260821-092721-60b82c",
+        "20260821-092721-60ca5f",
+        "20260821-092721-6486ce",
+        "20260821-092721-760bf8",
+        "20260821-092721-7e2874",
+        "20260821-092721-8e398e",
+        "20260821-092721-99ae80",
+        "20260821-092721-a26f31",
+        "20260821-092721-a6fb24",
+        "20260821-092721-aa86fa",
+        "20260821-092721-b7a9a7",
+        "20260821-092721-c3b637",
+        "20260821-092721-c47f60",
+        "20260821-092721-c6cdc1",
+        "20260821-092721-d2f4bd",
+        "20260821-092721-da421f",
+        "20260821-092721-eec2bc"
+      ],
+      "published": {
+        "where": ["docs/harbor.md", "README.md"],
+        "arms": {
+          "agentify": { "passes": 88, "attempts": 90 },
+          "claude-code": { "passes": 56, "attempts": 90 }
+        }
+      }
+    }
+  }
+}

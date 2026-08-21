@@ -540,6 +540,35 @@ Every quoted run's raw artifacts and derived report are committed under
 [`evals/results/`](../evals/results/README.md); `test/eval-receipts.test.js`
 fails CI if the current report code stops reproducing them.
 
+### 2026-08-21 campaign: the five-family downshift — both fail-closed verdicts met
+
+Second downshift campaign, first on the full #318 matrix (15 tasks = 5
+scenario families × 3 difficulties, 2 model rungs, 180 trials — receipts and
+the regenerable grid in `evals/results/harbor-20260821-downshift5/`). Every
+one of the 180 trials graded: **zero harness errors, zero exclusions**, no
+manual arithmetic anywhere in these numbers. The run was interrupted twice
+by host-side process kills and completed via `harbor job resume`; per-trial
+provenance is in the job artifacts.
+
+> **Suite-level (#322 rule): WINNER agentify** — pooled over 90 gradeable
+> pairs: **88/90 (98%) vs plain claude-code 56/90 (62%)**, discordant
+> **32/0 spanning four task families**, exact sign p = 2×2⁻³² ≈ 4.7×10⁻¹⁰,
+> Wilson CIs separated (92.3–99.4% vs 51.9–71.5%).
+>
+> **Per-cell (#317 target): MET for the first time**, in four cells —
+> `haiku-4-5` medium (6/0) and hard (7/0), `sonnet-4-5` medium (6/0) and
+> hard (7/0).
+
+Where the wins come from: `avoid-unbounded-fanout` 16 discordant wins (the
+new #318 family is the single biggest separator), `avoid-cache-regression`
+14, `recall-error-envelope` 1, `reject-stale-config-path` 1;
+`avoid-roster-mutation` tied (both arms handled it — an honest control-like
+outcome). Unlike the 2026-08-19 campaign, whose verdict leaned on one family
+plus lost-telemetry discordants, this one rests entirely on graded outcomes.
+Scope stays what it always was: this is Agentify's own context benchmark —
+the claim is "durable repo memory turns these realistic regression traps
+from a coin flip into a near-certainty," receipts attached.
+
 ### 2026-08-20 campaign: the first competitor head-to-head
 
 First execution of the `headtohead` suite (8 tasks × 4 arms × 5 attempts =
