@@ -26,9 +26,9 @@ evals/harbor/
   dataset.json          # versioned manifest: tasks, categories, pins, suites, spend caps
   agents/
     agentify_claude.py  # Harbor BaseInstalledAgent: Claude Code + Agentify + seeded fixtures
-  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (29 tasks: 15 baseline, plus the #318 families, plus
-                        # medium/hard difficulty variants and two-phase
-                        # multi-session / cross-vendor tasks)
+  tasks/<task-id>/      # Terminal-Bench 2.0 task dirs (35 tasks: 15 baseline,
+                        # plus medium/hard difficulty variants, store-size
+                        # variants, and two-phase multi-session / cross-vendor)
     task.toml
     instruction.md
     environment/
@@ -48,6 +48,7 @@ evals/harbor/
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
     headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 5
+    storeladder.yaml    # 3 tasks × 3 store sizes × 3 arms × 3 (the tie-breaker)
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -373,6 +374,33 @@ against each of them per task. Per-task pairwise significance needs ≥6
 unanimous discordant pairs; there is no multi-arm cross-task aggregator yet,
 so pooling across tasks is the reader's job, receipts in hand.
 
+## Store-size ladder (the head-to-head follow-up)
+
+The 2026-08-20 head-to-head's sharpest finding was a TIE: at a handful of
+seeded notes, stuffing everything into `CLAUDE.md` matched Agentify's
+budgeted retrieval. The `storeladder` suite tests the regime that tie cannot
+survive — or honestly proves it can. Three context-decisive base tasks run at
+three store sizes (base ≈ 2–4 notes, `-store100`, `-store300`), with the SAME
+real knowledge buried among deterministic decoy notes
+(`tools/gen-store-fixtures.mjs`; seeded PRNG, byte-reproducible, answer-leak
+validated, real notes never first or last). Three arms: `agentify-claude`
+(budgeted BM25 injection has to find the needle), `memorybank-claude`
+(renders the WHOLE store into `CLAUDE.md` every trial — the context tax made
+physical), and `plain-claude` (the no-memory floor). Instructions, repos, and
+verifiers are byte-identical to the base tasks; padded variants carry a
+$0.70 cap so no arm is graded on hitting the budget ceiling instead of the
+task. Store-size variants normalize into their base family for the
+suite-level verdict — the ladder can never manufacture family spread.
+
+9 tasks × 3 arms × 3 attempts = 81 trials, $47.25 ceiling:
+`agentify eval harbor plan --suite storeladder`, then
+`harbor run -c suites/storeladder.yaml`.
+
+Pre-registered readout: pass rate AND cost per arm per store size. If the
+stuffing arm holds at store300 without a cost blowup, Agentify's budgeted
+retrieval has no size story on this bank and the write-up will say exactly
+that; if it degrades, the tie was an artifact of toy store sizes.
+
 ## Dataset categories
 
 The tasks cover the roadmap's context-value claims plus the two controls
@@ -422,6 +450,7 @@ agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
 agentify eval harbor plan --suite downshift    # 15 tasks × 2 × 3 × 2 models × cap = $63.00
 agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 5 × cap = $56.00
+agentify eval harbor plan --suite storeladder  # 9 tasks × 3 arms × 3, mixed caps = $47.25
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the
@@ -604,7 +633,7 @@ First full nightly suite (2026-07-14, job `nightly-20260714`: 8 tasks × 2 arms
 × 3 attempts, `claude-haiku-4-5`, `max_turns` 16 per the suite config at the
 time — imported Harbor receipts do not record turn caps — $2.10 spent of the
 then-8-task nightly's $16.80 ceiling, 48/48 trials, zero flakes — receipts in
-`evals/results/harbor-20260714/`). The dataset has since grown to 29 tasks and
+`evals/results/harbor-20260714/`). The dataset has since grown to 35 tasks and
 the nightly suite to 15; the results below predate that growth and have not
 yet been re-run at the new size. Lead with successful-work economics; the
 per-attempt figure is context, not the headline:
@@ -680,7 +709,7 @@ harbor run -d "terminal-bench@2.0" -t <a-few-task-names> \
 ```
 
 Keep it small and directional. Public benchmark scores are not the product
-metric, and a private 29-task dataset earns no leaderboard claims.
+metric, and a private 35-task dataset earns no leaderboard claims.
 
 ## Versioning and provenance
 

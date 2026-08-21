@@ -1,0 +1,16 @@
+version = "1.0"
+
+[metadata]
+category = "decision-recall"
+tags = ["agentify", "context", "decision-recall", "retry-policy"]
+difficulty = "hard"
+description = "Implement a worker retry schedule whose exact delays and queue lane exist only in a recorded architecture decision. Store-size ladder variant: the same knowledge buried among 298+ deterministic decoy notes (store size 300), so retrieval has to find the needle and stuffing has to pay the context tax."
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 600.0

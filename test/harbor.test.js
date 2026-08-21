@@ -623,6 +623,14 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
   assert.equal(nightly.trials, 90); // 15 × 2 × 3 × 1
 });
 
+test("committed store-size ladder plans three arms with mixed caps (head-to-head follow-up)", async () => {
+  const plan = await planHarborRun(REPO_ROOT, {}, { suite: "storeladder" });
+  // 9 tasks (3 bases at $0.35 + 6 padded variants at $0.70) × 3 arms × 3.
+  assert.equal(plan.trials, 81);
+  assert.equal(plan.max_spend_usd, 47.25);
+  assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "plain-claude"]);
+});
+
 test("committed head-to-head suite plans four arms and bounds its ceiling (plan task 1.4)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "headtohead" });
   // 8 tasks × 4 agents (agentify, memorybank, serena, plain) × 5 attempts —

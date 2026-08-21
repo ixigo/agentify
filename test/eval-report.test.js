@@ -832,6 +832,26 @@ test("grid suite-level verdict declares a winner only when every #322 clause hol
   }
 });
 
+test("store-size variants normalize into their base task family (ladder follow-up)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-haiku-4-5-20251001";
+  const pass3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: true }));
+  const fail3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: false }));
+  try {
+    // 6/0 discordant across task-a and task-a-store300: SAME family, so the
+    // spans clause must fail closed exactly like difficulty variants.
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "easy" }) });
+    await writeRunFixture(root, [...pass3("agentify"), ...fail3("plain-safe")], { task: fixtureTask({ id: "task-a-store300", model: weak, difficulty: "easy" }) });
+
+    const grid = await buildEvalGrid(root, {}, []);
+    assert.deepEqual(Object.keys(grid.suite_verdict.discordant_by_family), ["task-a"]);
+    assert.equal(grid.suite_verdict.spans_task_families, false);
+    assert.equal(grid.suite_verdict.winner, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("grid suite-level verdict refuses a winner carried by one task family's difficulty variants (#367)", async () => {
   const root = await makeRoot();
   const weak = "anthropic/claude-haiku-4-5-20251001";

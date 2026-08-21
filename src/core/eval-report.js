@@ -987,7 +987,9 @@ export async function buildEvalGrid(root, config, runIds) {
   // discordant wins were all avoid-cache-regression variants, which a raw
   // task-id guard wrongly counted as three tasks).
   const discordantByFamily = new Map();
-  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard)$/, "");
+  // Difficulty variants (-medium/-hard) and store-size variants (-storeN)
+  // are the SAME scenario family — neither may manufacture family spread.
+  const taskFamily = (taskId) => String(taskId ?? "").replace(/-(medium|hard|store\d+)$/, "");
   for (const cell of cellMap.values()) {
     // Everything the cell reports is computed over the PAIRED subset only: for
     // each run (one task), match the agentify and baseline attempts by

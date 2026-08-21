@@ -91,6 +91,28 @@
       ]
     },
     {
+      "id": "avoid-cache-regression-store100",
+      "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
+    },
+    {
+      "id": "avoid-cache-regression-store300",
+      "category": "prior-failure-avoidance",
+      "difficulty": "easy",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "maxEntries",
+        "evictOldest",
+        "cache.clear()"
+      ]
+    },
+    {
       "id": "avoid-cache-regression-medium",
       "category": "prior-failure-avoidance",
       "difficulty": "medium",
@@ -340,6 +362,26 @@
       ]
     },
     {
+      "id": "recall-retry-schedule-store100",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "RETRY_SECONDS",
+        "Math.trunc(attempt)"
+      ]
+    },
+    {
+      "id": "recall-retry-schedule-store300",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "RETRY_SECONDS",
+        "Math.trunc(attempt)"
+      ]
+    },
+    {
       "id": "recall-tax-rounding",
       "category": "decision-recall",
       "difficulty": "hard",
@@ -354,6 +396,26 @@
       "category": "decision-recall",
       "difficulty": "hard",
       "max_cost_usd": 0.35,
+      "answer_leak_patterns": [
+        "sha256=",
+        "timestamp}:${rawBody"
+      ]
+    },
+    {
+      "id": "recall-webhook-signature-store100",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
+      "answer_leak_patterns": [
+        "sha256=",
+        "timestamp}:${rawBody"
+      ]
+    },
+    {
+      "id": "recall-webhook-signature-store300",
+      "category": "decision-recall",
+      "difficulty": "hard",
+      "max_cost_usd": 0.7,
       "answer_leak_patterns": [
         "sha256=",
         "timestamp}:${rawBody"
@@ -510,6 +572,26 @@
       "agent_names": [
         "agentify-claude",
         "claude-code"
+      ]
+    },
+    "storeladder": {
+      "tasks": [
+        "avoid-cache-regression",
+        "avoid-cache-regression-store100",
+        "avoid-cache-regression-store300",
+        "recall-retry-schedule",
+        "recall-retry-schedule-store100",
+        "recall-retry-schedule-store300",
+        "recall-webhook-signature",
+        "recall-webhook-signature-store100",
+        "recall-webhook-signature-store300"
+      ],
+      "attempts": 3,
+      "agents": 3,
+      "agent_names": [
+        "agentify-claude",
+        "memorybank-claude",
+        "plain-claude"
       ]
     }
   }
