@@ -408,6 +408,115 @@ function collectExportedSymbols(sourceFile) {
   return symbols;
 }
 
+// Real per-symbol references for a TS/JS source file (plan task 2.1). Unlike
+// the file-level import graph, this records WHERE a name is used, so
+// `query callers foo` returns foo's actual call sites — not "everything that
+// imports foo's file". Two kinds are recorded:
+//   - "call":      an invocation. `foo(...)` records `foo`; `obj.foo(...)`
+//                  records the property name `foo` (bare method-call site).
+//   - "reference": any other identifier use, e.g. `const x = foo;`.
+// Recorded names are filtered against the symbols table by the caller, so
+// unrelated identifiers (locals, keywords-as-names) never bloat the index.
+// The declaration name itself is excluded — a definition is not a reference to
+// itself — but import specifiers' local bindings are intentionally kept as
+// references (importing a symbol is a real use of it).
+function collectSymbolReferences(sourceFile) {
+  const references = [];
+  // Identifier nodes already recorded as a call callee, so the reference pass
+  // does not double-record the same identifier as both a call and a reference.
+  const consumedAsCall = new Set();
+
+  function lineNumber(node) {
+    return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  }
+
+  // The identifier is the *name slot* of a declaration (function/class/const/
+  // parameter/…), i.e. the definition itself rather than a use of it.
+  function isDeclarationName(node) {
+    const parent = node.parent;
+    if (!parent || parent.name !== node) {
+      return false;
+    }
+    return ts.isFunctionDeclaration(parent)
+      || ts.isFunctionExpression(parent)
+      || ts.isClassDeclaration(parent)
+      || ts.isClassExpression(parent)
+      || ts.isInterfaceDeclaration(parent)
+      || ts.isTypeAliasDeclaration(parent)
+      || ts.isEnumDeclaration(parent)
+      || ts.isEnumMember(parent)
+      || ts.isModuleDeclaration(parent)
+      || ts.isMethodDeclaration(parent)
+      || ts.isMethodSignature(parent)
+      || ts.isPropertyDeclaration(parent)
+      || ts.isPropertySignature(parent)
+      || ts.isGetAccessorDeclaration(parent)
+      || ts.isSetAccessorDeclaration(parent)
+      || ts.isParameter(parent)
+      || ts.isVariableDeclaration(parent)
+      || ts.isBindingElement(parent)
+      || ts.isTypeParameterDeclaration(parent);
+  }
+
+  // The identifier is a member/property NAME (the `.foo` in `obj.foo`, a type's
+  // `.Sub`, or an object-literal key), not a standalone symbol reference. Call
+  // sites on properties are handled separately as "call"; a bare property read
+  // is intentionally not recorded to avoid conflating unrelated same-named keys.
+  function isMemberName(node) {
+    const parent = node.parent;
+    if (!parent) {
+      return false;
+    }
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
+      return true;
+    }
+    if (ts.isQualifiedName(parent) && parent.right === node) {
+      return true;
+    }
+    if (ts.isPropertyAssignment(parent) && parent.name === node) {
+      return true;
+    }
+    return false;
+  }
+
+  function calleeIdentifier(expression) {
+    if (ts.isIdentifier(expression)) {
+      return expression;
+    }
+    if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) {
+      return expression.name;
+    }
+    return null;
+  }
+
+  function visitCalls(node) {
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const callee = calleeIdentifier(node.expression);
+      if (callee) {
+        references.push({ name: callee.text, kind: "call", line: lineNumber(callee) });
+        consumedAsCall.add(callee);
+      }
+    }
+    ts.forEachChild(node, visitCalls);
+  }
+
+  function visitReferences(node) {
+    if (
+      ts.isIdentifier(node)
+      && !consumedAsCall.has(node)
+      && !isDeclarationName(node)
+      && !isMemberName(node)
+    ) {
+      references.push({ name: node.text, kind: "reference", line: lineNumber(node) });
+    }
+    ts.forEachChild(node, visitReferences);
+  }
+
+  visitCalls(sourceFile);
+  visitReferences(sourceFile);
+  return references;
+}
+
 function collectTsSpecifiers(sourceFile) {
   const imports = [];
 
@@ -1417,6 +1526,10 @@ export async function buildRepositoryIndex(root, config) {
   const compilerOptions = createTypeScriptCompilerOptions(root);
   const fileRows = [];
   const symbolRows = [];
+  // Candidate call-site references collected from TS/JS files. Filtered against
+  // the repo-wide symbol-name set after the walk so only references to names
+  // that are actually defined somewhere are kept (bounds noise and index size).
+  const symbolRefCandidates = [];
   const importRows = [];
   const testRows = [];
   const commandRows = [];
@@ -1483,6 +1596,15 @@ export async function buildRepositoryIndex(root, config) {
           exported: symbol.exported ? 1 : 0,
           start_line: symbol.startLine,
           end_line: symbol.endLine,
+        });
+      }
+
+      for (const ref of collectSymbolReferences(sourceFile)) {
+        symbolRefCandidates.push({
+          symbol_name: ref.name,
+          from_path: filePath,
+          line: ref.line,
+          kind: ref.kind,
         });
       }
     } else if (isSourceFile(filePath)) {
@@ -1604,6 +1726,13 @@ export async function buildRepositoryIndex(root, config) {
     }
   }
 
+  // Keep only references to names that are defined somewhere in the repo. This
+  // is the noise/size bound from the design: an identifier that matches no
+  // indexed symbol (a local variable, a built-in, an external package export)
+  // is dropped rather than stored.
+  const symbolNameSet = new Set(symbolRows.map((symbolInfo) => symbolInfo.name));
+  const symbolRefRows = symbolRefCandidates.filter((ref) => symbolNameSet.has(ref.symbol_name));
+
   return {
     schema_version: "2.0",
     generated_at: generatedAt,
@@ -1628,6 +1757,7 @@ export async function buildRepositoryIndex(root, config) {
     })),
     files: fileRows,
     symbols: symbolRows,
+    symbol_refs: symbolRefRows,
     imports: importRows,
     tests: testRows,
     commands: commandRows,

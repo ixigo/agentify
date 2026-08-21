@@ -92,3 +92,49 @@ for (const item of entrypointCases) {
     assert.equal(fileInfo?.is_entrypoint, 1);
   });
 }
+
+test("buildRepositoryIndex records real TS call-site references, distinguishing same-file exports", async () => {
+  const root = await withTempDir(async (dir) => {
+    await fs.writeFile(path.join(dir, "package.json"), "{}\n", "utf8");
+    await fs.mkdir(path.join(dir, "src"), { recursive: true });
+    // Two exports in ONE file — the case where file-level import edges cannot
+    // tell "callers of foo" from "callers of bar".
+    await fs.writeFile(
+      path.join(dir, "src", "lib.ts"),
+      "export function foo() { return 1; }\nexport function bar() { return 2; }\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(dir, "src", "usesFoo.ts"),
+      "import { foo } from \"./lib\";\nexport function runFoo() {\n  return foo();\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(dir, "src", "usesBar.ts"),
+      "import { bar } from \"./lib\";\nexport function runBar() {\n  const alias = bar;\n  return alias;\n}\n",
+      "utf8",
+    );
+  });
+
+  const index = await buildRepositoryIndex(root, { languages: "auto", moduleStrategy: "auto" });
+  const refsFor = (name) => index.symbol_refs.filter((ref) => ref.symbol_name === name);
+
+  // foo is CALLED only from usesFoo.ts, at the invocation line.
+  const fooCalls = refsFor("foo").filter((ref) => ref.kind === "call");
+  assert.deepEqual(
+    fooCalls.map((ref) => [ref.from_path, ref.line]),
+    [["src/usesFoo.ts", 3]],
+  );
+
+  // bar is never called — only referenced (const alias = bar). It must appear
+  // as a "reference" and NOT as a "call".
+  const barKinds = refsFor("bar").map((ref) => ref.kind);
+  assert.ok(barKinds.includes("reference"), "bar should have a reference use");
+  assert.ok(!barKinds.includes("call"), "bar is never invoked");
+  const barReference = refsFor("bar").find((ref) => ref.kind === "reference" && ref.from_path === "src/usesBar.ts" && ref.line === 3);
+  assert.ok(barReference, "bar referenced on the `const alias = bar` line");
+
+  // Every recorded name resolves to a defined symbol (the size/noise bound).
+  const definedNames = new Set(index.symbols.map((symbolInfo) => symbolInfo.name));
+  assert.ok(index.symbol_refs.every((ref) => definedNames.has(ref.symbol_name)));
+});

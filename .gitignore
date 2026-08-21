@@ -10,6 +10,7 @@ node_modules/
 # >>> agentify generated artifacts
 # New Agentify-owned files stay local. CLAUDE.md, AGENTS.md, and this .gitignore remain visible to Git.
 .agentify/
+plans/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.html
 .current_session/
 AGENTIFY.md
 docs/repo-map.md
@@ -22,7 +23,6 @@ agentify-session-analysis.html
 /.agentignore
 /.guardrails
 /.claude/hooks/plan-to-html.mjs
-plans/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.html
 newdesign/
 # <<< agentify generated artifacts
 evals/harbor/jobs/

@@ -35,6 +35,60 @@ function loadSymbolsByName(db, symbol) {
   return normalizeRows(rows);
 }
 
+// Cap on returned call-site rows. A hot symbol can have thousands of
+// references; returning all of them would flood an agent's context. The rows
+// are ordered deterministically before capping so the truncation is stable.
+const CALL_SITE_CAP = 200;
+
+const CALL_SITE_REFS_NOTE = "Call-site granularity: real references extracted from the TypeScript/JavaScript AST (kind \"call\" = an invocation, kind \"reference\" = any other use), each with the file and line where the symbol is used.";
+const CALL_SITE_CALLERS_NOTE = "Call-site granularity: real call sites extracted from the TypeScript/JavaScript AST, each with the file and line of the invocation.";
+const FILE_IMPORT_NOTE = "File-import granularity: results are file-level import edges into the symbol's defining file(s), not per-symbol call sites. This is the fallback for non-TypeScript/JavaScript languages (and for a symbol with no recorded call-site references); every file listed imports the defining file but may use a different export from it.";
+
+// Real per-symbol references recorded by the indexer for TS/JS. `callsOnly`
+// restricts to invocations (kind "call") for the callers query.
+function loadSymbolRefs(db, symbol, { callsOnly = false } = {}) {
+  const rows = callsOnly
+    ? db.prepare(`
+        SELECT symbol_name, from_path, line, kind
+        FROM symbol_refs
+        WHERE symbol_name = ? AND kind = 'call'
+        ORDER BY from_path ASC, line ASC
+      `).all(String(symbol))
+    : db.prepare(`
+        SELECT symbol_name, from_path, line, kind
+        FROM symbol_refs
+        WHERE symbol_name = ?
+        ORDER BY from_path ASC, line ASC, kind ASC
+      `).all(String(symbol));
+  return normalizeRows(rows);
+}
+
+// Shape call-site rows into the returned reference objects and apply the cap.
+// Field names are a superset of the file-import shape (file_path is shared) so
+// a single consumer can read either granularity.
+function buildCallSiteReferences(rows) {
+  const capped = rows.slice(0, CALL_SITE_CAP);
+  const references = capped.map((row) => ({
+    kind: row.kind,
+    file_path: row.from_path,
+    line: row.line,
+  }));
+  const truncated = rows.length > CALL_SITE_CAP ? rows.length - CALL_SITE_CAP : 0;
+  return { references, total: rows.length, truncated };
+}
+
+// The legacy behavior: file-level import edges into the symbol's defining
+// file(s). Kept as the fallback for non-TS/JS languages.
+function buildImportEdgeReferences(db, definitions) {
+  const definingFiles = [...new Set(definitions.map((definition) => definition.file_path))];
+  return loadImportersOf(db, definingFiles).map((edge) => ({
+    kind: `import:${edge.kind}`,
+    file_path: edge.from_path,
+    imports: edge.to_path,
+    specifier: edge.specifier,
+  }));
+}
+
 function loadImportEdges(db) {
   const rows = db.prepare(`
     SELECT from_path, to_path, specifier, kind
@@ -246,16 +300,28 @@ export async function queryRefs(root, symbol, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const definitions = loadSymbolsByName(db, symbol);
-    const definingFiles = [...new Set(definitions.map((definition) => definition.file_path))];
-    const references = loadImportersOf(db, definingFiles).map((edge) => ({
-      kind: `import:${edge.kind}`,
-      file_path: edge.from_path,
-      imports: edge.to_path,
-      specifier: edge.specifier,
-    }));
+    const refRows = loadSymbolRefs(db, symbol);
+
+    // Prefer real call-site references (TS/JS). When none exist for this symbol
+    // — non-TS/JS languages, or a symbol never referenced — fall back to the
+    // legacy file-level import edges, honestly labeled.
+    if (refRows.length > 0) {
+      const { references, total, truncated } = buildCallSiteReferences(refRows);
+      return {
+        ...symbolResolution(symbol, definitions),
+        granularity: "call-site",
+        note: truncated > 0
+          ? `${CALL_SITE_REFS_NOTE} Showing the first ${references.length} of ${total} references (${truncated} more not shown).`
+          : CALL_SITE_REFS_NOTE,
+        references,
+      };
+    }
+
     return {
       ...symbolResolution(symbol, definitions),
-      references,
+      granularity: "file-import",
+      note: FILE_IMPORT_NOTE,
+      references: buildImportEdgeReferences(db, definitions),
     };
   } finally {
     closeIndexDatabase(db);
@@ -263,14 +329,39 @@ export async function queryRefs(root, symbol, options = {}) {
 }
 
 export async function queryCallers(root, symbol, options = {}) {
-  const result = await queryRefs(root, symbol, options);
-  return {
-    symbol: result.symbol,
-    ambiguous: result.ambiguous,
-    definitions: result.definitions,
-    ...(result.message ? { message: result.message } : {}),
-    callers: result.references,
-  };
+  const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
+  try {
+    const definitions = loadSymbolsByName(db, symbol);
+    const resolution = symbolResolution(symbol, definitions);
+    const base = {
+      symbol: resolution.symbol,
+      ambiguous: resolution.ambiguous,
+      definitions: resolution.definitions,
+      ...(resolution.message ? { message: resolution.message } : {}),
+    };
+
+    const callRows = loadSymbolRefs(db, symbol, { callsOnly: true });
+    if (callRows.length > 0) {
+      const { references, total, truncated } = buildCallSiteReferences(callRows);
+      return {
+        ...base,
+        granularity: "call-site",
+        note: truncated > 0
+          ? `${CALL_SITE_CALLERS_NOTE} Showing the first ${references.length} of ${total} call sites (${truncated} more not shown).`
+          : CALL_SITE_CALLERS_NOTE,
+        callers: references,
+      };
+    }
+
+    return {
+      ...base,
+      granularity: "file-import",
+      note: FILE_IMPORT_NOTE,
+      callers: buildImportEdgeReferences(db, definitions),
+    };
+  } finally {
+    closeIndexDatabase(db);
+  }
 }
 
 export async function queryImpacts(root, filePath, options = {}) {

@@ -168,6 +168,91 @@ test("structural query commands resolve definitions, refs, callers, and impacts 
   ]);
 });
 
+async function scanRepo(root) {
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  await runScan(root, config);
+}
+
+test("callers/refs report real TS call sites — same-file exports have distinct callers", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-query-callsite-"));
+  await fs.writeFile(path.join(root, "package.json"), "{}\n", "utf8");
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, "src", "lib.ts"),
+    "export function foo() { return 1; }\nexport function bar() { return 2; }\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(root, "src", "usesFoo.ts"),
+    "import { foo } from \"./lib\";\nexport function runFoo() {\n  return foo();\n}\n",
+    "utf8",
+  );
+  // References foo (const held = foo — NOT a call) and calls bar().
+  await fs.writeFile(
+    path.join(root, "src", "usesBar.ts"),
+    "import { bar, foo } from \"./lib\";\nexport function runBar() {\n  const held = foo;\n  return bar() + (held ? 0 : 1);\n}\n",
+    "utf8",
+  );
+  await scanRepo(root);
+
+  const fooCallers = await queryCallers(root, "foo");
+  const barCallers = await queryCallers(root, "bar");
+
+  // The regression this task fixes: callers of foo differ from callers of bar
+  // even though both are exported from the same file.
+  assert.equal(fooCallers.granularity, "call-site");
+  assert.equal(barCallers.granularity, "call-site");
+  assert.ok(fooCallers.callers.every((row) => row.kind === "call"));
+  assert.deepEqual(
+    fooCallers.callers.map((row) => [row.file_path, row.line]),
+    [["src/usesFoo.ts", 3]],
+  );
+  assert.deepEqual(
+    barCallers.callers.map((row) => [row.file_path, row.line]),
+    [["src/usesBar.ts", 4]],
+  );
+
+  // Kind separation: the `const held = foo` use is a reference, not a call. It
+  // shows up in refs but never in callers.
+  const fooRefs = await queryRefs(root, "foo");
+  assert.equal(fooRefs.granularity, "call-site");
+  const referenceUse = fooRefs.references.find(
+    (row) => row.kind === "reference" && row.file_path === "src/usesBar.ts" && row.line === 3,
+  );
+  assert.ok(referenceUse, "the non-call use of foo appears in refs");
+  assert.ok(
+    !fooCallers.callers.some((row) => row.file_path === "src/usesBar.ts" && row.line === 3),
+    "the non-call use of foo must NOT appear in callers",
+  );
+});
+
+test("callers/refs fall back to file-import edges for non-TS languages, honestly labeled", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-query-fallback-"));
+  await fs.writeFile(path.join(root, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+  await fs.writeFile(
+    path.join(root, "b.py"),
+    "def thing():\n    return 1\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(root, "a.py"),
+    "from b import thing\n\n\ndef run():\n    return thing()\n",
+    "utf8",
+  );
+  await scanRepo(root);
+
+  const refs = await queryRefs(root, "thing");
+  const callers = await queryCallers(root, "thing");
+
+  assert.equal(refs.granularity, "file-import");
+  assert.equal(callers.granularity, "file-import");
+  assert.match(refs.note, /file-level import edges/i);
+  // The importing file is reported (file-level), and no per-call line number.
+  assert.ok(refs.references.some((row) => row.file_path === "a.py"));
+  assert.ok(refs.references.every((row) => row.line === undefined));
+  assert.ok(callers.callers.some((row) => row.file_path === "a.py"));
+});
+
 test("querySearch no longer returns semantic entities", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-query-search-"));
   await writeStructuralQueryFixture(root);
