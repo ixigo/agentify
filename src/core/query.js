@@ -42,7 +42,7 @@ const CALL_SITE_CAP = 200;
 
 const CALL_SITE_REFS_NOTE = "Call-site granularity: real references extracted from the TypeScript/JavaScript AST (kind \"call\" = an invocation, kind \"reference\" = any other use), each with the file and line where the symbol is used.";
 const CALL_SITE_CALLERS_NOTE = "Call-site granularity: real call sites extracted from the TypeScript/JavaScript AST, each with the file and line of the invocation.";
-const FILE_IMPORT_NOTE = "File-import granularity: results are file-level import edges into the symbol's defining file(s), not per-symbol call sites. This is the fallback for non-TypeScript/JavaScript languages (and for a symbol with no recorded call-site references); every file listed imports the defining file but may use a different export from it.";
+const FILE_IMPORT_NOTE = "File-import granularity: results are file-level import edges into the symbol's defining file(s), not per-symbol call sites. This is the fallback for symbols defined in non-TypeScript/JavaScript languages; every file listed imports the defining file but may use a different export from it.";
 
 // Real per-symbol references recorded by the indexer for TS/JS. `callsOnly`
 // restricts to invocations (kind "call") for the callers query.
@@ -79,6 +79,29 @@ function buildCallSiteReferences(rows) {
 
 // The legacy behavior: file-level import edges into the symbol's defining
 // file(s). Kept as the fallback for non-TS/JS languages.
+const TS_LIKE_PATH = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
+
+// Name-only association over-matches badly (review: two local functions named
+// `add` collected 63 "callers" including unrelated Set.add() invocations).
+// Scope the rows to files that can actually SEE a definition: the defining
+// files themselves plus files with an import edge into one of them. Aliased
+// imports (`import { foo as bar }`) are a known gap — the alias's uses are
+// recorded under the alias name — disclosed in the tool description.
+function scopeRefsToDefinitions(db, refRows, definitions) {
+  if (definitions.length === 0 || refRows.length === 0) {
+    return refRows;
+  }
+  const definingFiles = new Set(definitions.map((definition) => definition.file_path));
+  const importers = new Set(
+    loadImportersOf(db, [...definingFiles]).map((edge) => edge.from_path),
+  );
+  return refRows.filter((row) => definingFiles.has(row.from_path) || importers.has(row.from_path));
+}
+
+function definedInTsLike(definitions) {
+  return definitions.some((definition) => TS_LIKE_PATH.test(definition.file_path));
+}
+
 function buildImportEdgeReferences(db, definitions) {
   const definingFiles = [...new Set(definitions.map((definition) => definition.file_path))];
   return loadImportersOf(db, definingFiles).map((edge) => ({
@@ -300,11 +323,13 @@ export async function queryRefs(root, symbol, options = {}) {
   const db = openIndexDatabase(await resolveQueryPaths(root, options), { readOnly: true });
   try {
     const definitions = loadSymbolsByName(db, symbol);
-    const refRows = loadSymbolRefs(db, symbol);
+    const refRows = scopeRefsToDefinitions(db, loadSymbolRefs(db, symbol), definitions);
 
-    // Prefer real call-site references (TS/JS). When none exist for this symbol
-    // — non-TS/JS languages, or a symbol never referenced — fall back to the
-    // legacy file-level import edges, honestly labeled.
+    // Prefer real call-site references (TS/JS). A TS/JS-defined symbol with
+    // no recorded references returns an EMPTY call-site answer — the AST is
+    // the authority there, and padding it with import edges would contradict
+    // it (review: an unused export must not report importers as references).
+    // Only non-TS/JS definitions fall back to import edges, honestly labeled.
     if (refRows.length > 0) {
       const { references, total, truncated } = buildCallSiteReferences(refRows);
       return {
@@ -314,6 +339,14 @@ export async function queryRefs(root, symbol, options = {}) {
           ? `${CALL_SITE_REFS_NOTE} Showing the first ${references.length} of ${total} references (${truncated} more not shown).`
           : CALL_SITE_REFS_NOTE,
         references,
+      };
+    }
+    if (definedInTsLike(definitions)) {
+      return {
+        ...symbolResolution(symbol, definitions),
+        granularity: "call-site",
+        note: `${CALL_SITE_REFS_NOTE} No references were recorded for this symbol in files that import (or contain) its definition.`,
+        references: [],
       };
     }
 
@@ -340,7 +373,7 @@ export async function queryCallers(root, symbol, options = {}) {
       ...(resolution.message ? { message: resolution.message } : {}),
     };
 
-    const callRows = loadSymbolRefs(db, symbol, { callsOnly: true });
+    const callRows = scopeRefsToDefinitions(db, loadSymbolRefs(db, symbol, { callsOnly: true }), definitions);
     if (callRows.length > 0) {
       const { references, total, truncated } = buildCallSiteReferences(callRows);
       return {
@@ -350,6 +383,17 @@ export async function queryCallers(root, symbol, options = {}) {
           ? `${CALL_SITE_CALLERS_NOTE} Showing the first ${references.length} of ${total} call sites (${truncated} more not shown).`
           : CALL_SITE_CALLERS_NOTE,
         callers: references,
+      };
+    }
+    if (definedInTsLike(definitions)) {
+      // A TS/JS symbol the AST shows no invocations for HAS no callers —
+      // a callback-only function or unused export must return empty, not
+      // its module's importers (review finding).
+      return {
+        ...base,
+        granularity: "call-site",
+        note: `${CALL_SITE_CALLERS_NOTE} No call sites were recorded for this symbol in files that import (or contain) its definition.`,
+        callers: [],
       };
     }
 

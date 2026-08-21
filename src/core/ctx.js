@@ -117,7 +117,12 @@ export function normalizeCommandSignature(command) {
   if (!first) {
     return "";
   }
-  let tokens = first.split(/\s+/).filter(Boolean);
+  // Signatures are computed over the REDACTED command (review: a signature
+  // derived from the raw text stored `curl https://user:secret@host` secrets
+  // verbatim in events.jsonl and ledger keys while `cmd` was redacted).
+  // Precheck normalizes the incoming command through this same function, so
+  // both sides redact identically and matching is unaffected.
+  let tokens = redactSensitiveText(first).split(/\s+/).filter(Boolean);
   while (tokens.length > 0 && (ENV_ASSIGNMENT_TOKEN.test(tokens[0]) || COMMAND_WRAPPER_TOKENS.has(tokens[0]))) {
     tokens = tokens.slice(1);
   }
@@ -127,6 +132,7 @@ export function normalizeCommandSignature(command) {
   const bin = tokens[0].split("/").pop();
   let subcommand = "";
   const flags = new Set();
+  let previousWasBareFlag = false;
   for (const token of tokens.slice(1)) {
     if (token.startsWith("-")) {
       // Flag name only: `--budget=5` -> `--budget`; a bare `-` is ignored.
@@ -134,9 +140,16 @@ export function normalizeCommandSignature(command) {
       if (name.length > 1) {
         flags.add(name);
       }
-    } else if (!subcommand) {
-      // First non-flag token is the subcommand; later positionals are dropped.
+      previousWasBareFlag = !token.includes("=");
+    } else if (!subcommand && !previousWasBareFlag) {
+      // First non-flag token is the subcommand — but a token straight after a
+      // bare flag may be that flag's VALUE (`git -C /repo status` must not
+      // take "/repo" as the subcommand and conflate status with push), so it
+      // is skipped; the real subcommand is picked up further along.
       subcommand = token;
+      previousWasBareFlag = false;
+    } else {
+      previousWasBareFlag = false;
     }
   }
   const parts = [bin];

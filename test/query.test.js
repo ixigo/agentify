@@ -114,6 +114,15 @@ async function writeStructuralQueryFixture(root) {
         importEdge("src/app/settings/page.tsx", "src/app/dashboard/page.tsx", "../dashboard/page"),
         importEdge("src/app/dashboard/page.tsx", "src/types/user.ts", "../../types/user"),
       ],
+      // Call-site rows (schema 3.2): TS-defined symbols answer refs/callers
+      // from these; a TS symbol with none returns an EMPTY call-site answer.
+      symbol_refs: [
+        { symbol_name: "User", from_path: "src/app/dashboard/page.tsx", line: 4, kind: "reference" },
+        { symbol_name: "useAuth", from_path: "src/app/dashboard/page.tsx", line: 9, kind: "call" },
+        // A same-named call in a file that does NOT import the defining file
+        // (an unrelated local `useAuth`): must be scoped OUT of callers.
+        { symbol_name: "useAuth", from_path: "src/b/format.ts", line: 2, kind: "call" },
+      ],
       tests: [],
       commands: [],
     }, { headCommit: "fixturehead", provider: "local" });
@@ -140,15 +149,25 @@ test("structural query commands resolve definitions, refs, callers, and impacts 
   assert.equal(definition.definitions[0].name, "useAuth");
   assert.equal(definition.definitions[0].exported, 1);
 
-  // References are structural import edges into the defining file.
+  // TS-defined symbols answer at call-site granularity from symbol_refs,
+  // scoped to files that import (or contain) a definition.
+  assert.equal(references.granularity, "call-site");
   assert.equal(references.references.length, 1);
-  assert.equal(references.references[0].kind, "import:esm");
+  assert.equal(references.references[0].kind, "reference");
   assert.equal(references.references[0].file_path, "src/app/dashboard/page.tsx");
-  assert.equal(references.references[0].imports, "src/types/user.ts");
-  assert.equal(references.references[0].specifier, "../../types/user");
+  assert.equal(references.references[0].line, 4);
 
+  assert.equal(callers.granularity, "call-site");
+  assert.equal(callers.callers.length, 1, "same-named call in a non-importing file must be scoped out");
   assert.equal(callers.callers[0].file_path, "src/app/dashboard/page.tsx");
-  assert.equal(callers.callers[0].kind, "import:esm");
+  assert.equal(callers.callers[0].kind, "call");
+  assert.equal(callers.callers[0].line, 9);
+
+  // A TS-defined symbol the AST never saw referenced returns an EMPTY
+  // call-site answer — never its module's importers (review finding).
+  const unreferenced = await queryCallers(root, "DashboardPage");
+  assert.equal(unreferenced.granularity, "call-site");
+  assert.deepEqual(unreferenced.callers, []);
 
   assert.deepEqual(impacts.impacts.map((impact) => [impact.file_path, impact.depth]), [
     ["src/app/dashboard/page.tsx", 1],
