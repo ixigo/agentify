@@ -1244,14 +1244,34 @@ function rankKeyFiles(fileRows, entryFiles, importRows) {
 // Ordered: the first marker found wins for a given module root. Commands are
 // conventional invocations, not guesses at custom scripts; a package.json
 // test script still takes precedence for JS/TS modules (unchanged behavior).
+// Every entry declares a language guard so a repo-root marker can never hand
+// a nested module of a DIFFERENT language the wrong runner (a TS workspace
+// package must not inherit `go test` from a root go.mod), and builds its
+// invocation relative to where the marker actually lives, so nested
+// standalone projects run against their own build file instead of the repo
+// root.
 const ECOSYSTEM_COMMANDS = [
   {
     markers: ["go.mod"],
-    commands: { test: ["go", "test", "./..."], build: ["go", "build", "./..."] },
+    language: /\.go$/,
+    commands: ({ markerDir }) => {
+      const prefix = markerDir === "." ? [] : ["-C", markerDir];
+      return {
+        test: ["go", ...prefix, "test", "./..."],
+        build: ["go", ...prefix, "build", "./..."],
+      };
+    },
   },
   {
     markers: ["Cargo.toml"],
-    commands: { test: ["cargo", "test"], build: ["cargo", "build"] },
+    language: /\.rs$/,
+    commands: ({ markerDir }) => {
+      const manifest = markerDir === "." ? [] : ["--manifest-path", `${markerDir}/Cargo.toml`];
+      return {
+        test: ["cargo", "test", ...manifest],
+        build: ["cargo", "build", ...manifest],
+      };
+    },
   },
   {
     // pytest wins whenever its config or a conftest exists; a plain
@@ -1259,53 +1279,71 @@ const ECOSYSTEM_COMMANDS = [
     // conventional runner — running it in a pytest-less env fails loudly
     // with "command not found", never silently.
     markers: ["pytest.ini", "conftest.py", "pyproject.toml", "setup.cfg"],
+    language: /\.py$/,
     requiresPythonTests: true,
-    commands: { test: ["pytest"] },
+    commands: () => ({ test: ["pytest"] }),
   },
   {
     markers: ["pom.xml"],
-    commands: { test: ["mvn", "-q", "test"], build: ["mvn", "-q", "compile"] },
+    language: /\.(java|kt)$/,
+    commands: ({ markerDir }) => {
+      const file = markerDir === "." ? [] : ["-f", `${markerDir}/pom.xml`];
+      return {
+        test: ["mvn", "-q", ...file, "test"],
+        build: ["mvn", "-q", ...file, "compile"],
+      };
+    },
   },
   {
     markers: ["build.gradle", "build.gradle.kts"],
-    gradle: true,
-    commands: { test: ["test"], build: ["build"] },
+    language: /\.(java|kt|kts)$/,
+    commands: ({ markerDir, rootFiles }) => {
+      // Prefer the committed wrapper; it pins the Gradle version the repo
+      // expects. The wrapper lives at the repo root even for nested modules.
+      const gradle = rootFiles.includes("gradlew") ? "./gradlew" : "gradle";
+      const project = markerDir === "." ? [] : ["-p", markerDir];
+      return {
+        test: [gradle, ...project, "test"],
+        build: [gradle, ...project, "build"],
+      };
+    },
   },
 ];
-
-function findDotnetProject(moduleFiles) {
-  return moduleFiles.some((filePath) => /\.(sln|csproj)$/i.test(filePath));
-}
 
 function hasPythonTestFiles(moduleFiles) {
   return moduleFiles.some((filePath) => /(^|\/)test_[^/]+\.py$/.test(filePath) || /_test\.py$/.test(filePath)
     || (/(^|\/)(test|tests)\//i.test(filePath) && filePath.endsWith(".py")));
 }
 
-async function detectEcosystemCommands(root, moduleInfo, moduleFiles) {
+async function detectEcosystemCommands(root, moduleInfo, rootFiles) {
   const moduleRoot = moduleInfo.rootPath === "." ? "" : `${moduleInfo.rootPath}/`;
+  const filesInModule = moduleRoot
+    ? rootFiles.filter((filePath) => filePath.startsWith(moduleRoot))
+    : rootFiles;
   // A marker at the module root wins; a repo-root marker covers nested
-  // modules too (a Go workspace has ONE go.mod but many detected packages —
-  // each package's tests still run through the root toolchain, scoped to the
-  // package at selection time).
-  const inModule = (name) => moduleFiles.includes(`${moduleRoot}${name}`) || moduleFiles.includes(name);
+  // modules too (a Go workspace has ONE go.mod but many detected packages),
+  // but only when the module actually contains that ecosystem's language.
+  const markerDirFor = (name) => {
+    if (rootFiles.includes(`${moduleRoot}${name}`)) {
+      return moduleInfo.rootPath;
+    }
+    return rootFiles.includes(name) ? "." : null;
+  };
 
   for (const ecosystem of ECOSYSTEM_COMMANDS) {
-    if (!ecosystem.markers.some(inModule)) {
+    const markerDirs = ecosystem.markers.map(markerDirFor).filter((dir) => dir !== null);
+    if (markerDirs.length === 0) {
       continue;
     }
-    if (ecosystem.requiresPythonTests && !hasPythonTestFiles(moduleFiles)) {
+    if (!filesInModule.some((filePath) => ecosystem.language.test(filePath))) {
       continue;
     }
-    let commandsByType = ecosystem.commands;
-    if (ecosystem.gradle) {
-      // Prefer the committed wrapper; it pins the Gradle version the repo
-      // expects. The wrapper lives at the repo root even for nested modules.
-      const gradle = moduleFiles.includes("gradlew") || inModule("gradlew") ? "./gradlew" : "gradle";
-      commandsByType = Object.fromEntries(
-        Object.entries(ecosystem.commands).map(([type, args]) => [type, [gradle, ...args]]),
-      );
+    if (ecosystem.requiresPythonTests && !hasPythonTestFiles(filesInModule)) {
+      continue;
     }
+    // Module-local marker beats the repo-root one when both exist.
+    const markerDir = markerDirs.find((dir) => dir !== ".") ?? ".";
+    const commandsByType = ecosystem.commands({ markerDir, rootFiles });
     return Object.entries(commandsByType).map(([commandType, [command, ...args]]) => ({
       module_id: moduleInfo.id,
       command_type: commandType,
@@ -1314,11 +1352,13 @@ async function detectEcosystemCommands(root, moduleInfo, moduleFiles) {
     }));
   }
 
-  const files = moduleRoot
-    ? moduleFiles.filter((filePath) => filePath.startsWith(moduleRoot))
-    : moduleFiles;
-  if (findDotnetProject(files)) {
-    return [{ module_id: moduleInfo.id, command_type: "test", command: "dotnet", args: ["test"] }];
+  // .NET: target the module's solution (preferred) or project file directly,
+  // so a nested project never runs `dotnet test` from a directory with no
+  // project in it.
+  const solution = filesInModule.find((filePath) => /\.sln$/i.test(filePath));
+  const project = solution || filesInModule.find((filePath) => /\.csproj$/i.test(filePath));
+  if (project) {
+    return [{ module_id: moduleInfo.id, command_type: "test", command: "dotnet", args: ["test", project] }];
   }
   return [];
 }

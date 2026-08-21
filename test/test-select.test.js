@@ -260,3 +260,52 @@ test("a cargo project runs the suite whole, with the by-name note", async () => 
   assert.match(group.note || "", /selects tests by name/);
   assert.match(renderTestSelection(selection), /cargo test \(cargo selects tests by name/);
 });
+
+test("a changed Rust source with only inline #[cfg(test)] tests still gets a cargo run group", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "Cargo.toml", "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+    await writeFile(
+      fixtureRoot,
+      "src/lib.rs",
+      "pub fn add(a: i32, b: i32) -> i32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    use super::add;\n\n    #[test]\n    fn adds() { assert_eq!(add(1, 2), 3); }\n}\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "src/lib.rs" }],
+  });
+  // No test FILE exists to select, but the runner keeps tests inline — an
+  // empty selection reporting success would hide them.
+  assert.equal(selection.selected_tests.length, 0);
+  const group = selection.run_groups.find((item) => item.command === "cargo");
+  assert.ok(group, `expected a cargo suite group, got ${JSON.stringify(selection.run_groups)}`);
+  assert.deepEqual(group.args, ["test"]);
+  assert.match(group.note || "", /inline\/by-name/);
+  assert.ok(!selection.notes.some((note) => /Consider running the full suite/.test(note)),
+    "the full-suite fallback note must not fire when a suite group covers the change");
+});
+
+test("a root go.mod never hands its runner to a JS package (language guard)", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "go.mod", "module example.com/mixed\n\ngo 1.22\n");
+    await writeFile(fixtureRoot, "svc/main.go", "package main\n\nfunc main() {}\n");
+    // A JS package with no test script: the ecosystem fallback fires for it,
+    // and must NOT match the root go.mod (it has no .go files).
+    await writeFile(fixtureRoot, "webapp/package.json", JSON.stringify({ name: "webapp" }));
+    await writeFile(fixtureRoot, "webapp/src/app.js", "export const app = 1;\n");
+    await writeFile(
+      fixtureRoot,
+      "webapp/src/app.test.js",
+      "import assert from 'node:assert/strict';\nimport { app } from './app.js';\nassert.equal(app, 1);\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "webapp/src/app.js" }],
+  });
+  const goGroups = selection.run_groups.filter((item) => item.command === "go");
+  for (const group of goGroups) {
+    assert.ok(!group.test_files.includes("webapp/src/app.test.js"),
+      `JS test must not be routed through go: ${JSON.stringify(group)}`);
+  }
+});

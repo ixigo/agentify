@@ -57,12 +57,18 @@ function buildRunnerArgs(script, commandInfo, testFiles) {
   }
   const command = commandInfo.command;
   const baseName = command.replace(/^\.\//, "");
-  if (command === "go" && commandInfo.args[0] === "test") {
+  const testIndex = command === "go" ? commandInfo.args.indexOf("test") : -1;
+  if (command === "go" && testIndex !== -1) {
+    // Preserve any `-C <dir>` prefix (nested go.mod): package paths are then
+    // relative to that directory, not the repo root.
+    const prefix = commandInfo.args.slice(0, testIndex + 1);
+    const moduleDir = prefix[0] === "-C" ? prefix[1] : null;
     const packages = [...new Set(testFiles.map((file) => {
-      const dir = path.posix.dirname(file);
+      const local = moduleDir && file.startsWith(`${moduleDir}/`) ? file.slice(moduleDir.length + 1) : file;
+      const dir = path.posix.dirname(local);
       return dir === "." ? "./" : `./${dir}`;
     }))].sort();
-    return { command, args: ["test", ...packages] };
+    return { command, args: [...prefix, ...packages] };
   }
   if (command === "pytest") {
     return { command, args: [...commandInfo.args, ...testFiles] };
@@ -163,6 +169,40 @@ export async function buildTestSelection(root, options = {}) {
     groups.get(key).test_files.push(testInfo.path);
   }
 
+  // Name-selecting runners cover tests that live INSIDE source files (Rust
+  // #[cfg(test)], JVM/.NET classes the path heuristics missed): a changed
+  // source file in such a module must still produce a run group even when no
+  // indexed test FILE was selected — an empty selection silently reporting
+  // success would hide exactly the tests those ecosystems keep inline.
+  const NAME_SELECTING = new Set(["cargo", "dotnet", "mvn", "gradle", "gradlew"]);
+  const touchedModules = new Set();
+  for (const filePath of [...changedSet, ...impactedByPath.keys()]) {
+    const fileInfo = filesByPath.get(normalizePath(filePath));
+    if (fileInfo && !fileInfo.is_test) {
+      touchedModules.add(fileInfo.module_id ?? null);
+    }
+  }
+  for (const [moduleId, commandInfo] of testCommandsByModule) {
+    const runnerName = commandInfo.command.replace(/^\.\//, "");
+    if (!NAME_SELECTING.has(commandInfo.command) && !NAME_SELECTING.has(runnerName)) {
+      continue;
+    }
+    if (!touchedModules.has(moduleId)) {
+      continue;
+    }
+    const covered = [...groups.values()].some((group) => group.commandInfo?.module_id === moduleId);
+    if (covered) {
+      continue;
+    }
+    groups.set(`suite:${moduleId}`, {
+      commandInfo,
+      module_id: moduleId,
+      test_files: [],
+      suite_reason: `${runnerName} keeps tests inline/by-name; running the module suite for the changed sources`,
+    });
+  }
+
+
   const runGroups = (await Promise.all([...groups.values()].map(async (group) => {
     if (!group.commandInfo) {
       return {
@@ -182,14 +222,14 @@ export async function buildTestSelection(root, options = {}) {
       args: runner.args,
       command_line: [runner.command, ...runner.args].map(shellQuote).join(" "),
       test_files: group.test_files,
-      ...(runner.note ? { note: runner.note } : {}),
+      ...(group.suite_reason || runner.note ? { note: group.suite_reason || runner.note } : {}),
     };
   }))).sort((left, right) => String(left.module_id).localeCompare(String(right.module_id)));
 
   const notes = [];
   if (report.changed_files.length === 0) {
     notes.push("No changed files detected; nothing to select.");
-  } else if (selectedTests.length === 0) {
+  } else if (selectedTests.length === 0 && groups.size === 0) {
     notes.push("Changes detected but no related test files found in the index. Consider running the full suite.");
     for (const recommendation of report.prioritized_test_commands.slice(0, 3)) {
       notes.push(`Fallback: ${recommendation.command_line}`);
