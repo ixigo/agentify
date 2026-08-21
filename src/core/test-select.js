@@ -38,18 +38,51 @@ async function readTestScript(root, moduleRoot) {
   }
 }
 
-// `node --test <dir>` treats appended file paths as extra entry points and
-// crashes on directory arguments, so scripts based on node's test runner are
-// bypassed and the runner invoked directly with just the selected files.
-// Other runners (jest, vitest, mocha) treat extra positional args as filters,
-// where appending is safe.
+// Runner semantics differ per ecosystem (plan task 2.3):
+// - `node --test <dir>` treats appended file paths as extra entry points and
+//   crashes on directory arguments, so scripts based on node's test runner
+//   are bypassed and the runner invoked directly with just the selected
+//   files. Other JS runners (jest, vitest, mocha) treat extra positional
+//   args as filters, where appending is safe.
+// - pytest accepts file paths directly.
+// - `go test` selects PACKAGES, not files (a bare _test.go argument must be
+//   accompanied by the rest of its package), so selected files collapse to
+//   their unique package directories, replacing the indexed `./...`.
+// - cargo / dotnet / maven / gradle select by test NAME, not path; appending
+//   paths breaks the invocation, so the module's whole suite runs and the
+//   group says so.
 function buildRunnerArgs(script, commandInfo, testFiles) {
   if (script && /^node\s+(--[\w-]+(=\S+)?\s+)*--test(\s|$)/.test(script)) {
     return { command: "node", args: ["--test", ...testFiles] };
   }
+  const command = commandInfo.command;
+  const baseName = command.replace(/^\.\//, "");
+  const testIndex = command === "go" ? commandInfo.args.indexOf("test") : -1;
+  if (command === "go" && testIndex !== -1) {
+    // Preserve any `-C <dir>` prefix (nested go.mod): package paths are then
+    // relative to that directory, not the repo root.
+    const prefix = commandInfo.args.slice(0, testIndex + 1);
+    const moduleDir = prefix[0] === "-C" ? prefix[1] : null;
+    const packages = [...new Set(testFiles.map((file) => {
+      const local = moduleDir && file.startsWith(`${moduleDir}/`) ? file.slice(moduleDir.length + 1) : file;
+      const dir = path.posix.dirname(local);
+      return dir === "." ? "./" : `./${dir}`;
+    }))].sort();
+    return { command, args: [...prefix, ...packages] };
+  }
+  if (command === "pytest") {
+    return { command, args: [...commandInfo.args, ...testFiles] };
+  }
+  if (["cargo", "dotnet", "mvn"].includes(command) || baseName === "gradlew" || baseName === "gradle") {
+    return {
+      command,
+      args: [...commandInfo.args],
+      note: `${baseName} selects tests by name, not path; running the module's suite`,
+    };
+  }
   return {
-    command: commandInfo.command,
-    args: appendFileArgs(commandInfo.command, commandInfo.args, testFiles),
+    command,
+    args: appendFileArgs(command, commandInfo.args, testFiles),
   };
 }
 
@@ -136,6 +169,40 @@ export async function buildTestSelection(root, options = {}) {
     groups.get(key).test_files.push(testInfo.path);
   }
 
+  // Name-selecting runners cover tests that live INSIDE source files (Rust
+  // #[cfg(test)], JVM/.NET classes the path heuristics missed): a changed
+  // source file in such a module must still produce a run group even when no
+  // indexed test FILE was selected — an empty selection silently reporting
+  // success would hide exactly the tests those ecosystems keep inline.
+  const NAME_SELECTING = new Set(["cargo", "dotnet", "mvn", "gradle", "gradlew"]);
+  const touchedModules = new Set();
+  for (const filePath of [...changedSet, ...impactedByPath.keys()]) {
+    const fileInfo = filesByPath.get(normalizePath(filePath));
+    if (fileInfo && !fileInfo.is_test) {
+      touchedModules.add(fileInfo.module_id ?? null);
+    }
+  }
+  for (const [moduleId, commandInfo] of testCommandsByModule) {
+    const runnerName = commandInfo.command.replace(/^\.\//, "");
+    if (!NAME_SELECTING.has(commandInfo.command) && !NAME_SELECTING.has(runnerName)) {
+      continue;
+    }
+    if (!touchedModules.has(moduleId)) {
+      continue;
+    }
+    const covered = [...groups.values()].some((group) => group.commandInfo?.module_id === moduleId);
+    if (covered) {
+      continue;
+    }
+    groups.set(`suite:${moduleId}`, {
+      commandInfo,
+      module_id: moduleId,
+      test_files: [],
+      suite_reason: `${runnerName} keeps tests inline/by-name; running the module suite for the changed sources`,
+    });
+  }
+
+
   const runGroups = (await Promise.all([...groups.values()].map(async (group) => {
     if (!group.commandInfo) {
       return {
@@ -155,13 +222,14 @@ export async function buildTestSelection(root, options = {}) {
       args: runner.args,
       command_line: [runner.command, ...runner.args].map(shellQuote).join(" "),
       test_files: group.test_files,
+      ...(group.suite_reason || runner.note ? { note: group.suite_reason || runner.note } : {}),
     };
   }))).sort((left, right) => String(left.module_id).localeCompare(String(right.module_id)));
 
   const notes = [];
   if (report.changed_files.length === 0) {
     notes.push("No changed files detected; nothing to select.");
-  } else if (selectedTests.length === 0) {
+  } else if (selectedTests.length === 0 && groups.size === 0) {
     notes.push("Changes detected but no related test files found in the index. Consider running the full suite.");
     for (const recommendation of report.prioritized_test_commands.slice(0, 3)) {
       notes.push(`Fallback: ${recommendation.command_line}`);
@@ -242,7 +310,11 @@ export function renderTestSelection(selection) {
   if (selection.run_groups.length > 0) {
     lines.push("", "Run:");
     for (const group of selection.run_groups) {
-      lines.push(group.command_line ? `- ${group.command_line}` : `- ${group.test_files.join(" ")} (${group.note})`);
+      if (group.command_line) {
+        lines.push(group.note ? `- ${group.command_line} (${group.note})` : `- ${group.command_line}`);
+      } else {
+        lines.push(`- ${group.test_files.join(" ")} (${group.note})`);
+      }
     }
   }
   for (const note of selection.notes || []) {

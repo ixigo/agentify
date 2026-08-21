@@ -175,3 +175,137 @@ test("node --test scripts with pinned paths produce a working direct invocation"
   const outcome = await runTestSelection(root, selection, { stdio: "ignore" });
   assert.equal(outcome.passed, true, JSON.stringify(outcome.results));
 });
+
+// ---------------------------------------------------------------------------
+// Multi-language runners (plan task 2.3): non-npm repos used to index a full
+// symbol table but ZERO runnable test commands — `agentify test --run`
+// silently had nothing to run outside JS/TS.
+// ---------------------------------------------------------------------------
+
+async function ecosystemFixture(setup) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-test-select-eco-"));
+  await setup(root);
+  const config = await loadConfig(root, { provider: "local", dryRun: false });
+  config._suppressProgress = true;
+  await runScan(root, config, { skipOutput: true, skipFinalize: true });
+  return root;
+}
+
+test("a Go module gets `go test` scoped to the selected packages", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "go.mod", "module example.com/enricher\n\ngo 1.22\n");
+    await writeFile(fixtureRoot, "pkg/adder/adder.go", "package adder\n\nfunc Add(a, b int) int { return a + b }\n");
+    await writeFile(
+      fixtureRoot,
+      "pkg/adder/adder_test.go",
+      "package adder\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal(\"broken\")\n\t}\n}\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "pkg/adder/adder.go" }],
+  });
+  const selectedPaths = selection.selected_tests.map((item) => item.path);
+  assert.ok(selectedPaths.includes("pkg/adder/adder_test.go"), `expected adder_test.go in ${selectedPaths}`);
+
+  const group = selection.run_groups.find((item) => item.command === "go");
+  assert.ok(group, `expected a go run group, got ${JSON.stringify(selection.run_groups)}`);
+  // `go test` selects packages, not files: the selected test files collapse
+  // to their unique package dirs, replacing the indexed ./... .
+  assert.deepEqual(group.args, ["test", "./pkg/adder"]);
+});
+
+test("a pytest project gets `pytest` with the selected files appended", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "pyproject.toml", "[project]\nname = \"calc\"\nversion = \"0.1.0\"\n");
+    await writeFile(fixtureRoot, "conftest.py", "\n");
+    await writeFile(fixtureRoot, "src/calc.py", "def add(a, b):\n    return a + b\n");
+    await writeFile(
+      fixtureRoot,
+      "src/test_calc.py",
+      "from src.calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "src/calc.py" }],
+  });
+  const selectedPaths = selection.selected_tests.map((item) => item.path);
+  assert.ok(selectedPaths.includes("src/test_calc.py"), `expected test_calc.py in ${selectedPaths}`);
+
+  const group = selection.run_groups.find((item) => item.command === "pytest");
+  assert.ok(group, `expected a pytest run group, got ${JSON.stringify(selection.run_groups)}`);
+  assert.deepEqual(group.args, ["src/test_calc.py"]);
+});
+
+test("a cargo project runs the suite whole, with the by-name note", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "Cargo.toml", "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+    await writeFile(fixtureRoot, "src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n");
+    await writeFile(
+      fixtureRoot,
+      "tests/integration_test.rs",
+      "use calc::add;\n\n#[test]\nfn adds() { assert_eq!(add(1, 2), 3); }\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "tests/integration_test.rs" }],
+  });
+  const group = selection.run_groups.find((item) => item.command === "cargo");
+  assert.ok(group, `expected a cargo run group, got ${JSON.stringify(selection.run_groups)}`);
+  // cargo selects tests by NAME, not path: appending paths would break the
+  // invocation, so the module suite runs and the group says so.
+  assert.deepEqual(group.args, ["test"]);
+  assert.match(group.note || "", /selects tests by name/);
+  assert.match(renderTestSelection(selection), /cargo test \(cargo selects tests by name/);
+});
+
+test("a changed Rust source with only inline #[cfg(test)] tests still gets a cargo run group", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "Cargo.toml", "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+    await writeFile(
+      fixtureRoot,
+      "src/lib.rs",
+      "pub fn add(a: i32, b: i32) -> i32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    use super::add;\n\n    #[test]\n    fn adds() { assert_eq!(add(1, 2), 3); }\n}\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "src/lib.rs" }],
+  });
+  // No test FILE exists to select, but the runner keeps tests inline — an
+  // empty selection reporting success would hide them.
+  assert.equal(selection.selected_tests.length, 0);
+  const group = selection.run_groups.find((item) => item.command === "cargo");
+  assert.ok(group, `expected a cargo suite group, got ${JSON.stringify(selection.run_groups)}`);
+  assert.deepEqual(group.args, ["test"]);
+  assert.match(group.note || "", /inline\/by-name/);
+  assert.ok(!selection.notes.some((note) => /Consider running the full suite/.test(note)),
+    "the full-suite fallback note must not fire when a suite group covers the change");
+});
+
+test("a root go.mod never hands its runner to a JS package (language guard)", async () => {
+  const root = await ecosystemFixture(async (fixtureRoot) => {
+    await writeFile(fixtureRoot, "go.mod", "module example.com/mixed\n\ngo 1.22\n");
+    await writeFile(fixtureRoot, "svc/main.go", "package main\n\nfunc main() {}\n");
+    // A JS package with no test script: the ecosystem fallback fires for it,
+    // and must NOT match the root go.mod (it has no .go files).
+    await writeFile(fixtureRoot, "webapp/package.json", JSON.stringify({ name: "webapp" }));
+    await writeFile(fixtureRoot, "webapp/src/app.js", "export const app = 1;\n");
+    await writeFile(
+      fixtureRoot,
+      "webapp/src/app.test.js",
+      "import assert from 'node:assert/strict';\nimport { app } from './app.js';\nassert.equal(app, 1);\n"
+    );
+  });
+
+  const selection = await buildTestSelection(root, {
+    changedFiles: [{ status: "M", path: "webapp/src/app.js" }],
+  });
+  const goGroups = selection.run_groups.filter((item) => item.command === "go");
+  for (const group of goGroups) {
+    assert.ok(!group.test_files.includes("webapp/src/app.test.js"),
+      `JS test must not be routed through go: ${JSON.stringify(group)}`);
+  }
+});
