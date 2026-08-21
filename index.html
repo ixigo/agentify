@@ -295,14 +295,68 @@ img { display: block; max-width: 100%; }
         <div style="display:grid;grid-template-columns:1fr 300px;gap:28px;align-items:start">
           <div data-term data-label="eval" style="border:2px solid var(--color-text);background:var(--term-bg)"></div>
           <div style="border:2px solid var(--color-text);background:var(--color-accent);color:var(--color-bg);padding:24px">
-            <div style="font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;opacity:.85;margin:0 0 14px">First nightly · 2026-07-14</div>
-            <div style="font-family:var(--font-heading);font-weight:800;font-size:44px;line-height:1;margin:0 0 4px">24 / 24</div>
-            <div style="font-size:13px;opacity:.9;margin:0 0 16px">Agentify arm passed, vs <strong>21/24</strong> for plain Claude Code on the same images, model &amp; verifiers.</div>
+            <div style="font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;opacity:.85;margin:0 0 14px">Five-family downshift · 2026-08-21</div>
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:44px;line-height:1;margin:0 0 4px">84 / 86</div>
+            <div style="font-size:13px;opacity:.9;margin:0 0 16px">vs <strong>56/86</strong> for the same agent with no memory layer, over 180 container trials on identical images, model &amp; verifiers.</div>
             <div style="height:2px;background:var(--color-bg);opacity:.4;margin:0 0 14px"></div>
-            <div style="font-size:12.5px;line-height:1.5;opacity:.92">The report still declares <strong>no winner</strong> by design — 3 discordant pairs give p = 0.25 and overlapping intervals. Accumulating nightly runs is what gets there.</div>
+            <div style="font-size:12.5px;line-height:1.5;opacity:.92"><strong>Winner declared</strong> by the fail-closed rule: 28/0 discordant pairs across two task families, exact sign p = 7.5&times;10<sup>-9</sup>, separated Wilson intervals.</div>
           </div>
         </div>
-        <p style="font-size:13px;color:var(--color-neutral-700);margin:18px 0 0;max-width:68ch">Every attempt runs in a disposable clone at the manifest&#39;s immutable <code style="font-family:var(--mono);font-size:12px">base_ref</code> with a hard per-attempt ceiling. Turn a run into a decision with <code style="font-family:var(--mono);font-size:12px">agentify eval report --format html</code>: per-arm pass rates with 95% CIs, cost per passing task, and a cost-quality frontier. A second harness (<strong>Harbor</strong> / Terminal-Bench 2.0) runs the same paired question in container isolation to catch anything that only looks like a win inside Agentify&#39;s own runner.</p>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:18px 0 0;max-width:68ch">Every attempt runs in a disposable clone at the manifest&#39;s immutable <code style="font-family:var(--mono);font-size:12px">base_ref</code> with a hard per-attempt ceiling. Turn a run into a decision with <code style="font-family:var(--mono);font-size:12px">agentify eval report --format html</code>: per-arm pass rates with 95% CIs, cost per passing task, and a cost-quality frontier. A second harness (<strong>Harbor</strong> / Terminal-Bench 2.0) runs the same paired question across a 38-task container dataset, to catch anything that only looks like a win inside Agentify&#39;s own runner.</p>
+
+        <h3 style="font-family:var(--font-heading);font-weight:800;font-size:19px;margin:34px 0 10px">Every campaign, including the ones we lost</h3>
+        <p style="font-size:13px;color:var(--color-neutral-700);margin:0 0 16px;max-width:68ch">Each row is backed by committed receipts under <code style="font-family:var(--mono);font-size:12px">evals/results/</code> — raw runs plus the report they produce — and CI fails if the current code stops reproducing them.</p>
+        <div style="overflow-x:auto;border:2px solid var(--color-text)">
+          <table style="border-collapse:collapse;width:100%;font-size:13px;background:var(--color-bg)">
+            <thead>
+              <tr style="background:var(--color-surface)">
+                <th style="text-align:left;padding:9px 12px;border-bottom:2px solid var(--color-text);font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap">Date</th>
+                <th style="text-align:left;padding:9px 12px;border-bottom:2px solid var(--color-text);font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase">Campaign</th>
+                <th style="text-align:left;padding:9px 12px;border-bottom:2px solid var(--color-text);font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase">Headline</th>
+                <th style="text-align:left;padding:9px 12px;border-bottom:2px solid var(--color-text);font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase">Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap">2026-07-14</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">Harbor nightly, 8 tasks</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">24/24 vs 21/24</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">No winner (p = 0.25)</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap">2026-07-29</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">MCP description ablation</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">9/18 vs 12/18</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">Lost; ~zero tool calls</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap">2026-08-19</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">Downshift matrix, 162 trials</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">51/56 vs 36/56</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)"><strong>Winner</strong> (16/1, p = 2.8e-4)</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap">2026-08-20</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">Head-to-head, 4 arms</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">stuffing 37/40 &middot; agentify 36/40 &middot; Serena 27/40 &middot; plain 26/40</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">No difference vs stuffing; 9/0 vs Serena</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap">2026-08-21</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)">Five-family downshift, 180 trials</td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)"><strong>84/86 vs 56/86</strong></td>
+                <td style="padding:9px 12px;border-bottom:1px solid var(--color-divider)"><strong>Winner</strong> (28/0, p = 7.5e-9)</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 12px;white-space:nowrap">2026-08-21</td>
+                <td style="padding:9px 12px">Store-size ladder, 135 trials</td>
+                <td style="padding:9px 12px">stuffing 24/27 &middot; agentify 20/27 &middot; plain 2/27</td>
+                <td style="padding:9px 12px">No difference vs stuffing; 18/0 vs plain</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:13px;color:var(--color-neutral-800);margin:16px 0 0;max-width:68ch">Against the same agent with <strong>no memory layer</strong> the result is consistent and large. Against a hand-maintained <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> memory bank holding the same knowledge, two campaigns found <strong>no significant difference</strong>, with the point estimate favouring the memory bank — published rather than buried. No leaderboard claims: this is Agentify&#39;s own context benchmark. Full tables, scope caveats, and a log of the numbers that moved <em>down</em> after review: <a href="https://github.com/ixigo/agentify/blob/main/docs/benchmarks.md" style="color:var(--color-accent-700)">docs/benchmarks.md</a>.</p>
       </section>
 
       <!-- ANALYZE -->

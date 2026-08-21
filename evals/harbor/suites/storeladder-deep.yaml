@@ -17,8 +17,9 @@
 # Same three arms, same $0.70 cap, same tasks as the parent suite: only the
 # attempt count moves, so results pool with the earlier job.
 #
-# 3 tasks × 3 arms × 9 attempts = 81 trials; ceiling $56.70, though the first
-# run averaged ~$0.04 per attempt (≈$3 expected).
+# 3 tasks × 3 arms × 9 attempts = 81 trials; ceiling $56.70. The rungs job
+# averaged $0.077 per attempt, so expect roughly $6 actual — check the plan
+# ceiling, never this estimate, before launching.
 # Launch from evals/harbor/ with:  harbor run -c suites/storeladder-deep.yaml
 # Always check the ceiling first:  agentify eval harbor plan --suite storeladder-deep
 jobs_dir: jobs

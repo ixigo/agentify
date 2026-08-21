@@ -41,6 +41,7 @@ function tempStoreFrom(fixture) {
 }
 
 let failures = 0;
+const ranksByScenario = new Map();
 for (const base of SCENARIOS) {
   const instruction = fs.readFileSync(path.join(TASKS, base, "instruction.md"), "utf8").trim();
   const realNotes = realNotesOf(base);
@@ -49,7 +50,13 @@ for (const base of SCENARIOS) {
   const needleProbe = realNotes[0].slice(40, 90);
   for (const rung of RUNGS) {
     const fixture = path.join(TASKS, `${base}-store${rung}`, "environment", "fixtures", "agentify-context", "notes.jsonl");
-    if (!fs.existsSync(fixture)) continue;
+    if (!fs.existsSync(fixture)) {
+      // A missing rung must be loud: silently skipping it would let the
+      // summary below claim a property it never measured.
+      console.error(`MISSING fixture for ${base}-store${rung} (${fixture})`);
+      failures += 1;
+      continue;
+    }
     const dir = tempStoreFrom(fixture);
     try {
       const snapshot = await loadContextSnapshot(dir, { maxNotes: 1000, verifyNotes: false });
@@ -61,12 +68,13 @@ for (const base of SCENARIOS) {
       const blob = JSON.stringify(injected.notes || []);
       const delivered = realNotes.filter((note) => blob.includes(note.slice(40, 90))).length;
       const complete = delivered === realNotes.length;
-      // The invariants that matter are binary: the needle must be a candidate
-      // at all, and every real note must survive the budget. Its exact rank is
-      // reported as information — it lands 1st-3rd and, tellingly, does NOT
-      // drift downward as the store grows.
+      // Invariants: the needle must be a candidate at all, and every real
+      // note must survive the budget. Rank is recorded per rung so the
+      // no-decay claim below is actually MEASURED rather than asserted.
       if (rank === -1) failures += 1;
       if (!complete) failures += 1;
+      if (!ranksByScenario.has(base)) ranksByScenario.set(base, []);
+      ranksByScenario.get(base).push({ rung, rank: rank === -1 ? Infinity : rank + 1 });
       console.log(
         `${base}-store${rung}`.padEnd(38),
         `store=${String(snapshot.notes.length).padStart(3)}`,
@@ -79,8 +87,28 @@ for (const base of SCENARIOS) {
     }
   }
 }
+// Rank stability is MEASURED here, not asserted: compare each scenario's
+// needle rank at its largest rung against its smallest.
+console.log("\nNeedle rank by rung (lower is better):");
+let decayed = 0;
+for (const [base, ranks] of ranksByScenario) {
+  const ordered = ranks.slice().sort((a, b) => Number(a.rung) - Number(b.rung));
+  const first = ordered[0];
+  const last = ordered[ordered.length - 1];
+  const worse = last.rank > first.rank;
+  if (worse) decayed += 1;
+  console.log(
+    `  ${base.padEnd(26)} ${ordered.map((r) => `store${r.rung}=${r.rank}`).join("  ")}`,
+    worse ? `  DEGRADED (${first.rank} -> ${last.rank})` : "  no decay",
+  );
+}
+
 if (failures > 0) {
-  console.error(`\n${failures} rung(s) lost the needle or dropped a real note.`);
+  console.error(`\n${failures} rung(s) lost the needle, dropped a real note, or was missing.`);
   process.exit(1);
 }
-console.log("\nEvery rung: the needle is retrieved and every real note is delivered — and its rank does not degrade as the store grows.");
+if (decayed > 0) {
+  console.error(`\n${decayed} scenario(s) ranked the needle WORSE at the largest store than the smallest.`);
+  process.exit(1);
+}
+console.log("\nEvery rung: needle retrieved, every real note delivered, and no scenario's rank degraded with store size.");
