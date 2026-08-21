@@ -625,9 +625,11 @@ test("committed downshift suite plans the model×difficulty matrix and bounds it
 
 test("committed store-size ladder plans three arms with mixed caps (head-to-head follow-up)", async () => {
   const plan = await planHarborRun(REPO_ROOT, {}, { suite: "storeladder" });
-  // 9 tasks (3 bases at $0.35 + 6 padded variants at $0.70) × 3 arms × 3.
-  assert.equal(plan.trials, 81);
-  assert.equal(plan.max_spend_usd, 47.25);
+  // 6 padded variants ($0.70 cap each) × 3 arms × 3 attempts — the small
+  // rung is the already-paid 2026-08-20 head-to-head, so the plan ceiling
+  // equals harbor's enforceable worst case exactly.
+  assert.equal(plan.trials, 54);
+  assert.equal(plan.max_spend_usd, 37.8);
   assert.deepEqual(plan.agents, ["agentify-claude", "memorybank-claude", "plain-claude"]);
 });
 

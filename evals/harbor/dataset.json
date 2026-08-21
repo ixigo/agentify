@@ -576,13 +576,10 @@
     },
     "storeladder": {
       "tasks": [
-        "avoid-cache-regression",
         "avoid-cache-regression-store100",
         "avoid-cache-regression-store300",
-        "recall-retry-schedule",
         "recall-retry-schedule-store100",
         "recall-retry-schedule-store300",
-        "recall-webhook-signature",
         "recall-webhook-signature-store100",
         "recall-webhook-signature-store300"
       ],

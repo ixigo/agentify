@@ -832,6 +832,27 @@ test("grid suite-level verdict declares a winner only when every #322 clause hol
   }
 });
 
+test("grid baseline pick is deterministic and prefers the plain floor on ties (ladder follow-up)", async () => {
+  const root = await makeRoot();
+  const weak = "anthropic/claude-haiku-4-5-20251001";
+  const pass3 = (arm) => [1, 2, 3].map((i) => makeAttempt(arm, i, { pass: true }));
+  try {
+    // Three arms with EQUAL attempt counts: memorybank-claude sorts before
+    // plain-claude lexicographically and can precede it in encounter order,
+    // so only the plain-floor preference makes the pick deterministic.
+    await writeRunFixture(root, [
+      ...pass3("agentify"),
+      ...pass3("memorybank-claude"),
+      ...pass3("plain-claude"),
+    ], { task: fixtureTask({ id: "task-a", model: weak, difficulty: "easy", arms: ["agentify", "memorybank-claude", "plain-claude"] }) });
+
+    const grid = await buildEvalGrid(root, {}, []);
+    assert.equal(grid.baseline_arm, "plain-claude");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("store-size variants normalize into their base task family (ladder follow-up)", async () => {
   const root = await makeRoot();
   const weak = "anthropic/claude-haiku-4-5-20251001";

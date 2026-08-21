@@ -48,7 +48,7 @@ evals/harbor/
     multisession.yaml   # two-phase write→recall task × 2 agents × 3
     crossvendor.yaml    # 2 transfer tasks (Codex seeds → Claude recalls) × 2 × 3
     headtohead.yaml     # 8 tasks × 4 arms (agentify/memorybank/serena/plain) × 5
-    storeladder.yaml    # 3 tasks × 3 store sizes × 3 arms × 3 (the tie-breaker)
+    storeladder.yaml    # 6 store-size variants × 3 arms × 3 (the tie-breaker)
   run-smoke.sh          # plan → confirm → harbor run → import, in one command
 ```
 
@@ -379,9 +379,11 @@ so pooling across tasks is the reader's job, receipts in hand.
 The 2026-08-20 head-to-head's sharpest finding was a TIE: at a handful of
 seeded notes, stuffing everything into `CLAUDE.md` matched Agentify's
 budgeted retrieval. The `storeladder` suite tests the regime that tie cannot
-survive — or honestly proves it can. Three context-decisive base tasks run at
-three store sizes (base ≈ 2–4 notes, `-store100`, `-store300`), with the SAME
-real knowledge buried among deterministic decoy notes
+survive — or honestly proves it can. Three context-decisive scenarios run at three store sizes — the small rung
+(≈2–4 notes) is the already-measured 2026-08-20 head-to-head itself (same
+tasks, same arms, receipts committed), and this suite adds `-store100` and
+`-store300` variants with the SAME real knowledge buried among deterministic
+decoy notes
 (`tools/gen-store-fixtures.mjs`; seeded PRNG, byte-reproducible, answer-leak
 validated, real notes never first or last). Three arms: `agentify-claude`
 (budgeted BM25 injection has to find the needle), `memorybank-claude`
@@ -392,9 +394,16 @@ $0.70 cap so no arm is graded on hitting the budget ceiling instead of the
 task. Store-size variants normalize into their base family for the
 suite-level verdict — the ladder can never manufacture family spread.
 
-9 tasks × 3 arms × 3 attempts = 81 trials, $47.25 ceiling:
+6 tasks × 3 arms × 3 attempts = 54 trials, $37.80 ceiling (every task
+capped $0.70, matching the per-trial budget, so the plan ceiling equals the
+enforceable worst case):
 `agentify eval harbor plan --suite storeladder`, then
 `harbor run -c suites/storeladder.yaml`.
+
+Designing this suite already paid for itself once: it exposed that per-task
+retrieval considered only the newest 100 notes as BM25 candidates — at 300
+notes the buried needle usually could not compete at all. That window is now
+1000 (the digest path's bound), fixed alongside this suite.
 
 Pre-registered readout: pass rate AND cost per arm per store size. If the
 stuffing arm holds at store300 without a cost blowup, Agentify's budgeted
@@ -450,7 +459,7 @@ agentify eval harbor plan --suite multisession # 1 task × 2 × 3 × $0.70 = $4.
 agentify eval harbor plan --suite crossvendor  # 2 tasks × 2 × 3 × $0.70 = $8.40
 agentify eval harbor plan --suite downshift    # 15 tasks × 2 × 3 × 2 models × cap = $63.00
 agentify eval harbor plan --suite headtohead   # 8 tasks × 4 arms × 5 × cap = $56.00
-agentify eval harbor plan --suite storeladder  # 9 tasks × 3 arms × 3, mixed caps = $47.25
+agentify eval harbor plan --suite storeladder  # 6 tasks × 3 arms × 3 × $0.70 = $37.80
 ```
 
 The `downshift` matrix multiplies by its model ladder, so its plan prints the

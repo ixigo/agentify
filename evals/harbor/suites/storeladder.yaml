@@ -3,9 +3,13 @@
 # at tiny store sizes (a handful of notes); this suite holds task, image,
 # model, budget, and verifier fixed while growing ONLY the context store:
 #
-#   base task        (~2-4 notes: the head-to-head regime, the tie's home turf)
 #   -store100 variant (same knowledge among ~98 deterministic decoy notes)
 #   -store300 variant (same knowledge among ~298 decoys)
+# The small-store rung is NOT re-run: the 2026-08-20 head-to-head campaign
+# already measured these exact base tasks with these exact arms at 5
+# attempts each (receipts committed) — re-buying it would also break the
+# ceiling contract, since the base tasks are capped at $0.35 while this
+# suite budgets $0.70 per trial.
 #
 # The stuffing arm renders the WHOLE store into CLAUDE.md every trial — at
 # store300 that is the context-rot tax made physical. The agentify arm's
@@ -14,8 +18,9 @@
 # (tools/gen-store-fixtures.mjs) and answer-leak-validated like everything
 # else.
 #
-# 9 tasks × 3 arms × 3 attempts = 81 trials. Padded variants carry a $0.70
-# cap so no arm is graded on hitting the budget ceiling instead of the task.
+# 6 tasks × 3 arms × 3 attempts = 54 trials, every task capped at $0.70 so
+# no arm is graded on hitting the budget ceiling instead of the task, and
+# the plan ceiling equals harbor's enforceable worst case exactly.
 # Launch from evals/harbor/ with:  harbor run -c suites/storeladder.yaml
 # Always check the ceiling first:  agentify eval harbor plan --suite storeladder
 jobs_dir: jobs
@@ -26,13 +31,10 @@ n_concurrent_trials: 2
 datasets:
   - path: tasks
     task_names:
-      - avoid-cache-regression
       - avoid-cache-regression-store100
       - avoid-cache-regression-store300
-      - recall-retry-schedule
       - recall-retry-schedule-store100
       - recall-retry-schedule-store300
-      - recall-webhook-signature
       - recall-webhook-signature-store100
       - recall-webhook-signature-store300
 
