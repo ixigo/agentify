@@ -29,11 +29,14 @@ import { VERSION } from "./cli-fast-paths.js";
 
 export const HARBOR_MANIFEST_SCHEMA_VERSION = "harbor-dataset-v1";
 
-// Exception signatures that mean the trial died while INSTALLING or wiring the
-// agent — before any model ran. Matched against Harbor's exception_type plus
-// message, and only ever applied when the trial also reported zero model
-// activity (see importHarborJob).
-const SETUP_FAILURE_PATTERN = /NetworkConnectionError|ConnectionError|DockerException|ImageBuild|npm install|bootstrap\.sh|apt-get|uv tool install|EnvironmentSetup|agent_setup/i;
+// Positive evidence that a trial died while INSTALLING or wiring the agent —
+// before any model ran. Deliberately matches only setup/install-PHASE
+// markers, never an exception CLASS on its own: a bare ConnectionError can
+// equally be a connection failure on the first model request, and treating
+// the class as sufficient would let a runtime failure escape its own arm's
+// denominator (PR #376 review). Applied only when the trial ALSO reported
+// zero model activity (see importHarborJob), so both signals must agree.
+const SETUP_FAILURE_PATTERN = /npm install|bootstrap\.sh|apt-get|apk add|uv tool install|pip install|docker build|image build|agent[_ -]setup|environment[_ -]setup|setup phase/i;
 export const HARBOR_IMPORT_SCHEMA_VERSION = "harbor-import-v1";
 
 // Task categories the portable dataset must cover (#298). Validation fails a
@@ -842,11 +845,12 @@ export async function importHarborJob(root, config = {}, jobDirInput, options = 
       // exception_type/message finally preserved (see above) these are
       // identifiable, and leaving them as graded failures silently converted
       // host network flakes into discordant WINS for the other arm — the
-      // 2026-08-21 campaign had four (PR #376 review). Requires zero model
-      // activity as well, so a mid-run death after real work still grades.
-      const setupFailure = !hadActivity && SETUP_FAILURE_PATTERN.test(
-        `${trial.exceptionType || ""} ${trial.exception || ""}`,
-      );
+      // 2026-08-21 campaign had four (PR #376 review). TWO signals must
+      // agree: zero model activity AND a setup/install-phase marker in the
+      // exception MESSAGE. The exception class alone is never enough — a
+      // bare ConnectionError may be a failed first model request, which is
+      // that arm's own failure and must stay in its denominator.
+      const setupFailure = !hadActivity && SETUP_FAILURE_PATTERN.test(String(trial.exception || ""));
       const status = trial.exception
         ? (reportedInactive || setupFailure ? "error" : "provider_error")
         : "ok";

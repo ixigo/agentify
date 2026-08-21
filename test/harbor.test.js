@@ -563,11 +563,28 @@ test("install-phase failures import as non-gradeable, with the provider's except
       exceptionType: "AgentTimeoutError",
       suffix: "-midrun",
     }),
+    // A connection failure with NO telemetry but NO setup evidence either —
+    // e.g. the first model request never landed. The exception CLASS alone
+    // must not excuse it from this arm's denominator (PR #376 review).
+    trialResult({
+      task: "task-a",
+      agent: "claude-code",
+      reward: null,
+      exception: "connection reset while calling the model endpoint",
+      exceptionType: "ConnectionError",
+      cost: null,
+      inputTokens: null,
+      cacheRead: null,
+      outputTokens: null,
+      suffix: "-firstrequest",
+    }),
   ]);
   const result = await importHarborJob(root, {}, jobDir);
   const report = await buildEvalReport(root, {}, result.runs[0].run_id);
 
-  assert.equal(report.arms["claude-code"].attempts, 1, "the install failure must leave the denominator");
+  // Only the install failure leaves the denominator; the turn-budget death and
+  // the telemetry-less first-request connection failure both stay in it.
+  assert.equal(report.arms["claude-code"].attempts, 2, "only the install failure may leave the denominator");
   assert.equal(report.arms["claude-code"].harness_errors, 1);
   const attempts = report.attempts.filter((attempt) => attempt.arm === "claude-code");
   const setup = attempts.find((attempt) => attempt.status === "error");
@@ -575,7 +592,10 @@ test("install-phase failures import as non-gradeable, with the provider's except
   // The receipt must be auditable: type preserved, message not "[object Object]".
   assert.equal(setup.error_type, "NetworkConnectionError");
   assert.match(setup.error, /npm install/);
-  assert.ok(attempts.some((attempt) => attempt.status === "provider_error"), "mid-run death stays gradeable");
+  const graded = attempts.filter((attempt) => attempt.status === "provider_error");
+  assert.equal(graded.length, 2, "mid-run death and no-setup-evidence connection failure both stay gradeable");
+  assert.ok(graded.some((attempt) => attempt.error_type === "ConnectionError"),
+    "a bare ConnectionError without setup evidence must not be excused from the arm");
 });
 
 test("imported runs cannot be resumed and cross-harness compare needs --force", async () => {
