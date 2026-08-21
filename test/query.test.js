@@ -122,6 +122,11 @@ async function writeStructuralQueryFixture(root) {
         // A same-named call in a file that does NOT import the defining file
         // (an unrelated local `useAuth`): must be scoped OUT of callers.
         { symbol_name: "useAuth", from_path: "src/b/format.ts", line: 2, kind: "call" },
+        // A property invocation (`session.useAuth()`) in an importing file:
+        // receiver bindings are not resolved, so method-call rows must never
+        // count as callers (PR #373 review: set.add() vs an imported add) —
+        // they surface through refs instead.
+        { symbol_name: "useAuth", from_path: "src/app/dashboard/page.tsx", line: 14, kind: "method-call" },
       ],
       tests: [],
       commands: [],
@@ -158,10 +163,14 @@ test("structural query commands resolve definitions, refs, callers, and impacts 
   assert.equal(references.references[0].line, 4);
 
   assert.equal(callers.granularity, "call-site");
-  assert.equal(callers.callers.length, 1, "same-named call in a non-importing file must be scoped out");
+  assert.equal(callers.callers.length, 1, "scoped-out same-name call and method-call must not count as callers");
   assert.equal(callers.callers[0].file_path, "src/app/dashboard/page.tsx");
   assert.equal(callers.callers[0].kind, "call");
   assert.equal(callers.callers[0].line, 9);
+
+  // The property invocation still surfaces through refs, labeled method-call.
+  const useAuthRefs = await queryRefs(root, "useAuth");
+  assert.ok(useAuthRefs.references.some((ref) => ref.kind === "method-call" && ref.line === 14));
 
   // A TS-defined symbol the AST never saw referenced returns an EMPTY
   // call-site answer — never its module's importers (review finding).

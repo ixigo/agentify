@@ -132,6 +132,7 @@ export function normalizeCommandSignature(command) {
   const bin = tokens[0].split("/").pop();
   let subcommand = "";
   const flags = new Set();
+  let ambiguousSubcommand = false;
   let previousWasBareFlag = false;
   for (const token of tokens.slice(1)) {
     if (token.startsWith("-")) {
@@ -142,15 +143,25 @@ export function normalizeCommandSignature(command) {
       }
       previousWasBareFlag = !token.includes("=");
     } else if (!subcommand && !previousWasBareFlag) {
-      // First non-flag token is the subcommand — but a token straight after a
-      // bare flag may be that flag's VALUE (`git -C /repo status` must not
-      // take "/repo" as the subcommand and conflate status with push), so it
-      // is skipped; the real subcommand is picked up further along.
+      // First non-flag token is the subcommand.
       subcommand = token;
       previousWasBareFlag = false;
     } else {
+      if (!subcommand && previousWasBareFlag) {
+        // This token follows a bare flag before any subcommand was found: it
+        // could be the flag's VALUE or the subcommand itself (`npm --silent
+        // test` vs `git -C /repo status` parse identically without per-tool
+        // flag specs) — the whole signature is ambiguous.
+        ambiguousSubcommand = true;
+      }
       previousWasBareFlag = false;
     }
+  }
+  // Ambiguity is fail-safe (PR #373 review): a warning about an unrelated
+  // command is worse than no warning, so an ambiguous command opts out of
+  // the signature tier entirely (exact-match precheck still covers it).
+  if (ambiguousSubcommand) {
+    return "";
   }
   const parts = [bin];
   if (subcommand) {

@@ -57,6 +57,24 @@ test("normalizeCommandSignature only looks at the first pipeline segment", () =>
   assert.equal(normalizeCommandSignature("ls; rm -rf x"), "ls");
 });
 
+test("normalizeCommandSignature declines ambiguous flag-value/subcommand shapes (PR #373 review)", () => {
+  // A non-flag token straight after a bare flag could be the flag's value or
+  // the subcommand — `npm --silent test` and `git -C /repo status` parse
+  // identically without per-tool flag specs, so both opt out of the
+  // signature tier (empty signature) rather than risk a wrong match.
+  assert.equal(normalizeCommandSignature("npm --silent test"), "");
+  assert.equal(normalizeCommandSignature("git -C /repo status"), "");
+  // Flags AFTER the subcommand stay unambiguous.
+  assert.equal(normalizeCommandSignature("npm test --silent"), "npm test --silent");
+  // Trailing bare flags with nothing following are not ambiguous.
+  assert.equal(normalizeCommandSignature("eslint --fix"), "eslint --fix");
+});
+
+test("normalizeCommandSignature redacts secrets before signing (PR #373 review)", () => {
+  const signature = normalizeCommandSignature("curl https://alice:supersecretpw@example.com/api");
+  assert.ok(!signature.includes("supersecretpw"), `signature leaked a credential: ${signature}`);
+});
+
 test("normalizeCommandSignature distinguishes bare-binary from subcommand invocations", () => {
   // A bare binary (no subcommand) has no subcommand slot.
   assert.equal(normalizeCommandSignature("eslint --fix"), "eslint --fix");

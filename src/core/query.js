@@ -92,15 +92,48 @@ function scopeRefsToDefinitions(db, refRows, definitions) {
     return refRows;
   }
   const definingFiles = new Set(definitions.map((definition) => definition.file_path));
-  const importers = new Set(
-    loadImportersOf(db, [...definingFiles]).map((edge) => edge.from_path),
-  );
-  return refRows.filter((row) => definingFiles.has(row.from_path) || importers.has(row.from_path));
+  // Reachability is TRANSITIVE over import edges (PR #373 review): a consumer
+  // importing `foo` through a barrel (use.ts -> index.ts -> lib.ts) never
+  // imports the defining file directly, so a direct-importer check would
+  // return empty for exactly the most public symbols. Reverse-BFS from the
+  // defining files, bounded like queryImpacts so a dense graph stays cheap.
+  const MAX_SCOPE_DEPTH = 5;
+  const reverseEdges = new Map();
+  for (const edge of loadImportEdges(db)) {
+    if (!reverseEdges.has(edge.to_path)) {
+      reverseEdges.set(edge.to_path, []);
+    }
+    reverseEdges.get(edge.to_path).push(edge.from_path);
+  }
+  const reachable = new Set(definingFiles);
+  let frontier = [...definingFiles];
+  for (let depth = 0; depth < MAX_SCOPE_DEPTH && frontier.length > 0; depth++) {
+    const next = [];
+    for (const filePath of frontier) {
+      for (const importer of reverseEdges.get(filePath) || []) {
+        if (!reachable.has(importer)) {
+          reachable.add(importer);
+          next.push(importer);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return refRows.filter((row) => reachable.has(row.from_path));
 }
 
 function definedInTsLike(definitions) {
   return definitions.some((definition) => TS_LIKE_PATH.test(definition.file_path));
 }
+
+// A symbol name defined in BOTH TS/JS and a fallback language must not lose
+// its non-TS side when TS call rows exist (PR #373 review): the non-TS
+// definitions' import edges ride along separately, never silently dropped.
+function nonTsDefinitions(definitions) {
+  return definitions.filter((definition) => !TS_LIKE_PATH.test(definition.file_path));
+}
+
+const MIXED_LANGUAGE_NOTE = "This symbol name is also defined outside TypeScript/JavaScript; file_import_fallback lists the file-level import edges into those definitions.";
 
 function buildImportEdgeReferences(db, definitions) {
   const definingFiles = [...new Set(definitions.map((definition) => definition.file_path))];
@@ -330,18 +363,26 @@ export async function queryRefs(root, symbol, options = {}) {
     // the authority there, and padding it with import edges would contradict
     // it (review: an unused export must not report importers as references).
     // Only non-TS/JS definitions fall back to import edges, honestly labeled.
+    const otherDefinitions = nonTsDefinitions(definitions);
+    const fallbackExtras = otherDefinitions.length > 0
+      ? { file_import_fallback: buildImportEdgeReferences(db, otherDefinitions) }
+      : {};
     if (refRows.length > 0) {
       const { references, total, truncated } = buildCallSiteReferences(refRows);
       return {
         ...symbolResolution(symbol, definitions),
         granularity: "call-site",
-        note: truncated > 0
-          ? `${CALL_SITE_REFS_NOTE} Showing the first ${references.length} of ${total} references (${truncated} more not shown).`
-          : CALL_SITE_REFS_NOTE,
+        note: [
+          truncated > 0
+            ? `${CALL_SITE_REFS_NOTE} Showing the first ${references.length} of ${total} references (${truncated} more not shown).`
+            : CALL_SITE_REFS_NOTE,
+          ...(otherDefinitions.length > 0 ? [MIXED_LANGUAGE_NOTE] : []),
+        ].join(" "),
         references,
+        ...fallbackExtras,
       };
     }
-    if (definedInTsLike(definitions)) {
+    if (definedInTsLike(definitions) && otherDefinitions.length === 0) {
       return {
         ...symbolResolution(symbol, definitions),
         granularity: "call-site",
@@ -354,7 +395,9 @@ export async function queryRefs(root, symbol, options = {}) {
       ...symbolResolution(symbol, definitions),
       granularity: "file-import",
       note: FILE_IMPORT_NOTE,
-      references: buildImportEdgeReferences(db, definitions),
+      // Mixed-language with no TS rows: only the non-TS definitions have
+      // import-edge evidence; the TS side genuinely has no references.
+      references: buildImportEdgeReferences(db, otherDefinitions.length > 0 ? otherDefinitions : definitions),
     };
   } finally {
     closeIndexDatabase(db);
@@ -374,18 +417,26 @@ export async function queryCallers(root, symbol, options = {}) {
     };
 
     const callRows = scopeRefsToDefinitions(db, loadSymbolRefs(db, symbol, { callsOnly: true }), definitions);
+    const otherDefinitions = nonTsDefinitions(definitions);
+    const fallbackExtras = otherDefinitions.length > 0
+      ? { file_import_fallback: buildImportEdgeReferences(db, otherDefinitions) }
+      : {};
     if (callRows.length > 0) {
       const { references, total, truncated } = buildCallSiteReferences(callRows);
       return {
         ...base,
         granularity: "call-site",
-        note: truncated > 0
-          ? `${CALL_SITE_CALLERS_NOTE} Showing the first ${references.length} of ${total} call sites (${truncated} more not shown).`
-          : CALL_SITE_CALLERS_NOTE,
+        note: [
+          truncated > 0
+            ? `${CALL_SITE_CALLERS_NOTE} Showing the first ${references.length} of ${total} call sites (${truncated} more not shown).`
+            : CALL_SITE_CALLERS_NOTE,
+          ...(otherDefinitions.length > 0 ? [MIXED_LANGUAGE_NOTE] : []),
+        ].join(" "),
         callers: references,
+        ...fallbackExtras,
       };
     }
-    if (definedInTsLike(definitions)) {
+    if (definedInTsLike(definitions) && otherDefinitions.length === 0) {
       // A TS/JS symbol the AST shows no invocations for HAS no callers —
       // a callback-only function or unused export must return empty, not
       // its module's importers (review finding).
@@ -401,7 +452,7 @@ export async function queryCallers(root, symbol, options = {}) {
       ...base,
       granularity: "file-import",
       note: FILE_IMPORT_NOTE,
-      callers: buildImportEdgeReferences(db, definitions),
+      callers: buildImportEdgeReferences(db, otherDefinitions.length > 0 ? otherDefinitions : definitions),
     };
   } finally {
     closeIndexDatabase(db);

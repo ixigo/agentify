@@ -411,10 +411,15 @@ function collectExportedSymbols(sourceFile) {
 // Real per-symbol references for a TS/JS source file (plan task 2.1). Unlike
 // the file-level import graph, this records WHERE a name is used, so
 // `query callers foo` returns foo's actual call sites — not "everything that
-// imports foo's file". Two kinds are recorded:
-//   - "call":      an invocation. `foo(...)` records `foo`; `obj.foo(...)`
-//                  records the property name `foo` (bare method-call site).
-//   - "reference": any other identifier use, e.g. `const x = foo;`.
+// imports foo's file". Three kinds are recorded:
+//   - "call":        a direct invocation of a bare identifier: `foo(...)`.
+//   - "method-call": a property invocation: `obj.foo(...)` records the
+//                    property name `foo`. Kept SEPARATE from "call" because
+//                    the receiver binding is not resolved — `set.add()` must
+//                    never count as a caller of an imported `add` (PR #373
+//                    review). queryCallers uses "call" only; method-call rows
+//                    surface through refs.
+//   - "reference":   any other identifier use, e.g. `const x = foo;`.
 // Recorded names are filtered against the symbols table by the caller, so
 // unrelated identifiers (locals, keywords-as-names) never bloat the index.
 // The declaration name itself is excluded — a definition is not a reference to
@@ -493,7 +498,8 @@ function collectSymbolReferences(sourceFile) {
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const callee = calleeIdentifier(node.expression);
       if (callee) {
-        references.push({ name: callee.text, kind: "call", line: lineNumber(callee) });
+        const direct = node.expression === callee; // bare `foo(...)` vs `obj.foo(...)`
+        references.push({ name: callee.text, kind: direct ? "call" : "method-call", line: lineNumber(callee) });
         consumedAsCall.add(callee);
       }
     }
