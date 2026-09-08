@@ -208,6 +208,51 @@ export function parseClaudeJsonOutput(stdout) {
   };
 }
 
+function normalizeProbedModel(entry, index) {
+  if (!entry || typeof entry !== "object") return null;
+  const id = String(entry.slug ?? entry.id ?? entry.model ?? "").trim();
+  if (!id) return null;
+  const rank = Number.isFinite(Number(entry.priority)) ? Number(entry.priority) : null;
+  const upgrade = entry.upgrade && typeof entry.upgrade === "object" && entry.upgrade.model
+    ? {
+      model: String(entry.upgrade.model),
+      retirement_at: entry.upgrade.retirement_at ? String(entry.upgrade.retirement_at) : null,
+    }
+    : null;
+  return {
+    id,
+    display_name: entry.display_name ? String(entry.display_name) : id,
+    rank,
+    order: index,
+    // "list" is what the CLI's own picker shows; hidden entries are internal
+    // (auto-review, reserve) and never become a tier model.
+    listed: entry.visibility === undefined ? true : entry.visibility === "list",
+    api: entry.supported_in_api === undefined ? true : entry.supported_in_api === true,
+    context_window: Number.isFinite(Number(entry.context_window)) ? Number(entry.context_window) : null,
+    upgrade,
+  };
+}
+
+// `codex debug models` renders the CLI's raw catalog as JSON:
+// { models: [{ slug, display_name, priority, visibility, supported_in_api,
+//   context_window, upgrade: { model, retirement_at } | null, ... }] }.
+// Lower priority = ranked higher by the vendor (1 is the flagship).
+export function parseCodexModelCatalog(stdout) {
+  const text = String(stdout || "").trim();
+  if (!text) throw new Error("codex debug models produced no output");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`codex debug models returned invalid JSON: ${error.message}`, { cause: error });
+  }
+  const list = Array.isArray(parsed) ? parsed : parsed?.models;
+  if (!Array.isArray(list)) throw new Error("codex debug models JSON has no models array");
+  const models = list.map(normalizeProbedModel).filter(Boolean);
+  if (models.length === 0) throw new Error("codex debug models listed no models");
+  return models;
+}
+
 // Parse `codex exec --json` JSONL stdout. Usage events may appear as a plain
 // `usage` object or nested token-count info; the last one seen wins (streams
 // report cumulative totals). Codex reports no dollar cost — cost stays null
@@ -512,13 +557,20 @@ export const PROVIDER_DEFINITIONS = {
     },
     delegate: {
       optIn: false,
-      // Pinned per-tier Codex models (July 2026 lineup) so tier-equivalent
-      // fallback and evidence keys are capability-real instead of "whatever
-      // the CLI default happens to be" (#295 known limitation). Overridable
+      // Pinned per-tier Codex models (September 2026 lineup: GPT-6 Astra is
+      // the flagship above the GPT-5.6 family) so tier-equivalent fallback
+      // and evidence keys are capability-real instead of "whatever the CLI
+      // default happens to be" (#295 known limitation). The frontier tier is
+      // kept current automatically from the installed CLI's own ranked
+      // catalog (catalogProbe below, see model-catalog.js); a pinned model
+      // the vendor retires follows the vendor's migration target. Overridable
       // under models.tiers.codex; route defaults may still use the CLI
       // default via model: null.
-      tierModels: { economy: "gpt-5.6-luna", balanced: "gpt-5.6-terra", frontier: "gpt-5.6-sol" },
+      tierModels: { economy: "gpt-5.6-luna", balanced: "gpt-5.6-terra", frontier: "gpt-6-astra" },
       aliasModels: [],
+      // `codex debug models` renders the CLI's local ranked model catalog as
+      // JSON (no network from Agentify's side; the CLI keeps its own cache).
+      catalogProbe: { argv: ["codex", "debug", "models"], parse: parseCodexModelCatalog },
       controls: { maxBudgetUsd: false, maxTurns: false, effort: true },
       enforcement: { budget_usd: "pre-run-only", turns: "unavailable", timeout: "agentify" },
       reportsCostUsd: false,
@@ -565,11 +617,17 @@ export const PROVIDER_DEFINITIONS = {
     },
     delegate: {
       optIn: false,
-      // Version-independent Claude Code aliases: stable across model
-      // releases (currently the Claude 5 generation) at the cost of alias
-      // drift, which `agentify models` warns about.
-      tierModels: { economy: "haiku", balanced: "sonnet", frontier: "opus" },
-      aliasModels: ["haiku", "sonnet", "opus"],
+      // Version-independent Claude Code aliases: each resolves to the latest
+      // generation inside Claude Code itself (fable → Fable 5.1, opus → Opus
+      // 5, sonnet → Sonnet 5, haiku → Haiku 4.5 as of September 2026), so
+      // the tiers self-update at the cost of alias drift, which
+      // `agentify models` warns about. Frontier is the Fable line — the most
+      // capable widely released model; set models.tiers.claude.frontier to
+      // "opus" to stay on Opus pricing.
+      tierModels: { economy: "haiku", balanced: "sonnet", frontier: "fable" },
+      aliasModels: ["haiku", "sonnet", "opus", "fable", "best"],
+      catalogProbe: null,
+      catalogNote: "Claude Code aliases (haiku/sonnet/opus/fable) already resolve to the latest generation; nothing to probe",
       controls: { maxBudgetUsd: true, maxTurns: true, effort: true },
       enforcement: { budget_usd: "native", turns: "native", timeout: "agentify" },
       reportsCostUsd: true,

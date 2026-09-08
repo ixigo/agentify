@@ -52,11 +52,12 @@ export function classifyWorkType(session) {
   return "mixed";
 }
 
-// Heavy is checked first: "gemini-3.1-pro" must land on its "-pro" marker
+// Heavy covers the frontier lines (Claude Fable/Mythos and Opus, GPT-6 Astra,
+// Gemini Pro). Heavy is checked first: "gemini-3.1-pro" must land on its "-pro" marker
 // before the light pattern can see the "mini" inside "gemini". Light
 // markers require a segment boundary for the same reason.
 const MODEL_TIERS = [
-  { tier: 2, label: "heavy", pattern: /fable|mythos|opus|-pro\b|pro-|o1-pro/i },
+  { tier: 2, label: "heavy", pattern: /fable|mythos|opus|astra|-pro\b|pro-|o1-pro/i },
   { tier: 0, label: "light", pattern: /(^|[-./~])(haiku|mini|nano|flash|lite)\b/i },
   { tier: 1, label: "standard", pattern: /sonnet|gpt|codex|o[34]|claude|gemini/i },
 ];

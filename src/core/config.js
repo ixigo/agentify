@@ -42,6 +42,13 @@ const DEFAULT_CONFIG = {
       monthlyUsd: null,
       onLimit: "block",
     },
+    // Provider model catalog (model-catalog.js): `agentify models` probes the
+    // installed provider CLIs for their current lineup so the frontier tier
+    // follows vendor releases without a config change. Explicit pins under
+    // models.tiers always win; false disables the probe and the derived tiers.
+    catalog: {
+      enabled: true,
+    },
   },
   context: {
     injection: "relevant",

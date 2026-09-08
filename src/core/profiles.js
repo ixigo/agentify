@@ -19,11 +19,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { CAPABILITY_TIERS, catalogTierOverrides, loadModelCatalogCache, resolveModelCatalogPolicy } from "./model-catalog.js";
 import { DELEGATE_PROVIDER_NAMES, getDelegateAdapter } from "./provider-registry.js";
+
+export { CAPABILITY_TIERS };
 
 export const ROUTE_POLICY_VERSION = "route-policy-v1";
 export const PROFILE_NAMES = ["cost", "balanced", "performance"];
-export const CAPABILITY_TIERS = ["economy", "balanced", "frontier"];
 
 // Evidence below this many attempts for a candidate is "insufficient": the
 // engine will not move off the configured default because of it. Matches the
@@ -133,7 +135,13 @@ export function resolveRouteTier(kind, route = {}) {
   return ROUTE_CAPABILITY_TIERS[kind] || "balanced";
 }
 
-export function resolveTierModels(config = {}) {
+// Tier model precedence, lowest to highest: adapter default < provider
+// catalog (derived from the installed CLI's own lineup, model-catalog.js) <
+// models.tiers pin. The catalog layer is what keeps the frontier tier current
+// across vendor releases; an explicit pin always wins, and
+// models.catalog.enabled: false removes the layer entirely. `options.catalog`
+// injects a catalog (tests); undefined reads the cached probe.
+export function resolveTierModelSources(config = {}, options = {}) {
   const configured = config.models?.tiers && typeof config.models.tiers === "object" && !Array.isArray(config.models.tiers)
     ? config.models.tiers
     : {};
@@ -142,17 +150,40 @@ export function resolveTierModels(config = {}) {
       throw new Error(`models.tiers.${provider} does not reference a registered delegate provider. Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
     }
   }
-  const merged = {};
+  const policy = resolveModelCatalogPolicy(config);
+  const catalog = policy.enabled
+    ? (options.catalog !== undefined ? options.catalog : loadModelCatalogCache(options))
+    : null;
+  const derived = catalogTierOverrides(catalog);
+  const resolved = {};
   for (const [provider, tiers] of Object.entries(DEFAULT_TIER_MODELS)) {
     const override = configured[provider] && typeof configured[provider] === "object" ? configured[provider] : {};
-    merged[provider] = { ...tiers };
+    resolved[provider] = {};
     for (const tier of CAPABILITY_TIERS) {
-      if (override[tier] !== undefined) {
-        merged[provider][tier] = override[tier] === null ? null : String(override[tier]);
+      let model = tiers[tier] ?? null;
+      let source = "adapter";
+      if (derived[provider] && derived[provider][tier] !== undefined) {
+        model = derived[provider][tier];
+        source = "catalog";
       }
+      if (override[tier] !== undefined) {
+        model = override[tier] === null ? null : String(override[tier]);
+        source = "config";
+      }
+      resolved[provider][tier] = { model, source };
     }
   }
-  return merged;
+  return resolved;
+}
+
+export function resolveTierModels(config = {}, options = {}) {
+  const sources = resolveTierModelSources(config, options);
+  return Object.fromEntries(
+    Object.entries(sources).map(([provider, tiers]) => [
+      provider,
+      Object.fromEntries(CAPABILITY_TIERS.map((tier) => [tier, tiers[tier].model])),
+    ]),
+  );
 }
 
 function normalizeFloor(value, label) {
@@ -248,10 +279,10 @@ export function classifyTaskIntent(task) {
 // its own ordered `fallbacks` list, which is validated against unknown
 // providers, loops (repeated provider/model), and cost-tier escalation
 // beyond the governing profile's bound.
-export function buildFallbackChain({ kind, route, tier, profileName, config = {}, allowDisabledPrimary = false }) {
+export function buildFallbackChain({ kind, route, tier, profileName, config = {}, allowDisabledPrimary = false, catalog }) {
   const definitions = resolveProfileDefinitions(config);
   const definition = definitions[profileName] || definitions.balanced;
-  const tierModels = resolveTierModels(config);
+  const tierModels = resolveTierModels(config, { catalog });
   const providerPolicy = resolveDelegateProviderPolicy(config);
   if (!getDelegateAdapter(route.provider)) {
     throw new Error(`Route "${kind ?? "(custom)"}" references unknown delegate provider "${route.provider}". Registered: ${DELEGATE_PROVIDER_NAMES.join(", ")}`);
@@ -467,8 +498,8 @@ function candidateFor(provider, tier, route, baseTier, tierModels) {
 // Evidence-based tier selection for one route under one profile. Pure and
 // deterministic: same config + same evidence -> same answer. Returns the
 // selected tier plus a reason trail for `route explain`.
-export function selectTier({ kind, route, profileName, definition, evidence, config = {} }) {
-  const tierModels = resolveTierModels(config);
+export function selectTier({ kind, route, profileName, definition, evidence, config = {}, catalog }) {
+  const tierModels = resolveTierModels(config, { catalog });
   const baseTier = resolveRouteTier(kind, route);
   const baseIndex = tierIndex(baseTier);
   const maxIndex = Math.min(CAPABILITY_TIERS.length - 1, baseIndex + definition.maxTierRaise);

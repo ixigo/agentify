@@ -414,7 +414,7 @@ agentify delegate heavy "design the retry strategy"
 agentify delegate research "summarize how auth works here"
 ```
 
-Defaults: `quick`/`research` → Claude Haiku, `implement` → Claude Sonnet, `heavy` → Claude Opus, `review` → Codex (its CLI default model). If a route's CLI is missing, Agentify falls back to the other vendor. Delegations are non-interactive and read-only unless `--write` is passed (`claude -p --permission-mode acceptEdits` / `codex exec --full-auto`). Override routes:
+Defaults: `quick`/`research` → Claude Haiku, `implement` → Claude Sonnet, `heavy` → Claude Fable (the `fable` alias, Fable 5.1 as of September 2026), `review` → Codex (its CLI default model, GPT-6 Astra on current Codex CLIs). If a route's CLI is missing, Agentify falls back to the other vendor at the same capability tier. Delegations are non-interactive and read-only unless `--write` is passed (`claude -p --permission-mode acceptEdits` / `codex exec --full-auto`). Override routes:
 
 ```yaml
 models:
@@ -426,6 +426,36 @@ models:
       provider: claude
       model: haiku
 ```
+
+### Capability tiers and the provider catalog
+
+Cross-vendor fallback and profile-driven tier moves work on three vendor-neutral capability tiers — `economy`, `balanced`, `frontier` — each mapped to a model per provider. The defaults are kept current across vendor releases without a code change:
+
+| Provider | economy | balanced | frontier | How it stays current |
+| --- | --- | --- | --- | --- |
+| `claude` | `haiku` | `sonnet` | `fable` | Claude Code aliases resolve to the latest generation inside Claude Code (`fable` → Fable 5.1, `opus` → Opus 5, `sonnet` → Sonnet 5 today). Nothing to probe. |
+| `codex` | `gpt-5.6-luna` | `gpt-5.6-terra` | `gpt-6-astra` | Read from the installed CLI's own ranked catalog (`codex debug models`): the top-ranked listed model becomes `frontier`; a pinned model the vendor marks for retirement follows the vendor's named replacement. A pinned model that merely disappears is kept and flagged, never guessed. |
+
+`agentify models` probes the installed CLIs when the cached catalog is missing or older than 24 hours and shows where each tier model came from (`[catalog]` = derived from the provider CLI, `[config]` = pinned by you). `agentify models refresh` forces a re-probe and prints the lineup plus any tier changes. Delegate runs only read the cache — they never pay for a probe. The cache lives at `$XDG_CACHE_HOME/agentify/model-catalog.json` (default `~/.cache/agentify/`). Like aliases, a catalog-derived tier moves when the vendor ships — that is the point; freeze it with an explicit pin, which always wins.
+
+Tier models govern cross-vendor fallback and profile-driven tier moves. A route's own `model` still wins at the route's own tier, so to keep a route itself on a different model, pin the route as well as the tier:
+
+```yaml
+models:
+  routes:
+    heavy:
+      provider: claude
+      model: opus           # the heavy route itself stays on Opus…
+  tiers:
+    claude:
+      frontier: opus        # …and so does any frontier-tier fallback/escalation
+    codex:
+      frontier: gpt-6-astra # pin; the catalog no longer moves this tier
+  catalog:
+    enabled: true           # false = no probe, adapter defaults + pins only
+```
+
+Existing `.agentify.yaml` files written by `agentify install` pin `heavy` to `model: opus`; change it to `fable` (or delete the route to inherit the default) to move the heavy route to the Fable line.
 
 ### Budgets
 

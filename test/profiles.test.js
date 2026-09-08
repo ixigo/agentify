@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+// Tier-model expectations below are the adapter defaults: isolate this file
+// from any provider catalog cached on the developer's machine (model-catalog.js
+// reads XDG_CACHE_HOME/agentify/model-catalog.json).
+process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), "agentify-test-cache-"));
 
 import {
   CAPABILITY_TIERS,
@@ -111,9 +117,9 @@ test("fallback chains are tier-equivalent and bounded per profile", () => {
   assert.deepEqual(perfChain.entries[1], { provider: "claude", model: "sonnet", tier: "balanced", reason: "provider_unavailable" });
 
   // heavy is frontier tier in its own right — the fallback keeps it, on the
-  // adapter-pinned frontier Codex model (#297).
-  const heavyChain = buildFallbackChain({ kind: "heavy", route: { provider: "claude", model: "opus" }, profileName: "cost" });
-  assert.deepEqual(heavyChain.entries[1], { provider: "codex", model: "gpt-5.6-sol", tier: "frontier", reason: "provider_unavailable" });
+  // adapter-pinned frontier Codex model (#297; GPT-6 Astra as of Sept 2026).
+  const heavyChain = buildFallbackChain({ kind: "heavy", route: { provider: "claude", model: "fable" }, profileName: "cost", catalog: null });
+  assert.deepEqual(heavyChain.entries[1], { provider: "codex", model: "gpt-6-astra", tier: "frontier", reason: "provider_unavailable" });
 
   const target = selectFromChain(costChain, { claude: true, codex: false });
   assert.equal(target.fallback, true);
@@ -173,11 +179,11 @@ test("performance profile escalates only on measured improvement, never on price
     ...base,
     evidence: evidenceWith({
       "claude/sonnet": stats({ attempts: 10, passes: 7 }),
-      "claude/opus": stats({ attempts: 10, passes: 9 }),
+      "claude/fable": stats({ attempts: 10, passes: 9 }),
     }),
   });
   assert.equal(escalated.selected.tier, "frontier");
-  assert.equal(escalated.selected.model, "opus");
+  assert.equal(escalated.selected.model, "fable");
   assert.equal(escalated.selected.reason, "evidence_higher_pass_rate");
 
   // Higher tier measured no better: stay.
@@ -185,7 +191,7 @@ test("performance profile escalates only on measured improvement, never on price
     ...base,
     evidence: evidenceWith({
       "claude/sonnet": stats({ attempts: 10, passes: 9 }),
-      "claude/opus": stats({ attempts: 10, passes: 9 }),
+      "claude/fable": stats({ attempts: 10, passes: 9 }),
     }),
   });
   assert.equal(flat.selected.tier, "balanced");
@@ -234,7 +240,7 @@ test("balanced profile picks lowest measured cost per pass above the floor, defa
     ...base,
     evidence: evidenceWith({
       "claude/sonnet": stats({ attempts: 10, passes: 6, costPerPass: 0.1 }),
-      "claude/opus": stats({ attempts: 10, passes: 10, costPerPass: 0.2 }),
+      "claude/fable": stats({ attempts: 10, passes: 10, costPerPass: 0.2 }),
     }),
   });
   assert.equal(badDefault.selected.tier, "frontier");

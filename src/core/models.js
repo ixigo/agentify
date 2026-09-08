@@ -17,7 +17,7 @@ import {
   resolveProfileDefinitions,
   resolveProfileSelection,
   resolveRouteTier,
-  resolveTierModels,
+  resolveTierModelSources,
   selectFromChain,
   selectTier,
 } from "./profiles.js";
@@ -26,6 +26,13 @@ import {
   getDelegateAdapter,
   getProviderBootstrap,
 } from "./provider-registry.js";
+import {
+  describeModelCatalog,
+  isModelCatalogStale,
+  loadModelCatalogCache,
+  refreshModelCatalog,
+  resolveModelCatalogPolicy,
+} from "./model-catalog.js";
 
 // Normalized output parsers live with their adapters in the provider
 // registry; re-exported here for existing consumers (eval.js, tests).
@@ -42,8 +49,10 @@ export const DELEGATE_TIMEOUT_MS = 600000;
 export const DELEGATION_SCHEMA_VERSION = "delegation-v2";
 
 // Route defaults are chosen to stay stable across model releases: Claude Code
-// accepts version-independent aliases (haiku/sonnet/opus), and Codex uses the
-// CLI's own configured default when model is null. Everything is overridable
+// accepts version-independent aliases (haiku/sonnet/opus/fable), and Codex
+// uses the CLI's own configured default when model is null. Codex tier models
+// are additionally kept current from the installed CLI's ranked catalog
+// (model-catalog.js). Everything is overridable
 // under `models.routes` in .agentify.yaml.
 //
 // Every default route carries a hard ceiling (dollars, turns, wall-clock) so
@@ -70,7 +79,9 @@ export const DEFAULT_MODEL_ROUTES = {
   },
   heavy: {
     provider: "claude",
-    model: "opus",
+    // The Fable line is Claude Code's frontier alias (Fable 5.1 as of
+    // September 2026); the per-run ceiling below is what bounds its cost.
+    model: "fable",
     maxBudgetUsd: 2.50,
     maxTurns: 40,
     timeoutSeconds: 600,
@@ -725,6 +736,24 @@ function runProviderProcess(command, args, { cwd, timeoutMs }) {
   });
 }
 
+// Refresh the provider model catalog when it is missing or older than the
+// max age (or always with options.force). Only installed CLIs are probed;
+// a probe failure is reported, never thrown — routing must keep working.
+export async function refreshModelCatalogIfNeeded(config, runtime = {}, options = {}) {
+  const catalogPolicy = resolveModelCatalogPolicy(config);
+  if (!catalogPolicy.enabled) return { refreshed: false, reason: "disabled", result: null };
+  const catalogEnv = runtime.env || process.env;
+  const current = loadModelCatalogCache({ env: catalogEnv, home: runtime.home });
+  if (!options.force && !isModelCatalogStale(current)) return { refreshed: false, reason: "fresh", result: null };
+  const installed = options.installed || await detectDelegateProviders(runtime);
+  try {
+    const result = await refreshModelCatalog({ installed, exec: runtime.catalogExec, env: catalogEnv, home: runtime.home });
+    return { refreshed: true, reason: options.force ? "forced" : (current ? "stale" : "missing"), result };
+  } catch (error) {
+    return { refreshed: false, reason: "error", error: error.message, result: null };
+  }
+}
+
 export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const routes = resolveModelRoutes(config);
   const policy = resolveBudgetPolicy(config);
@@ -733,9 +762,15 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const definition = definitions[profileSelection.name];
   const availability = await detectDelegateProviders(runtime);
   const providerPolicy = resolveDelegateProviderPolicy(config);
-  const tierModels = resolveTierModels(config);
+  const catalogPolicy = resolveModelCatalogPolicy(config);
+  const catalogEnv = runtime.env || process.env;
+  const catalog = catalogPolicy.enabled ? loadModelCatalogCache({ env: catalogEnv, home: runtime.home }) : null;
+  const tierSources = resolveTierModelSources(config, { catalog });
+  const tierModels = Object.fromEntries(
+    Object.entries(tierSources).map(([provider, tiers]) => [provider, Object.fromEntries(Object.entries(tiers).map(([tier, entry]) => [tier, entry.model]))]),
+  );
   const entries = Object.entries(routes).map(([kind, route]) => {
-    const chain = buildFallbackChain({ kind, route, profileName: profileSelection.name, config });
+    const chain = buildFallbackChain({ kind, route, profileName: profileSelection.name, config, catalog });
     const target = selectFromChain(chain, availability);
     const limits = resolveRouteLimits(route);
     return {
@@ -775,6 +810,10 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
       opt_in: providerPolicy[name].optIn,
       enabled_for_routing: providerPolicy[name].enabled,
       tier_models: tierModels[name],
+      // Where each tier model came from: adapter default, the provider
+      // catalog probe, or an explicit models.tiers pin.
+      tier_sources: Object.fromEntries(Object.entries(tierSources[name]).map(([tier, entry]) => [tier, entry.source])),
+      catalog_note: adapter.catalogNote || null,
       controls: { ...adapter.controls },
       enforcement: { ...adapter.enforcement },
       reports_cost_usd: adapter.reportsCostUsd === true,
@@ -796,6 +835,9 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
     alias_drift_warning: entries.some((entry) => entry.model_is_alias)
       ? "Some routes use version-independent aliases or the provider CLI default; the resolved model can change across provider releases. Pin full model IDs under models.routes to remove drift. Requested and resolved models are recorded separately per run."
       : null,
+    // Provider model catalog: which CLIs were probed, what they list, and the
+    // tier moves derived from them (frontier follows the vendor's top model).
+    catalog: describeModelCatalog(catalog, { policy: catalogPolicy }),
     routes: entries,
   };
 }

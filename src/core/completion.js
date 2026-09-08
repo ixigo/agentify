@@ -98,7 +98,11 @@ const COMMANDS = [
       }),
     ],
   }),
-  command("models", "Show the model routing table and active profile"),
+  command("models", "Show the model routing table and active profile", {
+    subcommands: [
+      subcommand("refresh", "Re-probe installed provider CLIs for their current model lineup"),
+    ],
+  }),
   command("eval", "Paired Agentify vs plain-Claude benchmarks", {
     subcommands: [
       subcommand("init", "Create a sample eval task manifest"),
