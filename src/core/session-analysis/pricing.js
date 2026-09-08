@@ -9,7 +9,7 @@
 //   pay nothing per token. Coverage travels with every number.
 // - Rates are USD per million tokens at public list price. To update,
 //   append entries with a newer effective date and bump the version.
-export const PRICING_TABLE_VERSION = "analyze-pricing-v2";
+export const PRICING_TABLE_VERSION = "analyze-pricing-v3";
 
 // cache_write is the 5-minute-TTL write rate (1.25x input for Claude);
 // cache_write_1h is the 1-hour-TTL rate (2x input). Newer OpenAI models
@@ -17,13 +17,18 @@ export const PRICING_TABLE_VERSION = "analyze-pricing-v2";
 // short-context rate when the local store does not expose request-level
 // service/context tiers.
 const PRICING = [
+  // Frontier lineup as of September 2026. Claude Fable 5.1 keeps Fable 5's
+  // rates except cache reads (0.025x input); GPT-6 Astra is priced at the
+  // standard short-context tier like the rest of the OpenAI rows.
+  { model: "claude-fable-5-1", effective: "2026-09-01", input: 10, output: 50, cache_read: 0.25, cache_write: 12.5, cache_write_1h: 20 },
   { model: "claude-fable-5", effective: "2026-06-09", input: 10, output: 50, cache_read: 1, cache_write: 12.5, cache_write_1h: 20 },
+  { model: "claude-opus-5", effective: "2026-07-24", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 10 },
   { model: "claude-opus-4-8", effective: "2025-12-01", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 10 },
   { model: "claude-opus-4-5", effective: "2025-11-01", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 10 },
-  { model: "claude-sonnet-5", effective: "2026-09-01", input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, cache_write_1h: 6 },
   { model: "claude-sonnet-5", effective: "2026-06-30", input: 2, output: 10, cache_read: 0.2, cache_write: 2.5, cache_write_1h: 4 },
   { model: "claude-sonnet-4-5", effective: "2025-09-29", input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, cache_write_1h: 6 },
   { model: "claude-haiku-4-5", effective: "2025-10-01", input: 1, output: 5, cache_read: 0.1, cache_write: 1.25, cache_write_1h: 2 },
+  { model: "gpt-6-astra", effective: "2026-09-03", input: 10, output: 50, cache_read: 1, cache_write: 12.5, cache_write_1h: 12.5, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-sol", effective: "2026-07-09", input: 5, output: 30, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 6.25, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-terra", effective: "2026-07-09", input: 2.5, output: 15, cache_read: 0.25, cache_write: 3.125, cache_write_1h: 3.125, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-luna", effective: "2026-07-09", input: 1, output: 6, cache_read: 0.1, cache_write: 1.25, cache_write_1h: 1.25, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },

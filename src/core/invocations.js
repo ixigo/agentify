@@ -28,6 +28,7 @@ const SUBCOMMANDS = new Map([
   ["delegate", new Set(["auto", "heavy", "implement", "quick", "research", "review"])],
   ["eval", new Set(["compare", "grid", "harbor", "init", "list", "report", "run", "swebench"])],
   ["hooks", new Set(["install", "remove", "status"])],
+  ["models", new Set(["refresh"])],
   ["query", new Set(["callers", "changed", "def", "deps", "impacts", "owner", "refs", "search"])],
   ["route", new Set(["explain"])],
   ["skill", new Set(["install", "list"])],

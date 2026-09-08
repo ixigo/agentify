@@ -304,7 +304,13 @@ function syntheticSession({ calls = 0, byName = {}, writes = 0, failed = 0, mode
 
 test("model tiers classify heavy, standard, light, and unknown identifiers", () => {
   assert.equal(modelTier("claude-fable-5").label, "heavy");
+  assert.equal(modelTier("claude-fable-5-1").label, "heavy");
+  assert.equal(modelTier("claude-opus-5").label, "heavy");
   assert.equal(modelTier("claude-opus-4-8").label, "heavy");
+  // GPT-6 Astra is OpenAI's frontier line; the generic "gpt" marker must not
+  // demote it to standard.
+  assert.equal(modelTier("gpt-6-astra").label, "heavy");
+  assert.equal(modelTier("gpt-5.6-terra").label, "standard");
   assert.equal(modelTier("claude-haiku-4-5-20251001").label, "light");
   assert.equal(modelTier("gpt-5.2-codex").label, "standard");
   assert.equal(modelTier("mystery-model-9").label, "unknown");
@@ -907,6 +913,17 @@ test("cost estimates use exact model + effective date and never claim billed spe
       { token_type: "output", tokens: 500_000, rate_usd_per_million: 5 },
     ],
   );
+
+  // September 2026 frontier lineup: Claude Fable 5.1 keeps Fable 5's rates
+  // except the cheaper cache read; GPT-6 Astra and Opus 5 are priced; the
+  // cancelled Sonnet 5 increase must not apply after 2026-09-01.
+  const fable51 = priceEntryFor("claude-fable-5-1", "2026-09-05T00:00:00Z");
+  assert.equal(fable51.cache_read, 0.25);
+  assert.equal(fable51.input, 10);
+  assert.equal(priceEntryFor("claude-fable-5-1", "2026-08-01T00:00:00Z"), null, "predates its release");
+  assert.equal(priceEntryFor("gpt-6-astra", "2026-09-05T00:00:00Z").output, 50);
+  assert.equal(priceEntryFor("claude-opus-5", "2026-08-01T00:00:00Z").input, 5);
+  assert.equal(priceEntryFor("claude-sonnet-5", "2026-09-05T00:00:00Z").input, 2, "the $3/$15 Sonnet 5 increase was cancelled");
 
   // Unknown model, multi-model, pre-effective-date, and undated sessions stay unpriced.
   assert.equal(estimateSessionCost({ models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);

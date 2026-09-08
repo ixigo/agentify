@@ -25,7 +25,7 @@ models:
       use: Standard feature work and multi-file refactors
     heavy:
       provider: claude
-      model: opus
+      model: fable
       use: Architecture decisions, deep debugging, high-risk changes
     review:
       provider: codex

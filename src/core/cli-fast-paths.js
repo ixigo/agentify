@@ -42,7 +42,7 @@ export async function printHelp() {
     `    ${c("ctx")}             ${d("Context tracking: load, match, explain, precheck, note, decision(s), summarize, share, track, status, handoff, pause, resume, clear, capture-report")}`,
     `    ${c("delegate")}        ${d("Shell a task out to the right model: auto, quick, implement, heavy, review, research")}`,
     `    ${c("route")}           ${d("Explain the routing decision for a task without running it: explain")}`,
-    `    ${c("models")}          ${d("Show the model routing table, active profile, and provider availability")}`,
+    `    ${c("models")}          ${d("Show the model routing table, active profile, provider availability, and the provider model catalog: refresh")}`,
     `    ${c("eval")}            ${d("Paired Agentify+Claude vs plain-Claude benchmarks: init, run, report, compare, list")}`,
     `    ${c("workflow")}        ${d("Prebuilt platform workflows for GitHub, GitLab, and Azure DevOps: list, install")}`,
     `    ${c("scan")}            ${d("Build the SQLite repository index")}`,

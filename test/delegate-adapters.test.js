@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+// Tier-model expectations below are the adapter defaults: isolate this file
+// from any provider catalog cached on the developer's machine (model-catalog.js
+// reads XDG_CACHE_HOME/agentify/model-catalog.json).
+process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), "agentify-test-cache-"));
 
 import {
   DELEGATE_PROVIDER_NAMES,
@@ -448,7 +454,7 @@ test("tier model configuration is validated against the registry", () => {
   assert.throws(() => resolveTierModels({ models: { tiers: { mystery: { economy: "x" } } } }), /registered delegate provider/);
   const overridden = resolveTierModels({ models: { tiers: { codex: { economy: "gpt-5.4-mini" } } } });
   assert.equal(overridden.codex.economy, "gpt-5.4-mini");
-  assert.equal(overridden.codex.frontier, "gpt-5.6-sol");
+  assert.equal(overridden.codex.frontier, "gpt-6-astra");
   assert.equal(overridden.gemini.economy, "gemini-3.1-flash-lite");
 });
 

@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+// Tier-model expectations below are the adapter defaults: isolate this file
+// from any provider catalog cached on the developer's machine (model-catalog.js
+// reads XDG_CACHE_HOME/agentify/model-catalog.json).
+process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), "agentify-test-cache-"));
 
 import {
   DEFAULT_MODEL_ROUTES,
@@ -66,10 +72,11 @@ test("pickRouteTarget uses the route provider and falls back tier-equivalently",
     pickRouteTarget(route, { claude: true, codex: false }),
     { provider: "claude", model: "sonnet", fallback: true }
   );
-  // A frontier-tier route may fall back to opus — the tier earned it.
+  // A frontier-tier route may fall back to the Claude frontier alias (fable)
+  // — the tier earned it.
   assert.deepEqual(
     pickRouteTarget({ provider: "codex", model: null }, { claude: true, codex: false }, { kind: "heavy" }),
-    { provider: "claude", model: "opus", fallback: true }
+    { provider: "claude", model: "fable", fallback: true }
   );
   assert.equal(pickRouteTarget(route, { claude: false, codex: false }), null);
 

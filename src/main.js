@@ -61,7 +61,7 @@ import {
   runCliInsights,
 } from "./core/session-analysis/insights.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
-import { describeModelRoutes, explainRoute, runDelegate } from "./core/models.js";
+import { describeModelRoutes, explainRoute, refreshModelCatalogIfNeeded, runDelegate } from "./core/models.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
@@ -618,6 +618,43 @@ export async function runCli(argv, _runtime = {}) {
       }
 
       case "models": {
+        if (subcommand && subcommand !== "refresh") {
+          throw new Error(`Unknown models subcommand "${subcommand}". Available: refresh`);
+        }
+        // The provider catalog is refreshed here (missing/stale, or forced by
+        // `models refresh`) and only read everywhere else, so delegate runs
+        // never pay for a probe.
+        const refresh = await refreshModelCatalogIfNeeded(config, {}, { force: subcommand === "refresh" });
+        if (subcommand === "refresh") {
+          if (config.json) {
+            console.log(JSON.stringify(refresh, null, 2));
+            return;
+          }
+          if (!refresh.refreshed) {
+            log(refresh.reason === "disabled"
+              ? "Provider catalog is disabled (models.catalog.enabled: false); nothing refreshed."
+              : `Provider catalog refresh failed: ${refresh.error}`);
+            return;
+          }
+          const probed = Object.values(refresh.result.catalog.providers);
+          success(`Provider catalog refreshed (${probed.length} CLI(s) probed) → ${refresh.result.path}`);
+          for (const entry of probed) {
+            const listed = entry.models.filter((model) => model.listed && model.api).map((model) => model.id);
+            log(`${bold(entry.provider)} ${entry.ok ? `lists ${listed.length} model(s): ${listed.join(", ")}` : `probe failed: ${entry.error}`}`);
+            if (entry.ok && entry.last_error) log(`  ${dim(`probe failed just now (${entry.last_error}); keeping the last successful lineup from ${String(entry.probed_at).slice(0, 10)}`)}`);
+            for (const note of entry.notes) log(`  ${dim(note)}`);
+          }
+          for (const skip of refresh.result.skipped) log(dim(`${skip.provider}: skipped — ${skip.reason}`));
+          if (refresh.result.changes.length > 0) {
+            log("");
+            for (const change of refresh.result.changes) {
+              log(`tier change: ${change.provider} ${change.tier} ${change.from ?? "(none)"} → ${bold(change.to ?? "(none)")}`);
+            }
+          } else {
+            log(dim("No tier changes."));
+          }
+          return;
+        }
         const result = await describeModelRoutes(config);
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
@@ -652,12 +689,35 @@ export async function runCli(argv, _runtime = {}) {
               : `${route.unsupported_controls.join(" + ")} pre-run/timeout only (no in-flight stop on ${route.resolves_to.split("/")[0].replace(" (fallback)", "")})`;
             log(`           ${dim(`limits: ${limitParts} — ${enforcement}`)}`);
           }
+          log("");
+          log(`Tier models ${dim("(economy · balanced · frontier)")}:`);
+          for (const detail of result.provider_details) {
+            if (!detail.installed && detail.opt_in) continue;
+            const cells = ["economy", "balanced", "frontier"].map((tier) => {
+              const model = detail.tier_models[tier] ?? "(cli default)";
+              const source = detail.tier_sources[tier];
+              return source === "adapter" ? model : `${model} ${dim(`[${source}]`)}`;
+            });
+            log(`  ${bold(detail.name.padEnd(9))} ${cells.join(" · ")}`);
+          }
+          const catalog = result.catalog;
+          if (catalog.enabled && catalog.refreshed_at) {
+            const probed = Object.values(catalog.providers);
+            log(dim(`Provider catalog: probed ${catalog.refreshed_at.slice(0, 16).replace("T", " ")} UTC — ${probed.map((entry) => `${entry.probe}${entry.ok ? "" : " (failed)"}`).join(", ") || "no probes"}${refresh.refreshed ? " (refreshed now)" : ""}`));
+            for (const entry of probed) {
+              for (const note of entry.notes) log(dim(`  ${note}`));
+              if (!entry.ok) log(dim(`  ${entry.probe}: ${entry.error}`));
+              else if (entry.last_error) log(dim(`  ${entry.probe} failed at ${String(entry.last_error_at).slice(0, 16).replace("T", " ")} UTC (${entry.last_error}); showing the last successful lineup from ${String(entry.probed_at).slice(0, 10)}`));
+            }
+          } else if (catalog.hint) {
+            log(dim(`Provider catalog: ${catalog.hint}`));
+          }
           if (result.alias_drift_warning) {
             log("");
-            log(dim(`Alias drift: ${result.alias_drift_warning}`));
+            log(dim(`Alias drift: ${result.alias_drift_warning} Catalog-derived tiers [catalog] move with the provider's own lineup by design; pin them under models.tiers to freeze.`));
           }
           log("");
-          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; rolling caps under models.budget; profile under models.profile. Opt-in providers (gemini, opencode) join routing only via models.providers.<name>.enabled: true after the eval suite clears them."));
+          log(dim("Override routes and per-route limits in .agentify.yaml under models.routes; tier models under models.tiers; rolling caps under models.budget; profile under models.profile. `agentify models refresh` re-probes the installed provider CLIs. Opt-in providers (gemini, opencode) join routing only via models.providers.<name>.enabled: true after the eval suite clears them."));
         }
         return;
       }

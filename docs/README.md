@@ -77,7 +77,8 @@ All commands accept `--json` for machine-readable output — which is how agents
 | Command | What it does |
 | --- | --- |
 | `agentify delegate <kind> ["task"]` | Shell a task out to the routed model (`--diff`, `--write`) |
-| `agentify models` | Model routing table + provider availability |
+| `agentify models` | Model routing table, tier models with their source, provider availability; probes installed CLIs for their current lineup when the cached catalog is stale |
+| `agentify models refresh` | Force a re-probe of the installed provider CLIs (`codex debug models`) and print lineup + tier changes |
 | `agentify route explain "<task>"` | Dry-run the routing decision for a task |
 | `agentify stats [--days N]` | Machine-wide CLI/hook/MCP invocations plus session and delegation usage |
 | `agentify value [--days N] [--format text\|json\|html]` | Evidence-backed impact: reused context, rejected stale data, intercepted failures, routing economics, focused tests |
@@ -133,11 +134,11 @@ Install writes a routing table into `.agentify.yaml` so the agent shells work ou
 | --- | --- | --- |
 | `quick` | Claude Haiku | Small, low-impact edits, mechanical changes, quick questions |
 | `implement` | Claude Sonnet | Standard feature work and multi-file refactors |
-| `heavy` | Claude Opus | Architecture decisions, deep debugging, high-risk changes |
+| `heavy` | Claude Fable (`fable` alias) | Architecture decisions, deep debugging, high-risk changes |
 | `review` | Codex (CLI default model) | Independent post-change review by a different vendor |
 | `research` | Claude Haiku | Fast exploration, summarization, doc lookups |
 
-Defaults use version-independent aliases so they don't rot. A missing CLI falls back to the other vendor **at the same capability tier**, so it never silently upgrades a review to frontier pricing. Gemini CLI and OpenCode are opt-in providers and never join default routes until the repo enables them. Routing profiles (`cost`, `balanced`, `performance`) choose inside the hard budget ceilings, never widening them, and feed only on locally recorded `agentify eval` runs — recommendations never rewrite your config. Every delegation is logged with duration, tokens, and cost. Routes, tiers, fallback chains, and budgets: [usage.md](./usage.md#model-routing).
+Defaults use version-independent aliases so they don't rot, and Codex's pinned tier models are kept current from the installed CLI's own ranked catalog (GPT-6 Astra is the frontier tier as of September 2026) — see [capability tiers](./usage.md#capability-tiers-and-the-provider-catalog). A missing CLI falls back to the other vendor **at the same capability tier**, so it never silently upgrades a review to frontier pricing. Gemini CLI and OpenCode are opt-in providers and never join default routes until the repo enables them. Routing profiles (`cost`, `balanced`, `performance`) choose inside the hard budget ceilings, never widening them, and feed only on locally recorded `agentify eval` runs — recommendations never rewrite your config. Every delegation is logged with duration, tokens, and cost. Routes, tiers, fallback chains, and budgets: [usage.md](./usage.md#model-routing).
 
 ## Value report
 
