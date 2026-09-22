@@ -20,6 +20,20 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
+  command("migrate", "Migrate saved Codex/Claude threads and context", {
+    flags: [
+      flag("--from", { values: ["codex", "claude", "chatgpt"], description: "Source provider (default codex)" }),
+      flag("--to", { values: ["codex", "claude", "claude-desktop"], description: "Destination provider or Claude Code tab" }),
+      flag("--input", { valueKind: "path", description: "ChatGPT conversations.json or extracted export directory" }),
+      flag("--all", { description: "Migrate threads across all projects" }),
+      flag("--open", { description: "Open imported threads in Claude Desktop (macOS)" }),
+      flag("--session", { valueKind: "text", description: "Source session id" }),
+      flag("--include-global", { description: "Also archive global instructions and memory" }),
+      flag("--codex-home", { valueKind: "path", description: "Codex data directory" }),
+      flag("--claude-home", { valueKind: "path", description: "Claude data directory" }),
+      flag("--output", { valueKind: "path", description: "New migration archive directory" }),
+    ],
+  }),
   command("install", "Detect providers, register the MCP server, wire guidance, build the index", {
     aliases: ["init"],
     flags: [

@@ -4,6 +4,9 @@ Agentify is installed once per repo (or once globally) and is then driven by you
 
 ## Install
 
+For moving existing conversations without setting up repo tracking, see
+[session migration](#session-migration).
+
 Agentify is installed straight from GitHub:
 
 ```bash
@@ -718,3 +721,162 @@ A provider that is installed but **not authenticated** produces a warning and th
 | Undo | `agentify uninstall` removes guidance and hooks. The MCP registration is user-scoped and shared across repos, so it is removed only with `agentify uninstall --global` or `--mcp`; manually, `claude mcp remove agentify` / delete the `[mcp_servers.agentify]` table |
 
 The output stays honest about scope: Claude Code tracking is automatic through hooks, Codex is guidance-driven, and hidden provider transcripts are never replayed.
+
+
+## Session migration
+
+See the [HTML migration guide](../pages/migrate.html) for prerequisites and a
+step-by-step Desktop walkthrough.
+
+`agentify migrate` migrates saved sessions independently of repo tracking.
+It copies saved conversations into new, resumable sessions in the other CLI.
+It does not need `agentify install`, a source-provider subscription, authentication,
+network access, or a model call.
+From a source checkout, use `node src/cli.js migrate`.
+
+```bash
+# Copy this folder's Codex sessions, including all subfolders, to Claude.
+agentify migrate /path/to/project
+
+# Preview the selection without writing anything.
+agentify migrate /path/to/project --dry-run
+
+# Copy and open the selected threads in Claude Desktop's Code tab (macOS).
+agentify migrate /path/to/project --open
+
+# From inside a project, use the current folder.
+agentify migrate . --open
+
+# Preview all saved Codex projects, including global memory/instructions.
+agentify migrate --all --include-global --dry-run
+
+# Save them into Claude Code and print each thread's resume command.
+agentify migrate --all --include-global
+
+# Find a specific Codex thread across projects.
+agentify migrate --session <codex-session-id>
+
+# Migrate only one project, or move from Claude Code back to Codex.
+agentify migrate --root /path/to/project
+agentify migrate --from claude --to codex --all
+```
+
+The folder argument (or `--root`) selects sessions whose saved working directory
+is that folder or any descendant, excluding similarly named sibling folders.
+Without a folder, `--all`, or `--session`, the current directory and its nested
+projects are selected. `--session` searches across projects unless a folder or
+`--root` is also supplied. Codex's archived sessions are included. Logs with no recorded
+working directory cannot be assigned to a project and are skipped; `--all`
+reports their count. Thread IDs change on import. Codex titles from
+`session_index.jsonl` and Claude custom titles are preserved when available;
+otherwise the first saved user prompt supplies a label.
+
+The command writes:
+
+- New Claude Code JSONL sessions under `~/.claude/projects/`, with linked
+  message IDs and thread titles. Open one using its printed `claude --resume`
+  command, or use Claude Code's session picker.
+- In the reverse direction, new native Codex rollouts under `~/.codex/sessions/`.
+  Codex discovers and indexes these itself; Agentify does not edit its SQLite
+  database. The source title is retained in the initial conversation message.
+- A private archive under the destination provider's
+  `agentify/migrations/<project-key>/<timestamp>/`: original JSONL files,
+  readable transcripts, a `HANDOFF.md` index, and a `manifest.json` with source
+  IDs, destination IDs, and resume commands.
+- Project root instructions, source-provider project Markdown, Claude project
+  memory, and Agentify notes, decisions, events, summaries, and prior handoffs.
+  Linked Agentify context stores are included. `--include-global` also includes
+  Codex's global instructions/memories or Claude's global instructions/rules.
+
+Existing source and destination conversations are preserved. Imported threads
+contain historical tool calls/results as text, not executable tool calls.
+Codex channel names are preserved as text labels. Claude rewinds import the
+active parent chain; discarded branches remain in the original JSONL and
+readable archive. Malformed JSONL records are counted and reported, with their
+original bytes retained. The command snapshots active files, so finish the
+source conversation first to capture its final updates.
+
+Provider settings, credential files, skills outside the project, unsaved editor
+or shell state, externally referenced files/attachments, and model internals are
+not transferred. Raw transcripts retain whatever content they originally
+contained. Non-text records remain in the archive rather than being recreated as
+native images/tools. Long histories still have the destination model's context
+limits. The default target is **Claude Desktop's Code tab**, backed by local Claude
+Code conversations. Use `--open` on macOS to send the selected threads to the
+installed app using its session-resume links. Opening requires Claude Desktop
+and its default `~/.claude` storage; it does not send a model prompt. An open
+request is not confirmation that the app displayed the conversation. Without
+`--open`, use the app's `/resume` picker as described below. `--dry-run --open`
+does not launch the app. Use `--to claude` for CLI-only instructions, or
+`--from claude` to migrate back to Codex. Regular Chat tab history, provider sidebar grouping,
+and channel integrations are not recreated.
+
+`--codex-home` and `--claude-home` override data directories; otherwise
+`CODEX_HOME` and `CLAUDE_CONFIG_DIR` are respected. `--output` selects a **new**
+archive directory; with `--all`, each project gets a subdirectory. `--json`
+returns the migration manifest. Newly created archive directories use mode
+`0700` and files use `0600`.
+
+Re-running skips already imported destination threads, including ones continued
+in the destination CLI; it does not synchronize newer source turns. On an import
+failure, the completed archive is retained and its path appears in the error.
+Retry with a new `--output` path or omit `--output`. A killed process can leave
+an incomplete temporary file; it is not recognized as a session. Codex import
+locks contain the owning PID so a stopped import can be distinguished from a
+concurrent one.
+
+Native formats can change. Compatibility was checked locally against Claude
+Agent SDK 0.3.278 (session listing and full message-chain reading) and Codex CLI
+0.154.0 (thread listing, history reading, and resume), using isolated fixture
+homes without inference or changes to real user history.
+
+### ChatGPT and Codex app conversations in Claude's Code tab
+
+```bash
+# Saved local Codex app threads use the same Codex session store.
+agentify migrate --from codex --to claude-desktop --all --dry-run
+agentify migrate --from codex --to claude-desktop --all
+
+# ChatGPT: download and extract your data export first.
+agentify migrate --from chatgpt --input ./conversations.json \
+  --to claude-desktop --root /path/to/project --dry-run
+agentify migrate --from chatgpt --input ./conversations.json \
+  --to claude-desktop --root /path/to/project
+```
+
+For ChatGPT, use **Settings → Data Controls → Export Data**, download the export,
+and extract `conversations.json`. An extracted export directory is also accepted
+by `--input`. The command does not access your ChatGPT login or app cache. See
+[OpenAI's export instructions](https://help.openai.com/en/articles/7260999-how-do-i-export-my-chatgpt-history-and-data).
+
+ChatGPT conversations have no local project directory, so `--root` assigns one;
+the current directory is used if omitted. Every conversation in the export is
+selected by default; `--session <conversation-id>` selects one. Titles, visible
+text, timestamps, and the active edit/regeneration branch are converted. Other
+branches and hidden metadata remain in the per-conversation JSON backup.
+Non-text attachments are represented by labels, not copied from the export's
+attachment folders. ZIP files must be extracted first. JSON inputs over 256 MiB
+must be split into smaller conversation arrays. `--include-global` applies to
+local Codex/Claude memory and is not applicable to ChatGPT exports.
+
+After migration:
+
+1. Open **Claude → Code**, choose **Local**, and select the project folder.
+2. Type **`/resume`** in the prompt box.
+3. Search for the printed title, such as `[chatgpt] Checkout discussion` or
+   `[codex] Checkout fix`, and select it to view and continue the conversation.
+
+The archive includes `OPEN-IN-CLAUDE.md` with titles, IDs, project folders, and
+terminal fallback commands. Its manifest records `target_surface: "desktop"`
+and `ready-for-desktop-resume`, which means the local transcript is prepared;
+it does **not** mean the app has already added the thread to its sidebar.
+Claude Desktop maintains its own session list and brings a CLI session into
+that list when selected through `/resume`. Alternatively, resume it in the CLI
+using the printed command and run `/desktop`. This is Claude's documented
+[CLI-to-Desktop workflow](https://code.claude.com/docs/en/desktop#coming-from-the-cli).
+
+Use an up-to-date Claude app with Code-tab access. Desktop must read the same
+Claude data directory as the migration command; a custom `--claude-home` used
+only by your terminal will not automatically appear in the app. Codex cloud-only
+threads that have no local saved history are outside this reader's scope.
+This flow does not import conversations into Claude's regular Chat tab.

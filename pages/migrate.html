@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentify · Session migration</title>
+  <meta name="description" content="Move saved Codex conversations to Claude Desktop, one project folder at a time. Installation, authentication, previews, and migration commands.">
+  <link rel="stylesheet" href="command-style.css">
+  <style>
+    .guide { max-width: 900px; }
+    .guide p { max-width: 74ch; }
+    .guide h3 { margin-top: 28px; }
+    .guide .notice { border: 1px solid var(--rule); padding: 18px 22px; margin: 24px 0; background: var(--surface); }
+    .guide .notice p { margin: 6px 0; }
+    .jump-links { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 28px; }
+    .command { border: 1px solid var(--rule); margin: 20px 0; min-width: 0; }
+    .command-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--surface); font: 12px/1.5 var(--mono); color: var(--muted); }
+    .command pre { border: 0; margin: 0; overflow-x: auto; padding: 18px; }
+    .copy { border: 1px solid var(--rule); background: var(--bg); color: var(--ink); padding: 7px 12px; cursor: pointer; font: inherit; }
+    .copy:hover { border-color: var(--accent); }
+    .requirements { margin: 24px 0; }
+    .requirements > div { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; border-top: 1px solid var(--rule); padding: 20px 0; }
+    .requirements dt { font-weight: 600; }
+    .requirements dd { margin: 0; color: var(--muted); }
+    .scope { padding: 20px 24px; border-left: 2px solid var(--accent); background: var(--surface); }
+    .scope code, dd code, li code { overflow-wrap: anywhere; }
+    .guide li { margin-bottom: 10px; }
+    .guide details { border-top: 1px solid var(--rule); padding: 18px 0; }
+    .guide summary { cursor: pointer; font-weight: 600; }
+    .guide section { scroll-margin-top: 90px; }
+    .status { position: fixed; right: 18px; bottom: 18px; z-index: 50; max-width: calc(100vw - 36px); background: var(--surface); color: var(--ink); }
+    .status:not(:empty) { border: 1px solid var(--rule); padding: 12px 18px; }
+    @media (max-width: 620px) { .requirements > div { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print { .topbar, .copy, .jump-links, .status { display: none; } .command pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to guide</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">AGENTIFY</a>
+      <nav class="topnav" aria-label="Primary navigation">
+        <a href="../index.html">Home</a><a href="usage.html">Usage</a><a href="migrate.html" aria-current="page">Migrate</a>
+      </nav>
+      <a class="gh-btn" href="https://github.com/ixigo/agentify">GitHub ↗</a>
+    </div>
+  </header>
+  <header>
+    <div class="container guide">
+      <span class="eyebrow">Command guide / agentify migrate</span>
+      <h1>Switch agents.<br><span class="accent">Keep your conversations.</span></h1>
+      <p class="lede">Copy saved Codex sessions from a project folder and every subfolder into Claude Desktop’s Code tab. Pick up your work with the conversation and saved project context available.</p>
+      <div class="command">
+        <div class="command-head"><span>Codex → Claude Desktop · macOS</span><button class="copy" type="button" data-copy="hero-command" hidden>Copy</button></div>
+        <pre id="hero-command"><code>agentify migrate /path/to/project --open</code></pre>
+      </div>
+      <p>Original sessions stay intact. Migration copies saved history; it does not run the old tool calls or send a model prompt.</p>
+      <div class="jump-links" aria-label="On this page"><a href="#prerequisites">01 / Prerequisites</a><a href="#install">02 / Install</a><a href="#migrate">03 / Migrate</a><a href="#reference">04 / Reference</a><a href="#help">05 / Troubleshooting</a></div>
+    </div>
+  </header>
+  <main id="main">
+    <section class="shell" id="prerequisites"><div class="container guide">
+      <span class="section-label">01 / Before you start</span>
+      <h2>Get your tools ready.</h2>
+      <dl class="requirements">
+        <div><dt>Node.js + Git</dt><dd>Install <strong>Node.js 20 or newer</strong>, npm, and Git. Agentify’s installer needs them. Check with <code>node --version</code>, <code>npm --version</code>, and <code>git --version</code>.</dd></div>
+        <div><dt>Claude Desktop</dt><dd><a href="https://claude.com/download">Install or update Claude Desktop</a>, open it, and sign in with an account that has Claude Code access. For the subscription setup, use Pro, Max, Team, or Enterprise. Open the <strong>Code</strong> tab and choose <strong>Local</strong>. <a href="https://code.claude.com/docs/en/desktop">Official Desktop guide ↗</a></dd></div>
+        <div><dt>Saved Codex sessions</dt><dd>You need locally saved history, normally in <code>~/.codex/sessions</code> or <code>~/.codex/archived_sessions</code>. Codex CLI and Codex app sessions in this store are supported. Cloud-only conversations must be saved locally first.</dd></div>
+        <div><dt>Codex CLI + sign-in</dt><dd>For ongoing Codex use, <a href="https://developers.openai.com/codex/cli">install the Codex CLI</a> and authenticate with <code>codex login</code>; check with <code>codex login status</code>. <strong>Existing saved sessions can be migrated without the Codex executable, an active login, or a current Codex subscription.</strong></dd></div>
+        <div><dt>macOS for --open</dt><dd>Automatic opening currently uses <code>/Applications/Claude.app</code> and the default <code>~/.claude</code> session store. On other systems, omit <code>--open</code> and use Desktop’s <code>/resume</code> picker where available.</dd></div>
+      </dl>
+      <div class="notice"><strong>Claude Code CLI is optional for this workflow.</strong><p>Desktop opening does not invoke <code>claude</code>. If you prefer the terminal resume command printed by Agentify, install Claude Code CLI and sign in there separately. Credentials and subscriptions are never transferred.</p></div>
+    </div></section>
+    <section class="shell" id="install"><div class="container guide">
+      <span class="section-label">02 / Installation</span>
+      <h2>Install or update Agentify.</h2>
+      <p>Run the installer to get Agentify from GitHub, then check the migration command:</p>
+      <div class="command"><div class="command-head"><span>Install Agentify from GitHub</span><button class="copy" type="button" data-copy="published-install" hidden>Copy</button></div><pre id="published-install"><code>curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
+agentify migrate --help</code></pre></div>
+      <p>The help output shows <code>agentify migrate [folder] [options]</code> and <code>--open</code>.</p>
+      <p>You do not need to run <code>agentify install</code> or <code>agentify scan</code> in your project to migrate saved sessions.</p>
+    </div></section>
+    <section class="shell" id="migrate"><div class="container guide">
+      <span class="section-label">03 / Your first migration</span>
+      <h2>Preview. Copy. Continue.</h2>
+      <h3>1. Preview a folder</h3>
+      <p>Replace the path with your project. Quote it if it contains spaces. The preview lists matching sessions and saved context without writing files or opening the app.</p>
+      <div class="command"><div class="command-head"><span>Read-only preview</span><button class="copy" type="button" data-copy="preview-command" hidden>Copy</button></div><pre id="preview-command"><code>agentify migrate "/path/to/project" --dry-run</code></pre></div>
+      <div class="scope"><strong>The folder boundary is recursive.</strong><p>Selecting <code>/projects/my-app</code> includes sessions saved in <code>/projects/my-app</code> and <code>/projects/my-app/packages/mobile</code>. It excludes <code>/projects/my-app-other</code>. Selection uses the session’s saved working directory.</p></div>
+      <h3>2. Copy and open in Claude Desktop</h3>
+      <div class="command"><div class="command-head"><span>macOS · the same selection as your preview</span><button class="copy" type="button" data-copy="open-command" hidden>Copy</button></div><pre id="open-command"><code>agentify migrate "/path/to/project" --open</code></pre></div>
+      <p>Agentify creates local Claude sessions and asks Desktop to open them. In <strong>Claude → Code</strong>, look for titles beginning with <code>[codex]</code>. An open request alone does not confirm the app displayed the thread.</p>
+      <h3>3. Continue your thread</h3>
+      <p>Choose the imported conversation, review its history, and send your next prompt. Without <code>--open</code>, choose the project under <strong>Code → Local</strong>, type <code>/resume</code>, and select the imported title. This is the Code tab, not regular Claude Chat.</p>
+      <p>Already inside your project? The shorter form is <code>agentify migrate . --open</code>.</p>
+      <div class="notice"><strong>Local verification · 22 September 2026</strong><p>The Android example selected five sessions across <code>ixigo-app-android</code> and its <code>ixigo-train-app</code> subfolder. All five were registered in Desktop and readable through Claude’s session SDK. Repeating the import reused existing threads.</p></div>
+    </div></section>
+    <section class="shell" id="reference"><div class="container guide">
+      <span class="section-label">04 / Command reference</span><h2>Choose how much to bring.</h2>
+      <div class="command"><div class="command-head"><span>Examples · run the one you need</span><button class="copy" type="button" data-copy="examples" hidden>Copy</button></div><pre id="examples"><code># Copy a folder without opening Desktop
+agentify migrate /path/to/project
+
+# Include global instructions and memory in the archive
+agentify migrate /path/to/project --include-global
+
+# Select one session within this folder
+agentify migrate /path/to/project --session SESSION_ID --open
+
+# Reverse direction: Claude Code → Codex
+agentify migrate /path/to/project --from claude
+
+# Preview all projects on the machine (broader than folder selection)
+agentify migrate --all --dry-run
+
+# Machine-readable preview
+agentify migrate /path/to/project --dry-run --json</code></pre></div>
+      <h3>What is preserved</h3>
+      <p>Conversation text, available titles, and historical tool activity are copied into resumable threads. The archive keeps original session records, readable transcripts, and saved project instructions and Agentify context. <code>--include-global</code> adds global instructions and memory to that archive.</p>
+      <p>Claude sessions live under <code>~/.claude/projects/</code>. Each archive has <code>HANDOFF.md</code>, <code>manifest.json</code>, and Desktop instructions under <code>~/.claude/agentify/migrations/</code>. The command prints its exact location.</p>
+      <h3>What stays separate</h3>
+      <p>Credentials, provider settings, attachments referenced outside the logs, running tools, and unsaved editor state are not transferred. Tool calls are historical text, not executable actions. Provider sidebar grouping and channel integrations are not recreated.</p>
+      <p>This is a snapshot, not ongoing sync. Re-running skips an already imported thread and preserves any continuation in Claude; it does not merge newer Codex messages. Finish your source session before the first import. Long histories remain subject to Claude’s context limits.</p>
+      <p>For ChatGPT exports, custom data directories, and advanced options, see the <a href="../docs/usage.md#session-migration">full command documentation</a>.</p>
+    </div></section>
+    <section class="shell" id="help"><div class="container guide">
+      <span class="section-label">05 / Troubleshooting</span><h2>Find your next step.</h2>
+      <details><summary>“Unknown command: migrate”</summary><p>Update Agentify using the installer above, then run <code>agentify migrate --help</code>. If the command is still missing, open a new terminal and check <code>which agentify</code> for an older installation on your PATH.</p></details>
+      <details><summary>No sessions match my folder</summary><p>Check the original working directory and local session store. Include subfolders by selecting their parent. If your data is elsewhere, pass <code>--codex-home /path/to/codex-data</code>. Conversations without a saved working directory cannot be selected by folder.</p></details>
+      <details><summary>The app opened but I cannot find the thread</summary><p>Use the Code tab’s <code>/resume</code> picker and search for the printed title. Check that Desktop is signed in and reads the default <code>~/.claude</code> store. Import success and Desktop opening are separate steps; your copied thread stays saved if opening fails.</p></details>
+      <details><summary>The original project folder no longer exists</summary><p>The conversation can still be archived. Restore the folder or select an existing project folder in Claude before continuing code work.</p></details>
+      <details><summary>My Codex subscription has expired</summary><p>Migration reads saved local files and does not contact Codex. You do not need to renew it to copy existing sessions. Continuing in Claude requires access through your Claude account.</p></details>
+    </div></section>
+    <section class="shell" id="next-project"><div class="container guide">
+      <span class="section-label">06 / Beyond migration</span>
+      <h2>Bring Agentify to your next project.</h2>
+      <p>If you regularly start new sessions, switch coding agents, or revisit a project after a break, Agentify helps keep the project’s working knowledge available.</p>
+      <ul>
+        <li><strong>Remember project context:</strong> keep notes, recent activity, and session summaries available for the next conversation.</li>
+        <li><strong>Keep decisions and their reasons:</strong> record why an approach was chosen so future sessions can build on it.</li>
+        <li><strong>Avoid repeating failed commands:</strong> use recorded failures to flag a retry before spending time on the same dead end.</li>
+        <li><strong>Find your way around the code:</strong> query definitions, references, callers, and dependencies through the repository index.</li>
+        <li><strong>Focus verification:</strong> inspect a change’s impact and select relevant tests from the indexed project.</li>
+        <li><strong>Get a second review:</strong> route a diff to a different configured model provider for another perspective.</li>
+        <li><strong>Work across agents:</strong> share durable project context with Claude Code, Codex, and compatible MCP clients.</li>
+      </ul>
+      <div class="command"><div class="command-head"><span>Optional · set up ongoing project tracking</span><button class="copy" type="button" data-copy="next-project-command" hidden>Copy</button></div><pre id="next-project-command"><code>cd /path/to/your/next-project
+agentify install --provider all
+agentify status</code></pre></div>
+      <p>Claude Code uses lifecycle hooks; Codex follows installed project guidance. Reviews require a configured, authenticated model provider. This setup is optional and separate from copying your existing sessions.</p>
+      <p><a href="usage.html">Explore the full Agentify usage guide ↗</a></p>
+    </div></section>
+  </main>
+  <footer class="site-footer"><div class="container"><span class="foot-brand">AGENTIFY</span><span class="foot-tag">Copy a folder. Continue a conversation.</span></div></footer>
+  <div id="copy-status" class="status" role="status" aria-live="polite"></div>
+  <script src="migrate.js"></script>
+</body>
+</html>

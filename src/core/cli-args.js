@@ -31,6 +31,8 @@ const BOOLEAN_FLAGS = new Set([
   "noProgress",
   "noOpen",
   "includeConfig",
+  "includeGlobal",
+  "open",
   "showProjectNames",
   "showPaths",
   "insightsDryRun",

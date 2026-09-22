@@ -442,6 +442,12 @@ export async function runCli(argv, _runtime = {}) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
 
+  if (command === "migrate") {
+    const { runMigrateCommand } = await import("./core/cli-migrate.js");
+    await runMigrateCommand(args);
+    return;
+  }
+
   if (args.version) {
     process.stdout.write(`agentify v${VERSION}\n`);
     return;
