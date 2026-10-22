@@ -320,6 +320,63 @@ Run:
 
 **When to use:** the guidance block teaches the agent to run `agentify test --since <ref> --run` before finishing a change instead of the full suite. Requires `agentify scan` (the index).
 
+## Visual review: agentify visual
+
+**Why:** a dependency upgrade, a theme refactor or a design-system migration changes screens you never open by hand, and nobody can say how much heavier the bundle got or why. `agentify visual` walks every page and flow you describe, for every client (theme, partner, platform) and viewport, screenshots each step, and puts the current branch next to a baseline ref with a pixel diff and a build-size comparison that explains the change.
+
+**How:**
+
+```bash
+agentify visual init                          # write a starter agentify.visual.mjs
+agentify visual --open                        # screenshot every flow on the current checkout
+agentify visual --baseline merge-base --open  # before/after/diff against where this branch started
+agentify visual --baseline main --flows checkout --viewports all
+agentify visual --baseline main --skip-screens   # build-size comparison only
+agentify visual list                          # clients, flows and viewports in the config
+agentify visual clean                         # remove the baseline worktree
+```
+
+The config is plain JavaScript, so flows are ordinary Playwright code:
+
+```js
+// agentify.visual.mjs
+export default {
+  server: { command: ["node", "node_modules/vite/bin/vite.js", "--port", "{port}", "--strictPort"] },
+  clients: [
+    { id: "web", label: "Web" },
+    { id: "partner", label: "Partner app", query: { clientId: "partner" } },
+  ],
+  defaultViewports: ["mobile", "desktop"],
+  flows: [
+    { id: "home", group: "Pages", title: "Home", start: { path: "/" } },
+    {
+      id: "checkout",
+      title: "Checkout",
+      start: { path: "/cart" },
+      steps: [
+        { id: "cart", title: "Cart" },
+        { id: "pay", title: "Payment", run: async ({ page, expect }) => {
+          await page.getByRole("button", { name: "Pay" }).click();
+          await expect(page.getByText("Payment")).toBeVisible();
+        } },
+      ],
+    },
+  ],
+  install: ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
+  build: { vite: true, pages: [{ id: "home", label: "Home", route: "/", module: "src/pages/Home/index" }] },
+};
+```
+
+- **Mock data is yours.** Point `server.command` at a mode with stable data (MSW, fixtures, a stub API). Per-client and per-flow `init({ context })` hooks can add init scripts or routes (for example a native-bridge stub), `skip` hides a flow or step for a client, and same-origin responses with status 500+ are flagged on the step.
+- **Baseline.** `--baseline <ref>` checks the ref out as a detached worktree under `.agentify/visual/baseline/`, installs its dependencies with `install` (once per lockfile), copies the config in, and starts it on `port + 1`. `merge-base` resolves to the commit the branch started from (`merge-base:<branch>` picks the branch), so later commits on the base branch do not show up as your changes.
+- **Diffs** are computed in the same headless Chromium (no ImageMagick); pixels that move more than about 4% are highlighted.
+- **Build size.** With `build.vite: true` Agentify wraps your own `vite.config` with a stats plugin, so it can report first-paint JavaScript, per-package deltas with versions (for example `@ixigo/iui (0.5.2 → 1.0.0) grew: +33.9 KB gzip`), app-source areas, and, with `build.pages`, the JavaScript and CSS each route needs on a first visit. Any other bundler works through `build.command` + `build.outDir`, with file-level sizes.
+- **Output.** Each run writes `.agentify/visual/runs/<timestamp>/index.html` (filters by client, viewport and section; before | after | diff views; a lightbox with arrow-key navigation) plus `manifest.json`. The command exits non-zero when a step fails, so it can gate CI.
+
+Playwright is loaded from the project (`pnpm add -D playwright`, then `pnpm exec playwright install chromium`); `AGENTIFY_PLAYWRIGHT_FROM=<dir>` points at another install.
+
+**When to use:** before merging UI-heavy branches (library upgrades, theming, layout refactors) and whenever you need to show reviewers exactly which screens and how many kilobytes changed.
+
 ## Agentify usage: agentify stats
 
 **Why:** adoption and model routing only become useful signals when you can see them. Stats show how often Agentify is invoked across the machine, plus delegate traffic and what it costs.

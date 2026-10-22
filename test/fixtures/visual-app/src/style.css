@@ -1,0 +1,8 @@
+:root { --brand: #fc790d; --ink: #1b1e2f; --surface: #ffffff; --wash: #f5f6fa; }
+body.brand-green { --brand: #2e9e44; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: var(--ink); background: var(--wash); }
+main { max-width: 640px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 16px; }
+.hero { background: var(--brand); color: #fff; border-radius: 12px; padding: 24px; }
+.card { background: var(--surface); border-radius: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+button, a.button { background: var(--brand); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; text-decoration: none; cursor: pointer; }
+.error { background: #fff1f1; color: #b3261e; border-radius: 12px; padding: 16px; }

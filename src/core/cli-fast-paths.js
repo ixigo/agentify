@@ -42,6 +42,7 @@ export async function printHelp() {
     `    ${c("status")}          ${d("Show integration and context-tracking status")}`,
     `    ${c("ctx")}             ${d("Context tracking: load, match, explain, precheck, note, decision(s), summarize, share, track, status, handoff, pause, resume, clear, capture-report")}`,
     `    ${c("migrate")}         ${d("Copy a folder's saved sessions to Claude: migrate [folder] [--open]")}`,
+    `    ${c("visual")}          ${d("Screenshot every page and flow per client, diff against a baseline ref, compare build size: run, init, list, clean")}`,
     `    ${c("delegate")}        ${d("Shell a task out to the right model: auto, quick, implement, heavy, review, research")}`,
     `    ${c("route")}           ${d("Explain the routing decision for a task without running it: explain")}`,
     `    ${c("models")}          ${d("Show the model routing table, active profile, provider availability, and the provider model catalog: refresh")}`,
@@ -138,6 +139,11 @@ export async function handleFastPath(args) {
     return true;
   }
   if (isHelpRequest(args)) {
+    if (parseArgs(args)._[0] === "visual") {
+      const { VISUAL_HELP } = await import("./cli-visual.js");
+      process.stdout.write(VISUAL_HELP);
+      return true;
+    }
     if (parseArgs(args)._[0] === "migrate") {
       const { MIGRATE_HELP } = await import("./cli-migrate.js");
       process.stdout.write(MIGRATE_HELP);

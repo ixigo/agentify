@@ -30,4 +30,12 @@ export default [
       "no-control-regex": "off",
     },
   },
+  {
+    files: ["test/fixtures/visual-app/**/*.js", "test/fixtures/visual-app/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.browser, ...globals.node },
+    },
+  },
 ];

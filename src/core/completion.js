@@ -20,6 +20,30 @@ const GLOBAL_FLAGS = [
 ];
 
 const COMMANDS = [
+  command("visual", "Screenshot pages and flows per client, diff against a baseline, compare build size", {
+    subcommands: [
+      command("run", "Capture screens (and build size with --baseline)"),
+      command("init", "Write a starter agentify.visual.mjs"),
+      command("list", "Show configured clients, flows and viewports"),
+      command("clean", "Remove the baseline worktree"),
+    ],
+    flags: [
+      flag("--config", { valueKind: "path", description: "Visual config file" }),
+      flag("--baseline", { valueKind: "text", description: "Ref to compare against (merge-base, merge-base:<branch>, branch, sha)" }),
+      flag("--clients", { valueKind: "text", description: "Comma-separated client ids" }),
+      flag("--flows", { valueKind: "text", description: "Comma-separated flow ids" }),
+      flag("--viewports", { valueKind: "text", description: "mobile, desktop, configured names, or all" }),
+      flag("--build-size", { description: "Measure build size without a baseline" }),
+      flag("--skip-build-size", { description: "Do not build when comparing" }),
+      flag("--skip-screens", { description: "Only measure build size" }),
+      flag("--workers", { valueKind: "text", description: "Parallel browser contexts" }),
+      flag("--port", { valueKind: "text", description: "Dev server port (baseline uses port + 1)" }),
+      flag("--out", { valueKind: "path", description: "Output directory" }),
+      flag("--headed", { description: "Show the browser" }),
+      flag("--open", { description: "Open the report when done" }),
+      flag("--force", { description: "Overwrite an existing config with init" }),
+    ],
+  }),
   command("migrate", "Migrate saved Codex/Claude threads and context", {
     flags: [
       flag("--from", { values: ["codex", "claude", "chatgpt"], description: "Source provider (default codex)" }),

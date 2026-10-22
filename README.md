@@ -57,6 +57,7 @@ No daemon, no database server, no per-command wrapping.
 | `agentify test --since <ref> --run` | Run only the tests a change affects |
 | `agentify delegate <kind> "<task>"` | Shell work out to the model routed for it |
 | `agentify serve` | MCP server for any MCP-capable agent |
+| `agentify visual --baseline merge-base --open` | Screenshot every page and flow per client and viewport, diff against a baseline ref, and explain build-size changes |
 | `agentify migrate /path/to/project --open` | Copy Codex threads from a folder and its subfolders into Claude Desktop (macOS) |
 | `agentify migrate --from chatgpt --input ./conversations.json --to claude-desktop` | Prepare ChatGPT conversations for Claude app’s Code tab |
 

@@ -442,6 +442,12 @@ export async function runCli(argv, _runtime = {}) {
   const args = parseArgs(argv);
   const [command = "help", subcommand] = args._;
 
+  if (command === "visual") {
+    const { runVisualCommand } = await import("./core/cli-visual.js");
+    await runVisualCommand(args);
+    return;
+  }
+
   if (command === "migrate") {
     const { runMigrateCommand } = await import("./core/cli-migrate.js");
     await runMigrateCommand(args);
