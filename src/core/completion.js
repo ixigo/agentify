@@ -297,6 +297,11 @@ const COMMANDS = [
       flag("--all", { description: "Include optional cleanup groups" }),
     ],
   }),
+  command("version", "Print the installed version", {
+    flags: [
+      flag("--check", { description: "Compare against the latest release (opt-in; the only network call)" }),
+    ],
+  }),
   command("completion", "Generate shell completion scripts", {
     subcommands: [
       subcommand("zsh", "Print zsh completion script"),
