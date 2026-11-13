@@ -128,7 +128,7 @@ export function validateEvalTask(raw, source = "") {
   // Paired arms need an identical, version-pinned model on both sides; a
   // floating alias could resolve differently between attempts.
   if (!model || !/\d/.test(model)) {
-    fail(source, `model must be a full versioned Claude model ID (e.g. claude-haiku-4-5-20251001), got "${model || raw.model}"`);
+    fail(source, `model must be a full versioned Claude model ID (e.g. claude-haiku-5-5), got "${model || raw.model}"`);
   }
   const graderCommands = stringArray(raw.grader?.commands, "grader.commands", source);
   if (graderCommands.length === 0) {
@@ -375,7 +375,7 @@ export async function initEvalTask(root, name, config = {}, { dryRun = false } =
     // immutable commit. Update deliberately, never implicitly.
     base_ref: baseSha,
     prompt: "Replace with the exact task prompt given to every arm.",
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-haiku-5-5",
     effort: null,
     max_budget_usd: 0.25,
     max_turns: 6,

@@ -27,12 +27,17 @@ import {
   getProviderBootstrap,
 } from "./provider-registry.js";
 import {
+  CAPABILITY_TIERS,
   describeModelCatalog,
   isModelCatalogStale,
   loadModelCatalogCache,
   refreshModelCatalog,
   resolveModelCatalogPolicy,
 } from "./model-catalog.js";
+import {
+  PRICING_TABLE_VERSION,
+  isUnpricedModel,
+} from "./session-analysis/pricing.js";
 
 // Normalized output parsers live with their adapters in the provider
 // registry; re-exported here for existing consumers (eval.js, tests).
@@ -754,6 +759,76 @@ export async function refreshModelCatalogIfNeeded(config, runtime = {}, options 
   }
 }
 
+// Self-reporting price-table currency, shared by `agentify models` and
+// `doctor` so they cannot disagree (#394):
+//   - unpriced: every concrete (non-alias) model the table is responsible for
+//     — adapter tier defaults, config tier pins, and the provider catalog's
+//     listed models — that has no price row. Aliases (Claude haiku/sonnet/…)
+//     resolve to a concrete id at run time and are priced by that id, so they
+//     are never flagged. Vendors the table carries no rows for at all (e.g.
+//     gemini) are out of scope, not gaps.
+//   - retiring: every pinned tier default (adapter or config, not a
+//     catalog-derived move) that the provider's own catalog marks for
+//     retirement, with the replacement it names.
+// Both lists are empty when the lineup and the price table agree.
+export function collectModelPricingGaps({ catalog = null, config = {} } = {}) {
+  const tierSources = resolveTierModelSources(config, { catalog });
+  const unpriced = [];
+  const seenUnpriced = new Set();
+  const addUnpriced = (provider, model, source) => {
+    if (!model || isAliasModel(provider, model) || !isUnpricedModel(model)) return;
+    if (seenUnpriced.has(model)) return;
+    seenUnpriced.add(model);
+    unpriced.push({ model, provider, source });
+  };
+
+  const retiring = [];
+  for (const provider of DELEGATE_PROVIDER_NAMES) {
+    const adapter = getDelegateAdapter(provider);
+    const adapterTiers = adapter?.tierModels || {};
+    const catalogEntry = catalog?.providers?.[provider];
+    const byId = new Map((catalogEntry?.ok ? catalogEntry.models || [] : []).map((model) => [model.id, model]));
+    for (const tier of CAPABILITY_TIERS) {
+      // Unpriced: the adapter default and the resolved (config/catalog) pin.
+      addUnpriced(provider, adapterTiers[tier], "adapter tier default");
+      const resolved = tierSources[provider]?.[tier];
+      if (resolved && resolved.source !== "adapter") {
+        addUnpriced(provider, resolved.model, `${resolved.source} tier pin`);
+      }
+      // Retiring: a pinned default (adapter or an explicit config pin) the
+      // catalog marks for retirement. A catalog-derived tier already followed
+      // the migration, so it is current by construction and skipped.
+      for (const pin of [
+        { model: adapterTiers[tier], source: "adapter tier default" },
+        resolved && resolved.source === "config" ? { model: resolved.model, source: "config tier pin" } : null,
+      ]) {
+        if (!pin || !pin.model || isAliasModel(provider, pin.model)) continue;
+        const entry = byId.get(pin.model);
+        if (entry?.upgrade?.model) {
+          retiring.push({
+            provider,
+            tier,
+            model: pin.model,
+            source: pin.source,
+            replacement: entry.upgrade.model,
+            retirement_at: entry.upgrade.retirement_at ?? null,
+          });
+        }
+      }
+    }
+  }
+
+  // Catalog-listed models (always concrete) the table should price but doesn't.
+  for (const [provider, entry] of Object.entries(catalog?.providers || {})) {
+    if (!entry || entry.ok !== true) continue;
+    for (const model of entry.models || []) {
+      if (model.listed && model.api) addUnpriced(provider, model.id, "provider catalog");
+    }
+  }
+
+  return { pricing_table: PRICING_TABLE_VERSION, unpriced, retiring };
+}
+
 export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const routes = resolveModelRoutes(config);
   const policy = resolveBudgetPolicy(config);
@@ -838,6 +913,10 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
     // Provider model catalog: which CLIs were probed, what they list, and the
     // tier moves derived from them (frontier follows the vendor's top model).
     catalog: describeModelCatalog(catalog, { policy: catalogPolicy }),
+    // Price-table currency: concrete models with no list price, and pinned
+    // defaults the provider marks for retirement. Empty when the table is
+    // current (#394).
+    pricing_gaps: collectModelPricingGaps({ catalog, config }),
     routes: entries,
   };
 }

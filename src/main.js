@@ -718,6 +718,21 @@ export async function runCli(argv, _runtime = {}) {
           } else if (catalog.hint) {
             log(dim(`Provider catalog: ${catalog.hint}`));
           }
+          const gaps = result.pricing_gaps;
+          if (gaps) {
+            log("");
+            if (gaps.unpriced.length === 0 && gaps.retiring.length === 0) {
+              log(dim(`Unpriced / retiring: none — every tier model and catalog-listed model has a price row and no pinned default is retiring (${gaps.pricing_table}).`));
+            } else {
+              log(bold("Unpriced / retiring:"));
+              for (const gap of gaps.unpriced) {
+                log(red(`  unpriced: ${gap.model} (${gap.provider}, ${gap.source}) has no row in ${gaps.pricing_table}`));
+              }
+              for (const gap of gaps.retiring) {
+                log(yellow(`  retiring: ${gap.provider} ${gap.tier} ${gap.source} ${gap.model} → provider names ${gap.replacement}${gap.retirement_at ? ` (${String(gap.retirement_at).slice(0, 10)})` : ""}`));
+              }
+            }
+          }
           if (result.alias_drift_warning) {
             log("");
             log(dim(`Alias drift: ${result.alias_drift_warning} Catalog-derived tiers [catalog] move with the provider's own lineup by design; pin them under models.tiers to freeze.`));

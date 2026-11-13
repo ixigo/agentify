@@ -330,7 +330,7 @@ test("opt-in providers stay out of fallback chains until enabled in config", () 
   });
   assert.deepEqual(enabled.entries.map((entry) => entry.provider), ["claude", "codex", "gemini"]);
   const geminiEntry = enabled.entries.find((entry) => entry.provider === "gemini");
-  assert.equal(geminiEntry.model, "gemini-3.5-flash");
+  assert.equal(geminiEntry.model, "gemini-3.8-flash");
   assert.equal(geminiEntry.tier, "balanced");
 
   const policy = resolveDelegateProviderPolicy({});
@@ -447,7 +447,7 @@ test("fallback chains reject unknown providers, loops, and tier escalation beyon
     route: { provider: "claude", model: "sonnet", fallbacks: [{ provider: "codex" }] },
     profileName: "balanced",
   });
-  assert.deepEqual(pinned.entries.map((entry) => `${entry.provider}/${entry.model}`), ["claude/sonnet", "codex/gpt-5.6-terra"]);
+  assert.deepEqual(pinned.entries.map((entry) => `${entry.provider}/${entry.model}`), ["claude/sonnet", "codex/gpt-6-sol"]);
 });
 
 test("tier model configuration is validated against the registry", () => {
