@@ -112,6 +112,18 @@ const DEFAULT_CONFIG = {
     keepGhostRuns: 3,
     maxGhostAgeDays: 3,
     pruneInvalidSessions: true,
+    // `agentify status` warns once when the `.agentify/` store exceeds this many
+    // MB. 500 MB sits far above a healthy store (agentify's own index+context is
+    // a few MB) yet well below the multi-GB stores that skill artifacts bloat to.
+    warnStoreSizeMb: 500,
+    // `clean --artifacts`: per-task-key directories under a known skill artifact
+    // dir (`ui-eval/`) are reclaimable once their newest contained file is older
+    // than this. Matches maxRunAgeDays so all generated output ages out alike.
+    artifactMaxAgeDays: 14,
+    // `clean --global`: a per-repo project store in the shared cache is stale
+    // once unused for this many days (from store.json last_used_at). Repos whose
+    // git_common_dir no longer exists are stale regardless of age.
+    globalMaxAgeDays: 90,
   },
 };
 

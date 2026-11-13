@@ -579,10 +579,15 @@ agentify skill install all --provider claude --scope project
 ## Housekeeping
 
 ```bash
-agentify doctor            # toolchain + provider CLI readiness
-agentify clean --dry-run   # preview pruning of stale run artifacts
-agentify clean --all       # prune legacy planned/session artifacts too
+agentify doctor              # toolchain + provider CLI readiness
+agentify status              # integrations, context, and .agentify store size + breakdown
+agentify clean --dry-run     # preview pruning of stale run artifacts
+agentify clean --all         # prune legacy planned/session artifacts too
+agentify clean --artifacts   # dry-run: aged skill artifacts (ui-eval); --yes to delete
+agentify clean --global      # dry-run: stale per-repo stores in ~/.cache/agentify; --yes to delete
 ```
+
+`agentify status` reports the `.agentify/` store size with a per-top-level-entry breakdown — each labelled agentify-owned, skill artifact, or unknown — and warns once the total passes `cleanup.warnStoreSizeMb` (default 500). Sizes are logical bytes (the sum of file sizes, `st.size`), which can be below `du`'s block usage on a tree of many small files. To stay responsive on a multi-GB store, `status` shares a short time budget fairly across top-level entries (walked concurrently): an entry it could not finish is shown as a lower bound (`≥ 28.2 MB`) or `not measured`, the total reads `at least X`, and a line points at `clean --artifacts` for exact sizes. `clean --artifacts` and `clean --global` always walk fully, so their sizes are exact. `clean --artifacts` prunes per-task-key directories under known skill artifact dirs (`ui-eval/`) older than `cleanup.artifactMaxAgeDays` (default 14) and reports unknown directories without ever deleting them; a directory it could not fully measure is never deleted. `clean --global` lists per-repo project stores in the shared cache whose repo is gone or that are unused for `cleanup.globalMaxAgeDays` (default 90). `--strays`, `--artifacts`, and `--global` are dry-run by default; pass `--yes` to apply. `--all` covers only the legacy planned/session groups, never skill artifacts.
 
 ## Shell completion
 
@@ -610,6 +615,9 @@ hooks:
 cleanup:
   keepRuns: 20
   maxRunAgeDays: 14
+  warnStoreSizeMb: 500    # agentify status warns above this store size
+  artifactMaxAgeDays: 14  # clean --artifacts retention for ui-eval/ task dirs
+  globalMaxAgeDays: 90    # clean --global retention for unused shared-cache stores
 ```
 
 ## Other agents: MCP server
