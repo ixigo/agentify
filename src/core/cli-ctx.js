@@ -4,7 +4,11 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { loadConfig } from "./config.js";
+import { exists } from "./fs.js";
+import { getHeadTree } from "./git.js";
 import { ensureAgentifyGitignore } from "./gitignore.js";
+import { readIndexMeta } from "./index-freshness.js";
+import { resolveAgentifyPaths } from "./project-store.js";
 import {
   addNote,
   clearContext,
@@ -73,6 +77,15 @@ export async function runCtxHook(action, root) {
     }
     const config = await loadConfigSafe(root);
 
+    // SessionStart (ctx load --hook): keep the structural index current without
+    // a manual `agentify scan`. Independent of context-injection mode (it has
+    // its own config switch) but, like everything else here, skipped while
+    // tracking is paused. Best-effort and fast: the hook pays only a cheap HEAD
+    // probe; the full freshness re-check and any rebuild run in a detached child.
+    if (action === "load") {
+      await maybeRefreshStaleIndex(root, config);
+    }
+
     if (action === "precheck") {
       // A PreToolUse failed-command warning is a safety signal, NOT context
       // digest injection, so it must run regardless of the injection mode. In
@@ -130,6 +143,68 @@ export async function runCtxHook(action, root) {
     }
   } catch {
     // Swallow all hook errors: a broken hook must not block the agent.
+  }
+}
+
+// SessionStart index refresh. Spawns a detached `agentify scan --index-only`
+// when an existing index is stale relative to HEAD, so query/risk/test_select
+// stop answering from a stale index without anyone remembering to scan by hand.
+// Design constraints:
+//  - Never build an index where none exists: a first build stays an explicit
+//    opt-in via `agentify scan`, so a bare repo is left untouched.
+//  - Keep the hook fast: the parent only reads the index metadata and HEAD
+//    (a cheap probe, no dirty-tree hashing); the full freshness re-check and
+//    any rebuild run in the detached child. "Stale relative to HEAD" means the
+//    committed HEAD tree moved — uncommitted edits are deliberately NOT a
+//    trigger (the per-query staleness note covers those; rebuilding on every
+//    edit churns). The probe compares the HEAD tree, the same signal runScan's
+//    warm-reuse check uses, so a spawn always leads to a real rebuild (never a
+//    warm reuse that leaves the index stale and re-spawns next session).
+//  - No double-scan: the child's `scan` takes the index-refresh lock, so
+//    concurrent sessions serialize and extra spawns exit as no-ops.
+//  - No working-tree writes: --index-only refreshes only the gitignored index.
+//
+// Returns the spawned child, or null when no refresh was scheduled. `options.spawn`
+// is an injection seam for tests so the decision can be exercised without
+// launching a real scan.
+export async function maybeRefreshStaleIndex(root, config, options = {}) {
+  try {
+    if (config.index?.refreshOnStart === false) {
+      return null;
+    }
+    const artifactPaths = await resolveAgentifyPaths(root, config);
+    if (!(await exists(artifactPaths.indexDb))) {
+      // No index yet — never build one uninvited.
+      return null;
+    }
+    const [meta, headTree] = await Promise.all([
+      readIndexMeta(artifactPaths.indexMetaPath),
+      getHeadTree(root),
+    ]);
+    if (!headTree || headTree === "nogit") {
+      // Can't assess staleness relative to HEAD (no commit / not a work tree /
+      // transient git error) — getHeadTree returns the "nogit" sentinel there.
+      return null;
+    }
+    if (meta && meta.indexed_tree === headTree) {
+      // Index already covers the current HEAD tree; nothing to refresh.
+      return null;
+    }
+    const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../cli.js");
+    const spawnFn = options.spawn || spawn;
+    // Detached so the hook returns immediately; the child re-checks freshness,
+    // reuses a warm index or rebuilds a stale one, and serializes on the lock.
+    const child = spawnFn(process.execPath, [cliPath, "scan", "--index-only", "--root", root], {
+      detached: true,
+      stdio: "ignore",
+    });
+    if (child && typeof child.unref === "function") {
+      child.unref();
+    }
+    return child;
+  } catch {
+    // Best-effort: a refresh that cannot be scheduled must never affect the hook.
+    return null;
   }
 }
 

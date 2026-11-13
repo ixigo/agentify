@@ -521,7 +521,10 @@ export async function runCli(argv, _runtime = {}) {
         return;
 
       case "scan":
-        await runScan(root, config, { commandName: "scan" });
+        // --index-only refreshes just the structural index (no repo-map/policy
+        // files), matching the non-dirtying footprint the SessionStart
+        // background refresh (runCtxHook "load") relies on.
+        await runScan(root, config, { commandName: "scan", indexOnly: args.indexOnly === true });
         return;
 
       case "up":
