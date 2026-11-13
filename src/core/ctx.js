@@ -4,7 +4,9 @@ import path from "node:path";
 
 import { resolveContextPolicy, selectWithinBudget } from "./ctx-budget.js";
 import { ensureDir, exists, readText, relative } from "./fs.js";
-import { resolveLocalAgentifyPaths } from "./project-store.js";
+import { getCurrentBranch } from "./git.js";
+import { acquireLock } from "./lock.js";
+import { realpathIfPossible, resolveLocalAgentifyPaths, resolveSharedContextDir } from "./project-store.js";
 import { redactSensitiveText } from "./redact.js";
 import { estimateContextTokens, recordValueEvent } from "./value-telemetry.js";
 
@@ -35,6 +37,117 @@ export function resolveContextPaths(root) {
   };
 }
 
+// Notes and decisions are repo-scoped: in a linked worktree they resolve to the
+// MAIN worktree's store (same subproject path) so every checkout shares one set.
+// Events, summaries, and handoffs stay per-checkout (resolveContextPaths).
+// Outside a real working tree the shared dir is null and the local path is used,
+// so non-git behaviour is unchanged.
+// Returns { notesPath, lockRoot, local, samePath, isLinkedWorktree, localNotesPath }.
+//   - local: not a git repo (notes stay in this directory's own store).
+//   - samePath: the shared path IS this checkout's local path (main worktree /
+//     subproject-in-main), so nothing migrates and clear behaves normally.
+//   - isLinkedWorktree: shared notes live in a different checkout than this one.
+//   - lockRoot scopes the append lock to the store that owns the file so parallel
+//     worktrees serialize on the same lock.
+async function resolveNotesTarget(root) {
+  const local = resolveContextPaths(root);
+  const shared = await resolveSharedContextDir(root);
+  if (!shared) {
+    return {
+      notesPath: local.notesPath,
+      lockRoot: path.resolve(root),
+      local: true,
+      samePath: true,
+      isLinkedWorktree: false,
+      localNotesPath: local.notesPath,
+    };
+  }
+  const notesPath = path.join(shared.contextDir, "notes.jsonl");
+  const samePath = (await realpathIfPossible(path.dirname(notesPath)))
+    === (await realpathIfPossible(path.dirname(local.notesPath)));
+  return {
+    notesPath,
+    lockRoot: shared.storeDir,
+    local: false,
+    samePath,
+    isLinkedWorktree: !samePath,
+    localNotesPath: local.notesPath,
+  };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Best-effort cross-store lock: parallel worktrees append the one shared
+// notes.jsonl, so serialize on a lock scoped to the owning store. If it cannot be
+// acquired we proceed anyway (O_APPEND keeps a single small line atomic), so a
+// note is never lost to lock contention.
+async function acquireNotesLock(lockRoot) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const acquired = await acquireLock(lockRoot, "notes-append").catch(() => null);
+    if (acquired && acquired.acquired) {
+      return acquired;
+    }
+    await sleep(20);
+  }
+  return null;
+}
+
+async function appendNoteLine(target, record) {
+  const lock = await acquireNotesLock(target.lockRoot);
+  try {
+    await appendJsonLine(target.notesPath, record);
+  } finally {
+    if (lock) {
+      await lock.release().catch(() => {});
+    }
+  }
+}
+
+// One-off, idempotent migration: when a linked worktree still has its own local
+// notes.jsonl (from before notes were repo-scoped), merge those lines into the
+// shared store de-duplicated and rename the local file to notes.jsonl.migrated so
+// nothing is lost and the merge never runs again. Runs cheaply on first read: in
+// the common case (no local file, or the main checkout where samePath is true) it
+// does a single stat and returns. The rename happens ONLY after a successful
+// merge, so a failed append leaves the local file untouched for a later retry.
+async function migrateLocalNotesIfNeeded(root, preresolved = null) {
+  const target = preresolved || await resolveNotesTarget(root);
+  if (target.local || target.samePath) {
+    return;
+  }
+  if (!(await exists(target.localNotesPath))) {
+    return;
+  }
+  const localLines = (await readText(target.localNotesPath)).split(/\r?\n/).filter((line) => line.trim().length > 0);
+  let merged = false;
+  if (localLines.length === 0) {
+    merged = true;
+  } else {
+    const lock = await acquireNotesLock(target.lockRoot);
+    try {
+      const existing = (await exists(target.notesPath))
+        ? (await readText(target.notesPath)).split(/\r?\n/).filter((line) => line.trim().length > 0)
+        : [];
+      const seen = new Set(existing);
+      const additions = localLines.filter((line) => !seen.has(line));
+      if (additions.length > 0) {
+        await ensureDir(path.dirname(target.notesPath));
+        await fs.appendFile(target.notesPath, `${additions.join("\n")}\n`, "utf8");
+      }
+      merged = true;
+    } catch {
+      merged = false;
+    } finally {
+      if (lock) {
+        await lock.release().catch(() => {});
+      }
+    }
+  }
+  if (merged) {
+    await fs.rename(target.localNotesPath, `${target.localNotesPath}.migrated`).catch(() => {});
+  }
+}
+
 export async function isContextPaused(root, env = process.env) {
   if (String(env.AGENTIFY_CTX || "").toLowerCase() === "off") {
     return true;
@@ -63,11 +176,28 @@ export async function resumeContext(root) {
 
 export async function clearContext(root, options = {}) {
   const paths = resolveContextPaths(root);
+  const notesTarget = await resolveNotesTarget(root);
+  // In a linked worktree the notes are repo-scoped and shared, and this
+  // worktree's archive dir is deleted with the worktree — so clearing them here
+  // would wipe (and strand) the whole repo's notes. Clear only per-checkout data;
+  // shared notes are cleared from the main worktree.
+  const clearNotes = !notesTarget.isLinkedWorktree;
+  const sharedNotesPreserved = notesTarget.isLinkedWorktree;
+
+  const files = [
+    ["events.jsonl", paths.eventsPath],
+    ["acp-capture.jsonl", paths.acpCapturePath],
+    ...(clearNotes ? [["notes.jsonl", notesTarget.notesPath]] : []),
+    ["summaries.jsonl", paths.summariesPath],
+    ["summary-usage.jsonl", paths.summaryUsagePath],
+    ["value-events.jsonl", paths.valueEventsPath],
+  ];
+
   const archived = [];
   if (options.archive !== false) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const targetDir = path.join(paths.archiveDir, stamp);
-    for (const [label, sourcePath] of [["events.jsonl", paths.eventsPath], ["acp-capture.jsonl", paths.acpCapturePath], ["notes.jsonl", paths.notesPath], ["summaries.jsonl", paths.summariesPath], ["summary-usage.jsonl", paths.summaryUsagePath], ["value-events.jsonl", paths.valueEventsPath]]) {
+    for (const [label, sourcePath] of files) {
       if (await exists(sourcePath)) {
         await ensureDir(targetDir);
         await fs.rename(sourcePath, path.join(targetDir, label));
@@ -75,18 +205,16 @@ export async function clearContext(root, options = {}) {
       }
     }
   } else {
-    await fs.rm(paths.eventsPath, { force: true });
-    await fs.rm(paths.acpCapturePath, { force: true });
-    await fs.rm(paths.notesPath, { force: true });
-    await fs.rm(paths.summariesPath, { force: true });
-    await fs.rm(paths.summaryUsagePath, { force: true });
-    await fs.rm(paths.valueEventsPath, { force: true });
+    for (const [, sourcePath] of files) {
+      await fs.rm(sourcePath, { force: true });
+    }
   }
   await fs.rm(paths.injectedPath, { force: true });
   return {
     command: "ctx clear",
     archived,
     archive_dir: archived.length > 0 ? paths.archiveDir : null,
+    shared_notes_preserved: sharedNotesPreserved,
   };
 }
 
@@ -378,20 +506,26 @@ export async function addNote(root, text, options = {}) {
   if (!NOTE_TYPES.includes(type)) {
     throw new Error(`Unknown note type "${options.type}". Supported: ${NOTE_TYPES.join(", ")}`);
   }
+  const target = await resolveNotesTarget(root);
+  await migrateLocalNotesIfNeeded(root, target);
+  // Record the originating branch so a note's provenance survives being pooled
+  // across worktrees; "nogit"/"HEAD" are not real branches, so they are dropped.
+  const branch = await getCurrentBranch(root).catch(() => null);
   const record = {
     ts: new Date().toISOString(),
     sid: shortSessionId(options.session || process.env.CLAUDE_SESSION_ID || ""),
     ...(type !== "note" ? { type } : {}),
+    ...(branch && branch !== "nogit" && branch !== "HEAD" ? { branch } : {}),
     note: note.length > 2000 ? `${note.slice(0, 1999)}…` : note,
   };
-  const paths = resolveContextPaths(root);
-  await appendJsonLine(paths.notesPath, record);
-  return { path: paths.notesPath, record };
+  await appendNoteLine(target, record);
+  return { path: target.notesPath, record };
 }
 
 export async function listDecisions(root, query, options = {}) {
-  const paths = resolveContextPaths(root);
-  const notes = await readJsonLines(paths.notesPath);
+  const target = await resolveNotesTarget(root);
+  await migrateLocalNotesIfNeeded(root, target);
+  const notes = await readJsonLines(target.notesPath);
   const rawDecisions = notes.filter((note) => note.type === "decision");
   const decisions = options.verifyNotes === false ? rawDecisions : await annotateNoteStaleness(root, rawDecisions);
 
@@ -598,8 +732,10 @@ function noteLine(note) {
 
 export async function loadContextSnapshot(root, options = {}) {
   const paths = resolveContextPaths(root);
+  const notesTarget = await resolveNotesTarget(root);
+  await migrateLocalNotesIfNeeded(root, notesTarget);
   const events = (await readJsonLines(paths.eventsPath)).slice(-(options.maxEvents || DEFAULT_DIGEST_EVENTS));
-  const rawNotes = (await readJsonLines(paths.notesPath)).slice(-(options.maxNotes || 10));
+  const rawNotes = (await readJsonLines(notesTarget.notesPath)).slice(-(options.maxNotes || 10));
   const notes = options.verifyNotes === false ? rawNotes : await annotateNoteStaleness(root, rawNotes);
   const sessionSummaries = (await readJsonLines(paths.summariesPath)).slice(-(options.maxSummaries || 5));
   return { events, notes, sessionSummaries, summary: summarizeEvents(events) };
@@ -707,6 +843,7 @@ export async function recordContextDigestInjection(root, snapshot, digest, optio
 
 export async function contextStatus(root) {
   const paths = resolveContextPaths(root);
+  const notesTarget = await resolveNotesTarget(root);
   const snapshot = await loadContextSnapshot(root, { maxEvents: DEFAULT_DIGEST_EVENTS, maxNotes: 1000 });
 
   let eventLogBytes = 0;
@@ -720,7 +857,7 @@ export async function contextStatus(root) {
     command: "ctx status",
     paused: await isContextPaused(root),
     events_path: paths.eventsPath,
-    notes_path: paths.notesPath,
+    notes_path: notesTarget.notesPath,
     event_count: snapshot.summary.eventCount,
     note_count: snapshot.notes.length,
     stale_note_count: snapshot.notes.filter((note) => Array.isArray(note.stale_refs) && note.stale_refs.length > 0).length,
