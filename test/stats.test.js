@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { buildStatsReport, estimateTokens, recordDelegation, renderStatsReport } from "../src/core/stats.js";
 import { recordInvocation } from "../src/core/invocations.js";
+import { listMcpToolNames } from "../src/core/mcp-server.js";
 import { parseClaudeJsonOutput, runDelegate } from "../src/core/models.js";
 import { trackEvent } from "../src/core/ctx.js";
 
@@ -115,6 +116,61 @@ test("buildStatsReport aggregates delegations by kind and target within the wind
   }
 });
 
+test("buildStatsReport reports MCP adoption: serve starts, calls per start, and per-tool zeros", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-mcp-"));
+  try {
+    const invocationsPath = path.join(dir, "global-cache", "invocations.json");
+    const bump = async (command, source, times) => {
+      for (let i = 0; i < times; i += 1) {
+        await recordInvocation({ command, source }, { path: invocationsPath });
+      }
+    };
+    await bump("serve", "cli", 8);
+    await bump("ctx_note", "mcp", 3);
+    await bump("query", "mcp", 1);
+    // ctx_load et al. are never called from MCP and must still appear as 0.
+
+    const report = await buildStatsReport(dir, { days: 7, invocations: { path: invocationsPath } });
+    assert.equal(report.mcp.serve_starts, 8);
+    assert.equal(report.mcp.tool_calls, 4);
+    assert.ok(Math.abs(report.mcp.calls_per_start - 0.5) < 1e-9);
+    assert.equal(report.mcp.by_tool.ctx_note, 3);
+    assert.equal(report.mcp.by_tool.query, 1);
+    // Every tool the server exposes is present, with explicit zeros for the unused.
+    for (const name of listMcpToolNames()) {
+      assert.ok(Object.prototype.hasOwnProperty.call(report.mcp.by_tool, name), `missing tool ${name}`);
+    }
+    assert.equal(report.mcp.by_tool.ctx_load, 0);
+    assert.equal(report.mcp.by_tool.test_select, 0);
+
+    const rendered = renderStatsReport(report);
+    assert.match(rendered, /MCP adoption \(serve starts vs\. tool calls\):/);
+    assert.match(rendered, /8 serve start\(s\), 4 tool call\(s\) \(0\.50 per start\)/);
+    assert.match(rendered, /by tool: ctx_note 3, query 1,/);
+    assert.match(rendered, /query 1/);
+    assert.match(rendered, /test_select 0/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP adoption renders 'none recorded' when the server was never started or called", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-mcp-empty-"));
+  try {
+    const report = await buildStatsReport(dir, {
+      days: 7,
+      invocations: { path: path.join(dir, "global-cache", "invocations.json") },
+    });
+    assert.equal(report.mcp.serve_starts, 0);
+    assert.equal(report.mcp.tool_calls, 0);
+    assert.equal(report.mcp.calls_per_start, null);
+    const rendered = renderStatsReport(report);
+    assert.match(rendered, /MCP adoption \(serve starts vs\. tool calls\):\n- none recorded/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildStatsReport excludes records outside the window and handles empty stores", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-stats-window-"));
   try {
@@ -206,7 +262,7 @@ test("buildStatsReport separates cache categories, reports percentiles, daily tr
       days: 7,
       invocations: { path: path.join(dir, "global-cache", "invocations.json") },
     });
-    assert.equal(report.schema_version, "stats-v3");
+    assert.equal(report.schema_version, "stats-v4");
     assert.equal(report.delegations.totals.count, 3);
     assert.equal(report.delegations.totals.fresh_input_tokens, 3000);
     assert.equal(report.delegations.totals.cache_read_tokens, 500000);

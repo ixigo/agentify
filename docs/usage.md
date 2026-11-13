@@ -295,6 +295,8 @@ agentify risk --since origin/main
 
 All support `--json`. The CLAUDE.md block teaches the agent to run `agentify scan` itself when the index is stale.
 
+When an index already exists, the `SessionStart` hook also keeps it current on its own: if the index is stale relative to HEAD it refreshes in a detached, index-only background scan (serialized by the index-refresh lock, no working-tree writes), so `query`/`risk`/`test_select` stop answering from an index that drifted since the last manual scan. It never builds an index where none exists. Disable it with `index.refreshOnStart: false` in `.agentify.yaml`.
+
 ## Impact-aware test selection
 
 **Why:** agents run the full suite after every change because they can't tell which tests matter. On a suite that takes minutes, that's the slowest part of the loop.
@@ -328,7 +330,7 @@ Run:
 
 Delegation details remain repo-local: every `agentify delegate` run is logged to `.agentify/context/delegations.jsonl` as a versioned `delegation-v2` record with fresh input, cache-read, cache-write, and output tokens kept separate; provider-reported cost (never fabricated); the requested alias versus resolved model ID; latency phases; and the active budget ceiling. Prompts are stored only as a hash. Claude delegations run with `--output-format json`, while Codex runs with `--json`; anything unreported gets ~4 chars/token estimates, and estimated rows are labeled as such. Old `stats-v1` lines still count in totals and are marked as legacy aggregates.
 
-The report uses one inclusive UTC calendar-day window for every section. It includes invocation totals split by source and top command, plus delegation P50/P95 latency, cache read/write/fresh ratios, daily cost trend, cost-reporting coverage, fallback reasons, budget-stopped runs, and a session-summary maintenance view (count, LLM spend, injection rate).
+The report uses one inclusive UTC calendar-day window for every section. It includes invocation totals split by source and top command; an MCP adoption block (`serve` starts, total tool calls, calls per server start, and per-tool counts with an explicit `0` for every exposed-but-unused tool); plus delegation P50/P95 latency, cache read/write/fresh ratios, daily cost trend, cost-reporting coverage, fallback reasons, budget-stopped runs, and a session-summary maintenance view (count, LLM spend, injection rate).
 
 ```bash
 agentify stats            # last 30 days
@@ -346,6 +348,10 @@ Invocations (machine-wide):
   - ctx.track: 92 (92 hook)
   - ctx.match: 31 (31 hook)
   - query: 8 (8 mcp)
+
+MCP adoption (serve starts vs. tool calls):
+- 92 serve start(s), 8 tool call(s) (0.09 per start)
+- by tool: query 8, ctx_load 0, ctx_note 0, ctx_match 0, ctx_decisions 0, ctx_handoff 0, risk 0, test_select 0
 
 Sessions:
 - 1 session(s), 0 edit(s), 1 command(s) (1 failed), 4 note(s)
