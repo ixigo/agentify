@@ -136,6 +136,17 @@ export function buildManagedHooks({ planRendererPath = path.join(".claude", "hoo
         ],
       },
     ],
+    // A failing tool call fires PostToolUseFailure, not PostToolUse, so failed
+    // Bash commands are only captured by tracking this event (#391). Scoped to
+    // Bash: a failed edit never changed the file, so there is nothing to record.
+    PostToolUseFailure: [
+      {
+        matcher: "Bash",
+        hooks: [
+          { type: "command", command: "agentify ctx track --hook", timeout: 10 },
+        ],
+      },
+    ],
     SessionEnd: [
       {
         matcher: "",
