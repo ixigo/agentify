@@ -62,6 +62,7 @@ import {
 } from "./core/session-analysis/insights.js";
 import { getUpstreamRef, hasDiffSince } from "./core/git.js";
 import { describeModelRoutes, explainRoute, refreshModelCatalogIfNeeded, runDelegate } from "./core/models.js";
+import { defaultReadinessExec } from "./core/provider-readiness.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
@@ -661,16 +662,26 @@ export async function runCli(argv, _runtime = {}) {
           }
           return;
         }
-        const result = await describeModelRoutes(config);
+        const result = await describeModelRoutes(config, { readinessExec: defaultReadinessExec });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           const providerBits = result.provider_details.map((detail) => {
-            const state = detail.installed ? green("available") : dim("missing");
+            // Readiness (#395): ready / logged out / broken / missing — shared
+            // with doctor, so a crashing or logged-out CLI is never shown as
+            // plainly "available".
+            const state = detail.readiness === "ready" ? green("ready")
+              : detail.readiness === "logged_out" ? yellow("logged out")
+              : detail.readiness === "broken" ? red("broken")
+              : detail.readiness === "unknown" && detail.installed ? yellow("installed (unverified)")
+              : dim("missing");
             const optIn = detail.opt_in ? dim(detail.enabled_for_routing ? " (opt-in: enabled)" : " (opt-in)") : "";
             return `${detail.name} ${state}${optIn}`;
           });
           log(`Provider CLIs: ${providerBits.join(", ")}`);
+          for (const entry of result.readiness_warnings || []) {
+            log(yellow(`  route ${entry.kind}: ${entry.warning}`));
+          }
           log(`Profile: ${bold(result.profile.name)} (${result.profile.source}) — ${result.profile.objective} ${dim(`· ${result.profile.policy_version}`)}`);
           if (result.budget.dailyUsd !== null || result.budget.monthlyUsd !== null) {
             const caps = [
@@ -762,6 +773,7 @@ export async function runCli(argv, _runtime = {}) {
           maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
           effort: hasOwn(args, "effort") ? args.effort : undefined,
           timeoutSeconds: args.timeout ? Number(args.timeout) : undefined,
+          runtime: { readinessExec: defaultReadinessExec },
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));
@@ -796,6 +808,7 @@ export async function runCli(argv, _runtime = {}) {
           effort: hasOwn(args, "effort") ? args.effort : undefined,
           profile: hasOwn(args, "profile") ? args.profile : undefined,
           dryRun: args.dryRun === true,
+          runtime: { readinessExec: defaultReadinessExec },
         });
         if (intent && result.dry_run) {
           // Auto-routing classified the kind before runDelegate; surface the
@@ -865,6 +878,7 @@ export async function runCli(argv, _runtime = {}) {
           maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? args.maxBudgetUsd : undefined,
           maxTurns: hasOwn(args, "maxTurns") ? args.maxTurns : undefined,
           effort: hasOwn(args, "effort") ? args.effort : undefined,
+          runtime: { readinessExec: defaultReadinessExec },
         });
         if (config.json) {
           console.log(JSON.stringify(result, null, 2));

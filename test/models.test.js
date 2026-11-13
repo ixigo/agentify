@@ -173,7 +173,7 @@ test("runDelegate requires a task for non-review kinds and any available provide
       () => runDelegate(dir, {}, "quick", "do something", {
         runtime: { commandExists: async () => false },
       }),
-      /No available CLI/
+      /No ready CLI/
     );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -357,21 +357,39 @@ test("budget-triggered termination is distinct from provider failure and timeout
     });
     assert.equal(turns.status, "budget_stopped");
     assert.equal(turns.budget_stop_reason, "max_turns");
+    assert.equal(turns.failure_reason, "stopped at the max-turns ceiling");
 
     const budget = await runDelegate(dir, {}, "quick", "task", {
       runtime: runtimeFor(JSON.stringify({ type: "result", subtype: "error_max_budget_usd", result: "partial", usage: {} })),
     });
     assert.equal(budget.status, "budget_stopped");
     assert.equal(budget.budget_stop_reason, "max_budget_usd");
+    assert.equal(budget.failure_reason, "stopped at the max-budget ceiling");
 
     const timeout = await runDelegate(dir, {}, "quick", "task", {
       runtime: runtimeFor("", 1, "delegate timed out after 120s"),
     });
     assert.equal(timeout.status, "timeout");
     assert.equal(timeout.budget_stop_reason, null);
+    assert.equal(timeout.failure_reason, "timed out before completing (wall-clock limit)");
 
     const failure = await runDelegate(dir, {}, "quick", "task", { runtime: runtimeFor("boom", 1, "crash") });
     assert.equal(failure.status, "provider_error");
+    // Every failed record carries a non-empty, human-readable reason (#395).
+    assert.equal(failure.failure_reason, "provider exited 1: crash");
+
+    // A successful run carries no failure reason.
+    const ok = await runDelegate(dir, {}, "quick", "task", {
+      runtime: runtimeFor(JSON.stringify({ type: "result", result: "done", usage: { input_tokens: 10, output_tokens: 5 } }), 0),
+    });
+    assert.equal(ok.status, "ok");
+    assert.equal(ok.failure_reason, undefined);
+    const { readDelegationRecords } = await import("../src/core/stats.js");
+    const records = await readDelegationRecords(dir);
+    for (const record of records.filter((entry) => entry.status !== "ok")) {
+      assert.ok(record.failure_reason && record.failure_reason.length > 0, `record ${record.status} must have a failure_reason`);
+    }
+    assert.equal(records.find((entry) => entry.status === "ok").failure_reason, null);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -438,4 +456,44 @@ test("collectModelPricingGaps is empty for the current lineup and flags a retiri
   const flagged = collectModelPricingGaps({ catalog, config: {} });
   assert.ok(flagged.retiring.some((entry) => entry.model === "gpt-6-luna" && entry.replacement === "gpt-7-luna" && entry.tier === "economy"));
   assert.deepEqual(flagged.unpriced, [], "gpt-6-luna is priced; only its retirement is flagged");
+});
+
+test("delegate review skips a logged-out primary and falls back without spending on it (#395)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-loggedout-"));
+  try {
+    const runnerCalls = [];
+    const result = await runDelegate(dir, {}, "review", "check the diff", {
+      runtime: {
+        // Both CLIs are installed...
+        commandExists: async (bin) => bin === "codex" || bin === "claude",
+        // ...but Codex (the review primary) is logged out; Claude is ready.
+        readinessExec: async (argv) => {
+          const key = argv.join(" ");
+          if (key === "codex --version") return { code: 0, stdout: "codex 0.156.0", stderr: "" };
+          if (key === "codex login status") return { code: 1, stdout: "Not logged in", stderr: "" };
+          if (key === "claude --version") return { code: 0, stdout: "claude 2.0.0", stderr: "" };
+          if (key === "claude auth status") return { code: 0, stdout: JSON.stringify({ loggedIn: true }), stderr: "" };
+          return { code: 0, stdout: "", stderr: "" };
+        },
+        // The token-spending provider runner. It must only ever run Claude.
+        exec: async (command, args) => {
+          runnerCalls.push([command, ...args]);
+          return { code: 0, stdout: JSON.stringify({ type: "result", result: "review ok", usage: { input_tokens: 20, output_tokens: 10 } }), stderr: "" };
+        },
+      },
+    });
+    assert.equal(result.provider, "claude");
+    assert.equal(result.used_fallback, true);
+    assert.match(result.fallback_reason, /codex not ready: logged_out/);
+    // No provider run ever targeted the logged-out Codex.
+    assert.ok(runnerCalls.every((call) => call[0] !== "codex"), "Codex must not be spawned when logged out");
+    assert.ok(runnerCalls.some((call) => call[0] === "claude"), "Claude fallback must run");
+
+    const { readDelegationRecords } = await import("../src/core/stats.js");
+    const [record] = await readDelegationRecords(dir);
+    assert.equal(record.used_fallback, true);
+    assert.match(record.fallback_reason, /codex not ready: logged_out/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
