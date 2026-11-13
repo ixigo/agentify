@@ -45,7 +45,7 @@ async function readPackageJson() {
 async function listSkillDirs(rootDir) {
   const entries = await fs.readdir(rootDir, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry) => entry.name)
     .sort();
 }

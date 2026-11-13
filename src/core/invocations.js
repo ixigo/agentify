@@ -13,7 +13,7 @@ const DEFAULT_WINDOW_DAYS = 30;
 
 const TOP_LEVEL_COMMANDS = new Set([
   "acp", "analyze", "check", "clean", "completion", "ctx", "delegate",
-  "doctor", "eval", "help", "hooks", "install", "models", "query",
+  "doctor", "eval", "help", "hooks", "install", "migrate", "models", "query",
   "review", "risk", "route", "scan", "serve", "skill", "stats", "status",
   "test", "uninstall", "up", "value", "version", "workflow",
 ]);

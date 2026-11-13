@@ -28,11 +28,11 @@ info "${BOLD}Agentify installer${RESET} ${DIM}(${REPO}@${REF})${RESET}"
 info ""
 
 command -v git >/dev/null 2>&1 || fail "git is required. Install git and re-run."
-command -v node >/dev/null 2>&1 || fail "Node.js 20+ is required. Install it from https://nodejs.org and re-run."
+command -v node >/dev/null 2>&1 || fail "Node.js 22+ is required. Install it from https://nodejs.org and re-run."
 
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  fail "Node.js 20+ is required (found $(node --version))."
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  fail "Node.js 22+ is required (found $(node --version))."
 fi
 ok "Node $(node --version), git $(git --version | awk '{print $3}')"
 
