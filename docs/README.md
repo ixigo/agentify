@@ -26,7 +26,7 @@ git clone https://github.com/ixigo/agentify.git && cd agentify
 pnpm install && pnpm link --global
 ```
 
-Pin a ref with the installer: `AGENTIFY_REF=v0.3.0 bash install.sh`.
+The installer installs the latest release tag by default (resolved with `git ls-remote`, no token required), and falls back to `main` when no release tag exists yet. Pin a specific ref with `AGENTIFY_REF=<branch|tag|sha> bash install.sh`.
 
 Then wire a repo (or your home config):
 
