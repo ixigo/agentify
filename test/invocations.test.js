@@ -11,6 +11,31 @@ import {
   resolveCliInvocationCommand,
   resolveInvocationsPath,
 } from "../src/core/invocations.js";
+import { printHelp } from "../src/core/cli-fast-paths.js";
+
+// Extract the top-level command tokens from the COMMANDS block of `--help`.
+async function helpCommands() {
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  let buffer = "";
+  process.stderr.write = (chunk) => {
+    buffer += chunk;
+    return true;
+  };
+  try {
+    await printHelp();
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  const lines = buffer.split("\n");
+  const start = lines.findIndex((line) => /\bCOMMANDS\b/.test(line));
+  const end = lines.findIndex((line) => /\bOPTIONS\b/.test(line));
+  const commands = [];
+  for (const line of lines.slice(start + 1, end)) {
+    const match = line.match(/^\s{4}(\S+)\s{2,}\S/);
+    if (match) commands.push(match[1]);
+  }
+  return commands;
+}
 
 test("resolveInvocationsPath honors only an absolute XDG cache home", () => {
   assert.equal(
@@ -131,5 +156,19 @@ test("a cache path inside a bare Git repository is never written", async () => {
     await assert.rejects(fs.access(targetPath));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("every command shown in --help maps to a non-unknown telemetry name", async () => {
+  const commands = await helpCommands();
+  // Guard against the parser silently matching nothing and vacuously passing.
+  assert.ok(commands.length >= 20, `expected the help output to list commands, found ${commands.length}`);
+  assert.ok(commands.includes("migrate"), "migrate should be listed in --help");
+  for (const command of commands) {
+    assert.notEqual(
+      resolveCliInvocationCommand({ _: [command] }),
+      "unknown",
+      `command "${command}" shown in --help buckets to unknown telemetry`,
+    );
   }
 });

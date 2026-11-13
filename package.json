@@ -25,7 +25,7 @@
     "bench:analyze": "AGENTIFY_BENCH=1 node --test test/session-analysis-bench.test.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "ai",

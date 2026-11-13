@@ -13,7 +13,7 @@ Agentify is installed straight from GitHub:
 curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
 ```
 
-The installer checks Node.js 20+ and git, runs `npm install -g` against the GitHub repo, and verifies the CLI. Equivalent manual command: `npm install -g github:ixigo/agentify`. Pin a ref with `AGENTIFY_REF=<branch|tag|sha>`.
+The installer checks Node.js 22+ and git, runs `npm install -g` against the GitHub repo, and verifies the CLI. Equivalent manual command: `npm install -g github:ixigo/agentify`. Pin a ref with `AGENTIFY_REF=<branch|tag|sha>`.
 
 Then wire up your repo:
 

@@ -77,7 +77,7 @@ Full tables, caveats, and the corrections log: **[docs/benchmarks.md](./docs/ben
 
 ## Requirements
 
-Node.js 20+, Git, and Claude Code (automatic hooks) or Codex (guidance-driven). Any other agent can call the CLI or connect over MCP.
+Node.js 22+, Git, and Claude Code (automatic hooks) or Codex (guidance-driven). Any other agent can call the CLI or connect over MCP.
 
 ## Documentation
 
