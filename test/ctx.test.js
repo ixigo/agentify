@@ -744,6 +744,159 @@ test("stale notes are flagged in the full digest and rejected from task injectio
   }
 });
 
+// The five real cases from issue #396, copied from the repo's own notes.jsonl
+// (store lines flagged by the old detector), turned into fixtures. Only a
+// reference whose parent directory still exists but whose file is gone is a
+// confirmed-stale flag; version tiers, A/B file alternations, and error-string
+// fragments whose leading directory is absent are not.
+test("the stale detector flags only confirmed-missing refs across the five #396 cases", async () => {
+  const { loadContextSnapshot: load } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-396-cases-"));
+  try {
+    // Real directory layout: docs/ exists (file removed), both harbor.js and
+    // eval-report.js exist under src/core, and pages/ holds the migrate assets.
+    await fs.mkdir(path.join(dir, "docs"), { recursive: true });
+    await fs.writeFile(path.join(dir, "docs/usage.md"), "# usage\n", "utf8");
+    await fs.mkdir(path.join(dir, "src/core"), { recursive: true });
+    await fs.writeFile(path.join(dir, "src/core/harbor.js"), "export {}\n", "utf8");
+    await fs.writeFile(path.join(dir, "src/core/eval-report.js"), "export {}\n", "utf8");
+    await fs.mkdir(path.join(dir, "pages"), { recursive: true });
+    await fs.writeFile(path.join(dir, "pages/migrate.html"), "<!doctype html>\n", "utf8");
+    await fs.writeFile(path.join(dir, "pages/migrate.js"), "export {}\n", "utf8");
+
+    // Case 1: roadmap tier numbers "2.2/2.4/2.5" — not a path.
+    await addNote(dir, "REMAINING: store-ladder paid run needs go-ahead; then tier-2 2.2/2.4/2.5 and tier-3 (public benchmark, team memory).");
+    // Case 2: two files that both exist, written as "fixed in harbor.js/eval-report.js".
+    await addNote(dir, "TWO REAL DEFECTS found by review and fixed in harbor.js/eval-report.js: harbor exception read via .message.");
+    // Case 3: an error-pattern fragment "npm install/bootstrap.sh" — no install/ dir.
+    await addNote(dir, "zero-activity SETUP failures (SETUP_FAILURE_PATTERN: NetworkConnectionError/npm install/bootstrap.sh/etc) were graded as arm failures.");
+    // Case 4: a temp file whose scratchpad/ directory no longer exists.
+    await addNote(dir, "CRITICAL FREE DIAGNOSTIC (scratchpad/diagnose-retrieval.mjs): retrieval is NOT the weak link, the needle ranks #1-2.");
+    // Case 5: a genuinely removed doc under an existing docs/ directory.
+    await addNote(dir, "Added pages/migrate.html usage guide, pages/migrate.js clipboard enhancement, and docs/migrate-slack.md preview announcement.");
+
+    const snapshot = await load(dir);
+    const byText = (needle) => snapshot.notes.find((note) => note.note.includes(needle));
+
+    assert.equal(byText("2.2/2.4/2.5").stale_refs, undefined, "version tiers not flagged");
+    assert.equal(byText("harbor.js/eval-report.js").stale_refs, undefined, "both files exist (alternation)");
+    assert.equal(byText("install/bootstrap.sh").stale_refs, undefined, "error fragment, no install/ dir");
+    assert.equal(byText("diagnose-retrieval.mjs").stale_refs, undefined, "temp path, no scratchpad/ dir");
+    assert.deepEqual(byText("migrate-slack.md").stale_refs, ["docs/migrate-slack.md"], "removed file under docs/ is flagged");
+
+    // Exactly one of the five notes is flagged.
+    const flagged = snapshot.notes.filter((note) => Array.isArray(note.stale_refs) && note.stale_refs.length > 0);
+    assert.equal(flagged.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("extractNotePathRefs rejects version tiers but keeps slash-joined file tokens", async () => {
+  const { extractNotePathRefs } = await import("../src/core/ctx.js");
+  assert.deepEqual(extractNotePathRefs("then tier-2 2.2/2.4/2.5 and tier-3"), []);
+  assert.deepEqual(extractNotePathRefs("fixed in harbor.js/eval-report.js: done"), ["harbor.js/eval-report.js"]);
+  assert.deepEqual(extractNotePathRefs("npm install/bootstrap.sh/etc failed"), ["install/bootstrap.sh"]);
+});
+
+test("a superseded note is hidden from load and match but listable with --all", async () => {
+  const { loadContextSnapshot: load, matchContext } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-supersede-"));
+  try {
+    const stale = await addNote(dir, "agentify serve is a hand-rolled legacy 2025-06-18 stdio server");
+    const fresh = await addNote(dir, "agentify serve now uses the MCP SDK serveStdio helper", { supersedes: stale.record.id });
+    assert.equal(fresh.record.supersedes, stale.record.id);
+
+    // Default load injects only the live (superseding) note.
+    const def = await load(dir);
+    assert.deepEqual(def.notes.map((note) => note.note), ["agentify serve now uses the MCP SDK serveStdio helper"]);
+    assert.equal(def.superseded.length, 1);
+    assert.equal(def.superseded[0].superseded_by.id, fresh.record.id);
+
+    // --all keeps the superseded note, marked with what superseded it.
+    const all = await load(dir, { includeSuperseded: true });
+    const hidden = all.notes.find((note) => note.id === stale.record.id);
+    assert.ok(hidden, "superseded note present under --all");
+    assert.equal(hidden.superseded_by.id, fresh.record.id);
+    assert.match(renderContextDigest(all), /SUPERSEDED by #/);
+
+    // ctx match never injects the superseded note and counts the skip.
+    const matches = await matchContext(dir, "fix the legacy serve stdio server", { sessionId: "sup", recordInjection: false });
+    assert.ok(!matches.notes.some((item) => item.note?.id === stale.record.id), "superseded note not injected");
+    assert.ok(matches.superseded_skipped >= 1, "superseded skip counted");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a legacy note without a stored id can be superseded via its computed id", async () => {
+  const { loadContextSnapshot: load, computeNoteId } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-supersede-legacy-"));
+  try {
+    const legacy = { ts: "2026-01-01T00:00:00.000Z", note: "old gateway lives in the legacy module" };
+    const notesPath = resolveContextPaths(dir).notesPath;
+    await fs.mkdir(path.dirname(notesPath), { recursive: true });
+    await fs.writeFile(notesPath, `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const legacyId = computeNoteId(legacy);
+    await addNote(dir, "gateway moved; the legacy module is gone", { supersedes: legacyId });
+
+    const def = await load(dir);
+    assert.deepEqual(def.notes.map((note) => note.note), ["gateway moved; the legacy module is gone"]);
+    assert.equal(def.superseded.length, 1);
+    assert.equal(def.superseded[0].note, legacy.note);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("superseding decisions drops them from ctx decisions unless --all", async () => {
+  const { listDecisions } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-supersede-dec-"));
+  try {
+    const first = await addNote(dir, "chose polling over websockets because of proxy limits", { type: "decision" });
+    await addNote(dir, "chose websockets over polling now that the proxy supports upgrade", { type: "decision", supersedes: first.record.id });
+
+    const live = await listDecisions(dir, "");
+    assert.deepEqual(live.decisions.map((d) => d.note), ["chose websockets over polling now that the proxy supports upgrade"]);
+
+    const all = await listDecisions(dir, "", { includeSuperseded: true });
+    assert.equal(all.decisions.length, 2);
+    const superseded = all.decisions.find((d) => d.id === first.record.id);
+    assert.ok(superseded.superseded_by, "superseded decision is marked under --all");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("supersede rejects an unknown or ambiguous id", async () => {
+  const { computeNoteId } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-supersede-bad-"));
+  try {
+    await addNote(dir, "some note");
+    await assert.rejects(() => addNote(dir, "x", { supersedes: "deadbeef" }), /No note found with id/);
+
+    // Record enough notes that some single-hex-char id prefix is shared by at
+    // least two (16 possible first chars, so > 16 notes guarantees a collision).
+    const records = [];
+    for (let i = 0; i < 24; i += 1) {
+      records.push(await addNote(dir, `ambiguity probe note number ${i}`));
+    }
+    const counts = new Map();
+    for (const r of records) {
+      const first = computeNoteId(r.record)[0];
+      counts.set(first, (counts.get(first) || 0) + 1);
+    }
+    const ambiguousPrefix = [...counts.entries()].find(([, n]) => n >= 2)[0];
+    await assert.rejects(
+      () => addNote(dir, "y", { supersedes: ambiguousPrefix }),
+      /Ambiguous note id/,
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("BM25 matching stems plurals and ranks rare terms above common ones", async () => {
   const { matchSnapshotToPrompt } = await import("../src/core/ctx.js");
 

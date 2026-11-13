@@ -51,6 +51,7 @@ const MCP_TOOL_INPUTS = {
   ctx_note: z.strictObject({
     text: z.string().describe("The note to record"),
     type: z.enum(["note", "decision"]).optional().describe("Kind of note (default: note)"),
+    supersedes: z.string().optional().describe("Id of an earlier note/decision this one resolves; the old one stops being injected"),
   }),
   ctx_match: z.strictObject({
     task: z.string().describe("Description of the task you are about to work on"),
@@ -433,8 +434,10 @@ export function buildMcpTools(root, config = {}) {
       description: descriptions.ctx_note,
       inputValidator: MCP_TOOL_INPUTS.ctx_note,
       async handler(args) {
-        const result = await addNote(root, args.text, { type: args.type });
-        return `${result.record.type === "decision" ? "Decision recorded" : "Noted"}: ${result.record.note}`;
+        const result = await addNote(root, args.text, { type: args.type, supersedes: args.supersedes });
+        const kind = result.record.type === "decision" ? "Decision recorded" : "Noted";
+        const superseded = result.record.supersedes ? ` (supersedes #${result.record.supersedes})` : "";
+        return `${kind} (#${result.record.id})${superseded}: ${result.record.note}`;
       },
     }),
     defineMcpTool({

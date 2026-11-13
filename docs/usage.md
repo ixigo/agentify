@@ -224,6 +224,18 @@ agentify ctx decision "chose idempotency keys stored client-side over server-sid
 
 agentify ctx decisions                              # list all decisions
 agentify ctx decisions "why client side idempotency keys"   # ranked query
+agentify ctx decisions --all                         # include superseded decisions
+```
+
+Every note and decision now carries a short id (shown as `#ab12cd34` in listings and
+the digest). When a later decision resolves an earlier one, record it with
+`--supersedes`, and the old entry stops being injected (it stays visible under `--all`):
+
+```bash
+agentify ctx decision "chose websockets now that the proxy supports upgrade" \
+  --supersedes ab12cd34
+agentify ctx note "serve now uses the MCP SDK" --supersedes <old-id>
+agentify ctx load --all                              # show superseded notes too, marked
 ```
 
 ```text
@@ -232,7 +244,7 @@ Decisions matching "why client side idempotency keys":
   because the gateway retries before our server sees the request
 ```
 
-Decisions are notes with `type: decision` (`ctx note --type decision` is equivalent): they live in the same `notes.jsonl`, get their own *"Decisions on record"* digest section, match per-task like any note, and are staleness-checked. Combined with `agentify ctx share`, the committed notes file doubles as a lightweight, queryable team ADR log — no separate docs/adr directory to maintain.
+Decisions are notes with `type: decision` (`ctx note --type decision` is equivalent): they live in the same `notes.jsonl`, get their own *"Decisions on record"* digest section, match per-task like any note, and are staleness-checked. A note is flagged stale only when it references a file whose directory still exists but whose file is gone — version numbers, A/B file alternations, and error-message fragments are no longer mistaken for broken paths. Combined with `agentify ctx share`, the committed notes file doubles as a lightweight, queryable team ADR log — no separate docs/adr directory to maintain.
 
 **When to record one:** any time the agent (or you) makes a choice a future session could plausibly reverse without context — library picks, storage formats, API shapes, deliberately-rejected alternatives. The managed guidance block teaches the agent to do this on its own.
 

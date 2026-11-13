@@ -49,6 +49,7 @@ function contextEventTotals(events) {
     hot_file: 0,
     previous_failure: 0,
     stale_warning: 0,
+    superseded_skipped: 0,
   };
   for (const event of injections) {
     for (const key of Object.keys(reasons)) {
@@ -61,6 +62,7 @@ function contextEventTotals(events) {
     estimated_tokens: injections.reduce((sum, event) => sum + finite(event.estimated_tokens), 0),
     decisions_reused: injections.reduce((sum, event) => sum + finite(event.decisions_reused), 0),
     stale_context_rejected: injections.reduce((sum, event) => sum + finite(event.stale_context_rejected), 0),
+    superseded_skipped: injections.reduce((sum, event) => sum + finite(event.superseded_skipped), 0),
     failed_command_repeats_intercepted: events.filter((event) => event.type === "failed_command_repeat_intercepted").length,
     reasons,
   };
@@ -311,6 +313,7 @@ export function renderValueReport(report) {
     "Context:",
     `- ${context.decisions_reused} previous decision(s) reused`,
     `- ${context.stale_context_rejected} stale context item(s) rejected`,
+    `- ${context.superseded_skipped} superseded note(s) skipped`,
     `- ${context.failed_command_repeats_intercepted} failed-command repeat(s) intercepted`,
     `- ${context.injected_items} item(s) injected across ${context.injection_events} task(s), ~${formatNumber(context.estimated_tokens)} token(s)`,
     "",
@@ -362,6 +365,7 @@ function reasonRows(reasons) {
     hot_file: "Previously relevant files",
     previous_failure: "Related command failures",
     stale_warning: "Stale notes shown with warnings",
+    superseded_skipped: "Superseded notes skipped",
   };
   return Object.entries(labels).map(([key, label]) => `<tr>
     <th scope="row">${escapeHtml(label)}</th>
@@ -439,7 +443,8 @@ export function renderValueHtml(report, options = {}) {
     : "no eval runs in window";
   const cards = [
     metricCard("decisions reused", formatNumber(report.context.decisions_reused), "Surfaced in a later task", "good"),
-    metricCard("stale context rejected", formatNumber(report.context.stale_context_rejected), "Missing file references kept out", "guard"),
+    metricCard("stale context rejected", formatNumber(report.context.stale_context_rejected), "Confirmed-missing file references kept out", "guard"),
+    metricCard("superseded notes skipped", formatNumber(report.context.superseded_skipped), "Resolved notes kept out", "guard"),
     metricCard("failed repeats intercepted", formatNumber(report.context.failed_command_repeats_intercepted), "Prior failure warning shown", "guard"),
     metricCard("context injected", `~${formatTokens(report.context.estimated_tokens)}`, "Estimated tokens, with reasons below", "signal"),
     metricCard("test files avoided", formatNumber(tests.full_suite_files_avoided), `${tests.runs} focused run(s)`, "good"),

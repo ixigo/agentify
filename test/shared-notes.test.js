@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { addNote, clearContext, contextStatus, listDecisions, loadContextSnapshot, matchContext, trackEvent } from "../src/core/ctx.js";
+import { addNote, clearContext, contextStatus, listDecisions, loadContextSnapshot, matchContext, renderContextDigest, trackEvent } from "../src/core/ctx.js";
 import { buildMcpTools } from "../src/core/mcp-server.js";
 
 const execFileAsync = promisify(execFile);
@@ -102,6 +102,107 @@ test("decisions are repo-scoped across worktrees too", async () => {
     const listed = await listDecisions(main, "sqlite");
     assert.equal(listed.decisions.length, 1);
     assert.match(listed.decisions[0].note, /chose sqlite/);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("staleness honours a note's branch: same-branch flagged, other-branch is provenance, legacy flagged", async () => {
+  const parent = await mkTempDir("agentify-shared-provenance-");
+  try {
+    const main = path.join(parent, "main");
+    await fs.mkdir(main, { recursive: true });
+    await initGitRepo(main);
+    // A real directory exists so a missing file under it is "confirmed missing"
+    // (an absent first segment would not be flagged for an unrelated reason).
+    await fs.mkdir(path.join(main, "src/core"), { recursive: true });
+    await fs.writeFile(path.join(main, "src/core/keep.ts"), "export {}\n", "utf8");
+    const { stdout } = await git(main, "branch", "--show-current");
+    const currentBranch = stdout.trim();
+
+    const notesPath = path.join(main, ".agentify", "context", "notes.jsonl");
+    await fs.mkdir(path.dirname(notesPath), { recursive: true });
+    await fs.writeFile(notesPath, [
+      JSON.stringify({ ts: "2026-02-01T00:00:00.000Z", branch: currentBranch, note: "same branch: logic moved to src/core/gone-a.ts" }),
+      JSON.stringify({ ts: "2026-02-02T00:00:00.000Z", branch: "feature-elsewhere", note: "other branch: logic in src/core/gone-b.ts" }),
+      JSON.stringify({ ts: "2026-02-03T00:00:00.000Z", note: "legacy: logic in src/core/gone-c.ts" }),
+    ].join("\n") + "\n", "utf8");
+
+    const snapshot = await loadContextSnapshot(main);
+    const byText = (needle) => snapshot.notes.find((note) => note.note.includes(needle));
+
+    assert.deepEqual(byText("gone-a.ts").stale_refs, ["src/core/gone-a.ts"], "same-branch missing path is flagged");
+    assert.equal(byText("gone-b.ts").stale_refs, undefined, "other-branch missing path is not flagged");
+    assert.equal(byText("gone-b.ts").cross_branch, "feature-elsewhere", "other-branch note carries provenance");
+    assert.deepEqual(byText("gone-c.ts").stale_refs, ["src/core/gone-c.ts"], "legacy note (no branch) is flagged");
+
+    const digest = renderContextDigest(snapshot);
+    assert.match(digest, /\(written on feature-elsewhere\)/);
+    assert.ok(!/gone-b\.ts[^\n]*STALE/.test(digest), "other-branch note shows no STALE warning");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a note written on a linked worktree's branch is provenance, not stale, in the main checkout", async () => {
+  const parent = await mkTempDir("agentify-shared-prov-wt-");
+  try {
+    const main = path.join(parent, "main");
+    await fs.mkdir(main, { recursive: true });
+    await initGitRepo(main);
+    await fs.mkdir(path.join(main, "src"), { recursive: true });
+    await fs.writeFile(path.join(main, "src/keep.ts"), "export {}\n", "utf8");
+    await git(main, "add", "-A");
+    await git(main, "commit", "-m", "add src");
+    const wt = path.join(parent, "wt");
+    await addWorktree(main, "feat-prov", wt);
+
+    // Written on feat-prov, referencing a file that exists on neither checkout.
+    const added = await addNote(wt, "the retry helper now lives in src/moved-helper.ts", { session: "sw" });
+    assert.equal(added.record.branch, "feat-prov");
+
+    // Same branch (the worktree) → flagged; src/ exists in the checkout.
+    const wtNote = (await loadContextSnapshot(wt)).notes.find((n) => n.note.includes("moved-helper.ts"));
+    assert.deepEqual(wtNote.stale_refs, ["src/moved-helper.ts"]);
+
+    // Other branch (main) → provenance, not stale, even though src/ exists here too.
+    const mainNote = (await loadContextSnapshot(main)).notes.find((n) => n.note.includes("moved-helper.ts"));
+    assert.equal(mainNote.stale_refs, undefined);
+    assert.equal(mainNote.cross_branch, "feat-prov");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a note superseded from a linked worktree is hidden in the main checkout", async () => {
+  const parent = await mkTempDir("agentify-shared-supersede-");
+  try {
+    const main = path.join(parent, "main");
+    await fs.mkdir(main, { recursive: true });
+    await initGitRepo(main);
+    const wt = path.join(parent, "wt");
+    await addWorktree(main, "feat-sup", wt);
+
+    // A note recorded in the main checkout...
+    const stale = await addNote(main, "the webhook retry uses the old fixed 30s backoff", { session: "sm" });
+    // ...superseded from a linked worktree (notes are shared on this branch).
+    const fresh = await addNote(wt, "the webhook retry now uses exponential backoff with jitter", {
+      session: "sw",
+      supersedes: stale.record.id,
+    });
+    assert.equal(fresh.record.supersedes, stale.record.id);
+
+    // The superseded note is gone from the main checkout's injected digest...
+    assert.deepEqual(noteTexts(await loadContextSnapshot(main)), ["the webhook retry now uses exponential backoff with jitter"]);
+    // ...and from the sibling worktree, and from ctx match.
+    assert.deepEqual(noteTexts(await loadContextSnapshot(wt)), ["the webhook retry now uses exponential backoff with jitter"]);
+    const matched = await matchContext(main, "fix the webhook retry backoff", { recordInjection: false });
+    assert.ok(!/fixed 30s backoff/.test(matched.digest || ""), "superseded note not injected in main");
+
+    // It is still inspectable with --all, marked by what superseded it.
+    const all = await loadContextSnapshot(main, { includeSuperseded: true });
+    const hidden = all.notes.find((note) => note.id === stale.record.id);
+    assert.ok(hidden && hidden.superseded_by.id === fresh.record.id);
   } finally {
     await fs.rm(parent, { recursive: true, force: true });
   }

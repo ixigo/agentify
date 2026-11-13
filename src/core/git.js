@@ -167,6 +167,25 @@ export async function getHeadCommit(root) {
   }
 }
 
+// Tracked files relative to `root`, from a single `git ls-files` call. Returns
+// null when `root` is not a git working tree (or git is unavailable), so callers
+// can fall back to a filesystem walk; an empty array means a tracked-nothing
+// repository. Used by the stale-note detector to resolve bare basenames cheaply.
+export async function listTrackedFiles(root) {
+  try {
+    const { stdout } = await execFileAsync("git", ["ls-files", "-z"], {
+      cwd: root,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (!stdout) {
+      return [];
+    }
+    return stdout.split("\0").map((entry) => normalizePath(entry)).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
 export async function isGitRepository(root) {
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root });
