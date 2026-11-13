@@ -10,10 +10,17 @@
 # Agentify
 
 [![npm version](https://img.shields.io/npm/v/agentify)](https://www.npmjs.com/package/agentify)
-[![license](https://img.shields.io/npm/l/agentify)](./LICENSE)
-[![node](https://img.shields.io/node/v/agentify)](https://nodejs.org)
+[![version](https://img.shields.io/github/package-json/v/ixigo/agentify?label=version)](./package.json)
+[![tests](https://img.shields.io/github/actions/workflow/status/ixigo/agentify/test.yml?branch=main&label=tests)](https://github.com/ixigo/agentify/actions/workflows/test.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D20-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![docs](https://img.shields.io/badge/docs-ixigo.github.io%2Fagentify-8A2BE2)](https://ixigo.github.io/agentify/)
 
 > **Switch agents. Keep the repo's working memory.**
+
+<p align="center">
+  <img src="./assets/agentify-demo.gif" alt="Agentify demo: record a decision and a note, load them in a new session, query impact, score risk, and select only the affected tests" width="900" />
+</p>
 
 Agentify keeps durable working context — decisions, notes, session summaries, command failures, hot files — with the repository instead of inside one agent harness. Install it once and the agent drives it: Claude Code through lifecycle hooks, Codex through installed guidance, everything else over MCP.
 
@@ -91,6 +98,12 @@ Node.js 20+, Git, and Claude Code (automatic hooks) or Codex (guidance-driven). 
 git clone https://github.com/ixigo/agentify.git && cd agentify
 pnpm install && node --test
 pnpm link --global
+```
+
+The demo GIF above is scripted with [vhs](https://github.com/charmbracelet/vhs) against a throwaway repo — re-render it after CLI output changes:
+
+```bash
+cd "$(assets/demo/setup.sh)" && vhs "$OLDPWD/assets/demo/demo.tape" && mv agentify-demo.gif "$OLDPWD/assets/"
 ```
 
 ## License
