@@ -46,7 +46,7 @@ agentify install --provider codex --global   # global: ~/.codex/AGENTS.md
 agentify install --provider all              # Claude Code + Codex together
 ```
 
-Codex has no lifecycle hooks, so the `AGENTS.md` block instructs Codex to run `agentify ctx load` at session start, record decisions with `agentify ctx note`, and write `agentify ctx handoff` before ending long tasks. Tracking is guidance-driven rather than automatic, but the context store and every command are shared between agents — notes left by a Claude Code session show up in the next Codex session and vice versa.
+On Codex versions that expose lifecycle hooks, `agentify install --provider codex` writes `.codex/hooks.json` wiring session-start load, prompt matching, pre-command precheck, and post-tool tracking of commands and `apply_patch` edits (`agentify status` reports which mode is active). These run automatically only after you review and trust the hooks — use `/hooks` in a Codex session — and Codex loads project hooks only once the project `.codex/` layer is trusted. Failed-command capture on Codex is best-effort: Codex reports a command's outcome through `PostToolUse` but does not document the result fields, so a failure is recorded only when those fields are present. On older Codex versions without hooks, the `AGENTS.md` block falls back to guidance: it instructs Codex to run `agentify ctx load` at session start, record decisions with `agentify ctx note`, and write `agentify ctx handoff` before ending long tasks. Either way the context store and every command are shared between agents — notes left by a Claude Code session show up in the next Codex session and vice versa.
 
 Re-running install is safe: the managed block is replaced in place and hooks are deduplicated. `agentify uninstall [--global]` removes exactly what install added and nothing else.
 
@@ -720,7 +720,7 @@ A provider that is installed but **not authenticated** produces a warning and th
 | Confirm what is registered | `claude mcp list`; inspect `~/.codex/config.toml`; `agentify status` reports MCP registration state |
 | Undo | `agentify uninstall` removes guidance and hooks. The MCP registration is user-scoped and shared across repos, so it is removed only with `agentify uninstall --global` or `--mcp`; manually, `claude mcp remove agentify` / delete the `[mcp_servers.agentify]` table |
 
-The output stays honest about scope: Claude Code tracking is automatic through hooks, Codex is guidance-driven, and hidden provider transcripts are never replayed.
+The output stays honest about scope: Claude Code tracking is automatic through hooks; Codex tracking is automatic through hooks once you trust them, on versions that expose hooks, and guidance-driven otherwise (with best-effort failed-command capture); and hidden provider transcripts are never replayed.
 
 
 ## Session migration

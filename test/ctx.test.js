@@ -7,6 +7,8 @@ import path from "node:path";
 import {
   addNote,
   buildEventFromHookPayload,
+  buildEventsFromHookPayload,
+  parseApplyPatchFiles,
   contextStatus,
   loadContextSnapshot,
   renderContextDigest,
@@ -664,6 +666,116 @@ test("buildEventFromHookPayload drops interrupted commands and failed edits", ()
     }),
     null,
   );
+});
+
+// Codex reports file edits as `apply_patch` with the patch body in
+// `tool_input.command` and no `file_path` (docs: learn.chatgpt.com/docs/hooks).
+test("buildEventsFromHookPayload records one edit per file in a Codex apply_patch (#405)", () => {
+  const command = [
+    "*** Begin Patch",
+    "*** Add File: src/new.js",
+    "+export const a = 1;",
+    "*** Update File: src/old.js",
+    "@@",
+    "-const x = 1;",
+    "+const x = 2;",
+    "*** Delete File: src/gone.js",
+    "*** End Patch",
+  ].join("\n");
+  const events = buildEventsFromHookPayload("/repo", {
+    session_id: "codexsess",
+    hook_event_name: "PostToolUse",
+    tool_name: "apply_patch",
+    tool_input: { command },
+  });
+  assert.equal(events.length, 3);
+  assert.ok(events.every((event) => event.type === "edit"), "apply_patch must only ever produce edit events");
+  assert.deepEqual(events.map((event) => event.path), ["src/new.js", "src/old.js", "src/gone.js"]);
+  // The patch body is never stored — only paths.
+  for (const event of events) {
+    assert.equal(event.cmd, undefined);
+    assert.ok(!JSON.stringify(event).includes("const x ="), "patch body leaked into the event");
+  }
+});
+
+test("buildEventsFromHookPayload records a Codex apply_patch rename (source and move target) (#405)", () => {
+  const command = [
+    "*** Begin Patch",
+    "*** Update File: src/a.js",
+    "*** Move to: src/b.js",
+    "@@",
+    "-old",
+    "+new",
+    "*** End Patch",
+  ].join("\n");
+  const events = buildEventsFromHookPayload("/repo", {
+    hook_event_name: "PostToolUse",
+    tool_name: "apply_patch",
+    tool_input: { command },
+  });
+  assert.deepEqual(events.map((event) => event.path), ["src/a.js", "src/b.js"]);
+});
+
+test("buildEventsFromHookPayload records nothing for a malformed or failed Codex patch (#405)", () => {
+  // No envelope headers -> nothing recorded, and never a cmd event.
+  assert.deepEqual(
+    buildEventsFromHookPayload("/repo", {
+      hook_event_name: "PostToolUse",
+      tool_name: "apply_patch",
+      tool_input: { command: "just some text, not a patch" },
+    }),
+    [],
+  );
+  // A failed apply_patch changed nothing.
+  assert.deepEqual(
+    buildEventsFromHookPayload("/repo", {
+      hook_event_name: "PostToolUseFailure",
+      tool_name: "apply_patch",
+      tool_input: { command: "*** Begin Patch\n*** Add File: x.js\n+a\n*** End Patch" },
+      error: "patch did not apply",
+    }),
+    [],
+  );
+});
+
+test("buildEventsFromHookPayload parses a Codex Edit/Write delivered as a patch body (#405)", () => {
+  const events = buildEventsFromHookPayload("/repo", {
+    hook_event_name: "PostToolUse",
+    tool_name: "Edit",
+    tool_input: { command: "*** Begin Patch\n*** Update File: src/edit.js\n@@\n-a\n+b\n*** End Patch" },
+  });
+  assert.deepEqual(events.map((event) => event.path), ["src/edit.js"]);
+  // An Edit with neither file_path nor a patch body records nothing.
+  assert.deepEqual(
+    buildEventsFromHookPayload("/repo", { hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: {} }),
+    [],
+  );
+});
+
+test("parseApplyPatchFiles extracts header paths and dedupes", () => {
+  assert.deepEqual(parseApplyPatchFiles("*** Add File: a.js\n*** Add File: a.js\n*** Delete File: b.js"), ["a.js", "b.js"]);
+  assert.deepEqual(parseApplyPatchFiles("no headers here"), []);
+});
+
+test("trackEvent writes one event per file for a multi-file apply_patch (#405)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-patch-"));
+  try {
+    const command = "*** Begin Patch\n*** Add File: src/one.js\n+1\n*** Update File: src/two.js\n@@\n-a\n+b\n*** End Patch";
+    const result = await trackEvent(dir, {
+      session_id: "s1",
+      hook_event_name: "PostToolUse",
+      tool_name: "apply_patch",
+      tool_input: { command },
+    });
+    assert.equal(result.tracked, true);
+    assert.equal(result.events.length, 2);
+    const paths = resolveContextPaths(dir);
+    const lines = (await fs.readFile(paths.eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(lines.map((event) => event.path), ["src/one.js", "src/two.js"]);
+    assert.ok(lines.every((event) => event.type === "edit"));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("a PostToolUseFailure tracked in one session fires the precheck warning in a later session (#391)", async () => {

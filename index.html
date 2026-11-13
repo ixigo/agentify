@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentify — switch coding agents without losing context</title>
-<meta name="description" content="Agentify keeps durable working context with the repository instead of trapping it inside one agent harness. Claude Code through hooks, Codex through guidance, everything else through MCP.">
+<meta name="description" content="Agentify keeps durable working context with the repository instead of trapping it inside one agent harness. Claude Code and Codex through lifecycle hooks (Codex falls back to guidance on versions without hooks), everything else through MCP.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap">
@@ -184,7 +184,7 @@ img { display: block; max-width: 100%; }
         </div>
         <h1 class="hero-h1" style="font-size:52px;line-height:1.02;letter-spacing:-0.03em;max-width:16ch;margin:0 0 18px">Switch agents. Keep the repo&#39;s working memory.</h1>
         <p style="font-size:18px;line-height:1.55;max-width:62ch;color:var(--color-neutral-800);margin:0 0 14px">Agentify keeps durable working context <em>with the repository</em> instead of trapping it inside one agent harness. Install once — from then on your coding agent drives it automatically.</p>
-        <p style="font-size:15px;max-width:62ch;color:var(--color-neutral-700);margin:0 0 30px">Claude Code through lifecycle hooks, Codex through installed guidance, everything else through MCP. It carries forward explicit, compact project evidence — decisions, session summaries, failures, hot files — that should survive the switch.</p>
+        <p style="font-size:15px;max-width:62ch;color:var(--color-neutral-700);margin:0 0 30px">Claude Code and Codex through lifecycle hooks (Codex falls back to installed guidance on versions without hooks), everything else through MCP. It carries forward explicit, compact project evidence — decisions, session summaries, failures, hot files — that should survive the switch.</p>
         <div data-term data-label="bash" style="border:2px solid var(--color-text);background:var(--term-bg);max-width:720px"></div>
       </section>
 
@@ -199,7 +199,7 @@ img { display: block; max-width: 100%; }
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:2px solid var(--color-divider)">
           <div style="padding:22px 24px;border-right:2px solid var(--color-divider);border-bottom:2px solid var(--color-divider)">
             <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">1 — Session starts</div>
-            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">Claude Code&#39;s hook injects the context digest automatically. Codex follows its installed <code style="font-family:var(--mono);font-size:12px">AGENTS.md</code> guidance and loads the same store.</p>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">Claude Code&#39;s hook injects the context digest automatically; Codex does too where its version supports lifecycle hooks, once you trust them, and older Codex follows its installed <code style="font-family:var(--mono);font-size:12px">AGENTS.md</code> guidance. Either way the same store is loaded.</p>
           </div>
           <div style="padding:22px 24px;border-bottom:2px solid var(--color-divider)">
             <div style="font:700 13px/1 var(--mono);color:var(--color-accent);margin:0 0 8px">2 — Agent works</div>
@@ -477,7 +477,7 @@ img { display: block; max-width: 100%; }
           </div>
           <div style="padding:26px 24px">
             <div style="font-family:var(--font-heading);font-weight:800;font-size:26px;margin:0 0 6px">An agent</div>
-            <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Claude Code for hooks, or Codex for guidance-driven tracking. Anything else via MCP or the plain CLI.</p>
+            <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Claude Code and Codex for lifecycle hooks (Codex falls back to guidance-driven tracking on versions without hooks). Anything else via MCP or the plain CLI.</p>
           </div>
         </div>
       </section>
