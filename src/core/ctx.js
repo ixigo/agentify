@@ -264,9 +264,41 @@ export function parseFailureError(errorText) {
   return { exitCode: null, snippet: trimmed };
 }
 
-export function buildEventFromHookPayload(root, payload) {
+// Codex delivers file edits through `apply_patch` (and sometimes `Edit`/`Write`)
+// as patch text in `tool_input.command` — there is no `file_path`. We record one
+// edit event per file named in the patch envelope headers and NEVER store the
+// patch body, only the paths. A rename yields both the `Update File` source and
+// the `Move to` target. (Docs: learn.chatgpt.com/docs/hooks.)
+const APPLY_PATCH_FILE_HEADER = /^\*\*\*\s+(?:Add|Update|Delete) File:\s*(.+?)\s*$/;
+const APPLY_PATCH_MOVE_HEADER = /^\*\*\*\s+Move to:\s*(.+?)\s*$/;
+
+export function parseApplyPatchFiles(command) {
+  const files = [];
+  const seen = new Set();
+  for (const line of String(command ?? "").split(/\r?\n/)) {
+    const match = APPLY_PATCH_FILE_HEADER.exec(line) || APPLY_PATCH_MOVE_HEADER.exec(line);
+    if (!match) {
+      continue;
+    }
+    const file = match[1].trim();
+    if (file && !seen.has(file)) {
+      seen.add(file);
+      files.push(file);
+    }
+  }
+  return files;
+}
+
+function editEventFor(base, root, filePath) {
+  return { ...base, type: "edit", path: relative(root, path.resolve(root, String(filePath))) };
+}
+
+// Returns every event a single hook payload should produce (0, 1, or — for a
+// multi-file `apply_patch` — several). `buildEventFromHookPayload` wraps this for
+// callers that only ever expect one event.
+export function buildEventsFromHookPayload(root, payload) {
   if (!payload || typeof payload !== "object") {
-    return null;
+    return [];
   }
 
   const base = {
@@ -276,36 +308,47 @@ export function buildEventFromHookPayload(root, payload) {
 
   const hookEvent = String(payload.hook_event_name || "");
   if (hookEvent === "SessionEnd") {
-    return { ...base, type: "session_end", reason: clip(payload.reason || "", 60) };
+    return [{ ...base, type: "session_end", reason: clip(payload.reason || "", 60) }];
   }
 
-  // `PostToolUse` fires only when a tool call SUCCEEDS; a failing call fires
-  // `PostToolUseFailure` instead, which is why the failure record never used to
-  // be written under Claude Code (#391). Both are handled here so successes and
-  // failures flow through the same event shape.
+  // Claude Code's `PostToolUse` fires only when a tool call SUCCEEDS; a failing
+  // call fires `PostToolUseFailure` instead, which is why the failure record
+  // never used to be written under Claude Code (#391). Both are handled here so
+  // successes and failures flow through the same event shape.
   const isFailureEvent = hookEvent === "PostToolUseFailure";
   if (hookEvent !== "PostToolUse" && !isFailureEvent) {
-    return null;
+    return [];
   }
 
   const toolName = String(payload.tool_name || "");
   const toolInput = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input : {};
 
-  if (TRACKED_EDIT_TOOLS.has(toolName)) {
-    // A failed edit never changed the file, so only successful edits are recorded.
+  // File-editing tools: Claude's Write/Edit/MultiEdit/NotebookEdit (an explicit
+  // `file_path`/`notebook_path`) and Codex's `apply_patch` (and Edit/Write that
+  // arrive with a patch body in `tool_input.command`). `apply_patch` is resolved
+  // here and can never fall through to the Bash branch, so it is never recorded
+  // as a shell command.
+  if (toolName === "apply_patch" || TRACKED_EDIT_TOOLS.has(toolName)) {
+    // A failed edit never changed the file(s), so nothing is recorded.
     if (isFailureEvent) {
-      return null;
+      return [];
     }
     const filePath = toolInput.file_path || toolInput.notebook_path;
-    if (!filePath) {
-      return null;
+    if (filePath) {
+      return [editEventFor(base, root, filePath)];
     }
-    return { ...base, type: "edit", path: relative(root, path.resolve(root, String(filePath))) };
+    // Codex patch form: record a path per envelope header. A body with no file
+    // header (a malformed patch, or plain text) records nothing, and the patch
+    // body itself is never stored.
+    if (typeof toolInput.command === "string") {
+      return parseApplyPatchFiles(toolInput.command).map((file) => editEventFor(base, root, file));
+    }
+    return [];
   }
 
   if (toolName === "Bash") {
     if (!toolInput.command) {
-      return null;
+      return [];
     }
     let failure;
     if (isFailureEvent) {
@@ -315,14 +358,21 @@ export function buildEventFromHookPayload(root, payload) {
       // and a failure event would fire the repeat-failure precheck on a command
       // that was never actually run to completion.
       if (payload.is_interrupt === true) {
-        return null;
+        return [];
       }
       failure = parseFailureError(payload.error);
     } else {
+      // Best-effort failure detection on the success event. Claude Code only
+      // fires PostToolUse on success (so this is a no-op there), but Codex also
+      // runs PostToolUse after a command exits non-zero. The Codex docs do NOT
+      // document `tool_response`'s fields for Bash, so we deliberately do not
+      // guess field names: detectCommandFailure fires only when the fields it
+      // already knows are present, and a missed Codex failure simply records a
+      // plain command.
       failure = detectCommandFailure(payload.tool_response);
     }
     const signature = normalizeCommandSignature(toolInput.command);
-    return {
+    return [{
       ...base,
       type: "cmd",
       cmd: clip(redactSensitiveText(toolInput.command)),
@@ -336,24 +386,33 @@ export function buildEventFromHookPayload(root, payload) {
           ...(failure.snippet ? { err: clip(redactSensitiveText(failure.snippet)) } : {}),
         }
         : {}),
-    };
+    }];
   }
 
-  return null;
+  return [];
+}
+
+export function buildEventFromHookPayload(root, payload) {
+  const events = buildEventsFromHookPayload(root, payload);
+  return events.length > 0 ? events[0] : null;
 }
 
 export async function trackEvent(root, payload) {
   if (await isContextPaused(root)) {
-    return { tracked: false, event: null, paused: true };
+    return { tracked: false, event: null, events: [], paused: true };
   }
-  const event = buildEventFromHookPayload(root, payload);
-  if (!event) {
-    return { tracked: false, event: null };
+  // A single payload may yield several events (a multi-file `apply_patch`), so
+  // each is appended; `event` stays the first for back-compatible callers.
+  const events = buildEventsFromHookPayload(root, payload);
+  if (events.length === 0) {
+    return { tracked: false, event: null, events: [] };
   }
   const paths = resolveContextPaths(root);
-  await appendJsonLine(paths.eventsPath, event);
+  for (const event of events) {
+    await appendJsonLine(paths.eventsPath, event);
+  }
   const compacted = await compactEventLogIfNeeded(paths.eventsPath);
-  return { tracked: true, event, compacted };
+  return { tracked: true, event: events[0], events, compacted };
 }
 
 // Record an event captured from the proxied ACP stream (#337) through the SAME

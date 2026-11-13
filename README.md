@@ -22,7 +22,7 @@
   <img src="./assets/agentify-demo.gif" alt="Agentify demo: record a decision and a note, load them in a new session, query impact, score risk, and select only the affected tests" width="900" />
 </p>
 
-Agentify keeps durable working context — decisions, notes, session summaries, command failures, hot files — with the repository instead of inside one agent harness. Install it once and the agent drives it: Claude Code through lifecycle hooks, Codex through installed guidance, everything else over MCP.
+Agentify keeps durable working context — decisions, notes, session summaries, command failures, hot files — with the repository instead of inside one agent harness. Install it once and the agent drives it: Claude Code and Codex through lifecycle hooks (Codex falls back to installed guidance on versions without hooks), everything else over MCP.
 
 It does not replay a provider's hidden conversation state or copy private chain-of-thought. It carries forward explicit, compact project evidence that should survive the switch.
 
@@ -46,7 +46,7 @@ agentify install
   `-- .agentify/             <- JSONL context store + optional repo index
 ```
 
-1. **Session starts** — the digest is injected (hook on Claude Code, guidance on Codex).
+1. **Session starts** — the digest is injected (lifecycle hook on Claude Code and Codex; guidance on Codex versions without hooks).
 2. **Agent works** — edits, commands, and failures are tracked automatically; a repeat of a previously failed command is flagged before it runs.
 3. **Agent learns something** — `agentify ctx note "…"` / `agentify ctx decision "chose X over Y because Z"`.
 4. **Session ends** — a short extractive handoff is written from tracked evidence, at zero model cost.

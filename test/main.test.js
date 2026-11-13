@@ -408,25 +408,53 @@ test("plan-to-html hook script renders manual markdown to plans html", async () 
   assert.match(html, /<li>Ship it<\/li>/);
 });
 
+// Force the Codex hooks mode deterministically so these e2e installs never
+// depend on (or spawn) the real `codex` CLI.
+async function withCodexHooksEnv(value, fn) {
+  const previous = process.env.AGENTIFY_CODEX_HOOKS;
+  process.env.AGENTIFY_CODEX_HOOKS = value;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.AGENTIFY_CODEX_HOOKS;
+    else process.env.AGENTIFY_CODEX_HOOKS = previous;
+  }
+}
+
 test("runCli install --provider codex writes AGENTS.md guidance", async () => {
   const root = await tmpRoot("agentify-main-install-codex-");
   const home = await tmpRoot("agentify-main-install-codex-home-");
-  const lines = await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "codex", "--json"]));
+  const lines = await withCodexHooksEnv("0", () =>
+    captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "codex", "--json"])));
   const payload = JSON.parse(lines[0]);
   assert.equal(payload.integrations.length, 1);
   assert.equal(payload.integrations[0].provider, "codex");
+  assert.equal(payload.integrations[0].mode, "guidance");
   const agentsMd = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
   assert.match(agentsMd, /<!-- agentify:begin -->/);
   await assert.rejects(() => fs.access(path.join(root, ".claude", "settings.json")));
+  await assert.rejects(() => fs.access(path.join(root, ".codex", "hooks.json")));
   // MCP registration for codex lands in the throwaway home, not the real one.
   const codexMcp = payload.mcp.registrations.find((item) => item.provider === "codex");
   assert.equal(codexMcp.path, path.join(home, ".codex", "config.toml"));
 });
 
+test("runCli install --provider codex wires lifecycle hooks when supported (#405)", async () => {
+  const root = await tmpRoot("agentify-main-install-codex-hooks-");
+  const home = await tmpRoot("agentify-main-install-codex-hooks-home-");
+  const lines = await withCodexHooksEnv("1", () =>
+    captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "codex", "--json"])));
+  const payload = JSON.parse(lines[0]);
+  assert.equal(payload.integrations[0].mode, "hooks");
+  const hooks = JSON.parse(await fs.readFile(path.join(root, ".codex", "hooks.json"), "utf8"));
+  assert.equal(hooks.hooks.PostToolUse[0].hooks[0].command, "agentify ctx track --hook");
+});
+
 test("runCli install --provider all writes both integrations", async () => {
   const root = await tmpRoot("agentify-main-install-all-");
   const home = await tmpRoot("agentify-main-install-all-home-");
-  const lines = await captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "all", "--json"]));
+  const lines = await withCodexHooksEnv("0", () =>
+    captureLog(() => runCli(["install", "--root", root, "--home", home, "--provider", "all", "--json"])));
   const payload = JSON.parse(lines[0]);
   assert.deepEqual(payload.integrations.map((item) => item.provider), ["claude", "codex"]);
   await fs.access(path.join(root, "CLAUDE.md"));
