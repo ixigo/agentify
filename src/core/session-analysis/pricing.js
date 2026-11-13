@@ -9,7 +9,7 @@
 //   pay nothing per token. Coverage travels with every number.
 // - Rates are USD per million tokens at public list price. To update,
 //   append entries with a newer effective date and bump the version.
-export const PRICING_TABLE_VERSION = "analyze-pricing-v3";
+export const PRICING_TABLE_VERSION = "analyze-pricing-v4";
 
 // cache_write is the 5-minute-TTL write rate (1.25x input for Claude);
 // cache_write_1h is the 1-hour-TTL rate (2x input). Newer OpenAI models
@@ -17,9 +17,22 @@ export const PRICING_TABLE_VERSION = "analyze-pricing-v3";
 // short-context rate when the local store does not expose request-level
 // service/context tiers.
 const PRICING = [
-  // Frontier lineup as of September 2026. Claude Fable 5.1 keeps Fable 5's
-  // rates except cache reads (0.025x input); GPT-6 Astra is priced at the
-  // standard short-context tier like the rest of the OpenAI rows.
+  // Frontier lineup as of November 2026. The 5.5 generation (Opus/Sonnet/Haiku
+  // 5.5) and Claude Fable 5.2 are dateless pinned snapshots; their cache reads
+  // use the published per-model multipliers (0.025x input on Fable 5.2, 0.05x
+  // on Opus 5.5 / Sonnet 5.5, 0.10x on Haiku 5.5) and their 5m/1h cache writes
+  // the published 1.25x/2x-input rates. Effective dates are each model's launch
+  // date, which the vendor publishes as exactly one year before its "retirement
+  // not sooner than" date (verified against the Fable 5.1 / Opus 5 / Sonnet 5
+  // rows). Sources (fetched 2026-11-13): platform.claude.com models overview +
+  // pricing + model-deprecations; developers.openai.com pricing + models.
+  { model: "claude-fable-5-2", effective: "2026-11-09", input: 8, output: 40, cache_read: 0.20, cache_write: 10, cache_write_1h: 16 },
+  { model: "claude-opus-5-5", effective: "2026-09-22", input: 4, output: 20, cache_read: 0.20, cache_write: 5, cache_write_1h: 8 },
+  { model: "claude-sonnet-5-5", effective: "2026-09-28", input: 2, output: 10, cache_read: 0.10, cache_write: 2.5, cache_write_1h: 4 },
+  { model: "claude-haiku-5-5", effective: "2026-10-07", input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125, cache_write_1h: 0.20, assumption: "rate for prompts up to 100,000 tokens; larger prompts are billed at 5x (request-level prompt length unavailable)" },
+  // Claude Fable 5.1 keeps Fable 5's rates except cache reads (0.025x input);
+  // GPT-6 Astra is priced at the standard short-context tier like the rest of
+  // the OpenAI rows.
   { model: "claude-fable-5-1", effective: "2026-09-01", input: 10, output: 50, cache_read: 0.25, cache_write: 12.5, cache_write_1h: 20 },
   { model: "claude-fable-5", effective: "2026-06-09", input: 10, output: 50, cache_read: 1, cache_write: 12.5, cache_write_1h: 20 },
   { model: "claude-opus-5", effective: "2026-07-24", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 10 },
@@ -29,6 +42,14 @@ const PRICING = [
   { model: "claude-sonnet-4-5", effective: "2025-09-29", input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, cache_write_1h: 6 },
   { model: "claude-haiku-4-5", effective: "2025-10-01", input: 1, output: 5, cache_read: 0.1, cache_write: 1.25, cache_write_1h: 2 },
   { model: "gpt-6-astra", effective: "2026-09-03", input: 10, output: 50, cache_read: 1, cache_write: 12.5, cache_write_1h: 12.5, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
+  // GPT-6 Sol / GPT-6 Luna are the economy/balanced members of the GPT-6
+  // generation (the catalog's named replacements for GPT-5.6 Terra/Luna). The
+  // vendor pricing page lists no per-model release date, so they share the
+  // GPT-6 generation's effective date (gpt-6-astra, 2026-09-03). Cache writes
+  // use the published short-context 30m-write rate (1.25x input), matching the
+  // other OpenAI rows' shape; the store exposes no TTL split for Codex usage.
+  { model: "gpt-6-sol", effective: "2026-09-03", input: 2, output: 10, cache_read: 0.20, cache_write: 2.5, cache_write_1h: 2.5, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
+  { model: "gpt-6-luna", effective: "2026-09-03", input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125, cache_write_1h: 0.125, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-sol", effective: "2026-07-09", input: 5, output: 30, cache_read: 0.5, cache_write: 6.25, cache_write_1h: 6.25, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-terra", effective: "2026-07-09", input: 2.5, output: 15, cache_read: 0.25, cache_write: 3.125, cache_write_1h: 3.125, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
   { model: "gpt-5.6-luna", effective: "2026-07-09", input: 1, output: 6, cache_read: 0.1, cache_write: 1.25, cache_write_1h: 1.25, assumption: "standard short-context API rate (request-level context and service tier unavailable)" },
@@ -55,8 +76,38 @@ function costLineItem(tokenType, tokens, rate) {
 
 // claude-sonnet-4-5-20250929 -> claude-sonnet-4-5. Snapshot suffixes name
 // the same priced model; anything else must match exactly.
-function normalizeModelId(model) {
+export function normalizeModelId(model) {
   return String(model || "").replace(/-20\d{6}$/, "");
+}
+
+// First dash-delimited token of a model id ("gpt-6-luna" -> "gpt",
+// "claude-opus-5-5" -> "claude"): the vendor family the price table groups by.
+function vendorPrefix(model) {
+  return normalizeModelId(model).split("-")[0] || "";
+}
+
+// The vendor families the price table is responsible for, derived from the
+// table itself (today: claude, gpt). A model whose family has no rows at all
+// (e.g. gemini) is out of the table's scope — not a pricing gap to report.
+const PRICED_VENDORS = new Set(PRICING.map((entry) => vendorPrefix(entry.model)));
+
+export function isPricedVendorModel(model) {
+  return PRICED_VENDORS.has(vendorPrefix(model));
+}
+
+// True when the table carries a row for this model id (ignoring a trailing
+// snapshot suffix). Effective date is not considered: this answers "is it
+// priced at all", which is what the unpriced-gap report needs.
+export function hasPriceRow(model) {
+  const normalized = normalizeModelId(model);
+  return PRICING.some((entry) => entry.model === normalized);
+}
+
+// A concrete (non-alias) model id the price table should cover but does not.
+// Aliases are the caller's responsibility to exclude: they resolve to a
+// concrete id at run time and are priced by that resolved id, never by name.
+export function isUnpricedModel(model) {
+  return isPricedVendorModel(model) && !hasPriceRow(model);
 }
 
 export function priceEntryFor(model, startedAt) {

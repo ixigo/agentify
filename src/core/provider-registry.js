@@ -557,8 +557,10 @@ export const PROVIDER_DEFINITIONS = {
     },
     delegate: {
       optIn: false,
-      // Pinned per-tier Codex models (September 2026 lineup: GPT-6 Astra is
-      // the flagship above the GPT-5.6 family) so tier-equivalent fallback
+      // Pinned per-tier Codex models (November 2026 lineup: the GPT-6 family —
+      // Astra flagship, Sol balanced, Luna economy — replaced the retiring
+      // GPT-5.6 Terra/Luna the vendor catalog marks for migration) so
+      // tier-equivalent fallback
       // and evidence keys are capability-real instead of "whatever the CLI
       // default happens to be" (#295 known limitation). The frontier tier is
       // kept current automatically from the installed CLI's own ranked
@@ -566,7 +568,7 @@ export const PROVIDER_DEFINITIONS = {
       // the vendor retires follows the vendor's migration target. Overridable
       // under models.tiers.codex; route defaults may still use the CLI
       // default via model: null.
-      tierModels: { economy: "gpt-5.6-luna", balanced: "gpt-5.6-terra", frontier: "gpt-6-astra" },
+      tierModels: { economy: "gpt-6-luna", balanced: "gpt-6-sol", frontier: "gpt-6-astra" },
       aliasModels: [],
       // `codex debug models` renders the CLI's local ranked model catalog as
       // JSON (no network from Agentify's side; the CLI keeps its own cache).
@@ -662,7 +664,10 @@ export const PROVIDER_DEFINITIONS = {
       // it under models.providers.gemini.enabled — price alone is not
       // evidence of coding quality; the eval suite gates promotion.
       optIn: true,
-      tierModels: { economy: "gemini-3.1-flash-lite", balanced: "gemini-3.5-flash", frontier: "gemini-3.1-pro-preview" },
+      // gemini-3.5-flash was dropped from Google's current model docs; the
+      // balanced tier moves to gemini-3.8-flash (the current stable Flash).
+      // The economy/frontier pins remain listed as current.
+      tierModels: { economy: "gemini-3.1-flash-lite", balanced: "gemini-3.8-flash", frontier: "gemini-3.1-pro-preview" },
       aliasModels: [],
       controls: { maxBudgetUsd: false, maxTurns: false, effort: false },
       enforcement: { budget_usd: "pre-run-only", turns: "unavailable", timeout: "agentify" },

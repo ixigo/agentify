@@ -925,6 +925,23 @@ test("cost estimates use exact model + effective date and never claim billed spe
   assert.equal(priceEntryFor("claude-opus-5", "2026-08-01T00:00:00Z").input, 5);
   assert.equal(priceEntryFor("claude-sonnet-5", "2026-09-05T00:00:00Z").input, 2, "the $3/$15 Sonnet 5 increase was cancelled");
 
+  // November 2026 lineup (#394): every current Claude model and the GPT-6
+  // economy/balanced models are priced, from primary vendor sources.
+  const nov = "2026-11-13T00:00:00Z";
+  assert.deepEqual(
+    [priceEntryFor("claude-fable-5-2", nov), priceEntryFor("claude-opus-5-5", nov), priceEntryFor("claude-sonnet-5-5", nov), priceEntryFor("claude-haiku-5-5", nov)]
+      .map((entry) => [entry.input, entry.output, entry.cache_read, entry.cache_write, entry.cache_write_1h]),
+    [[8, 40, 0.20, 10, 16], [4, 20, 0.20, 5, 8], [2, 10, 0.10, 2.5, 4], [0.10, 0.50, 0.01, 0.125, 0.20]],
+  );
+  assert.equal(priceEntryFor("gpt-6-sol", nov).output, 10);
+  assert.equal(priceEntryFor("gpt-6-luna", nov).input, 0.10);
+  // A dated snapshot of a current model still normalizes to its row.
+  assert.ok(estimateSessionCost({ models: ["claude-fable-5-2-20261109"], started_at: nov, usage }).estimated_usd > 0);
+  for (const model of ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-sol", "gpt-6-luna"]) {
+    assert.equal(estimateSessionCost({ models: [model], started_at: nov, usage }).basis, "versioned-price-estimate", `${model} must be priced`);
+  }
+  assert.equal(priceEntryFor("claude-fable-5-2", "2026-11-08T00:00:00Z"), null, "predates its effective date");
+
   // Unknown model, multi-model, pre-effective-date, and undated sessions stay unpriced.
   assert.equal(estimateSessionCost({ models: ["mystery-9"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);
   assert.equal(estimateSessionCost({ models: ["claude-haiku-4-5", "gpt-5.1"], started_at: "2026-07-01T00:00:00Z", usage }).estimated_usd, null);

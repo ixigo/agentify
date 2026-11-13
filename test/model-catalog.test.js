@@ -22,39 +22,42 @@ import { buildFallbackChain, resolveTierModelSources, resolveTierModels } from "
 import { describeModelRoutes, refreshModelCatalogIfNeeded } from "../src/core/models.js";
 import { getDelegateAdapter } from "../src/core/provider-registry.js";
 
-// Shape of `codex debug models` as of Codex CLI 0.153 (September 2026):
-// ranked by `priority` (1 = flagship), hidden internal entries, and a
-// vendor retirement marker on GPT-5.4 Mini pointing at GPT-5.6 Luna.
+// Shape of `codex debug models` as of Codex CLI 0.156 (November 2026): the
+// GPT-6 family (Astra/Sol/Luna) ranked first, hidden internal entries, and
+// vendor retirement markers on the GPT-5.6 family pointing at their GPT-6
+// replacements. This mirrors the live catalog the adapter defaults track.
 const CODEX_CATALOG = {
   models: [
     { slug: "gpt-6-astra", display_name: "GPT-6-Astra", priority: 1, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
-    { slug: "gpt-reserve", display_name: "GPT-Reserve", priority: 3, visibility: "hide", supported_in_api: true, context_window: 272000, upgrade: null },
-    { slug: "gpt-5.6-sol", display_name: "GPT-5.6-Sol", priority: 6, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
-    { slug: "gpt-5.6-terra", display_name: "GPT-5.6-Terra", priority: 7, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
-    { slug: "gpt-5.6-luna", display_name: "GPT-5.6-Luna", priority: 8, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
-    { slug: "gpt-5.4-mini", display_name: "GPT-5.4-Mini", priority: 23, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-5.6-luna", retirement_at: "2026-08-31T19:00:00Z" } },
+    { slug: "gpt-6-sol", display_name: "GPT-6-Sol", priority: 2, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
+    { slug: "gpt-6-luna", display_name: "GPT-6-Luna", priority: 3, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: null },
+    { slug: "gpt-reserve", display_name: "GPT-Reserve", priority: 4, visibility: "hide", supported_in_api: true, context_window: 272000, upgrade: null },
+    { slug: "gpt-5.6-sol", display_name: "GPT-5.6-Sol", priority: 6, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-6-sol", retirement_at: null } },
+    { slug: "gpt-5.6-terra", display_name: "GPT-5.6-Terra", priority: 7, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-6-sol", retirement_at: null } },
+    { slug: "gpt-5.6-luna", display_name: "GPT-5.6-Luna", priority: 8, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-6-luna", retirement_at: null } },
+    { slug: "gpt-5.4-mini", display_name: "GPT-5.4-Mini", priority: 23, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-6-sol", retirement_at: "2026-08-31T19:00:00Z" } },
     { slug: "codex-auto-review", display_name: "Codex Auto Review", priority: 43, visibility: "hide", supported_in_api: true, context_window: 272000, upgrade: null },
   ],
 };
 
-// A hypothetical next release: a new flagship above Astra, and Terra retired
+// A hypothetical next release: a new flagship above Astra, and Sol retired
 // in favour of a successor. Exercises both derivation rules.
 const CODEX_CATALOG_NEXT = {
   models: [
     { slug: "gpt-7-nova", display_name: "GPT-7-Nova", priority: 1, visibility: "list", supported_in_api: true },
     { slug: "gpt-6-astra", display_name: "GPT-6-Astra", priority: 2, visibility: "list", supported_in_api: true },
-    { slug: "gpt-6-terra", display_name: "GPT-6-Terra", priority: 5, visibility: "list", supported_in_api: true },
-    { slug: "gpt-5.6-terra", display_name: "GPT-5.6-Terra", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-6-terra", retirement_at: "2027-01-15T00:00:00Z" } },
+    { slug: "gpt-7-sol", display_name: "GPT-7-Sol", priority: 5, visibility: "list", supported_in_api: true },
+    { slug: "gpt-6-sol", display_name: "GPT-6-Sol", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-7-sol", retirement_at: "2027-01-15T00:00:00Z" } },
   ],
 };
 
-// The release after that: the retired Terra has dropped out of the lineup
+// The release after that: the retired Sol has dropped out of the lineup
 // entirely. The migration made earlier must survive its disappearance.
 const CODEX_CATALOG_GONE = {
   models: [
     { slug: "gpt-7-nova", display_name: "GPT-7-Nova", priority: 1, visibility: "list", supported_in_api: true },
     { slug: "gpt-6-astra", display_name: "GPT-6-Astra", priority: 2, visibility: "list", supported_in_api: true },
-    { slug: "gpt-6-terra", display_name: "GPT-6-Terra", priority: 5, visibility: "list", supported_in_api: true },
+    { slug: "gpt-7-sol", display_name: "GPT-7-Sol", priority: 5, visibility: "list", supported_in_api: true },
   ],
 };
 
@@ -81,11 +84,11 @@ async function withCacheDir(run) {
 
 test("codex catalog parser keeps rank, visibility, API support, and retirement markers", () => {
   const models = parseCodexModelCatalog(JSON.stringify(CODEX_CATALOG));
-  assert.equal(models.length, 7);
+  assert.equal(models.length, 9);
   const astra = models.find((model) => model.id === "gpt-6-astra");
   assert.deepEqual({ rank: astra.rank, listed: astra.listed, api: astra.api, context_window: astra.context_window }, { rank: 1, listed: true, api: true, context_window: 272000 });
   assert.equal(models.find((model) => model.id === "gpt-reserve").listed, false);
-  assert.deepEqual(models.find((model) => model.id === "gpt-5.4-mini").upgrade, { model: "gpt-5.6-luna", retirement_at: "2026-08-31T19:00:00Z" });
+  assert.deepEqual(models.find((model) => model.id === "gpt-5.4-mini").upgrade, { model: "gpt-6-sol", retirement_at: "2026-08-31T19:00:00Z" });
   assert.throws(() => parseCodexModelCatalog(""), /no output/);
   assert.throws(() => parseCodexModelCatalog("not json"), /invalid JSON/);
   assert.throws(() => parseCodexModelCatalog(JSON.stringify({ nope: [] })), /no models array/);
@@ -103,7 +106,7 @@ test("tier derivation uses only vendor signals: ranking for frontier, retirement
 
   const next = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify(CODEX_CATALOG_NEXT)));
   assert.equal(next.tiers.frontier, "gpt-7-nova", "a new top-ranked listed model becomes the frontier tier");
-  assert.equal(next.tiers.balanced, "gpt-6-terra", "a retired pin follows the vendor's named replacement");
+  assert.equal(next.tiers.balanced, "gpt-7-sol", "a retired pin follows the vendor's named replacement");
   assert.equal(next.tiers.economy, adapter.economy, "a pin that merely disappeared is kept, never guessed");
   assert.equal(next.sources.economy, "adapter");
   assert.match(next.notes.find((note) => note.startsWith("frontier")), /ranked first/);
@@ -116,55 +119,55 @@ test("tier derivation uses only vendor signals: ranking for frontier, retirement
   const gone = parseCodexModelCatalog(JSON.stringify(CODEX_CATALOG_GONE));
   const withoutPrevious = deriveTierModels(adapter, gone);
   assert.equal(withoutPrevious.tiers.balanced, adapter.balanced, "no history: keep and flag");
-  const carried = deriveTierModels(adapter, gone, { previous: { balanced: "gpt-6-terra" } });
-  assert.equal(carried.tiers.balanced, "gpt-6-terra");
+  const carried = deriveTierModels(adapter, gone, { previous: { balanced: "gpt-7-sol" } });
+  assert.equal(carried.tiers.balanced, "gpt-7-sol");
   assert.equal(carried.sources.balanced, "catalog");
-  assert.match(carried.notes.find((note) => note.startsWith("balanced")), /stays on gpt-6-terra/);
+  assert.match(carried.notes.find((note) => note.startsWith("balanced")), /stays on gpt-7-sol/);
   const chained = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify({
     models: [
-      ...CODEX_CATALOG_GONE.models.filter((model) => model.slug !== "gpt-6-terra"),
-      { slug: "gpt-6-terra", priority: 5, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-7-terra", retirement_at: null } },
-      { slug: "gpt-7-terra", priority: 4, visibility: "list", supported_in_api: true },
+      ...CODEX_CATALOG_GONE.models.filter((model) => model.slug !== "gpt-7-sol"),
+      { slug: "gpt-7-sol", priority: 5, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-8-sol", retirement_at: null } },
+      { slug: "gpt-8-sol", priority: 4, visibility: "list", supported_in_api: true },
     ],
-  })), { previous: { balanced: "gpt-6-terra" } });
-  assert.equal(chained.tiers.balanced, "gpt-7-terra");
+  })), { previous: { balanced: "gpt-7-sol" } });
+  assert.equal(chained.tiers.balanced, "gpt-8-sol");
   // Chained retirements (old → middle → latest) resolve to the end of the
   // chain, stop at the last listed model when the chain dangles, and never
   // loop on a cycle.
   const chain = (extra) => parseCodexModelCatalog(JSON.stringify({
     models: [
       { slug: "gpt-7-nova", priority: 1, visibility: "list", supported_in_api: true },
-      { slug: "gpt-5.6-terra", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-6-terra", retirement_at: "2027-01-15T00:00:00Z" } },
-      { slug: "gpt-6-terra", priority: 6, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-7-terra", retirement_at: null } },
+      { slug: "gpt-6-sol", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-7-sol", retirement_at: "2027-01-15T00:00:00Z" } },
+      { slug: "gpt-7-sol", priority: 6, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-8-sol", retirement_at: null } },
       ...extra,
     ],
   }));
-  const deep = deriveTierModels(adapter, chain([{ slug: "gpt-7-terra", priority: 4, visibility: "list", supported_in_api: true }]));
-  assert.equal(deep.tiers.balanced, "gpt-7-terra", "follows old → middle → latest to the end");
+  const deep = deriveTierModels(adapter, chain([{ slug: "gpt-8-sol", priority: 4, visibility: "list", supported_in_api: true }]));
+  assert.equal(deep.tiers.balanced, "gpt-8-sol", "follows old → middle → latest to the end");
   assert.match(deep.notes.find((note) => note.startsWith("balanced")), /via 1 intermediate retirement/);
   const dangling = deriveTierModels(adapter, chain([]));
-  assert.equal(dangling.tiers.balanced, "gpt-6-terra", "a replacement missing from the catalog stops the walk at the last listed model");
-  const cyclic = deriveTierModels(adapter, chain([{ slug: "gpt-7-terra", priority: 4, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-5.6-terra", retirement_at: null } }]));
-  assert.equal(cyclic.tiers.balanced, "gpt-7-terra");
+  assert.equal(dangling.tiers.balanced, "gpt-7-sol", "a replacement missing from the catalog stops the walk at the last listed model");
+  const cyclic = deriveTierModels(adapter, chain([{ slug: "gpt-8-sol", priority: 4, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-6-sol", retirement_at: null } }]));
+  assert.equal(cyclic.tiers.balanced, "gpt-8-sol");
   const danglingFromPin = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify({
     models: [
-      ...CODEX_CATALOG.models.filter((model) => model.slug !== "gpt-5.6-terra"),
-      { slug: "gpt-5.6-terra", priority: 7, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-6-terra", retirement_at: null } },
+      ...CODEX_CATALOG.models.filter((model) => model.slug !== "gpt-6-sol"),
+      { slug: "gpt-6-sol", priority: 2, visibility: "list", supported_in_api: true, context_window: 272000, upgrade: { model: "gpt-7-sol", retirement_at: null } },
     ],
   })));
   assert.equal(danglingFromPin.tiers.balanced, adapter.balanced);
-  assert.match(danglingFromPin.notes.find((note) => note.startsWith("balanced")), /replacement gpt-6-terra is not listed yet/);
+  assert.match(danglingFromPin.notes.find((note) => note.startsWith("balanced")), /replacement gpt-7-sol is not listed yet/);
   // ...but an established migration to a still-listed model is not undone by
   // the intermediate step vanishing: old → (middle gone) with latest listed
   // and recorded as the previous choice keeps latest.
   const middleGone = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify({
     models: [
       { slug: "gpt-7-nova", priority: 1, visibility: "list", supported_in_api: true },
-      { slug: "gpt-7-terra", priority: 4, visibility: "list", supported_in_api: true },
-      { slug: "gpt-5.6-terra", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-6-terra", retirement_at: null } },
+      { slug: "gpt-8-sol", priority: 4, visibility: "list", supported_in_api: true },
+      { slug: "gpt-6-sol", priority: 9, visibility: "list", supported_in_api: true, upgrade: { model: "gpt-7-sol", retirement_at: null } },
     ],
-  })), { previous: { balanced: "gpt-7-terra" } });
-  assert.equal(middleGone.tiers.balanced, "gpt-7-terra");
+  })), { previous: { balanced: "gpt-8-sol" } });
+  assert.equal(middleGone.tiers.balanced, "gpt-8-sol");
   assert.match(middleGone.notes.find((note) => note.startsWith("balanced")), /earlier catalog migration is kept/);
 
   // When both the adapter default and the earlier migration have vanished
@@ -172,13 +175,13 @@ test("tier derivation uses only vendor signals: ranking for frontier, retirement
   // never a silent revert to the older retired ID.
   const bothGone = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify({
     models: [{ slug: "gpt-7-nova", priority: 1, visibility: "list", supported_in_api: true }],
-  })), { previous: { balanced: "gpt-6-terra" } });
-  assert.equal(bothGone.tiers.balanced, "gpt-6-terra");
+  })), { previous: { balanced: "gpt-7-sol" } });
+  assert.equal(bothGone.tiers.balanced, "gpt-7-sol");
   assert.equal(bothGone.sources.balanced, "catalog");
-  assert.match(bothGone.notes.find((note) => note.startsWith("balanced")), /neither it nor the adapter default gpt-5.6-terra is listed/);
+  assert.match(bothGone.notes.find((note) => note.startsWith("balanced")), /neither it nor the adapter default gpt-6-sol is listed/);
 
   // A newer adapter default that is offered again wins over carried history.
-  const adapterBack = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify(CODEX_CATALOG)), { previous: { balanced: "gpt-6-terra" } });
+  const adapterBack = deriveTierModels(adapter, parseCodexModelCatalog(JSON.stringify(CODEX_CATALOG)), { previous: { balanced: "gpt-7-sol" } });
   assert.equal(adapterBack.tiers.balanced, adapter.balanced);
   assert.equal(adapterBack.sources.balanced, "adapter");
 
@@ -219,14 +222,14 @@ test("refresh writes the XDG cache, feeds tier resolution, and yields to explici
     assert.deepEqual(result.skipped.map((entry) => entry.provider).sort(), ["claude", "gemini", "opencode"]);
     assert.match(result.skipped.find((entry) => entry.provider === "claude").reason, /aliases/);
     assert.deepEqual(result.changes, [
-      { provider: "codex", tier: "balanced", from: "gpt-5.6-terra", to: "gpt-6-terra" },
+      { provider: "codex", tier: "balanced", from: "gpt-6-sol", to: "gpt-7-sol" },
       { provider: "codex", tier: "frontier", from: "gpt-6-astra", to: "gpt-7-nova" },
     ]);
 
     const cached = loadModelCatalogCache({ env });
     assert.equal(cached.version, MODEL_CATALOG_VERSION);
     assert.equal(cached.refreshed_at, "2026-09-08T10:00:00.000Z");
-    assert.deepEqual(catalogTierOverrides(cached), { codex: { balanced: "gpt-6-terra", frontier: "gpt-7-nova" } });
+    assert.deepEqual(catalogTierOverrides(cached), { codex: { balanced: "gpt-7-sol", frontier: "gpt-7-nova" } });
     assert.equal(isModelCatalogStale(cached, { now }), false);
     assert.equal(isModelCatalogStale(cached, { now: () => new Date("2026-09-10T10:00:00Z") }), true);
     assert.equal(isModelCatalogStale(null), true);
@@ -234,11 +237,11 @@ test("refresh writes the XDG cache, feeds tier resolution, and yields to explici
     // Precedence: adapter < catalog < models.tiers pin.
     const sources = resolveTierModelSources({ models: { tiers: { codex: { frontier: "gpt-6-astra" } } } }, { catalog: cached });
     assert.deepEqual(sources.codex, {
-      economy: { model: "gpt-5.6-luna", source: "adapter" },
-      balanced: { model: "gpt-6-terra", source: "catalog" },
+      economy: { model: "gpt-6-luna", source: "adapter" },
+      balanced: { model: "gpt-7-sol", source: "catalog" },
       frontier: { model: "gpt-6-astra", source: "config" },
     });
-    assert.deepEqual(resolveTierModels({}, { catalog: cached }).codex, { economy: "gpt-5.6-luna", balanced: "gpt-6-terra", frontier: "gpt-7-nova" });
+    assert.deepEqual(resolveTierModels({}, { catalog: cached }).codex, { economy: "gpt-6-luna", balanced: "gpt-7-sol", frontier: "gpt-7-nova" });
     // Reading the cache from disk (no injected catalog) gives the same answer,
     // and disabling the catalog removes the layer without touching pins.
     assert.equal(resolveTierModels({}, { env }).codex.frontier, "gpt-7-nova");
@@ -251,8 +254,8 @@ test("refresh writes the XDG cache, feeds tier resolution, and yields to explici
 
     // A later refresh in which the retired Terra is gone keeps the migration.
     const gone = await refreshModelCatalog({ installed: { codex: true }, exec: fakeExec(CODEX_CATALOG_GONE).exec, env, now: () => new Date("2026-09-09T10:00:00Z") });
-    assert.deepEqual(gone.changes, [], "no tier moved: gpt-6-terra is carried, not reverted to the retired pin");
-    assert.equal(catalogTierOverrides(loadModelCatalogCache({ env })).codex.balanced, "gpt-6-terra");
+    assert.deepEqual(gone.changes, [], "no tier moved: gpt-7-sol is carried, not reverted to the retired pin");
+    assert.equal(catalogTierOverrides(loadModelCatalogCache({ env })).codex.balanced, "gpt-7-sol");
 
     // A transient probe failure keeps the last successful lineup in force
     // (tiers unchanged, still applied) and records the failure beside it;
@@ -265,12 +268,12 @@ test("refresh writes the XDG cache, feeds tier resolution, and yields to explici
     assert.equal(retained.providers.codex.last_error, "boom");
     assert.equal(retained.providers.codex.last_error_at, "2026-09-10T10:00:00.000Z");
     assert.equal(retained.providers.codex.probed_at, "2026-09-09T10:00:00.000Z", "probed_at stays the last successful probe");
-    assert.deepEqual(catalogTierOverrides(retained), { codex: { balanced: "gpt-6-terra", frontier: "gpt-7-nova" } });
+    assert.deepEqual(catalogTierOverrides(retained), { codex: { balanced: "gpt-7-sol", frontier: "gpt-7-nova" } });
     assert.equal(describeModelCatalog(retained, { now: () => new Date("2026-09-10T11:00:00Z") }).providers.codex.last_error, "boom");
     // A CLI temporarily off PATH keeps its cached lineup (and migrations).
     const absent = await refreshModelCatalog({ installed: { codex: false }, exec: fakeExec("", { code: 1 }).exec, env, now: () => new Date("2026-09-11T10:00:00Z") });
     assert.match(absent.skipped.find((entry) => entry.provider === "codex").reason, /keeping the cached lineup/);
-    assert.deepEqual(catalogTierOverrides(loadModelCatalogCache({ env })), { codex: { balanced: "gpt-6-terra", frontier: "gpt-7-nova" } });
+    assert.deepEqual(catalogTierOverrides(loadModelCatalogCache({ env })), { codex: { balanced: "gpt-7-sol", frontier: "gpt-7-nova" } });
     assert.deepEqual((await fs.readdir(path.dirname(result.path))).sort(), ["model-catalog.json"], "the cache is replaced atomically — no temp files left behind");
 
     // With no prior success, the failure itself is what gets cached.
@@ -314,9 +317,9 @@ test("models command surfaces the catalog, tier sources, and refreshes only when
 
     const after = await describeModelRoutes({}, runtime);
     assert.equal(after.catalog.stale, false);
-    assert.deepEqual(after.catalog.providers.codex.listed_models, ["gpt-7-nova", "gpt-6-astra", "gpt-6-terra", "gpt-5.6-terra"]);
+    assert.deepEqual(after.catalog.providers.codex.listed_models, ["gpt-7-nova", "gpt-6-astra", "gpt-7-sol", "gpt-6-sol"]);
     const codexAfter = after.provider_details.find((detail) => detail.name === "codex");
-    assert.deepEqual(codexAfter.tier_models, { economy: "gpt-5.6-luna", balanced: "gpt-6-terra", frontier: "gpt-7-nova" });
+    assert.deepEqual(codexAfter.tier_models, { economy: "gpt-6-luna", balanced: "gpt-7-sol", frontier: "gpt-7-nova" });
     assert.deepEqual(codexAfter.tier_sources, { economy: "adapter", balanced: "catalog", frontier: "catalog" });
     const heavy = after.routes.find((route) => route.kind === "heavy");
     assert.equal(heavy.fallback_chain[1].model, "gpt-7-nova");

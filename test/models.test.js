@@ -86,7 +86,7 @@ test("pickRouteTarget uses the route provider and falls back tier-equivalently",
   // whatever the CLI default happens to be.
   assert.deepEqual(
     pickRouteTarget(claudeRoute, { claude: false, codex: true }, { kind: "quick" }),
-    { provider: "codex", model: "gpt-5.6-luna", fallback: true }
+    { provider: "codex", model: "gpt-6-luna", fallback: true }
   );
 });
 
@@ -394,4 +394,48 @@ test("parseCodexJsonOutput reads usage and model from the JSONL stream without i
 
   assert.equal(parseCodexJsonOutput("plain text output"), null);
   assert.equal(parseCodexJsonOutput(""), null);
+});
+
+test("every concrete adapter tier default has a price row (#394)", async () => {
+  const { isUnpricedModel } = await import("../src/core/session-analysis/pricing.js");
+  const { isAliasModel } = await import("../src/core/profiles.js");
+  const { DELEGATE_PROVIDER_NAMES, getDelegateAdapter } = await import("../src/core/provider-registry.js");
+  const missing = [];
+  for (const provider of DELEGATE_PROVIDER_NAMES) {
+    const tiers = getDelegateAdapter(provider).tierModels || {};
+    for (const [tier, model] of Object.entries(tiers)) {
+      // Aliases resolve to a concrete id at run time and are priced by that id;
+      // vendors the table carries no rows for (e.g. gemini) are out of scope.
+      if (!model || isAliasModel(provider, model)) continue;
+      if (isUnpricedModel(model)) missing.push(`${provider}.${tier}=${model}`);
+    }
+  }
+  assert.deepEqual(missing, [], `adapter tier defaults missing a price row: ${missing.join(", ")}`);
+});
+
+test("collectModelPricingGaps is empty for the current lineup and flags a retiring pin (#394)", async () => {
+  const { collectModelPricingGaps } = await import("../src/core/models.js");
+  const { PRICING_TABLE_VERSION } = await import("../src/core/session-analysis/pricing.js");
+  // No catalog: the adapter defaults alone are all priced and none retiring.
+  const clean = collectModelPricingGaps({ catalog: null, config: {} });
+  assert.deepEqual(clean.unpriced, []);
+  assert.deepEqual(clean.retiring, []);
+  assert.equal(clean.pricing_table, PRICING_TABLE_VERSION);
+  // A catalog that marks the economy adapter default for retirement surfaces
+  // it, naming the replacement — the mechanism that must stay empty today.
+  const catalog = {
+    version: "model-catalog-v1",
+    refreshed_at: "2026-11-13T00:00:00Z",
+    providers: {
+      codex: {
+        ok: true,
+        tiers: {},
+        sources: {},
+        models: [{ id: "gpt-6-luna", listed: true, api: true, upgrade: { model: "gpt-7-luna", retirement_at: "2027-06-01T00:00:00Z" } }],
+      },
+    },
+  };
+  const flagged = collectModelPricingGaps({ catalog, config: {} });
+  assert.ok(flagged.retiring.some((entry) => entry.model === "gpt-6-luna" && entry.replacement === "gpt-7-luna" && entry.tier === "economy"));
+  assert.deepEqual(flagged.unpriced, [], "gpt-6-luna is priced; only its retirement is flagged");
 });
