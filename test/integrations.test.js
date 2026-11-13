@@ -171,6 +171,53 @@ test("installClaudeIntegration and uninstallClaudeIntegration round-trip at proj
   assert.equal(statusRemoved.installed, false);
 });
 
+test("buildManagedHooks registers the tracking hook on PostToolUseFailure for Bash (#391)", () => {
+  const hooks = buildManagedHooks();
+  assert.ok(Array.isArray(hooks.PostToolUseFailure));
+  assert.equal(hooks.PostToolUseFailure.length, 1);
+  const entry = hooks.PostToolUseFailure[0];
+  assert.equal(entry.matcher, "Bash");
+  assert.equal(entry.hooks[0].command, "agentify ctx track --hook");
+});
+
+test("installClaudeIntegration upgrades an older hook config in place without duplicating (#391)", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-claude-upgrade-"));
+  const settingsPath = path.join(root, ".claude", "settings.json");
+  try {
+    await installClaudeIntegration(root);
+
+    // Simulate a project installed before PostToolUseFailure tracking existed:
+    // drop that event from the settings entirely.
+    const before = JSON.parse(await fs.readFile(settingsPath, "utf8"));
+    delete before.hooks.PostToolUseFailure;
+    await fs.writeFile(settingsPath, `${JSON.stringify(before, null, 2)}\n`, "utf8");
+
+    // Status must report the integration as out of date so a reinstall upgrades it.
+    const staleStatus = await claudeIntegrationStatus(root);
+    assert.equal(staleStatus.settings.installed, false);
+
+    // Reinstalling upgrades the config in place.
+    const upgrade = await installClaudeIntegration(root);
+    assert.equal(upgrade.settings.changed, true);
+
+    const upgraded = JSON.parse(await fs.readFile(settingsPath, "utf8"));
+    assert.ok(Array.isArray(upgraded.hooks.PostToolUseFailure));
+    assert.equal(upgraded.hooks.PostToolUseFailure.length, 1);
+    assert.equal(upgraded.hooks.PostToolUseFailure[0].matcher, "Bash");
+
+    // The existing PostToolUse tracking entry is not duplicated by the upgrade.
+    const trackEntries = upgraded.hooks.PostToolUse
+      .filter((entry) => entry.hooks?.some((hook) => hook.command === "agentify ctx track --hook"));
+    assert.equal(trackEntries.length, 1);
+
+    // A second reinstall is a no-op.
+    const reinstall = await installClaudeIntegration(root);
+    assert.equal(reinstall.settings.changed, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("installClaudeIntegration writes into homeDir/.claude for global scope", async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-claude-home-"));
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-claude-global-root-"));
