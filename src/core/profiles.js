@@ -375,6 +375,52 @@ export function selectFromChain(chain, availability) {
   return null;
 }
 
+// Readiness-aware selection (#395): pick the first chain entry whose provider is
+// `ready`, skipping entries that are logged out, broken, or missing, and
+// reporting why each was skipped. The fallback_reason names the intended primary
+// and its concrete readiness state ("codex not ready: logged_out — login
+// required"), not just the generic "provider_unavailable". `readiness` is the
+// map from detectDelegateReadiness; an absent entry is treated as unknown.
+export function selectReadyTarget(chain, readiness = {}) {
+  const skipped = [];
+  for (let index = 0; index < chain.entries.length; index += 1) {
+    const entry = chain.entries[index];
+    const info = readiness[entry.provider] || { state: "unknown", state_detail: "readiness not probed" };
+    // "unknown" (the CLI starts but auth could not be verified either way, e.g.
+    // API-key auth the probe cannot see) stays usable: only a provider known to
+    // be logged out, broken or missing is skipped, so an unverifiable probe can
+    // never turn a working route into "no provider available".
+    if (info.state === "ready" || info.state === "unknown") {
+      const primary = skipped[0];
+      // A plainly-missing primary keeps the generic, aggregatable reason
+      // ("provider_unavailable"); a logged-out / broken / unknown primary gets a
+      // specific reason so the preflight skip is legible (#395).
+      let fallbackReason = null;
+      if (index > 0) {
+        fallbackReason = primary && primary.state !== "missing"
+          ? `${primary.provider} not ready: ${primary.state}${primary.detail ? ` — ${primary.detail}` : ""}`
+          : entry.reason;
+      }
+      return {
+        provider: entry.provider,
+        model: entry.model ?? null,
+        tier: entry.tier,
+        fallback: index > 0,
+        fallback_reason: fallbackReason,
+        chain_index: index,
+        skipped,
+      };
+    }
+    skipped.push({
+      provider: entry.provider,
+      state: info.state,
+      detail: info.state_detail || info.detail || null,
+      reason: entry.reason,
+    });
+  }
+  return { provider: null, model: null, tier: null, fallback: false, fallback_reason: null, chain_index: -1, skipped };
+}
+
 function evidenceKey(provider, model) {
   return `${provider}/${model === null || model === undefined || model === "" ? "(default)" : String(model).trim().toLowerCase()}`;
 }
