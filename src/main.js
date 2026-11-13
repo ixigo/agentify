@@ -81,7 +81,8 @@ import {
 import fs from "node:fs/promises";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
-import { runClean, runCleanStrays } from "./core/cleanup.js";
+import { runClean, runCleanArtifacts, runCleanGlobal, runCleanStrays } from "./core/cleanup.js";
+import { STATUS_BUDGET, agentifyOwnedNames, formatBytes, measureStore } from "./core/store-size.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
@@ -409,7 +410,33 @@ async function runStatus(root, config, args) {
     }
   }
   const context = await contextStatus(root);
-  const result = { command: "status", integrations, mcp, context };
+
+  // Store size + breakdown. Not on any hook path — `status` is interactive — and
+  // bounded/symlink-safe inside measureStore so a multi-GB store stays snappy.
+  const agentifyPaths = config._agentifyPaths || {};
+  const runtimeRoot = agentifyPaths.runtimeRoot || path.join(root, ".agentify");
+  const measured = await measureStore(runtimeRoot, { ownedNames: agentifyOwnedNames(root), ...STATUS_BUDGET });
+  const warnBytes = (config.cleanup?.warnStoreSizeMb ?? 500) * 1024 * 1024;
+  const overThreshold = measured.exists && measured.totalBytes > warnBytes;
+  const store = {
+    path: runtimeRoot,
+    exists: measured.exists,
+    total_bytes: measured.totalBytes,
+    // A lower bound when any entry was not walked to completion.
+    truncated: measured.truncated,
+    threshold_bytes: warnBytes,
+    over_threshold: overThreshold,
+    entries: measured.entries.map((entry) => ({
+      name: entry.name,
+      kind: entry.kind,
+      size_bytes: entry.sizeBytes,
+      // "exact" | "partial" (size_bytes is a lower bound) | "unmeasured" (no figure).
+      measured: entry.measured,
+      is_symlink: entry.isSymlink,
+    })),
+  };
+
+  const result = { command: "status", integrations, mcp, context, store };
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -437,6 +464,37 @@ async function runStatus(root, config, args) {
     log(`${bold(entry.provider)}: MCP server ${mcpState}`);
   }
   log(`Context: ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);
+
+  if (store.exists) {
+    const total = store.truncated ? `at least ${formatBytes(store.total_bytes)}` : formatBytes(store.total_bytes);
+    log(`Store:   ${bold(total)} in .agentify`);
+    const labels = { agentify: dim("agentify"), "skill-artifact": yellow("skill artifact"), unknown: red("unknown") };
+    // Size column: exact → "426.3 MB"; partial → "≥ 426.3 MB" (lower bound);
+    // unmeasured → "not measured" (no figure, never a misleading 0 B).
+    const sizeCell = (entry) => {
+      if (entry.measured === "unmeasured") {
+        return "not measured";
+      }
+      const prefix = entry.measured === "partial" ? "≥ " : "";
+      return `${prefix}${formatBytes(entry.size_bytes)}`;
+    };
+    for (const entry of store.entries.slice(0, 8)) {
+      if (entry.size_bytes === 0 && entry.measured === "exact" && !entry.is_symlink) {
+        continue;
+      }
+      const symlinkTag = entry.is_symlink ? dim(" (symlink, not counted)") : "";
+      const label = labels[entry.kind] || entry.kind;
+      log(`  ${sizeCell(entry).padStart(12)}  ${entry.name}  ${label}${symlinkTag}`);
+    }
+    if (store.truncated) {
+      log(dim("Some entries exceeded the status budget; run 'agentify clean --artifacts' for exact sizes."));
+    }
+    if (store.over_threshold) {
+      const amount = store.truncated ? `at least ${formatBytes(store.total_bytes)}` : formatBytes(store.total_bytes);
+      warn(`.agentify store is ${amount} (over the ${formatBytes(store.threshold_bytes)} threshold). `
+        + "Review with 'agentify clean --artifacts' and 'agentify clean --dry-run'.");
+    }
+  }
 }
 
 export async function runCli(argv, _runtime = {}) {
@@ -1662,6 +1720,73 @@ export async function runCli(argv, _runtime = {}) {
           }
           if (!apply && result.strays.length > 0) {
             log(dim("Nothing was changed. Merges dedupe identical lines and keep timestamp order."));
+          }
+          return;
+        }
+        if (args.artifacts === true) {
+          const apply = args.yes === true && config.dryRun !== true;
+          const result = await runCleanArtifacts(root, config, { apply });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          const staleItems = result.groups.flatMap((group) => group.items.filter((item) => item.stale));
+          if (staleItems.length === 0 && result.unknown.length === 0) {
+            success("No reclaimable skill artifacts or unknown directories found.");
+            return;
+          }
+          if (staleItems.length > 0) {
+            log(apply
+              ? `Removed ${result.removed} artifact dir(s), reclaimed ${formatBytes(result.reclaimable_bytes)}:`
+              : `Found ${staleItems.length} artifact dir(s) older than ${result.max_age_days}d — ${formatBytes(result.reclaimable_bytes)} reclaimable (dry run — re-run with --yes to delete):`);
+            for (const item of staleItems) {
+              log(`  ${formatBytes(item.size_bytes).padStart(9)}  ${item.path}`);
+            }
+          } else {
+            log(`No skill artifacts older than ${result.max_age_days}d.`);
+          }
+          if (result.unknown.length > 0) {
+            log(`Unknown directories (reported only, never deleted):`);
+            for (const item of result.unknown) {
+              const tag = item.is_symlink ? dim(" (symlink)") : "";
+              const size = item.measured === "unmeasured"
+                ? "not measured"
+                : `${item.measured === "partial" ? "≥ " : ""}${formatBytes(item.size_bytes)}`;
+              log(`  ${size.padStart(12)}  ${item.path}${tag}`);
+            }
+          }
+          if (!apply && staleItems.length > 0) {
+            log(dim("Nothing was changed."));
+          }
+          return;
+        }
+        if (args.global === true) {
+          const apply = args.yes === true && config.dryRun !== true;
+          const result = await runCleanGlobal(config, { apply });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          const staleStores = result.stores.filter((entry) => entry.stale);
+          if (staleStores.length === 0 && result.unrecognized.length === 0) {
+            success(`No stale project stores found in ${result.base}.`);
+            return;
+          }
+          if (staleStores.length > 0) {
+            log(apply
+              ? `Removed ${result.removed} project store(s), reclaimed ${formatBytes(result.reclaimable_bytes)}:`
+              : `Found ${staleStores.length} stale project store(s) — ${formatBytes(result.reclaimable_bytes)} reclaimable (dry run — re-run with --yes to delete):`);
+            for (const entry of staleStores) {
+              log(`  ${formatBytes(entry.size_bytes).padStart(9)}  ${entry.name}  ${dim(`(${entry.reason})`)}`);
+            }
+          } else {
+            log(`No stale project stores in ${result.base}.`);
+          }
+          if (result.unrecognized.length > 0) {
+            log(dim(`${result.unrecognized.length} unrecognised entr(y/ies) left untouched (e.g. invocations.json, model-catalog.json).`));
+          }
+          if (!apply && staleStores.length > 0) {
+            log(dim("Nothing was changed."));
           }
           return;
         }

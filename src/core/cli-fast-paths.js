@@ -91,6 +91,7 @@ export async function printHelp() {
     `    ${c("--scope")} ${d("<project|user>")}      Skill install scope (skill command)`,
     `    ${c("--provider")} ${d("<name|all>")}       Skill install provider`,
     `    ${c("--planned")} / ${c("--sessions")} / ${c("--all")}  Optional clean groups`,
+    `    ${c("--strays")} / ${c("--artifacts")} / ${c("--global")}  Clean stray stores, aged skill artifacts, or stale shared-cache stores (dry-run; ${c("--yes")} to apply)`,
     ``,
     `  ${bold("EXAMPLES")}`,
     ``,
