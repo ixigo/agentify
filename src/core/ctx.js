@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { resolveContextPolicy, selectWithinBudget } from "./ctx-budget.js";
-import { ensureDir, exists, readText, relative } from "./fs.js";
-import { getCurrentBranch } from "./git.js";
+import { ensureDir, exists, readText, relative, walkFiles } from "./fs.js";
+import { getCurrentBranch, listTrackedFiles } from "./git.js";
 import { acquireLock } from "./lock.js";
 import { realpathIfPossible, resolveLocalAgentifyPaths, resolveSharedContextDir } from "./project-store.js";
 import { redactSensitiveText } from "./redact.js";
@@ -496,6 +496,93 @@ export async function readCaptureComparison(root) {
 }
 
 export const NOTE_TYPES = ["note", "decision"];
+const NOTE_ID_LENGTH = 8;
+
+// A note's stable, addressable id: a short content hash of its timestamp and
+// text. Deterministic so a legacy note stored before ids existed gets the SAME
+// handle computed at read time as a new note gets stored — one scheme covers
+// both, and a `--supersedes <id>` recorded against either always resolves.
+// Including the timestamp disambiguates two notes with identical text.
+export function computeNoteId(record) {
+  return createHash("sha256")
+    .update(`${record?.ts || ""}\n${record?.note || ""}`)
+    .digest("hex")
+    .slice(0, NOTE_ID_LENGTH);
+}
+
+// Prefer a stored id (new notes), fall back to the deterministic hash (legacy
+// notes and the migration test's hand-written lines). The two are equal for new
+// notes, so supersession resolves consistently either way.
+export function noteIdOf(record) {
+  return record?.id || computeNoteId(record);
+}
+
+// Resolve a user- or tool-supplied id (possibly an unambiguous prefix of the
+// shown id) to a canonical full note id, so the stored `supersedes` value is
+// always exact and later matching needs no prefix logic. Throws on a miss or an
+// ambiguous prefix rather than silently superseding the wrong (or no) note.
+function resolveNoteReference(notes, reference) {
+  // Tags a user-input error so the CLI can report it as one clean line rather
+  // than a stack trace, without swallowing unrelated (programmer) errors.
+  const fail = (message) => {
+    const err = new Error(message);
+    err.supersedesError = true;
+    return err;
+  };
+  const ref = String(reference || "").trim().replace(/^#/, "");
+  if (!ref) {
+    throw fail("--supersedes requires a note id");
+  }
+  const ids = notes.map((note) => noteIdOf(note));
+  if (ids.includes(ref)) {
+    return ref;
+  }
+  const matches = [...new Set(ids.filter((id) => id.startsWith(ref)))];
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  if (matches.length === 0) {
+    throw fail(`No note found with id "${reference}". Run \`agentify ctx load --all\` to list note ids.`);
+  }
+  throw fail(`Ambiguous note id "${reference}" matches ${matches.length}: ${matches.join(", ")}. Use more characters.`);
+}
+
+// Attach each note's id and, for a note that a LATER appended record supersedes,
+// a `superseded_by` handle ({ id, ts }). Supersession is scanned across the full
+// record set (callers pass every note) so a note is correctly hidden even when
+// its superseding record falls outside a windowed slice. Returns new objects;
+// input records are never mutated.
+export function withNoteIdentity(allNotes) {
+  const supersededBy = new Map();
+  for (const note of allNotes) {
+    if (note?.supersedes) {
+      supersededBy.set(String(note.supersedes), { id: noteIdOf(note), ts: note.ts || null });
+    }
+  }
+  return allNotes.map((note) => {
+    const id = noteIdOf(note);
+    const by = supersededBy.get(id);
+    return by ? { ...note, id, superseded_by: by } : { ...note, id };
+  });
+}
+
+// Split identity-tagged notes into live and superseded. `includeSuperseded`
+// keeps the superseded ones in `live` (still tagged) for `--all` listings.
+function partitionSuperseded(notesWithIdentity, includeSuperseded = false) {
+  const live = [];
+  const superseded = [];
+  for (const note of notesWithIdentity) {
+    if (note.superseded_by) {
+      superseded.push(note);
+      if (includeSuperseded) {
+        live.push(note);
+      }
+    } else {
+      live.push(note);
+    }
+  }
+  return { live, superseded };
+}
 
 export async function addNote(root, text, options = {}) {
   const note = String(text || "").trim();
@@ -508,15 +595,26 @@ export async function addNote(root, text, options = {}) {
   }
   const target = await resolveNotesTarget(root);
   await migrateLocalNotesIfNeeded(root, target);
+  // Resolve --supersedes against the shared store before writing, so an unknown
+  // or ambiguous id fails loudly and the stored handle is always canonical.
+  let supersedes = null;
+  if (options.supersedes) {
+    const existing = await readJsonLines(target.notesPath);
+    supersedes = resolveNoteReference(existing, options.supersedes);
+  }
   // Record the originating branch so a note's provenance survives being pooled
   // across worktrees; "nogit"/"HEAD" are not real branches, so they are dropped.
   const branch = await getCurrentBranch(root).catch(() => null);
+  const ts = new Date().toISOString();
+  const storedNote = note.length > 2000 ? `${note.slice(0, 1999)}…` : note;
   const record = {
-    ts: new Date().toISOString(),
+    ts,
     sid: shortSessionId(options.session || process.env.CLAUDE_SESSION_ID || ""),
     ...(type !== "note" ? { type } : {}),
     ...(branch && branch !== "nogit" && branch !== "HEAD" ? { branch } : {}),
-    note: note.length > 2000 ? `${note.slice(0, 1999)}…` : note,
+    note: storedNote,
+    id: computeNoteId({ ts, note: storedNote }),
+    ...(supersedes ? { supersedes } : {}),
   };
   await appendNoteLine(target, record);
   return { path: target.notesPath, record };
@@ -525,8 +623,13 @@ export async function addNote(root, text, options = {}) {
 export async function listDecisions(root, query, options = {}) {
   const target = await resolveNotesTarget(root);
   await migrateLocalNotesIfNeeded(root, target);
-  const notes = await readJsonLines(target.notesPath);
-  const rawDecisions = notes.filter((note) => note.type === "decision");
+  // Identity + supersession is computed over EVERY note (a note may supersede a
+  // decision), then decisions are filtered. Superseded decisions are dropped from
+  // the live list unless includeSuperseded (ctx decisions --all), where they stay
+  // tagged with superseded_by so the surface can mark them.
+  const notes = withNoteIdentity(await readJsonLines(target.notesPath));
+  const { live } = partitionSuperseded(notes, options.includeSuperseded === true);
+  const rawDecisions = live.filter((note) => note.type === "decision");
   const decisions = options.verifyNotes === false ? rawDecisions : await annotateNoteStaleness(root, rawDecisions);
 
   const trimmedQuery = String(query || "").trim();
@@ -685,12 +788,22 @@ function renderFailureLine(item) {
 // Matches repo-relative path references like src/pay/retry.ts inside note text.
 const NOTE_PATH_REF_PATTERN = /(?:^|[\s`("'[])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8})/g;
 const MAX_NOTE_PATH_REFS = 8;
+// A segment that is only digits, dots, and an optional leading `v` is a version
+// or tier number (2.2, v2, 1.2.3), never a real path component. A token whose
+// every slash-joined segment is version-like (e.g. the roadmap-tier string
+// "2.2/2.4/2.5") is a false path and must not be extracted at all.
+const VERSION_LIKE_SEGMENT = /^v?\d+(?:\.\d+)*$/;
+
+function isVersionLikeToken(ref) {
+  const segments = ref.split("/").filter(Boolean);
+  return segments.length > 0 && segments.every((segment) => VERSION_LIKE_SEGMENT.test(segment));
+}
 
 export function extractNotePathRefs(text) {
   const refs = new Set();
   for (const match of String(text || "").matchAll(NOTE_PATH_REF_PATTERN)) {
     const ref = match[1].replace(/[.,;:!?)\]]+$/, "");
-    if (ref.includes("/") && !ref.startsWith("http")) {
+    if (ref.includes("/") && !ref.startsWith("http") && !isVersionLikeToken(ref)) {
       refs.add(ref);
     }
     if (refs.size >= MAX_NOTE_PATH_REFS) {
@@ -700,34 +813,160 @@ export function extractNotePathRefs(text) {
   return [...refs];
 }
 
+// A per-digest repository lookup used to decide whether a path reference in a
+// note is CONFIRMED missing (as opposed to a false path the old detector would
+// flag). File enumeration happens at most once and only if a reference actually
+// needs basename resolution; `git ls-files` is preferred (always current, one
+// cheap subprocess) with a bounded filesystem walk as the non-git fallback.
+function createRepoRefLookup(root) {
+  const existsCache = new Map();
+  const dirCache = new Map();
+  let basenameCounts = null;
+
+  async function pathExists(rel) {
+    if (!existsCache.has(rel)) {
+      existsCache.set(rel, await exists(path.join(root, rel)));
+    }
+    return existsCache.get(rel);
+  }
+
+  async function dirExists(rel) {
+    if (!dirCache.has(rel)) {
+      let ok = false;
+      try {
+        ok = (await fs.stat(path.join(root, rel))).isDirectory();
+      } catch {
+        ok = false;
+      }
+      dirCache.set(rel, ok);
+    }
+    return dirCache.get(rel);
+  }
+
+  async function ensureBasenames() {
+    if (basenameCounts) {
+      return basenameCounts;
+    }
+    basenameCounts = new Map();
+    let files = await listTrackedFiles(root);
+    if (files === null) {
+      // Not a git working tree: fall back to a bounded walk (skips node_modules,
+      // .git, build output, etc. via walkFiles' SKIP_DIRS).
+      files = (await walkFiles(root).catch(() => [])).map((abs) => relative(root, abs));
+    }
+    for (const file of files) {
+      const base = file.split("/").pop();
+      if (base) {
+        basenameCounts.set(base, (basenameCounts.get(base) || 0) + 1);
+      }
+    }
+    return basenameCounts;
+  }
+
+  // A single piece "resolves" when it is a real path (exact relative) or the
+  // unambiguous basename of exactly one repository file.
+  async function pieceResolves(piece) {
+    if (await pathExists(piece)) {
+      return true;
+    }
+    const counts = await ensureBasenames();
+    return counts.get(piece) === 1;
+  }
+
+  // Confirmed missing ⇔ the exact path does not exist AND it is not a slash-joined
+  // list of alternatives (each piece a real file) AND its first directory segment
+  // exists — so an error-string fragment ("install/bootstrap.sh") or a temp path
+  // ("scratchpad/…") whose leading directory is absent is NOT flagged, while a
+  // genuinely removed file under a real directory ("docs/migrate-slack.md") is.
+  async function isConfirmedMissing(ref) {
+    if (await pathExists(ref)) {
+      return false;
+    }
+    const pieces = ref.split("/").filter(Boolean);
+    if (pieces.length >= 2) {
+      let everyPieceResolves = true;
+      for (const piece of pieces) {
+        if (!(await pieceResolves(piece))) {
+          everyPieceResolves = false;
+          break;
+        }
+      }
+      if (everyPieceResolves) {
+        return false;
+      }
+    }
+    if (!(await dirExists(pieces[0]))) {
+      return false;
+    }
+    return true;
+  }
+
+  return { isConfirmedMissing };
+}
+
 // Persistent memory's biggest failure mode is a confidently-wrong stale note.
-// Any note that references files that no longer exist gets flagged so the
-// agent re-verifies instead of trusting it.
+// A note that references a file CONFIRMED missing (its directory still exists but
+// the file is gone) gets flagged so the agent re-verifies instead of trusting it.
+// The confirmation rules above keep false paths — version numbers, A/B file
+// alternations, error-message fragments — out of the flagged set.
+//
+// Notes are shared across worktrees, so a note written on ANOTHER branch names
+// files that live on that branch and are simply absent from this checkout. That
+// is provenance, not staleness: such a note is not demoted or counted as stale;
+// it gets a neutral "written on <branch>" marker instead. The current branch is
+// resolved lazily and once (only when a note with a branch has a missing ref),
+// so stores without cross-branch stale refs add no git subprocess.
 async function annotateNoteStaleness(root, notes) {
-  const cache = new Map();
+  const lookup = createRepoRefLookup(root);
+  let currentBranchPromise = null;
+  const resolveCurrentBranch = () => {
+    if (!currentBranchPromise) {
+      currentBranchPromise = getCurrentBranch(root).catch(() => null);
+    }
+    return currentBranchPromise;
+  };
   const annotated = [];
   for (const note of notes) {
     const refs = extractNotePathRefs(note.note);
     const missing = [];
     for (const ref of refs) {
-      if (!cache.has(ref)) {
-        cache.set(ref, await exists(path.join(root, ref)));
-      }
-      if (!cache.get(ref)) {
+      if (await lookup.isConfirmedMissing(ref)) {
         missing.push(ref);
       }
     }
-    annotated.push(missing.length > 0 ? { ...note, stale_refs: missing } : note);
+    if (missing.length === 0) {
+      annotated.push(note);
+      continue;
+    }
+    // A note carries the branch it was written on (addNote drops nogit/HEAD).
+    // If that differs from this checkout's branch, the missing paths likely live
+    // on the other branch — mark provenance rather than flag staleness.
+    if (note.branch) {
+      const branch = await resolveCurrentBranch();
+      if (branch && branch !== note.branch) {
+        annotated.push({ ...note, cross_branch: note.branch });
+        continue;
+      }
+    }
+    annotated.push({ ...note, stale_refs: missing });
   }
   return annotated;
 }
 
 function noteLine(note) {
   const typePrefix = note.type === "decision" ? "[decision] " : "";
+  // A compact id handle so a reader can reference the note (e.g. --supersedes).
+  const idSuffix = note.id ? ` (#${note.id})` : "";
   const staleSuffix = Array.isArray(note.stale_refs) && note.stale_refs.length > 0
     ? ` — STALE? references missing path(s): ${note.stale_refs.join(", ")}; verify before trusting`
     : "";
-  return `- [${String(note.ts || "").slice(0, 10)}] ${typePrefix}${note.note}${staleSuffix}`;
+  // A note from another branch whose referenced files are absent here: neutral
+  // provenance, not a staleness warning (the two are mutually exclusive).
+  const provenanceSuffix = note.cross_branch ? ` (written on ${note.cross_branch})` : "";
+  const supersededSuffix = note.superseded_by
+    ? ` — SUPERSEDED by #${note.superseded_by.id}${note.superseded_by.ts ? ` [${String(note.superseded_by.ts).slice(0, 10)}]` : ""}`
+    : "";
+  return `- [${String(note.ts || "").slice(0, 10)}] ${typePrefix}${note.note}${idSuffix}${staleSuffix}${provenanceSuffix}${supersededSuffix}`;
 }
 
 export async function loadContextSnapshot(root, options = {}) {
@@ -735,10 +974,15 @@ export async function loadContextSnapshot(root, options = {}) {
   const notesTarget = await resolveNotesTarget(root);
   await migrateLocalNotesIfNeeded(root, notesTarget);
   const events = (await readJsonLines(paths.eventsPath)).slice(-(options.maxEvents || DEFAULT_DIGEST_EVENTS));
-  const rawNotes = (await readJsonLines(notesTarget.notesPath)).slice(-(options.maxNotes || 10));
+  // Supersession is resolved over the WHOLE store (so a superseding record found
+  // anywhere hides its target), then superseded notes are dropped BEFORE the
+  // window slice, so the window still fills with live notes. `--all` keeps them.
+  const allNotes = withNoteIdentity(await readJsonLines(notesTarget.notesPath));
+  const { live, superseded } = partitionSuperseded(allNotes, options.includeSuperseded === true);
+  const rawNotes = live.slice(-(options.maxNotes || 10));
   const notes = options.verifyNotes === false ? rawNotes : await annotateNoteStaleness(root, rawNotes);
   const sessionSummaries = (await readJsonLines(paths.summariesPath)).slice(-(options.maxSummaries || 5));
-  return { events, notes, sessionSummaries, summary: summarizeEvents(events) };
+  return { events, notes, superseded, sessionSummaries, summary: summarizeEvents(events) };
 }
 
 export function renderContextDigest(snapshot) {
@@ -817,6 +1061,11 @@ export async function recordContextDigestInjection(root, snapshot, digest, optio
   const summaries = (snapshot.sessionSummaries || []).slice(-3);
   const hotFiles = snapshot.summary?.hotFiles || [];
   const failures = snapshot.summary?.unresolvedFailures || [];
+  // Superseded notes were hidden from the digest; count only those recent enough
+  // to have shared the displayed window, so the metric stays bounded and honest.
+  const oldestShownTs = renderedNotes.length > 0 ? String(renderedNotes[0].ts || "") : "";
+  const supersededSkipped = (snapshot.superseded || [])
+    .filter((note) => !oldestShownTs || String(note.ts || "") >= oldestShownTs).length;
   try {
     return await recordValueEvent(root, {
       type: "context_injection",
@@ -826,6 +1075,7 @@ export async function recordContextDigestInjection(root, snapshot, digest, optio
       injected_items: renderedNotes.length + summaries.length + hotFiles.length + failures.length,
       decisions_reused: decisions.length,
       stale_context_rejected: 0,
+      superseded_skipped: supersededSkipped,
       reasons: {
         previous_decision: decisions.length,
         previous_note: freshNotes.length - decisions.length,
@@ -833,6 +1083,7 @@ export async function recordContextDigestInjection(root, snapshot, digest, optio
         hot_file: hotFiles.length,
         previous_failure: failures.length,
         stale_warning: staleNotes.length,
+        superseded_skipped: supersededSkipped,
       },
     });
   } catch {
@@ -1187,6 +1438,15 @@ async function computeMatchSelection(root, prompt, options = {}) {
   // scoring a thousand short notes is microseconds.
   const snapshot = await loadContextSnapshot(root, { maxNotes: options.maxNotes || 1000 });
   const matches = matchSnapshotToPrompt(snapshot, prompt);
+  // Superseded notes are excluded from injection; count those that WOULD have
+  // matched this prompt so `agentify value` can report the skip separately from
+  // confirmed-stale rejections.
+  const supersededSkipped = (snapshot.superseded || []).length > 0
+    ? matchSnapshotToPrompt(
+      { notes: snapshot.superseded, sessionSummaries: [], summary: { hotFiles: [], unresolvedFailures: [] } },
+      prompt,
+    ).notes.length
+    : 0;
   const ledger = await readInjectionLedger(root);
   const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
 
@@ -1219,6 +1479,7 @@ async function computeMatchSelection(root, prompt, options = {}) {
       injected: { notes: [], summaries: [], files: [], failures: [] },
       digest: "",
       rendered_tokens: 0,
+      superseded_skipped: supersededSkipped,
       match_ms: Date.now() - startedAt,
     };
   }
@@ -1273,6 +1534,7 @@ async function computeMatchSelection(root, prompt, options = {}) {
     injected,
     digest,
     rendered_tokens: estimateContextTokens(digest),
+    superseded_skipped: supersededSkipped,
     match_ms: Date.now() - startedAt,
   };
 }
@@ -1311,9 +1573,10 @@ export async function matchContext(root, prompt, options = {}) {
 
   const freshStale = candidates.filter((candidate) => candidate.reason === "stale_refs" && !candidate.seen);
   const suppressedAsSeen = candidates.filter((candidate) => candidate.reason === "seen_this_session").length;
+  const supersededSkipped = computed.superseded_skipped || 0;
   const selected = selection.selected;
 
-  if (options.recordInjection !== false && (selected.length > 0 || freshStale.length > 0)) {
+  if (options.recordInjection !== false && (selected.length > 0 || freshStale.length > 0 || supersededSkipped > 0)) {
     const ledger = await readInjectionLedger(root);
     const seen = new Set(Array.isArray(ledger[sid]) ? ledger[sid] : []);
     // Only what was actually injected (plus stale rejections, so each is
@@ -1350,12 +1613,14 @@ export async function matchContext(root, prompt, options = {}) {
         injected_items: selected.length,
         decisions_reused: decisionCount,
         stale_context_rejected: freshStale.length,
+        superseded_skipped: supersededSkipped,
         reasons: {
           previous_decision: decisionCount,
           previous_note: injected.notes.length - decisionCount,
           session_summary: injected.summaries.length,
           hot_file: injected.files.length,
           previous_failure: injected.failures.length,
+          superseded_skipped: supersededSkipped,
         },
         match_ms: computed.match_ms,
         policy_version: policy?.policy_version ?? null,
@@ -1380,6 +1645,7 @@ export async function matchContext(root, prompt, options = {}) {
     ...injected,
     digest,
     stale_rejected: freshStale.length,
+    superseded_skipped: supersededSkipped,
     suppressed_as_seen: suppressedAsSeen,
     match_ms: computed.match_ms,
     policy,

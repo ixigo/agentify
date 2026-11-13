@@ -39,6 +39,9 @@ test("full context digests record estimated tokens and separate stale warnings",
   for (let index = 0; index < 6; index += 1) {
     await addNote(root, `chose sqlite option ${index} for the local cache`, { type: "decision" });
   }
+  // The parent directory still exists but the file is gone: a CONFIRMED-missing
+  // reference under the tightened detector (an absent first segment is not flagged).
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
   await addNote(root, "old worker lived in src/removed/worker.ts");
   const snapshot = await loadContextSnapshot(root);
   const digest = renderContextDigest(snapshot);
@@ -59,6 +62,7 @@ test("buildValueReport joins context, guardrail, delegation, tests, and eval evi
   const decisionMatch = await matchContext(root, "review the postgres database consistency choice", { sessionId: "new-task" });
   assert.equal(decisionMatch.notes.length, 1);
 
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
   await addNote(root, "legacy payment gateway config lives in src/payments/removed-gateway.ts");
   const staleMatch = await matchContext(root, "change the legacy payment gateway config", { sessionId: "stale-task" });
   assert.equal(staleMatch.notes.length, 0);

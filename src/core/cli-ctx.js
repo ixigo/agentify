@@ -32,7 +32,7 @@ import {
 } from "./ctx.js";
 import { compareCaptureSources } from "./acp/capture.js";
 import { getPromptFromArgs } from "./cli-args.js";
-import { bold, dim, log, success } from "./ui.js";
+import { bold, dim, error, log, success } from "./ui.js";
 
 async function loadConfigSafe(root) {
   try {
@@ -40,6 +40,19 @@ async function loadConfigSafe(root) {
   } catch {
     return {};
   }
+}
+
+// A user-input error (an unknown/ambiguous --supersedes id, empty text, an
+// unknown note type) should read as a single clear line with a non-zero exit,
+// not a Node stack trace. JSON callers get a structured error on stdout.
+function reportCtxUserError(config, command, err) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (config.json) {
+    console.log(JSON.stringify({ command, error: message }, null, 2));
+  } else {
+    error(message);
+  }
+  process.exitCode = 1;
 }
 
 function resolveInjectionMode(config, env = process.env) {
@@ -249,12 +262,18 @@ export async function runCtxCommand(root, config, args, subcommand) {
         await runCtxHook("load", root);
         return;
       }
-      const snapshot = await loadContextSnapshot(root);
+      // --all surfaces superseded notes too (marked), for inspection; the hook
+      // and the default manual load keep injecting only live notes.
+      const includeSuperseded = args.all === true;
+      const snapshot = await loadContextSnapshot(root, { includeSuperseded });
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx load", ...snapshot }, null, 2));
       } else {
         const digest = renderContextDigest(snapshot);
-        await recordContextDigestInjection(root, snapshot, digest, { sessionId: args.session });
+        // Only a default load records an injection; --all is an inspection view.
+        if (!includeSuperseded) {
+          await recordContextDigestInjection(root, snapshot, digest, { sessionId: args.session });
+        }
         log(digest || "No tracked context yet. Context accrues automatically once `agentify install` hooks are active.");
       }
       return;
@@ -262,11 +281,19 @@ export async function runCtxCommand(root, config, args, subcommand) {
 
     case "note": {
       const text = getPromptFromArgs(args, 2);
-      const result = await addNote(root, text, { session: args.session, type: args.type });
+      let result;
+      try {
+        result = await addNote(root, text, { session: args.session, type: args.type, supersedes: args.supersedes });
+      } catch (err) {
+        if (!err?.supersedesError) throw err;
+        reportCtxUserError(config, "ctx note", err);
+        return;
+      }
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx note", ...result }, null, 2));
       } else {
-        success(result.record.type === "decision" ? "Decision recorded." : "Noted.");
+        const supersededNote = result.record.supersedes ? ` (supersedes #${result.record.supersedes})` : "";
+        success(`${result.record.type === "decision" ? "Decision recorded" : "Noted"} #${result.record.id}${supersededNote}.`);
       }
       return;
     }
@@ -274,17 +301,26 @@ export async function runCtxCommand(root, config, args, subcommand) {
     case "decision": {
       // Shorthand: `agentify ctx decision "<text>"` === `ctx note --type decision`.
       const text = getPromptFromArgs(args, 2);
-      const result = await addNote(root, text, { session: args.session, type: "decision" });
+      let result;
+      try {
+        result = await addNote(root, text, { session: args.session, type: "decision", supersedes: args.supersedes });
+      } catch (err) {
+        if (!err?.supersedesError) throw err;
+        reportCtxUserError(config, "ctx decision", err);
+        return;
+      }
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx decision", ...result }, null, 2));
       } else {
-        success("Decision recorded.");
+        const supersededNote = result.record.supersedes ? ` (supersedes #${result.record.supersedes})` : "";
+        success(`Decision recorded #${result.record.id}${supersededNote}.`);
       }
       return;
     }
 
     case "decisions": {
-      const result = await listDecisions(root, getPromptFromArgs(args, 2));
+      // --all includes superseded decisions, marked with what superseded them.
+      const result = await listDecisions(root, getPromptFromArgs(args, 2), { includeSuperseded: args.all === true });
       if (config.json) {
         console.log(JSON.stringify({ command: "ctx decisions", ...result }, null, 2));
         return;
@@ -300,7 +336,13 @@ export async function runCtxCommand(root, config, args, subcommand) {
         const stale = Array.isArray(decision.stale_refs) && decision.stale_refs.length > 0
           ? ` ${dim(`(stale? missing: ${decision.stale_refs.join(", ")})`)}`
           : "";
-        log(`- [${String(decision.ts || "").slice(0, 10)}] ${decision.note}${stale}`);
+        const superseded = decision.superseded_by
+          ? ` ${dim(`(superseded by #${decision.superseded_by.id})`)}`
+          : "";
+        const provenance = decision.cross_branch
+          ? ` ${dim(`(written on ${decision.cross_branch})`)}`
+          : "";
+        log(`- [${String(decision.ts || "").slice(0, 10)}] ${dim(`#${decision.id}`)} ${decision.note}${stale}${provenance}${superseded}`);
       }
       return;
     }
