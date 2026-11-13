@@ -81,7 +81,7 @@ import {
 import fs from "node:fs/promises";
 import { describeWorkflows, installWorkflow } from "./core/workflows.js";
 import { runDoctor } from "./core/toolchain.js";
-import { runClean } from "./core/cleanup.js";
+import { runClean, runCleanStrays } from "./core/cleanup.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
 import { VERSION, printHelp } from "./core/cli-fast-paths.js";
@@ -89,6 +89,7 @@ import { resolveAgentifyPaths } from "./core/project-store.js";
 import { writePrivateText } from "./core/fs.js";
 import { openInBrowser } from "./core/browser.js";
 import { createStatusLoader, withSilent, bold, dim, green, yellow, red, success, warn, log } from "./core/ui.js";
+import { resolveStoreRoot } from "./core/project-store.js";
 
 export { parseArgs };
 
@@ -472,15 +473,44 @@ export async function runCli(argv, _runtime = {}) {
     return;
   }
 
-  const root = path.resolve(String(args.root || process.cwd()));
+  // Resolve the store root. An explicit --root always wins and is used verbatim.
+  // Otherwise resolve upward from the current directory so a shell in a
+  // subdirectory (or inside the store itself) writes to the real repo store
+  // rather than spawning a stray one wherever it happens to be.
+  //
+  // Setup commands act on a specific directory's installation, so they stay
+  // cwd-literal: `cd subproject && agentify install` must create a subproject
+  // store (the documented way monorepo-subproject stores are made), and the same
+  // reasoning applies to `uninstall` and `skill install --scope project`.
+  const CWD_LITERAL_COMMANDS = new Set(["install", "init", "uninstall", "skill", "skills"]);
+  const explicitRoot = args.root !== undefined && String(args.root).length > 0;
+  let root = path.resolve(String(args.root || process.cwd()));
+  let storeRootResolution = null;
+  if (!explicitRoot && !CWD_LITERAL_COMMANDS.has(command)) {
+    storeRootResolution = await resolveStoreRoot(process.cwd());
+    if (storeRootResolution.root) {
+      root = storeRootResolution.root;
+    }
+  }
+  // No git repo and no existing store nearby: hook-mode ctx commands must not
+  // create a store, so a background hook never leaves a stray behind.
+  const hookWouldStrand = !explicitRoot
+    && storeRootResolution !== null
+    && storeRootResolution.root === null;
 
   // Hook-invoked ctx commands run before config loading so they stay fast and
   // never fail, even outside an initialized repo.
   if (command === "ctx" && args.hook === true && (subcommand === "track" || subcommand === "load" || subcommand === "match" || subcommand === "precheck")) {
+    if (hookWouldStrand) {
+      return;
+    }
     await runCtxHook(subcommand, root);
     return;
   }
   if (command === "ctx" && args.hook === true && subcommand === "summarize") {
+    if (hookWouldStrand) {
+      return;
+    }
     try {
       const config = await loadConfig(root, {});
       await summarizeSession(root, config, args.session, {});
@@ -1596,6 +1626,45 @@ export async function runCli(argv, _runtime = {}) {
         return;
 
       case "clean": {
+        if (args.strays === true) {
+          // Dry-run by default; apply only with --yes (and never under --dry-run).
+          const apply = args.yes === true && config.dryRun !== true;
+          const result = await runCleanStrays(root, config, { apply });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          if (result.repo_top_level === null) {
+            log("clean --strays only runs inside a git repository.");
+            return;
+          }
+          const skipped = result.skipped || [];
+          if (result.strays.length === 0 && skipped.length === 0) {
+            success("No stray stores found beneath this repository.");
+            return;
+          }
+          if (result.strays.length > 0) {
+            log(apply
+              ? `Merged and removed ${result.applied} stray store(s):`
+              : `Found ${result.strays.length} stray store(s) (dry run — re-run with --yes to merge and remove):`);
+            for (const stray of result.strays) {
+              const counts = `${stray.event_count} event(s), ${stray.note_count} note(s)`;
+              const nestedTag = stray.nested ? dim(" [nested]") : "";
+              log(`  ${stray.relative_path} → ${stray.owner_relative_path} ${dim(`(${counts})`)}${nestedTag}`);
+            }
+          }
+          if (skipped.length > 0) {
+            log(`Skipped ${skipped.length} store(s) that hold more than context events/notes (left untouched):`);
+            for (const item of skipped) {
+              const mb = (item.size_bytes / (1024 * 1024)).toFixed(1);
+              log(`  ${item.relative_path} ${dim(`(${mb} MB — ${item.reason})`)}`);
+            }
+          }
+          if (!apply && result.strays.length > 0) {
+            log(dim("Nothing was changed. Merges dedupe identical lines and keep timestamp order."));
+          }
+          return;
+        }
         const result = await runClean(root, config, {
           planned: args.planned === true,
           sessions: args.sessions === true,
