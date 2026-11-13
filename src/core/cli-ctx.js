@@ -400,13 +400,18 @@ export async function runCtxCommand(root, config, args, subcommand) {
       const result = await clearContext(root, { archive: args.archive !== false });
       if (config.json) {
         console.log(JSON.stringify(result, null, 2));
-      } else if (result.archived.length > 0) {
-        success("Context cleared.");
-        for (const item of result.archived) {
-          log(`archived: ${dim(item)}`);
-        }
       } else {
-        success("Context cleared (nothing to archive).");
+        if (result.archived.length > 0) {
+          success("Context cleared.");
+          for (const item of result.archived) {
+            log(`archived: ${dim(item)}`);
+          }
+        } else {
+          success("Context cleared (nothing to archive).");
+        }
+        if (result.shared_notes_preserved) {
+          log(dim("Shared repo notes were left untouched (clear them from the main worktree)."));
+        }
       }
       return;
     }
