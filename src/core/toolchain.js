@@ -5,7 +5,8 @@ import { promisify } from "node:util";
 
 import { loadModelCatalogCache, resolveModelCatalogPolicy } from "./model-catalog.js";
 import { collectModelPricingGaps } from "./models.js";
-import { EXECUTABLE_PROVIDER_NAMES, getProviderDefinition } from "./provider-registry.js";
+import { EXECUTABLE_PROVIDER_NAMES } from "./provider-registry.js";
+import { defaultReadinessExec, probeProviderReadiness } from "./provider-readiness.js";
 import * as ui from "./ui.js";
 
 const execFileAsync = promisify(execFile);
@@ -24,12 +25,6 @@ const PACKAGE_MANAGER = {
   checkArgs: ["--version"],
   purpose: "package manager for Agentify install and test workflows",
   installHint: "npm i -g pnpm",
-};
-
-const AUTH_SKIPPED_BINARY_MISSING = {
-  state: "skipped",
-  detail: "binary missing",
-  nextStep: null,
 };
 
 async function resolveToolCommand(command) {
@@ -117,53 +112,22 @@ async function detectPackageManagerReadiness() {
   };
 }
 
-async function detectProviderReadiness(provider, root, { homeDir } = {}) {
-  const definition = getProviderDefinition(provider);
-  const bootstrap = definition?.bootstrap || {};
-  const binary = bootstrap.bin || provider;
-  // When a caller isolates the home (e.g. `agentify install --home`), point
-  // auth probes at that home too so detection reads the same environment the
-  // registration targets rather than the real one.
+// Provider readiness via the shared probe (#395), so `doctor` and `agentify
+// models` classify a provider identically: a binary that exists but cannot
+// launch reads as "broken" (not "missing"), and a logged-out CLI as
+// "logged_out". When a caller isolates the home (e.g. `agentify install
+// --home`), auth probes read that home rather than the real one.
+async function detectProviderReadiness(provider, root, { homeDir, exec, commandExists } = {}) {
   const env = homeDir ? { ...process.env, HOME: homeDir } : process.env;
-  const detection = await detectBinary(binary, {
-    checkArgs: bootstrap.checkArgs || ["--version"],
-    cwd: root,
+  return probeProviderReadiness(provider, {
+    // Seams default to real probes; tests inject them to exercise broken /
+    // logged-out classification without touching real provider state.
+    exec: exec || defaultReadinessExec,
+    commandExists,
     env,
+    homeDir: homeDir || process.env.HOME,
+    cwd: root,
   });
-
-  let auth = AUTH_SKIPPED_BINARY_MISSING;
-  if (detection.available && definition?.probeAuth) {
-    try {
-      auth = await definition.probeAuth({
-        cwd: root,
-        env,
-        homeDir: homeDir || process.env.HOME,
-        exec: runCommandCapture,
-      });
-    } catch (error) {
-      auth = {
-        state: "unknown",
-        detail: error?.message || "auth not verified",
-        nextStep: bootstrap.loginCommand || null,
-      };
-    }
-  }
-
-  return {
-    name: provider,
-    binary,
-    available: detection.available,
-    version: detection.version,
-    path: detection.path,
-    ...(detection.reason ? { reason: detection.reason } : {}),
-    ...(detection.check_status ? { check_status: detection.check_status } : {}),
-    install_hint: bootstrap.install ? bootstrap.install.join(" ") : `install ${binary}`,
-    auth: {
-      state: auth?.state || "unknown",
-      detail: auth?.detail || "auth not verified",
-      next_step: auth?.nextStep || null,
-    },
-  };
 }
 
 export async function detectCapabilities(config = {}) {
@@ -179,7 +143,7 @@ export async function detectCapabilities(config = {}) {
       return [name, { ...spec, ...detection }];
     })),
     Promise.all(
-      EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root, { homeDir: config.homeDir })])
+      EXECUTABLE_PROVIDER_NAMES.map(async (provider) => [provider, await detectProviderReadiness(provider, config.root, { homeDir: config.homeDir, exec: config.readinessExec, commandExists: config.commandExists })])
     ),
     detectPackageManagerReadiness(),
   ]);
@@ -305,8 +269,14 @@ export async function runDoctor(root, config, _options = {}) {
 
   ui.log(ui.bold("Provider CLIs"));
   const providerRows = Object.entries(caps.providers).map(([provider, info]) => {
-    const status = info.available ? ui.green("OK") : ui.red("MISSING");
-    const version = info.available ? info.version : ui.dim(info.install_hint);
+    // Distinguish a binary that exists but cannot start ("broken") from one that
+    // is not installed ("missing") — the two the old doctor conflated (#395).
+    const status = info.state === "broken"
+      ? ui.red("BROKEN")
+      : info.available ? ui.green("OK") : ui.red("MISSING");
+    const version = info.state === "broken"
+      ? ui.dim(info.state_detail || "fails to launch")
+      : info.available ? info.version : ui.dim(info.install_hint);
     return [provider, info.binary, status, renderProviderAuth(info), version];
   });
   process.stderr.write(ui.table(["Provider", "Command", "Status", "Auth", "Version / Install"], providerRows) + "\n");

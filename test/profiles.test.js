@@ -24,6 +24,7 @@ import {
   resolveProfileSelection,
   resolveRouteTier,
   selectFromChain,
+  selectReadyTarget,
   selectTier,
 } from "../src/core/profiles.js";
 import { explainRoute, resolveModelRoutes, resolveRoutePolicy, runDelegate } from "../src/core/models.js";
@@ -386,12 +387,14 @@ test("runDelegate carries the resolved profile into telemetry and results", asyn
   }
 });
 
-test("fallback preserves the original route ceilings — budgets never reset or rise", async () => {
+test("a cross-provider fallback gets its own tier's ceiling, not the primary's (#395)", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-fallback-budget-"));
   try {
     const calls = [];
-    // review wants codex; only claude exists. The fallback target must carry
-    // review's own $0.75/20-turn ceiling, not a fresh or larger one.
+    // review wants codex (balanced); only claude exists. Codex enforces $0.75
+    // only pre-run, but the Claude fallback enforces it in-flight and would be
+    // doomed by it. The fallback instead takes the ceiling of the default route
+    // that natively targets claude/balanced (implement: $1.00/30 turns).
     const result = await runDelegate(dir, {}, "review", "check it", {
       env: {},
       runtime: {
@@ -403,9 +406,11 @@ test("fallback preserves the original route ceilings — budgets never reset or 
     assert.equal(result.fallback_reason, "provider_unavailable");
     assert.equal(result.model, "sonnet");
     assert.equal(result.capability_tier, "balanced");
+    assert.equal(result.budget_limit, 1.00);
+    assert.equal(result.max_turns, 30);
     const argv = calls[0];
-    assert.equal(argv[argv.indexOf("--max-budget-usd") + 1], "0.75");
-    assert.equal(argv[argv.indexOf("--max-turns") + 1], "20");
+    assert.equal(argv[argv.indexOf("--max-budget-usd") + 1], "1");
+    assert.equal(argv[argv.indexOf("--max-turns") + 1], "30");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -445,7 +450,9 @@ test("explainRoute classifies the task, reports limits, chain, and availability"
     assert.equal(result.command, "route");
     assert.equal(result.intent.kind, "review");
     assert.equal(result.policy.profile.name, "balanced");
-    assert.equal(result.limits.max_budget_usd, 0.75);
+    // The dry run shows the fallback's own ceiling (claude/balanced via the
+    // implement route), matching what the real run would enforce (#395).
+    assert.equal(result.limits.max_budget_usd, 1.00);
     assert.equal(result.resolves_to.provider, "claude");
     assert.equal(result.resolves_to.fallback, true);
     assert.equal(result.resolves_to.fallback_reason, "provider_unavailable");
@@ -479,4 +486,27 @@ test("explainRoute classifies the task, reports limits, chain, and availability"
 
 test("capability tiers stay a closed vocabulary", () => {
   assert.deepEqual(CAPABILITY_TIERS, ["economy", "balanced", "frontier"]);
+});
+
+test("selectReadyTarget keeps a provider with unverifiable auth usable", () => {
+  const chain = {
+    entries: [
+      { provider: "codex", model: null, tier: "balanced", reason: "primary" },
+      { provider: "claude", model: "sonnet", tier: "balanced", reason: "provider_unavailable" },
+    ],
+  };
+  const unknownPrimary = selectReadyTarget(chain, {
+    codex: { state: "unknown", state_detail: "auth not verified" },
+    claude: { state: "ready" },
+  });
+  assert.equal(unknownPrimary.provider, "codex");
+  assert.equal(unknownPrimary.fallback, false);
+
+  const loggedOutPrimary = selectReadyTarget(chain, {
+    codex: { state: "logged_out", state_detail: "login required" },
+    claude: { state: "unknown", state_detail: "auth not verified" },
+  });
+  assert.equal(loggedOutPrimary.provider, "claude");
+  assert.equal(loggedOutPrimary.fallback, true);
+  assert.match(loggedOutPrimary.fallback_reason, /codex not ready: logged_out/);
 });

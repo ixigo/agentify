@@ -19,6 +19,7 @@ import {
   resolveRouteTier,
   resolveTierModelSources,
   selectFromChain,
+  selectReadyTarget,
   selectTier,
 } from "./profiles.js";
 import {
@@ -26,6 +27,8 @@ import {
   getDelegateAdapter,
   getProviderBootstrap,
 } from "./provider-registry.js";
+import { detectDelegateReadiness, readinessAvailability } from "./provider-readiness.js";
+import { redactSensitiveText } from "./redact.js";
 import {
   CAPABILITY_TIERS,
   describeModelCatalog,
@@ -61,8 +64,12 @@ export const DELEGATION_SCHEMA_VERSION = "delegation-v2";
 // under `models.routes` in .agentify.yaml.
 //
 // Every default route carries a hard ceiling (dollars, turns, wall-clock) so
-// no Agentify-initiated paid run is ever unbounded. Fallback across vendors
-// keeps the original ceiling — it never resets or raises the budget.
+// no Agentify-initiated paid run is ever unbounded. A cross-vendor fallback is
+// bounded by the default route that natively targets its own (provider, tier)
+// rather than the primary's ceiling (see fallbackRouteLimits): a ceiling tuned
+// for a provider with no native budget enforcement must not doom a fallback
+// that enforces it in-flight (#395). The envelope is never shortened — the
+// larger of the two timeouts always wins.
 export const DEFAULT_MODEL_ROUTES = {
   quick: {
     provider: "claude",
@@ -307,11 +314,14 @@ export async function explainRoute(root, config, task, options = {}) {
     // real run would enforce it.
     timeoutSeconds: options.timeoutMs != null ? options.timeoutMs / 1000 : options.timeoutSeconds,
   };
-  const limits = resolveRouteLimits({ ...routes[kind], model: policy.selected.model, provider: policy.selected.provider }, cliOverrides);
-  const availability = await detectDelegateProviders(options.runtime || {});
-  const target = selectFromChain(policy.fallback_chain, availability);
-  if (target) {
-    // A dry run must fail exactly where the real run would.
+  let limits = resolveRouteLimits({ ...routes[kind], model: policy.selected.model, provider: policy.selected.provider }, cliOverrides);
+  const readiness = await detectDelegateReadiness(options.runtime || {});
+  const availability = readinessAvailability(readiness);
+  const target = selectReadyTarget(policy.fallback_chain, readiness);
+  if (target.provider) {
+    // A dry run must land on the same target with the same (fallback-adjusted)
+    // limits the real run would enforce, and fail exactly where it would.
+    limits = fallbackRouteLimits(routes, kind, target, cliOverrides, limits);
     assertEffortSupported(target.provider, limits);
   }
   return {
@@ -335,11 +345,13 @@ export async function explainRoute(root, config, task, options = {}) {
     },
     budget_source: describeBudgetSource(kind, config, cliOverrides),
     providers: availability,
-    resolves_to: target
+    provider_readiness: Object.fromEntries(Object.entries(readiness).map(([provider, info]) => [provider, { state: info.state, detail: info.state_detail }])),
+    resolves_to: target.provider
       ? { provider: target.provider, model: target.model, tier: target.tier, fallback: target.fallback, fallback_reason: target.fallback_reason }
       : null,
-    unsupported_controls: target ? listUnsupportedControls(target.provider, limits) : [],
-    enforcement: describeLimitEnforcement(target ? target.provider : policy.selected.provider),
+    skipped_targets: target.skipped,
+    unsupported_controls: target.provider ? listUnsupportedControls(target.provider, limits) : [],
+    enforcement: describeLimitEnforcement(target.provider || policy.selected.provider),
   };
 }
 
@@ -385,6 +397,61 @@ export function listUnsupportedControls(provider, limits = {}) {
 function assertEffortSupported(provider, limits) {
   if (limits.effort && !requireDelegateAdapter(provider).controls.effort) {
     throw new Error(`provider "${provider}" has no effort control; unsupported controls are rejected rather than silently ignored. Remove --effort or the route's effort setting.`);
+  }
+}
+
+// Fallback-limit rule (#395). Per-route dollar/turn ceilings are calibrated for
+// the route's PRIMARY provider. Reusing them on a cross-provider fallback can
+// doom it: the review route's $0.75 is harmless to Codex (no native budget
+// enforcement, pre-run check only) but instantly budget-stops a Claude fallback
+// that enforces it in-flight — the exact 0-output failure the fleet data shows.
+// The fallback instead takes the limits of the default route that natively
+// targets its own (provider, tier), and the larger of the two timeouts so the
+// envelope is never shortened. CLI overrides still win; no new config surface.
+export function fallbackRouteLimits(routes, kind, target, cliOverrides, primaryLimits) {
+  if (!target.fallback) return primaryLimits;
+  let matchedKind = null;
+  for (const [candidateKind, route] of Object.entries(routes)) {
+    if (route.provider === target.provider && resolveRouteTier(candidateKind, route) === target.tier) {
+      matchedKind = candidateKind;
+      break;
+    }
+  }
+  if (!matchedKind || matchedKind === kind) return primaryLimits;
+  const matched = resolveRouteLimits(routes[matchedKind], cliOverrides);
+  return {
+    ...matched,
+    timeoutSeconds: Math.max(primaryLimits.timeoutSeconds ?? 0, matched.timeoutSeconds ?? 0) || null,
+  };
+}
+
+// Last non-empty line of stderr, redacted and length-bounded, for a failure
+// reason. The tail carries the provider's own error; the redactor strips any
+// token/secret the CLI may have echoed before it reaches the local log.
+function stderrTail(stderr) {
+  const lines = String(stderr || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return "";
+  return redactSensitiveText(lines[lines.length - 1]).slice(0, 200);
+}
+
+// A non-empty, human-readable reason for every failed delegation record (#395),
+// derived from the run status, budget stop reason, exit code, and stderr tail.
+export function deriveFailureReason({ status, budgetStopReason, exitCode, stderr }) {
+  switch (status) {
+    case "ok":
+      return null;
+    case "budget_blocked":
+      return "blocked before start: rolling budget cap reached";
+    case "budget_stopped":
+      return budgetStopReason === "max_turns"
+        ? "stopped at the max-turns ceiling"
+        : "stopped at the max-budget ceiling";
+    case "timeout":
+      return "timed out before completing (wall-clock limit)";
+    default: {
+      const tail = stderrTail(stderr);
+      return tail ? `provider exited ${exitCode}: ${tail}` : `provider exited ${exitCode}`;
+    }
   }
 }
 
@@ -493,17 +560,22 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     maxTurns: options.maxTurns,
     effort: options.effort,
   };
-  const limits = resolveRouteLimits(route, cliOverrides);
+  let limits = resolveRouteLimits(route, cliOverrides);
   const budgetSource = describeBudgetSource(kind, config, cliOverrides);
 
-  const availability = await detectDelegateProviders(options.runtime || {});
-  const target = selectFromChain(routePolicy.fallback_chain, availability);
-  if (!target) {
+  // Preflight readiness (#295/#395): skip a target that is logged out or cannot
+  // launch and fall through to the next configured provider, recording why.
+  const readiness = await detectDelegateReadiness(options.runtime || {});
+  const target = selectReadyTarget(routePolicy.fallback_chain, readiness);
+  if (!target.provider) {
+    const probed = target.skipped.map((entry) => `${entry.provider} (${entry.state}${entry.detail ? `: ${entry.detail}` : ""})`).join(", ");
     throw new Error(
-      `No available CLI for delegate kind "${kind}" (wanted ${route.provider}${route.model ? `/${route.model}` : ""}). Install one of the registered provider CLIs (${DELEGATE_PROVIDER_NAMES.join(", ")}), or override the route in .agentify.yaml under models.routes.`,
+      `No ready CLI for delegate kind "${kind}" (wanted ${route.provider}${route.model ? `/${route.model}` : ""}). Providers probed: ${probed || "none"}. Install or authenticate one of the registered provider CLIs (${DELEGATE_PROVIDER_NAMES.join(", ")}), or override the route in .agentify.yaml under models.routes.`,
     );
   }
   const adapter = requireDelegateAdapter(target.provider);
+  // A fallback gets its own tier-appropriate ceiling, never the primary's.
+  limits = fallbackRouteLimits(routes, kind, target, cliOverrides, limits);
   assertEffortSupported(target.provider, limits);
   const unsupportedControls = listUnsupportedControls(target.provider, limits);
 
@@ -549,6 +621,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     const w = rolling.exceeded_window;
     const message = `${w.window} spend $${w.spent_usd.toFixed(4)} has reached the models.budget cap of $${w.limit_usd}`;
     if (policy.onLimit === "block") {
+      const blockedFailureReason = deriveFailureReason({ status: "budget_blocked" });
       const blocked = {
         command: "delegate",
         ...baseRecord,
@@ -558,6 +631,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
         exit_code: 2,
         duration_ms: 0,
         output: "",
+        failure_reason: blockedFailureReason,
         error: `budget blocked: ${message} (set models.budget.onLimit: warn to override)`,
       };
       await recordDelegationSafe(root, {
@@ -571,6 +645,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
         output_tokens: 0,
         tokens_estimated: false,
         cost_usd: null,
+        failure_reason: blockedFailureReason,
       });
       return blocked;
     }
@@ -629,6 +704,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
   const durationMs = Date.now() - promptStart;
 
   const { status, budget_stop_reason: budgetStopReason } = classifyRunStatus(result, usage);
+  const failureReason = deriveFailureReason({ status, budgetStopReason, exitCode: result.code, stderr: result.stderr });
   const costUsd = usage?.cost_usd ?? null;
   const budgetRemaining = rolling.remaining_usd === null
     ? null
@@ -666,6 +742,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     cost_source: costUsd !== null ? "provider" : "unreported",
     budget_remaining: budgetRemaining,
     budget_stop_reason: budgetStopReason,
+    failure_reason: failureReason,
     prompt_sha256: promptHash(prompt),
   });
 
@@ -695,6 +772,7 @@ export async function runDelegate(root, config, kindInput, task, options = {}) {
     enforcement: describeLimitEnforcement(target.provider),
     budget_stop_reason: budgetStopReason,
     budget_remaining: budgetRemaining,
+    ...(failureReason ? { failure_reason: failureReason } : {}),
     ...(budgetWarning ? { budget_warning: budgetWarning } : {}),
     ...(costUsd != null ? { cost_usd: costUsd } : {}),
     output,
@@ -835,7 +913,8 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
   const profileSelection = resolveProfileSelection(config, options, options.env || process.env);
   const definitions = resolveProfileDefinitions(config);
   const definition = definitions[profileSelection.name];
-  const availability = await detectDelegateProviders(runtime);
+  const readiness = await detectDelegateReadiness(runtime);
+  const installed = Object.fromEntries(DELEGATE_PROVIDER_NAMES.map((name) => [name, Boolean(readiness[name]?.exists)]));
   const providerPolicy = resolveDelegateProviderPolicy(config);
   const catalogPolicy = resolveModelCatalogPolicy(config);
   const catalogEnv = runtime.env || process.env;
@@ -846,16 +925,30 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
   );
   const entries = Object.entries(routes).map(([kind, route]) => {
     const chain = buildFallbackChain({ kind, route, profileName: profileSelection.name, config, catalog });
-    const target = selectFromChain(chain, availability);
+    const target = selectReadyTarget(chain, readiness);
     const limits = resolveRouteLimits(route);
+    const primaryReadiness = readiness[route.provider] || { state: "unknown", state_detail: "readiness not probed" };
+    const primaryReady = primaryReadiness.state === "ready";
+    // Flag a route whose primary target is not ready (#395): it still routes if
+    // a fallback is ready, but the primary being logged out / broken / missing
+    // is surfaced so it is never silently skipped.
+    const warning = primaryReady
+      ? null
+      : (target.provider
+        ? `primary ${route.provider} not ready (${primaryReadiness.state}: ${primaryReadiness.state_detail}); using ${target.provider}${target.model ? `/${target.model}` : ""}`
+        : `primary ${route.provider} not ready (${primaryReadiness.state}: ${primaryReadiness.state_detail}) and no fallback is ready`);
     return {
       kind,
       provider: route.provider,
       model: route.model ?? "(cli default)",
       tier: resolveRouteTier(kind, route),
       use: route.use || "",
-      available: Boolean(target),
-      resolves_to: target ? `${target.provider}${target.model ? `/${target.model}` : ""}${target.fallback ? " (fallback)" : ""}` : "unavailable",
+      available: Boolean(target.provider),
+      resolves_to: target.provider ? `${target.provider}${target.model ? `/${target.model}` : ""}${target.fallback ? " (fallback)" : ""}` : "unavailable",
+      primary_ready: primaryReady,
+      primary_state: primaryReadiness.state,
+      readiness_warning: warning,
+      fallback_reason: target.fallback ? target.fallback_reason : null,
       fallback_chain: chain.entries.map((entry) => ({
         provider: entry.provider,
         model: entry.model ?? "(cli default)",
@@ -871,17 +964,25 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
         timeout_seconds: limits.timeoutSeconds,
         effort: limits.effort,
       },
-      enforcement: describeLimitEnforcement(target ? target.provider : route.provider),
-      unsupported_controls: listUnsupportedControls(target ? target.provider : route.provider, limits),
+      enforcement: describeLimitEnforcement(target.provider || route.provider),
+      unsupported_controls: listUnsupportedControls(target.provider || route.provider, limits),
     };
   });
   // One registry drives doctor/install/models/delegate alike (#297): what a
   // provider supports here is exactly what the delegate adapter declares.
   const providerDetails = DELEGATE_PROVIDER_NAMES.map((name) => {
     const adapter = getDelegateAdapter(name);
+    const info = readiness[name] || {};
     return {
       name,
-      installed: Boolean(availability[name]),
+      installed: Boolean(installed[name]),
+      // Readiness (#395): shared with doctor so the two cannot disagree. A
+      // binary that exists but cannot launch reads as "broken", a logged-out
+      // one as "logged_out" — neither is "ready", so neither is route-selectable.
+      readiness: info.state || "unknown",
+      readiness_detail: info.state_detail || null,
+      ready: info.state === "ready",
+      auth: info.auth || null,
       opt_in: providerPolicy[name].optIn,
       enabled_for_routing: providerPolicy[name].enabled,
       tier_models: tierModels[name],
@@ -896,7 +997,15 @@ export async function describeModelRoutes(config, runtime = {}, options = {}) {
   });
   return {
     command: "models",
-    providers: availability,
+    providers: installed,
+    provider_readiness: Object.fromEntries(DELEGATE_PROVIDER_NAMES.map((name) => [name, {
+      state: readiness[name]?.state || "unknown",
+      detail: readiness[name]?.state_detail || null,
+      ready: readiness[name]?.state === "ready",
+    }])),
+    // Routes whose primary target is not ready (#395): shown so a logged-out or
+    // broken primary is flagged, not silently skipped.
+    readiness_warnings: entries.filter((entry) => entry.readiness_warning).map((entry) => ({ kind: entry.kind, warning: entry.readiness_warning })),
     provider_details: providerDetails,
     budget: policy,
     profile: {
