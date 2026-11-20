@@ -56,7 +56,7 @@ agentify ctx note "issue-killer: launched issues <N1>,<N2> into worktrees; draft
 
 - Issues must be selected by an opt-in label or explicit URLs/IDs — never arbitrary open issues.
 - Create the worktree before launching the pane; one worktree per issue, never shared.
-- Each worktree gets its own `.agentify/` context store; notes and tracking stay per-checkout.
+- Each worktree gets its own `.agentify/` context store for events and tracking; notes and decisions are repo-scoped (shared across worktrees via the main checkout) and record the branch they came from, so a note made in one worktree is visible everywhere and survives `git worktree remove`.
 - Panes run interactive agents so the user can intervene; warn the user before launching panes with permission bypass, and only do so when they explicitly ask.
 - Agents should create draft PRs (GitHub `--draft`, GitLab `--draft`, Azure `--draft true`) by default.
 - Do not force-push, merge, or mark PRs ready for review unless the user explicitly asks.

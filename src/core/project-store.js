@@ -35,7 +35,7 @@ function expandTilde(targetPath) {
   return targetPath;
 }
 
-async function realpathIfPossible(targetPath) {
+export async function realpathIfPossible(targetPath) {
   try {
     return await fs.realpath(targetPath);
   } catch {
@@ -269,6 +269,73 @@ export async function resolveStoreRoot(startDir, options = {}) {
     dir = parent;
   }
   return { root: null, source: "none" };
+}
+
+// The main working tree of the repo `root` belongs to, resolved robustly via
+// `git worktree list --porcelain` (its first record is the main worktree).
+// `dirname(git-common-dir)` is NOT reliable: for a bare repo the common dir is
+// the bare repo itself, and for a submodule it is `<super>/.git/modules/<name>`.
+// Returns null outside a git repo, and for a bare repo (no main working tree),
+// so the caller falls back to the per-checkout local store.
+export async function resolveMainWorktree(root) {
+  const start = path.resolve(root);
+  const worktreeTop = await runGit(start, ["rev-parse", "--show-toplevel"]);
+  if (!worktreeTop) {
+    return null;
+  }
+  const porcelain = await runGit(start, ["worktree", "list", "--porcelain"]);
+  if (!porcelain) {
+    return null;
+  }
+  const firstRecord = porcelain.split(/\n\s*\n/)[0].split("\n");
+  let mainPath = null;
+  let bare = false;
+  for (const line of firstRecord) {
+    if (line.startsWith("worktree ")) {
+      mainPath = line.slice("worktree ".length).trim();
+    } else if (line.trim() === "bare") {
+      bare = true;
+    }
+  }
+  if (bare || !mainPath) {
+    return null;
+  }
+  const mainWorktree = await realpathIfPossible(mainPath);
+  // For a submodule, `worktree list` reports the gitdir under `.git/modules/...`
+  // as the "main worktree". A real working tree never lives inside a `.git`
+  // directory, so reject that and let the caller fall back to the local store.
+  if (mainWorktree.split(path.sep).includes(".git")) {
+    return null;
+  }
+  return {
+    mainWorktree,
+    worktreeTop: await realpathIfPossible(path.resolve(worktreeTop)),
+  };
+}
+
+// Notes and decisions are repo-scoped, not per-checkout: they live in the MAIN
+// worktree's store so every linked worktree shares one set. The root's path
+// relative to its own worktree top-level is preserved, so a monorepo-subproject
+// store keeps its own notes (`<main>/<subproject>/.agentify/context`) instead of
+// collapsing into the repo top-level store. Returns null outside a real working
+// tree, where the caller keeps the per-directory local store (unchanged).
+export async function resolveSharedContextDir(root) {
+  const info = await resolveMainWorktree(root);
+  if (!info) {
+    return null;
+  }
+  const realRoot = await realpathIfPossible(path.resolve(root));
+  const rel = path.relative(info.worktreeTop, realRoot);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    // root is outside its own worktree top (unexpected): fall back to local.
+    return null;
+  }
+  const storeDir = path.join(info.mainWorktree, rel);
+  return {
+    mainWorktree: info.mainWorktree,
+    storeDir,
+    contextDir: path.join(storeDir, ".agentify", "context"),
+  };
 }
 
 export function resolveLocalAgentifyPaths(root) {
