@@ -1,9 +1,13 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { ensureDir, exists, readText } from "./fs.js";
+
+const execFileAsync = promisify(execFile);
 
 export const MANAGED_BLOCK_BEGIN = "<!-- agentify:begin -->";
 export const MANAGED_BLOCK_END = "<!-- agentify:end -->";
@@ -54,14 +58,30 @@ export function resolveIntegrationProviders(value, { fallback = "claude" } = {})
   return provider === "all" ? [...INTEGRATION_PROVIDERS] : [provider];
 }
 
-export function buildManagedBlock(provider = "claude") {
+export function buildManagedBlock(provider = "claude", { hooks = false } = {}) {
   if (provider === "codex") {
+    if (hooks) {
+      return [
+        MANAGED_BLOCK_BEGIN,
+        "## Agentify",
+        "",
+        "Agentify provides lightweight context tracking and repo intelligence for this workspace.",
+        "File edits and commands are tracked automatically through Codex lifecycle hooks — do not log them manually.",
+        "Use these commands where they help:",
+        "",
+        "- `agentify ctx load` — recent activity, notes, and hot files from earlier sessions. Run it when starting work if the session did not already inject it.",
+        ...SHARED_BLOCK_LINES,
+        "",
+        "All commands support `--json` for machine-readable output.",
+        MANAGED_BLOCK_END,
+      ].join("\n");
+    }
     return [
       MANAGED_BLOCK_BEGIN,
       "## Agentify",
       "",
       "Agentify provides lightweight context tracking and repo intelligence for this workspace.",
-      "Codex has no automatic lifecycle hooks, so maintain context explicitly:",
+      "This Codex version has no automatic lifecycle hooks, so maintain context explicitly:",
       "",
       "- Run `agentify ctx load` at the start of every session to pick up notes, hot files, and recent activity from earlier sessions.",
       ...SHARED_BLOCK_LINES,
@@ -158,6 +178,99 @@ export function buildManagedHooks({ planRendererPath = path.join(".claude", "hoo
   };
 }
 
+// Codex's hooks system (Codex CLI >= the version that ships
+// `--dangerously-bypass-hook-trust`; docs: learn.chatgpt.com/docs/hooks) uses the
+// SAME config shape and the SAME stdin payload field names as Claude Code
+// (`session_id`, `hook_event_name`, `tool_name`, `tool_input`, `tool_response`,
+// `prompt`, `reason`), so the existing `agentify ctx … --hook` handlers parse a
+// Codex payload verbatim. The differences from the Claude set, all grounded in
+// the Codex docs, are:
+//   - no `ExitPlanMode` plan renderer (that is a Claude-only tool);
+//   - no `PostToolUseFailure` event — Codex has no such event, so a failing
+//     command is reported through `PostToolUse` with its `tool_response`, which
+//     the existing `detectCommandFailure` already parses;
+//   - the `SessionEnd` hook timeout is capped at 3s by Codex (default 1s).
+export function buildCodexManagedHooks() {
+  return {
+    SessionStart: [
+      {
+        matcher: "",
+        hooks: [
+          { type: "command", command: "agentify ctx load --hook", timeout: 15 },
+        ],
+      },
+    ],
+    UserPromptSubmit: [
+      {
+        matcher: "",
+        hooks: [
+          { type: "command", command: "agentify ctx match --hook", timeout: 10 },
+        ],
+      },
+    ],
+    PreToolUse: [
+      {
+        matcher: "Bash",
+        hooks: [
+          { type: "command", command: "agentify ctx precheck --hook", timeout: 10 },
+        ],
+      },
+    ],
+    // Codex reports file edits as `apply_patch` (and sometimes Edit/Write) with
+    // the patch body in `tool_input.command`, so the matcher adds `apply_patch`
+    // on top of the Claude-shared tool set; ctx.js extracts the edited paths.
+    PostToolUse: [
+      {
+        matcher: `${TRACKED_TOOL_MATCHER}|apply_patch`,
+        hooks: [
+          { type: "command", command: "agentify ctx track --hook", timeout: 10 },
+        ],
+      },
+    ],
+    SessionEnd: [
+      {
+        matcher: "",
+        hooks: [
+          { type: "command", command: "agentify ctx track --hook", timeout: 3 },
+        ],
+      },
+    ],
+  };
+}
+
+// The managed hook set for a resolved target: Codex and Claude share the merge /
+// strip / status machinery, differing only in which events they register.
+function managedHooksForTarget(targets) {
+  return targets.provider === "codex" ? buildCodexManagedHooks() : buildManagedHooks(targets);
+}
+
+// Capability probe: Codex advertises its hooks system through the
+// `--dangerously-bypass-hook-trust` flag in `codex --help`. Older Codex builds
+// without hooks do not list it, so the flag's presence is a version-independent
+// signal that does not require guessing which release introduced hooks and never
+// runs a session or bypasses hook trust.
+export function codexHelpAdvertisesHooks(helpText) {
+  return /--dangerously-bypass-hook-trust/.test(String(helpText || ""));
+}
+
+async function defaultCodexHelp() {
+  const { stdout, stderr } = await execFileAsync("codex", ["--help"], { timeout: 10000 });
+  return `${stdout || ""}\n${stderr || ""}`;
+}
+
+// Returns { supported, available }: `available` is false when the Codex CLI
+// could not be run at all (not installed / probe failed), in which case install
+// falls back to the AGENTS.md guidance path.
+export async function probeCodexHooksSupport(options = {}) {
+  const run = typeof options.run === "function" ? options.run : defaultCodexHelp;
+  try {
+    const help = await run();
+    return { supported: codexHelpAdvertisesHooks(help), available: true };
+  } catch {
+    return { supported: false, available: false };
+  }
+}
+
 export function applyManagedBlock(existingText, block = buildManagedBlock()) {
   const text = typeof existingText === "string" ? existingText : "";
   const pattern = new RegExp(`${escapeRegExp(MANAGED_BLOCK_BEGIN)}[\\s\\S]*?${escapeRegExp(MANAGED_BLOCK_END)}`);
@@ -244,21 +357,18 @@ export function stripManagedHooks(settings) {
   return { settings: next, changed };
 }
 
-export function resolveIntegrationTargets(root, { global: isGlobal = false, provider = "claude", homeDir = os.homedir() } = {}) {
+export function resolveIntegrationTargets(root, { global: isGlobal = false, provider = "claude", homeDir = os.homedir(), codexHooks = false } = {}) {
   if (provider === "codex") {
-    if (isGlobal) {
-      return {
-        provider,
-        scope: "global",
-        memoryPath: path.join(homeDir, ".codex", "AGENTS.md"),
-        settingsPath: null,
-      };
-    }
+    // Codex reads project hooks from `<repo>/.codex/hooks.json` and user hooks
+    // from `~/.codex/hooks.json`; the settings path is set only when hooks are
+    // in play so the guidance-only path keeps its historical `settingsPath: null`.
+    const codexDir = isGlobal ? path.join(homeDir, ".codex") : path.join(root, ".codex");
     return {
       provider,
-      scope: "project",
-      memoryPath: path.join(root, "AGENTS.md"),
-      settingsPath: null,
+      scope: isGlobal ? "global" : "project",
+      memoryPath: isGlobal ? path.join(homeDir, ".codex", "AGENTS.md") : path.join(root, "AGENTS.md"),
+      settingsPath: codexHooks ? path.join(codexDir, "hooks.json") : null,
+      // No plan renderer: ExitPlanMode is a Claude-only tool.
     };
   }
 
@@ -335,22 +445,54 @@ async function isPlanRendererCurrent(planRendererPath) {
   return (await readText(planRendererPath)) === source;
 }
 
+// For Codex, decide whether to install lifecycle hooks or fall back to the
+// AGENTS.md guidance path. The choice is a capability probe (overridable in
+// tests via `codexHooks`/`codexProbe`), never a session run.
+async function resolveCodexHooksMode(options) {
+  if (typeof options.codexHooks === "boolean") {
+    return { supported: options.codexHooks, source: "forced" };
+  }
+  // Env escape hatch (and deterministic test seam): force the mode without a
+  // CLI probe. Any other value falls through to the real `codex --help` probe.
+  const env = options.env || process.env;
+  const forced = String(env.AGENTIFY_CODEX_HOOKS ?? "").trim().toLowerCase();
+  if (["1", "true", "on", "yes"].includes(forced)) {
+    return { supported: true, source: "forced_env" };
+  }
+  if (["0", "false", "off", "no"].includes(forced)) {
+    return { supported: false, source: "forced_env" };
+  }
+  const probe = await probeCodexHooksSupport(options.codexProbe || {});
+  return {
+    supported: probe.supported,
+    source: probe.available ? "probe" : "probe_unavailable",
+  };
+}
+
 export async function installIntegration(root, options = {}) {
   const provider = normalizeIntegrationProvider(options.provider);
-  const targets = resolveIntegrationTargets(root, { ...options, provider });
   const dryRun = options.dryRun === true;
+
+  // Codex: probe for hooks support; Claude always wires hooks.
+  const codexHooksMode = provider === "codex" ? await resolveCodexHooksMode(options) : null;
+  const hooksEnabled = provider === "codex" ? codexHooksMode.supported : true;
+
+  const targets = resolveIntegrationTargets(root, { ...options, provider, codexHooks: hooksEnabled });
+  const managedHooks = managedHooksForTarget(targets);
 
   const memoryExisted = await exists(targets.memoryPath);
   const settingsExisted = targets.settingsPath ? await exists(targets.settingsPath) : false;
   const memoryBefore = memoryExisted ? await readText(targets.memoryPath) : "";
-  const memoryResult = applyManagedBlock(memoryBefore, buildManagedBlock(provider));
+  const memoryResult = applyManagedBlock(memoryBefore, buildManagedBlock(provider, { hooks: hooksEnabled }));
 
   let settingsResult = null;
   let planRendererResult = null;
   if (targets.settingsPath) {
     const settingsBefore = await readSettings(targets.settingsPath);
-    settingsResult = mergeManagedHooks(settingsBefore, buildManagedHooks(targets));
-    planRendererResult = await buildPlanRendererResult(targets.planRendererPath, { dryRun });
+    settingsResult = mergeManagedHooks(settingsBefore, managedHooks);
+    planRendererResult = targets.planRendererPath
+      ? await buildPlanRendererResult(targets.planRendererPath, { dryRun })
+      : null;
   }
 
   if (!dryRun) {
@@ -364,10 +506,15 @@ export async function installIntegration(root, options = {}) {
     }
   }
 
+  const guidanceNote = codexHooksMode?.source === "probe_unavailable"
+    ? "Codex CLI not found; the AGENTS.md guidance drives context tracking"
+    : "this Codex version has no lifecycle hooks; the AGENTS.md guidance drives context tracking";
+
   return {
     provider,
     scope: targets.scope,
     dry_run: dryRun,
+    ...(provider === "codex" ? { mode: hooksEnabled ? "hooks" : "guidance" } : {}),
     memory: {
       path: targets.memoryPath,
       existed: memoryExisted,
@@ -378,22 +525,25 @@ export async function installIntegration(root, options = {}) {
       ? {
         path: targets.settingsPath,
         existed: settingsExisted,
-        changed: settingsResult.changed || planRendererResult.changed,
-        events: Object.keys(buildManagedHooks(targets)),
+        changed: settingsResult.changed || Boolean(planRendererResult?.changed),
+        events: Object.keys(managedHooks),
         renderer: planRendererResult,
       }
       : {
         path: null,
         changed: false,
         supported: false,
-        note: "codex has no lifecycle hooks; the AGENTS.md guidance drives context tracking",
+        note: guidanceNote,
       },
   };
 }
 
 export async function uninstallIntegration(root, options = {}) {
   const provider = normalizeIntegrationProvider(options.provider);
-  const targets = resolveIntegrationTargets(root, { ...options, provider });
+  // For Codex, always resolve the hooks path so a prior hooks install is cleaned
+  // up even now that this machine's probe might report no hook support; the
+  // strip below is a no-op when the file is absent (a guidance-only install).
+  const targets = resolveIntegrationTargets(root, { ...options, provider, codexHooks: provider === "codex" });
   const dryRun = options.dryRun === true;
 
   let memoryChanged = false;
@@ -432,19 +582,40 @@ export async function uninstallIntegration(root, options = {}) {
 
 export async function integrationStatus(root, options = {}) {
   const provider = normalizeIntegrationProvider(options.provider);
-  const targets = resolveIntegrationTargets(root, { ...options, provider });
+  const targets = resolveIntegrationTargets(root, { ...options, provider, codexHooks: provider === "codex" });
 
   const memoryText = (await exists(targets.memoryPath)) ? await readText(targets.memoryPath) : "";
   const memoryInstalled = memoryText.includes(MANAGED_BLOCK_BEGIN) && memoryText.includes(MANAGED_BLOCK_END);
-  const memoryCurrent = memoryInstalled && !applyManagedBlock(memoryText, buildManagedBlock(provider)).changed;
+
+  const hooksFileExists = targets.settingsPath ? await exists(targets.settingsPath) : false;
+  // Claude always wires hooks; Codex is in hooks mode only when a hooks.json is
+  // present, otherwise it is on the guidance path. The memory block's "current"
+  // check must compare against whichever block that mode installs.
+  const hooksMode = provider === "claude" || hooksFileExists;
+  const memoryCurrent = memoryInstalled
+    && !applyManagedBlock(memoryText, buildManagedBlock(provider, { hooks: hooksMode })).changed;
+
+  if (!hooksMode) {
+    return {
+      provider,
+      scope: targets.scope,
+      mode: "guidance",
+      memory: { path: targets.memoryPath, installed: memoryInstalled, current: memoryCurrent },
+      settings: { path: null, installed: null, supported: false },
+      installed: memoryInstalled,
+    };
+  }
 
   let hooksInstalled = false;
   let rendererInstalled = false;
-  if (targets.settingsPath && (await exists(targets.settingsPath))) {
+  if (hooksFileExists) {
     try {
       const settings = await readSettings(targets.settingsPath);
-      rendererInstalled = await isPlanRendererCurrent(targets.planRendererPath);
-      hooksInstalled = !mergeManagedHooks(settings, buildManagedHooks(targets)).changed && rendererInstalled;
+      // Codex has no plan renderer, so the renderer requirement is satisfied by
+      // default; Claude still requires the rendered hook script to be current.
+      const rendererRequired = Boolean(targets.planRendererPath);
+      rendererInstalled = rendererRequired ? await isPlanRendererCurrent(targets.planRendererPath) : true;
+      hooksInstalled = !mergeManagedHooks(settings, managedHooksForTarget(targets)).changed && rendererInstalled;
     } catch {
       hooksInstalled = false;
     }
@@ -453,15 +624,14 @@ export async function integrationStatus(root, options = {}) {
   return {
     provider,
     scope: targets.scope,
+    ...(provider === "codex" ? { mode: "hooks" } : {}),
     memory: { path: targets.memoryPath, installed: memoryInstalled, current: memoryCurrent },
-    settings: targets.settingsPath
-      ? {
-        path: targets.settingsPath,
-        installed: hooksInstalled,
-        renderer: { path: targets.planRendererPath, installed: rendererInstalled },
-      }
-      : { path: null, installed: null, supported: false },
-    installed: targets.settingsPath ? memoryInstalled && hooksInstalled : memoryInstalled,
+    settings: {
+      path: targets.settingsPath,
+      installed: hooksInstalled,
+      renderer: { path: targets.planRendererPath ?? null, installed: rendererInstalled },
+    },
+    installed: memoryInstalled && hooksInstalled,
   };
 }
 

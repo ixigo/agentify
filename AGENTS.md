@@ -2,7 +2,7 @@
 ## Agentify
 
 Agentify provides lightweight context tracking and repo intelligence for this workspace.
-Codex has no automatic lifecycle hooks, so maintain context explicitly:
+This Codex version has no automatic lifecycle hooks, so maintain context explicitly:
 
 - Run `agentify ctx load` at the start of every session to pick up notes, hot files, and recent activity from earlier sessions.
 - `agentify ctx note "<text>"` — record a gotcha or open thread worth remembering in later sessions. Prefer this over ad-hoc scratch files.

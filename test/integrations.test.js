@@ -18,6 +18,9 @@ import {
   codexMcpMatches,
   codexMcpRegistered,
   installClaudeIntegration,
+  installIntegration,
+  integrationStatus,
+  uninstallIntegration,
   mcpRegistrationStatus,
   mergeManagedHooks,
   registerMcpServer,
@@ -264,21 +267,118 @@ test("codex integration targets AGENTS.md and has no hook settings", async () =>
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-"));
   try {
-    const installed = await installIntegration(dir, { provider: "codex" });
+    // Force the guidance path (older Codex without hooks).
+    const installed = await installIntegration(dir, { provider: "codex", codexHooks: false });
     assert.equal(installed.provider, "codex");
+    assert.equal(installed.mode, "guidance");
     assert.equal(installed.settings.supported, false);
     const agentsMd = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
     assert.ok(agentsMd.includes(MANAGED_BLOCK_BEGIN));
-    assert.ok(agentsMd.includes("Codex has no automatic lifecycle hooks"));
+    assert.ok(agentsMd.includes("no automatic lifecycle hooks"));
+    // No hooks.json is written in guidance mode.
+    await assert.rejects(() => fs.access(path.join(dir, ".codex", "hooks.json")));
 
     const status = await integrationStatus(dir, { provider: "codex" });
     assert.equal(status.installed, true);
+    assert.equal(status.mode, "guidance");
     assert.equal(status.settings.supported, false);
 
     const removed = await uninstallIntegration(dir, { provider: "codex" });
     assert.equal(removed.memory.changed, true);
     const after = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
     assert.ok(!after.includes(MANAGED_BLOCK_BEGIN));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("probeCodexHooksSupport detects hooks from the --help text (#405)", async () => {
+  const { probeCodexHooksSupport, codexHelpAdvertisesHooks } = await import("../src/core/integrations.js");
+
+  assert.equal(codexHelpAdvertisesHooks("  --dangerously-bypass-hook-trust  Run enabled hooks"), true);
+  assert.equal(codexHelpAdvertisesHooks("Usage: codex [OPTIONS]\n  --sandbox <MODE>"), false);
+
+  // A hooks-capable Codex.
+  const modern = await probeCodexHooksSupport({ run: async () => "flags:\n  --dangerously-bypass-hook-trust" });
+  assert.deepEqual(modern, { supported: true, available: true });
+
+  // An older Codex whose help lacks the flag.
+  const legacy = await probeCodexHooksSupport({ run: async () => "flags:\n  --model <MODEL>" });
+  assert.deepEqual(legacy, { supported: false, available: true });
+
+  // The CLI is missing / the probe throws → fall back to guidance.
+  const missing = await probeCodexHooksSupport({ run: async () => { throw new Error("ENOENT"); } });
+  assert.deepEqual(missing, { supported: false, available: false });
+});
+
+test("installIntegration --provider codex wires lifecycle hooks when supported (#405)", async () => {
+  const { buildCodexManagedHooks } = await import("../src/core/integrations.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-hooks-"));
+  const hooksPath = path.join(dir, ".codex", "hooks.json");
+  try {
+    const installed = await installIntegration(dir, { provider: "codex", codexHooks: true });
+    assert.equal(installed.mode, "hooks");
+    assert.equal(installed.settings.path, hooksPath);
+    assert.equal(installed.settings.changed, true);
+
+    const hooks = JSON.parse(await fs.readFile(hooksPath, "utf8"));
+    // The Codex lifecycle: session-start load, prompt match, pre-command
+    // precheck, post-tool track. No ExitPlanMode plan renderer, no
+    // PostToolUseFailure (Codex has no such event).
+    assert.deepEqual(Object.keys(hooks.hooks).sort(), Object.keys(buildCodexManagedHooks()).sort());
+    assert.ok(!("PostToolUseFailure" in hooks.hooks));
+    assert.equal(hooks.hooks.SessionStart[0].hooks[0].command, "agentify ctx load --hook");
+    assert.equal(hooks.hooks.UserPromptSubmit[0].hooks[0].command, "agentify ctx match --hook");
+    assert.equal(hooks.hooks.PreToolUse[0].hooks[0].command, "agentify ctx precheck --hook");
+    assert.equal(hooks.hooks.PostToolUse[0].hooks[0].command, "agentify ctx track --hook");
+    // Codex reports edits as apply_patch, so the track matcher must include it.
+    assert.match(hooks.hooks.PostToolUse[0].matcher, /apply_patch/);
+    assert.equal(hooks.hooks.SessionEnd[0].hooks[0].command, "agentify ctx track --hook");
+    // Codex caps the SessionEnd hook timeout at 3s.
+    assert.equal(hooks.hooks.SessionEnd[0].hooks[0].timeout, 3);
+
+    const agentsMd = await fs.readFile(path.join(dir, "AGENTS.md"), "utf8");
+    assert.ok(agentsMd.includes("tracked automatically through Codex lifecycle hooks"));
+
+    const status = await integrationStatus(dir, { provider: "codex" });
+    assert.equal(status.mode, "hooks");
+    assert.equal(status.installed, true);
+    assert.equal(status.settings.installed, true);
+
+    // Idempotent reinstall.
+    const reinstall = await installIntegration(dir, { provider: "codex", codexHooks: true });
+    assert.equal(reinstall.settings.changed, false);
+
+    // Uninstall removes the managed hooks and the AGENTS.md block.
+    const removed = await uninstallIntegration(dir, { provider: "codex" });
+    assert.equal(removed.memory.changed, true);
+    assert.equal(removed.settings.changed, true);
+    const afterHooks = JSON.parse(await fs.readFile(hooksPath, "utf8"));
+    assert.deepEqual(afterHooks, {});
+    const afterStatus = await integrationStatus(dir, { provider: "codex" });
+    assert.equal(afterStatus.installed, false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("installIntegration --provider codex preserves a user's own Codex hook (#405)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-codex-userhook-"));
+  const hooksPath = path.join(dir, ".codex", "hooks.json");
+  try {
+    await fs.mkdir(path.join(dir, ".codex"), { recursive: true });
+    const userHook = { matcher: "Bash", hooks: [{ type: "command", command: "my-codex-linter" }] };
+    await fs.writeFile(hooksPath, `${JSON.stringify({ hooks: { PreToolUse: [userHook] } }, null, 2)}\n`, "utf8");
+
+    await installIntegration(dir, { provider: "codex", codexHooks: true });
+    const hooks = JSON.parse(await fs.readFile(hooksPath, "utf8"));
+    assert.ok(hooks.hooks.PreToolUse.some((entry) => entry.hooks[0].command === "my-codex-linter"));
+    assert.ok(hooks.hooks.PreToolUse.some((entry) => entry.hooks[0].command === "agentify ctx precheck --hook"));
+
+    // Uninstall leaves the user's hook intact.
+    await uninstallIntegration(dir, { provider: "codex" });
+    const after = JSON.parse(await fs.readFile(hooksPath, "utf8"));
+    assert.deepEqual(after.hooks.PreToolUse, [userHook]);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -149,7 +149,8 @@ Two arms:
 
 An optional reverse direction (Claude seed -> Codex recall) is supported via
 the adapter's `direction: claude-to-codex` kwarg but is **not** wired into the
-committed suite: Codex has no SessionStart hook, so its recall depends on the
+committed suite: the suite does not rely on Codex's SessionStart hook (it
+requires per-hook trust before it runs), so its recall depends on the
 `AGENTS.md` guidance running `agentify ctx load`, which is less deterministic
 than Claude's hook-driven injection.
 
