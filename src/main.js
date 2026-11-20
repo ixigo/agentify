@@ -84,7 +84,8 @@ import { runDoctor } from "./core/toolchain.js";
 import { runClean } from "./core/cleanup.js";
 import { generateCompletionScript, printCompletionValues } from "./core/completion.js";
 import { buildSkillInstallHint, installAllBuiltinSkills, installBuiltinSkill, listBuiltinSkills } from "./core/skills.js";
-import { VERSION, printHelp } from "./core/cli-fast-paths.js";
+import { printHelp } from "./core/cli-fast-paths.js";
+import { checkForUpdate, resolveVersionString } from "./core/version.js";
 import { resolveAgentifyPaths } from "./core/project-store.js";
 import { writePrivateText } from "./core/fs.js";
 import { openInBrowser } from "./core/browser.js";
@@ -449,7 +450,7 @@ export async function runCli(argv, _runtime = {}) {
   }
 
   if (args.version) {
-    process.stdout.write(`agentify v${VERSION}\n`);
+    process.stdout.write(`agentify v${resolveVersionString()}\n`);
     return;
   }
 
@@ -1619,6 +1620,38 @@ export async function runCli(argv, _runtime = {}) {
               log(`Skipped ${item}`);
             }
           }
+        }
+        return;
+      }
+
+      case "version": {
+        const installed = resolveVersionString();
+        if (!args.check) {
+          if (config.json) {
+            console.log(JSON.stringify({ version: installed }, null, 2));
+          } else {
+            process.stdout.write(`agentify v${installed}\n`);
+          }
+          return;
+        }
+        // --check is the single opt-in network path: resolve the latest release
+        // tag over `git ls-remote` and report whether this install is behind.
+        const update = checkForUpdate({ env: process.env });
+        if (config.json) {
+          console.log(JSON.stringify({ version: installed, ...update }, null, 2));
+          return;
+        }
+        if (!update.ok) {
+          process.stdout.write(`agentify v${installed}\n`);
+          process.stdout.write("could not check for updates (offline or git ls-remote failed)\n");
+        } else if (update.status === "no_releases") {
+          process.stdout.write(`agentify v${installed}\n`);
+          process.stdout.write("no releases published yet\n");
+        } else if (update.status === "up_to_date") {
+          process.stdout.write(`agentify v${installed}\n`);
+          process.stdout.write(`up to date (latest release ${update.latest})\n`);
+        } else {
+          process.stdout.write(`installed ${update.installed}, latest release ${update.latest}\n`);
         }
         return;
       }

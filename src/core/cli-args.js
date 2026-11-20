@@ -41,6 +41,7 @@ const BOOLEAN_FLAGS = new Set([
   "skipMcp",
   "noMcp",
   "noIndex",
+  "check",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array

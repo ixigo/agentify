@@ -13,7 +13,9 @@ Agentify is installed straight from GitHub:
 curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
 ```
 
-The installer checks Node.js 22+ and git, runs `npm install -g` against the GitHub repo, and verifies the CLI. Equivalent manual command: `npm install -g github:ixigo/agentify`. Pin a ref with `AGENTIFY_REF=<branch|tag|sha>`.
+The installer checks Node.js 22+ and git, runs `npm install -g` against the GitHub repo, and verifies the CLI. By default it installs the latest release tag (resolved with `git ls-remote`, no GitHub token required) and falls back to `main` when no release tag exists yet. Pin an explicit ref with `AGENTIFY_REF=<branch|tag|sha>`. Equivalent manual command: `npm install -g github:ixigo/agentify`.
+
+Check whether your install is current at any time with `agentify version --check` (the only command that makes a network call; it reports "installed X, latest release Y", "up to date", or "no releases published yet", and never fails when offline).
 
 Then wire up your repo:
 

@@ -1,10 +1,7 @@
-import { createRequire } from "node:module";
 import { parseArgs } from "./cli-args.js";
+import { VERSION, resolveVersionString } from "./version.js";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../../package.json");
-
-export const VERSION = pkg.version;
+export { VERSION };
 
 function hasColor() {
   return !process.env.NO_COLOR && process.stderr.isTTY;
@@ -64,6 +61,7 @@ export async function printHelp() {
     `    ${c("doctor")}          ${d("Check setup readiness, provider CLIs, and capability tier")}`,
     `    ${c("clean")}           ${d("Prune stale generated artifacts and dead Agentify folders")}`,
     `    ${c("completion")}      ${d("Generate shell completion scripts")}`,
+    `    ${c("version")}         ${d("Print the installed version; --check compares it to the latest release (opt-in, network)")}`,
     ``,
     `  ${bold("OPTIONS")}`,
     ``,
@@ -134,7 +132,7 @@ export async function printHelp() {
 
 export async function handleFastPath(args) {
   if (isVersionRequest(args)) {
-    process.stdout.write(`agentify v${VERSION}\n`);
+    process.stdout.write(`agentify v${resolveVersionString()}\n`);
     return true;
   }
   if (isHelpRequest(args)) {

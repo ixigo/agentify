@@ -21,6 +21,7 @@ const isQuiet = commandToken === "completion"
   || commandToken === "ctx"
   || commandToken === "serve"
   || commandToken === "acp"
+  || commandToken === "version"
   || args.includes("--hook");
 
 async function main() {
