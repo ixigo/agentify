@@ -30,7 +30,7 @@ async function initAgentifyGitRepo(root) {
 
 import { runScan } from "../src/core/commands.js";
 import { loadConfig } from "../src/core/config.js";
-import { addNote, resolveContextPaths, trackEvent } from "../src/core/ctx.js";
+import { addNote, computeNoteId, resolveContextPaths, trackEvent } from "../src/core/ctx.js";
 import { MCP_SERVER_INSTRUCTIONS, buildMcpTools, invokeMcpTool, runMcpServer } from "../src/core/mcp-server.js";
 
 async function handleMcpMessage(tools, message) {
@@ -185,6 +185,69 @@ test("tools/call runs ctx tools against the store", async () => {
       params: { name: "query", arguments: { kind: "search" } },
     });
     assert.equal(failed.result.isError, true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ctx_note accepts a supersedes id and the superseded note stops being injected", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mcp-supersede-"));
+  try {
+    const tools = buildMcpTools(root, {});
+    // The schema exposes the optional supersedes field without dropping strictness.
+    const ctxNote = tools.find((tool) => tool.name === "ctx_note");
+    assert.equal(ctxNote.inputSchema.additionalProperties, false);
+    assert.ok(ctxNote.inputSchema.properties.supersedes, "supersedes param present");
+
+    const first = await handleMcpMessage(tools, {
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "ctx_note", arguments: { text: "serve is a hand-rolled legacy stdio server" } },
+    });
+    const id = first.result.content[0].text.match(/#([0-9a-f]+)/)[1];
+
+    const second = await handleMcpMessage(tools, {
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "ctx_note", arguments: { text: "serve now uses the MCP SDK", supersedes: id } },
+    });
+    assert.match(second.result.content[0].text, new RegExp(`supersedes #${id}`));
+
+    const load = await handleMcpMessage(tools, {
+      jsonrpc: "2.0", id: 3, method: "tools/call",
+      params: { name: "ctx_load", arguments: {} },
+    });
+    const text = load.result.content[0].text;
+    assert.match(text, /serve now uses the MCP SDK/);
+    assert.doesNotMatch(text, /hand-rolled legacy/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("ctx_note reports unknown and ambiguous supersedes ids as clean errors, not stack traces", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-mcp-supersede-bad-"));
+  try {
+    const tools = buildMcpTools(root, {});
+    const call = (args) => handleMcpMessage(tools, {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "ctx_note", arguments: args },
+    });
+
+    const records = [];
+    for (let i = 0; i < 24; i += 1) records.push(await addNote(root, `probe ${i}`));
+
+    const unknown = await call({ text: "x", supersedes: "deadbeef" });
+    assert.equal(unknown.result.isError, true);
+    assert.match(unknown.result.content[0].text, /No note found with id "deadbeef"/);
+    assert.doesNotMatch(unknown.result.content[0].text, /\bat async\b|\bat Object\b/);
+
+    const counts = new Map();
+    for (const r of records) {
+      const first = computeNoteId(r.record)[0];
+      counts.set(first, (counts.get(first) || 0) + 1);
+    }
+    const ambiguous = [...counts.entries()].find(([, n]) => n >= 2)[0];
+    const res = await call({ text: "y", supersedes: ambiguous });
+    assert.equal(res.result.isError, true);
+    assert.match(res.result.content[0].text, /Ambiguous note id/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
