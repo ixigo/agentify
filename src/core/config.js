@@ -17,6 +17,15 @@ const DEFAULT_CONFIG = {
   toolchain: {
     zoekt: false,
   },
+  index: {
+    // On SessionStart, if a structural index already exists and is stale
+    // relative to HEAD, refresh it in a detached background process so
+    // query/risk/test_select answer from a current index without a manual
+    // `agentify scan`. Never builds an index where none exists (no uninvited
+    // first build) and never touches the working tree (index-only, and the
+    // index lives under gitignored .agentify/). Set false to disable.
+    refreshOnStart: true,
+  },
   hooks: {
     preCommit: true,
     postMerge: true,
@@ -235,6 +244,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     maxFilesPerModule: config.maxFilesPerModule,
     topKeyFilesPerModule: config.topKeyFilesPerModule,
     toolchain: config.toolchain,
+    index: config.index,
     hooks: normalizeConfig(config).hooks,
     runtime: config.runtime,
     // Pin the default profile explicitly in new configs so the routing

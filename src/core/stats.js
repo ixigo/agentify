@@ -4,8 +4,12 @@ import path from "node:path";
 import { ensureDir, exists, readText } from "./fs.js";
 import { resolveContextPaths } from "./ctx.js";
 import { buildInvocationReport, INVOCATION_SOURCES } from "./invocations.js";
+import { listMcpToolNames } from "./mcp-server.js";
 
-const STATS_SCHEMA_VERSION = "stats-v3";
+// stats-v4 adds the additive `mcp` adoption block (serve starts vs. tool
+// calls). The schema is bumped the same way stats-v3 introduced `invocations`:
+// a materially new top-level section bumps the version.
+const STATS_SCHEMA_VERSION = "stats-v4";
 const DELEGATION_SCHEMA_VERSION = "delegation-v2";
 const DEFAULT_WINDOW_DAYS = 30;
 // Rough chars-per-token used when the provider CLI reports no usage.
@@ -175,6 +179,7 @@ export async function buildStatsReport(root, options = {}) {
 
   const summaries = await buildSummaryMaintenance(paths, cutoff);
   const invocations = await buildInvocationReport({ ...options.invocations, days, now });
+  const mcp = buildMcpAdoption(invocations);
 
   return {
     schema_version: STATS_SCHEMA_VERSION,
@@ -213,7 +218,30 @@ export async function buildStatsReport(root, options = {}) {
       legacy_records: totals.legacy_records,
     },
     invocations,
+    mcp,
     summaries,
+  };
+}
+
+// MCP adoption: how often the stdio server (`agentify serve`) is started versus
+// how often its tools are actually called, and the per-tool breakdown. Computed
+// entirely from the invocation report so it shares the same window. Every tool
+// the server exposes appears, with an explicit 0 when it was never called, so a
+// dead tool is visible rather than merely absent. serve starts come from the
+// CLI-sourced `serve` count; tool calls are the mcp-sourced invocations.
+function buildMcpAdoption(invocations) {
+  const byCommand = invocations?.by_command || {};
+  const serveStarts = byCommand.serve?.by_source?.cli || 0;
+  const toolCalls = invocations?.by_source?.mcp || 0;
+  const byTool = {};
+  for (const name of listMcpToolNames()) {
+    byTool[name] = byCommand[name]?.by_source?.mcp || 0;
+  }
+  return {
+    serve_starts: serveStarts,
+    tool_calls: toolCalls,
+    calls_per_start: serveStarts > 0 ? toolCalls / serveStarts : null,
+    by_tool: byTool,
   };
 }
 
@@ -306,6 +334,22 @@ export function renderStatsReport(report) {
     }
   }
   if (invocations?.limitation) lines.push(`- ${invocations.limitation}`);
+
+  const mcp = report.mcp;
+  if (mcp) {
+    lines.push("", "MCP adoption (serve starts vs. tool calls):");
+    if (mcp.serve_starts === 0 && mcp.tool_calls === 0) {
+      lines.push("- none recorded");
+    } else {
+      const rate = mcp.calls_per_start === null ? "n/a" : mcp.calls_per_start.toFixed(2);
+      lines.push(`- ${mcp.serve_starts} serve start(s), ${mcp.tool_calls} tool call(s) (${rate} per start)`);
+      const perTool = Object.entries(mcp.by_tool)
+        .sort(([leftName, left], [rightName, right]) => right - left || leftName.localeCompare(rightName))
+        .map(([name, count]) => `${name} ${count}`)
+        .join(", ");
+      if (perTool) lines.push(`- by tool: ${perTool}`);
+    }
+  }
 
   lines.push(
     "",

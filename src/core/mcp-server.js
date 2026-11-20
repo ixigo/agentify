@@ -574,6 +574,14 @@ export function buildMcpTools(root, config = {}) {
   ];
 }
 
+// The names of every tool the MCP server exposes, in registration order.
+// Derived from the actual tool definitions so a single source of truth drives
+// both the live server and any reporting over it (e.g. `agentify stats`),
+// rather than a second hand-maintained list drifting out of sync.
+export function listMcpToolNames(root = ".", config = {}) {
+  return buildMcpTools(root, config).map((tool) => tool.name);
+}
+
 export function buildMcpServer(root, config = {}, options = {}) {
   const tools = options.tools || buildMcpTools(root, config);
   const server = new McpServer(
