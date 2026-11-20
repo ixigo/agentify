@@ -597,6 +597,112 @@ test("buildEventFromHookPayload marks failed Bash commands with fail, exit, and 
   assert.equal(noResponse.fail, undefined);
 });
 
+// Fixture shaped exactly like the documented Claude Code PostToolUseFailure
+// payload for a Bash command (code.claude.com/docs/en/hooks): a top-level
+// `error` string whose first line is `Exit code N`, no `tool_response`.
+test("buildEventFromHookPayload records a PostToolUseFailure Bash command as a failure (#391)", () => {
+  const event = buildEventFromHookPayload("/repo", {
+    session_id: "sessABCDEF",
+    hook_event_name: "PostToolUseFailure",
+    tool_name: "Bash",
+    tool_input: { command: "npm test", description: "Run test suite" },
+    tool_use_id: "toolu_01ABC123",
+    error: "Exit code 1\nError: Cannot find module 'express'",
+    is_interrupt: false,
+    duration_ms: 4187,
+  });
+  assert.equal(event.type, "cmd");
+  assert.equal(event.cmd, "npm test");
+  assert.equal(event.fail, true);
+  assert.equal(event.exit, 1);
+  assert.match(event.err, /Cannot find module/);
+});
+
+test("buildEventFromHookPayload treats a PostToolUseFailure with no exit line as a failure without an exit code", () => {
+  const event = buildEventFromHookPayload("/repo", {
+    hook_event_name: "PostToolUseFailure",
+    tool_name: "Bash",
+    tool_input: { command: "deploy" },
+    error: "connection reset by peer",
+  });
+  assert.equal(event.fail, true);
+  assert.equal(event.exit, undefined);
+  assert.match(event.err, /connection reset/);
+});
+
+test("buildEventFromHookPayload redacts the PostToolUseFailure error snippet", () => {
+  const event = buildEventFromHookPayload("/repo", {
+    hook_event_name: "PostToolUseFailure",
+    tool_name: "Bash",
+    tool_input: { command: "curl https://api.example.com" },
+    error: "Exit code 22\nrejected: OPENAI_TOKEN=sk-abcdefghijklmnop",
+  });
+  assert.equal(event.exit, 22);
+  assert.ok(!event.err.includes("sk-abcdefghijklmnop"), `err leaked secret: ${event.err}`);
+  assert.ok(event.err.includes("[REDACTED]"));
+});
+
+test("buildEventFromHookPayload drops interrupted commands and failed edits", () => {
+  // An abort is not a genuine command failure, so nothing is recorded.
+  assert.equal(
+    buildEventFromHookPayload("/repo", {
+      hook_event_name: "PostToolUseFailure",
+      tool_name: "Bash",
+      tool_input: { command: "sleep 100" },
+      error: "Command was interrupted",
+      is_interrupt: true,
+    }),
+    null,
+  );
+  // A failed edit never changed the file, so it is not recorded as an edit.
+  assert.equal(
+    buildEventFromHookPayload("/repo", {
+      hook_event_name: "PostToolUseFailure",
+      tool_name: "Edit",
+      tool_input: { file_path: "/repo/src/a.js" },
+      error: "String to replace not found",
+    }),
+    null,
+  );
+});
+
+test("a PostToolUseFailure tracked in one session fires the precheck warning in a later session (#391)", async () => {
+  const { precheckCommand, renderPrecheckWarning } = await import("../src/core/ctx.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-failhook-"));
+  try {
+    // Session A: a real failing command, captured via the PostToolUseFailure hook.
+    const tracked = await trackEvent(dir, {
+      session_id: "alpha-session",
+      hook_event_name: "PostToolUseFailure",
+      tool_name: "Bash",
+      tool_input: { command: "npm test" },
+      error: "Exit code 1\nError: Cannot find module 'express'",
+      is_interrupt: false,
+    });
+    assert.equal(tracked.tracked, true);
+    assert.equal(tracked.event.fail, true);
+
+    // Same session: no warning (the failure is not cross-session).
+    assert.equal(await precheckCommand(dir, {
+      session_id: "alpha-session",
+      tool_name: "Bash",
+      tool_input: { command: "npm test" },
+    }), null);
+
+    // A later session: the repeat-failure guard fires.
+    const warning = await precheckCommand(dir, {
+      session_id: "bravo-session",
+      tool_name: "Bash",
+      tool_input: { command: "npm test" },
+    });
+    assert.ok(warning);
+    assert.match(renderPrecheckWarning(warning), /failed in a previous session/);
+    assert.match(renderPrecheckWarning(warning), /Cannot find module/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("digest surfaces unresolved failures; a later success clears them", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentify-ctx-fail-"));
   try {

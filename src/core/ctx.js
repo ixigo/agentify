@@ -243,6 +243,27 @@ export function detectCommandFailure(toolResponse) {
   return { exitCode: typeof exitCode === "number" ? exitCode : null, snippet };
 }
 
+// Claude Code fires `PostToolUseFailure` (not `PostToolUse`) for a tool call
+// that failed, and its payload carries a top-level `error` STRING rather than a
+// structured `tool_response`. For Bash the documented format is a first line
+// `Exit code N` followed by the command's combined stdout/stderr as one block,
+// so the exit code is recovered from that first line and the rest becomes the
+// snippet. A failure with no parseable exit line still counts as a failure; the
+// exit code is simply omitted.
+export function parseFailureError(errorText) {
+  const text = String(errorText || "");
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { exitCode: null, snippet: "" };
+  }
+  const [firstLine, ...rest] = text.split(/\r?\n/);
+  const match = /^\s*Exit code (\d+)\b/i.exec(firstLine);
+  if (match) {
+    return { exitCode: Number(match[1]), snippet: rest.join("\n").trim() };
+  }
+  return { exitCode: null, snippet: trimmed };
+}
+
 export function buildEventFromHookPayload(root, payload) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -258,7 +279,12 @@ export function buildEventFromHookPayload(root, payload) {
     return { ...base, type: "session_end", reason: clip(payload.reason || "", 60) };
   }
 
-  if (hookEvent !== "PostToolUse") {
+  // `PostToolUse` fires only when a tool call SUCCEEDS; a failing call fires
+  // `PostToolUseFailure` instead, which is why the failure record never used to
+  // be written under Claude Code (#391). Both are handled here so successes and
+  // failures flow through the same event shape.
+  const isFailureEvent = hookEvent === "PostToolUseFailure";
+  if (hookEvent !== "PostToolUse" && !isFailureEvent) {
     return null;
   }
 
@@ -266,6 +292,10 @@ export function buildEventFromHookPayload(root, payload) {
   const toolInput = payload.tool_input && typeof payload.tool_input === "object" ? payload.tool_input : {};
 
   if (TRACKED_EDIT_TOOLS.has(toolName)) {
+    // A failed edit never changed the file, so only successful edits are recorded.
+    if (isFailureEvent) {
+      return null;
+    }
     const filePath = toolInput.file_path || toolInput.notebook_path;
     if (!filePath) {
       return null;
@@ -277,7 +307,20 @@ export function buildEventFromHookPayload(root, payload) {
     if (!toolInput.command) {
       return null;
     }
-    const failure = detectCommandFailure(payload.tool_response);
+    let failure;
+    if (isFailureEvent) {
+      // A user abort/interrupt is not a genuine command failure (the command's
+      // own exit status never decided the outcome), so it is dropped entirely
+      // rather than recorded — a plain cmd event would misreport it as success,
+      // and a failure event would fire the repeat-failure precheck on a command
+      // that was never actually run to completion.
+      if (payload.is_interrupt === true) {
+        return null;
+      }
+      failure = parseFailureError(payload.error);
+    } else {
+      failure = detectCommandFailure(payload.tool_response);
+    }
     const signature = normalizeCommandSignature(toolInput.command);
     return {
       ...base,
