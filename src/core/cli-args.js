@@ -21,6 +21,7 @@ const BOOLEAN_FLAGS = new Set([
   "global",
   "planned",
   "sessions",
+  "strays",
   "all",
   "strict",
   "write",

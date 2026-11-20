@@ -188,6 +188,89 @@ function paths({ runtimeRoot, projectStore }) {
   };
 }
 
+// True when any segment of an absolute path is literally ".agentify". Used to
+// make sure the context root is never resolved to a location inside a store,
+// which is how the nested `.agentify/.agentify` stores were created.
+export function pathContainsAgentifySegment(targetPath) {
+  return path.resolve(targetPath).split(path.sep).includes(".agentify");
+}
+
+// A directory "owns" a store — as opposed to a hook-created stray that only
+// holds `context/` — when it is a git top-level, OR carries an `.agentify.yaml`
+// (installed config), OR its `.agentify/` holds an `index.db` (built index).
+// Shared by root resolution and `clean --strays` so the two never disagree.
+// `isGitTopLevel` short-circuits the per-dir filesystem checks for the top-level.
+export async function isStoreOwnerDir(dir, { isGitTopLevel = false } = {}) {
+  if (isGitTopLevel) {
+    return true;
+  }
+  if (await exists(path.join(dir, ".agentify.yaml"))) {
+    return true;
+  }
+  if (await exists(path.join(dir, ".agentify", "index.db"))) {
+    return true;
+  }
+  return false;
+}
+
+// Resolve the directory whose `.agentify` store a command should use when no
+// explicit `--root` was given. A shell sitting in a subdirectory (or inside the
+// store itself) must write to the real repo store rather than spawn a stray one.
+//
+// Resolution order:
+//   - In a git repo: the nearest store OWNER (isStoreOwnerDir) at or below the
+//     git top-level; otherwise the git top-level. Never walks above the
+//     top-level, so a stray `.agentify` under $HOME can never attract writes,
+//     and an existing hook-created stray in `src/` (no index.db) is ignored.
+//   - Outside a git repo: only a real installed store owner qualifies; else null
+//     (the caller decides — hooks write nothing, interactive commands use cwd).
+export async function resolveStoreRoot(startDir, options = {}) {
+  const start = path.resolve(startDir);
+  const topLevel = options.gitTopLevel !== undefined
+    ? options.gitTopLevel
+    : await runGit(start, ["rev-parse", "--show-toplevel"]);
+  const resolvedTop = topLevel ? path.resolve(topLevel) : null;
+
+  if (resolvedTop) {
+    let dir = start;
+    for (;;) {
+      if (!pathContainsAgentifySegment(dir)) {
+        if (dir === resolvedTop) {
+          return { root: resolvedTop, source: "git-toplevel" };
+        }
+        if (await isStoreOwnerDir(dir)) {
+          return { root: dir, source: "owner" };
+        }
+      }
+      if (dir === resolvedTop) {
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
+    }
+    // startDir was not under the top-level (unusual): fall back to the top-level.
+    return { root: resolvedTop, source: "git-toplevel" };
+  }
+
+  // Not in a git repo: a bare `.agentify` (e.g. ~/.agentify with only cache/) is
+  // not an owner, so it never captures writes.
+  let dir = start;
+  for (;;) {
+    if (!pathContainsAgentifySegment(dir) && (await isStoreOwnerDir(dir))) {
+      return { root: dir, source: "owner" };
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return { root: null, source: "none" };
+}
+
 export function resolveLocalAgentifyPaths(root) {
   const resolvedRoot = path.resolve(root);
   const runtimeRoot = path.join(resolvedRoot, ".agentify");
