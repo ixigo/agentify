@@ -3,6 +3,8 @@ import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import { promisify } from "node:util";
 
+import { loadModelCatalogCache, resolveModelCatalogPolicy } from "./model-catalog.js";
+import { collectModelPricingGaps } from "./models.js";
 import { EXECUTABLE_PROVIDER_NAMES, getProviderDefinition } from "./provider-registry.js";
 import * as ui from "./ui.js";
 
@@ -229,13 +231,41 @@ function renderProviderAuth(info) {
   return ui.yellow("unknown");
 }
 
+// Shared human rendering for the price-table gap report (#394). Printed by
+// `doctor`; `agentify models` prints the same lines from the same data.
+export function renderPricingGaps(gaps) {
+  ui.log(ui.bold("Model pricing"));
+  if (gaps.unpriced.length === 0 && gaps.retiring.length === 0) {
+    ui.log(ui.dim(`All tier models and catalog-listed models have a price row, and no pinned default is marked for retirement (${gaps.pricing_table}).`));
+    ui.newline();
+    return;
+  }
+  for (const gap of gaps.unpriced) {
+    ui.log(ui.red(`unpriced: ${gap.model} (${gap.provider}, ${gap.source}) has no row in ${gaps.pricing_table}`));
+  }
+  for (const gap of gaps.retiring) {
+    ui.log(ui.yellow(`retiring: ${gap.provider} ${gap.tier} ${gap.source} ${gap.model} → the provider names ${gap.replacement}${gap.retirement_at ? ` (${String(gap.retirement_at).slice(0, 10)})` : ""}`));
+  }
+  ui.newline();
+}
+
 export async function runDoctor(root, config, _options = {}) {
   const caps = await detectCapabilities({ ...config, root });
+
+  // Price-table currency, computed from the same helper `agentify models` uses
+  // so the two can never disagree (#394): concrete models with no list price,
+  // and pinned defaults the provider marks for retirement.
+  const catalogPolicy = resolveModelCatalogPolicy(config);
+  const catalog = catalogPolicy.enabled
+    ? loadModelCatalogCache({ env: config.env || process.env, home: config.homeDir })
+    : null;
+  const pricingGaps = collectModelPricingGaps({ catalog, config });
 
   if (config.json) {
     const result = {
       command: "doctor",
       ...caps,
+      pricing_gaps: pricingGaps,
     };
     console.log(JSON.stringify(result, null, 2));
     return result;
@@ -281,6 +311,8 @@ export async function runDoctor(root, config, _options = {}) {
   });
   process.stderr.write(ui.table(["Provider", "Command", "Status", "Auth", "Version / Install"], providerRows) + "\n");
   ui.newline();
+
+  renderPricingGaps(pricingGaps);
 
   ui.log(ui.label("Node.js", process.version));
   ui.log(ui.label("Platform", `${process.platform} ${process.arch}`));
