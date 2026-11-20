@@ -24,6 +24,9 @@ test("loadConfig returns the trimmed default configuration", async () => {
     keepGhostRuns: 3,
     maxGhostAgeDays: 3,
     pruneInvalidSessions: true,
+    warnStoreSizeMb: 500,
+    artifactMaxAgeDays: 14,
+    globalMaxAgeDays: 90,
   });
   assert.deepEqual(config.models.budget, { dailyUsd: null, monthlyUsd: null, onLimit: "block" });
   assert.equal(config.context.sessionSummaries, "extractive");

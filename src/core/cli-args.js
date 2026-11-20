@@ -22,6 +22,7 @@ const BOOLEAN_FLAGS = new Set([
   "planned",
   "sessions",
   "strays",
+  "artifacts",
   "all",
   "strict",
   "write",

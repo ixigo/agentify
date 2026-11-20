@@ -42,6 +42,10 @@ Before starting the app or running screenshots:
    - Start the app using the repo's normal dev command.
    - Capture a full-page screenshot before changes when the page already exists.
    - Store artifacts under `.agentify/ui-eval/<task-key>/before/`.
+   - Retention: `agentify clean --artifacts` prunes `.agentify/ui-eval/<task-key>/`
+     directories once their newest file is older than the default retention (14
+     days; `cleanup.artifactMaxAgeDays`). To keep a result, copy it out of
+     `.agentify/ui-eval/` or commit it.
 
 3. Add the anchor
    - Add `data-testid="<task-key>"` to the changed UI root.

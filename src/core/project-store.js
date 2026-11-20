@@ -151,7 +151,7 @@ function resolveModeFromInputs(config, env) {
   return "local";
 }
 
-function resolveSharedBase(config, env) {
+export function resolveSharedBase(config, env = process.env) {
   const fromEnv = env?.AGENTIFY_SHARED_STORE_PATH;
   if (fromEnv && typeof fromEnv === "string" && fromEnv.trim()) {
     return path.resolve(expandTilde(fromEnv.trim()));

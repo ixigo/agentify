@@ -3,8 +3,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { exists, readText } from "./fs.js";
-import { isStoreOwnerDir, pathContainsAgentifySegment, resolveAgentifyPaths } from "./project-store.js";
+import { exists, readJson, readText } from "./fs.js";
+import {
+  isStoreOwnerDir,
+  pathContainsAgentifySegment,
+  resolveAgentifyPaths,
+  resolveSharedBase,
+  STORE_KIND,
+} from "./project-store.js";
+import {
+  FULL_BUDGET,
+  KNOWN_SKILL_ARTIFACT_DIRS,
+  agentifyOwnedNames,
+  dirStats,
+  measureStore,
+} from "./store-size.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -621,4 +634,189 @@ export async function runClean(root, config, options = {}) {
     empty_dirs: toArray(emptyDirs),
     skipped: [],
   };
+}
+
+// `agentify clean --artifacts`: prune per-task-key directories under KNOWN skill
+// artifact dirs (`ui-eval/`) once their newest contained file is older than the
+// retention, reporting reclaimable bytes per group. Unknown top-level entries of
+// the store are reported with their size and NEVER deleted. Dry-run unless
+// `options.apply`. Symlinks are neither followed for size nor deleted through.
+export async function runCleanArtifacts(root, config, options = {}) {
+  const apply = options.apply === true;
+  const cleanupConfig = config.cleanup || {};
+  const maxAgeDays = cleanupConfig.artifactMaxAgeDays ?? 14;
+  const agentifyPaths = config._agentifyPaths || await resolveAgentifyPaths(root, config);
+  const runtimeRoot = agentifyPaths.runtimeRoot;
+  const ownedNames = agentifyOwnedNames(root);
+  const cutoff = Date.now() - (maxAgeDays * 86400000);
+
+  const groups = [];
+  let reclaimableBytes = 0;
+  let removed = 0;
+
+  for (const artifactDir of KNOWN_SKILL_ARTIFACT_DIRS) {
+    const base = path.join(runtimeRoot, artifactDir);
+    let dirents;
+    try {
+      dirents = await fs.readdir(base, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const items = [];
+    let groupReclaim = 0;
+    for (const dirent of dirents) {
+      // Only real per-task-key directories are candidates; a symlink (or a stray
+      // file) is reported but never pruned.
+      if (dirent.isSymbolicLink() || !dirent.isDirectory()) {
+        continue;
+      }
+      const child = path.join(base, dirent.name);
+      // Full walk so sizes are exact and the age decision is authoritative.
+      const stats = await dirStats(child, FULL_BUDGET);
+      // Non-exact walk → we could not confirm the newest file, so treat as fresh
+      // and never delete; otherwise an empty dir (newest 0) is also kept.
+      const stale = stats.measured === "exact" && stats.newest > 0 && stats.newest < cutoff;
+      if (stale) {
+        groupReclaim += stats.size;
+        if (apply) {
+          await fs.rm(child, { recursive: true, force: true });
+          removed += 1;
+        }
+      }
+      items.push({
+        path: `.agentify/${artifactDir}/${dirent.name}`,
+        size_bytes: stats.size,
+        measured: stats.measured,
+        newest_mtime_ms: stats.newest,
+        stale,
+      });
+    }
+    items.sort((left, right) => right.size_bytes - left.size_bytes || left.path.localeCompare(right.path));
+    reclaimableBytes += groupReclaim;
+    groups.push({ group: artifactDir, max_age_days: maxAgeDays, reclaimable_bytes: groupReclaim, items });
+  }
+
+  // Full walk so unknown-directory sizes are exact (not starved by a status budget).
+  const measured = await measureStore(runtimeRoot, { ownedNames, ...FULL_BUDGET });
+  const unknown = measured.entries
+    .filter((entry) => entry.kind === "unknown")
+    .map((entry) => ({
+      path: `.agentify/${entry.name}`,
+      size_bytes: entry.sizeBytes,
+      measured: entry.measured,
+      is_symlink: entry.isSymlink,
+    }));
+
+  return {
+    command: "clean --artifacts",
+    apply,
+    max_age_days: maxAgeDays,
+    reclaimable_bytes: reclaimableBytes,
+    removed,
+    groups,
+    unknown,
+  };
+}
+
+function isAgentifyStoreMeta(meta) {
+  return Boolean(meta && typeof meta === "object" && !Array.isArray(meta) && meta.kind === STORE_KIND);
+}
+
+// `agentify clean --global`: inspect per-repo project stores in the shared store
+// base (resolved exactly as project-store.js resolves it, so the two never point
+// at different caches). A store is stale when its repo's git_common_dir no longer
+// exists, or it has not been used in `globalMaxAgeDays` (from store.json
+// last_used_at). Only directories carrying a valid store.json with the expected
+// kind are ever deletable; everything else (invocations.json, model-catalog.json,
+// git-analyze/, stray files, symlinks, dirs without a valid store.json) is
+// reported and left untouched. Dry-run unless `options.apply`.
+export async function runCleanGlobal(config, options = {}, env = process.env) {
+  const apply = options.apply === true;
+  const cleanupConfig = config.cleanup || {};
+  const maxAgeDays = cleanupConfig.globalMaxAgeDays ?? 90;
+  const base = resolveSharedBase(config, env);
+  const cutoff = Date.now() - (maxAgeDays * 86400000);
+
+  const result = {
+    command: "clean --global",
+    apply,
+    base,
+    max_age_days: maxAgeDays,
+    reclaimable_bytes: 0,
+    removed: 0,
+    stores: [],
+    unrecognized: [],
+  };
+
+  let dirents;
+  try {
+    dirents = await fs.readdir(base, { withFileTypes: true });
+  } catch {
+    return result;
+  }
+
+  for (const dirent of dirents) {
+    const name = dirent.name;
+    const child = path.join(base, name);
+    if (dirent.isSymbolicLink()) {
+      result.unrecognized.push({ name, reason: "symlink", size_bytes: 0 });
+      continue;
+    }
+    if (!dirent.isDirectory()) {
+      // invocations.json, model-catalog.json, stray HTML reports, ...: leave be.
+      let size = 0;
+      try {
+        size = (await fs.stat(child)).size;
+      } catch {
+        // ignore
+      }
+      result.unrecognized.push({ name, reason: "file", size_bytes: size });
+      continue;
+    }
+
+    let meta = null;
+    try {
+      meta = await readJson(path.join(child, "store.json"));
+    } catch {
+      meta = null;
+    }
+    if (!isAgentifyStoreMeta(meta)) {
+      // e.g. git-analyze/ or any dir that is not a recognisable project store.
+      const stats = await dirStats(child, FULL_BUDGET);
+      result.unrecognized.push({ name, reason: "no valid store.json", size_bytes: stats.size });
+      continue;
+    }
+
+    const commonDir = typeof meta.git_common_dir === "string" ? meta.git_common_dir : null;
+    const repoMissing = commonDir ? !(await exists(commonDir)) : true;
+    const lastUsedMs = Date.parse(meta.last_used_at || "");
+    const unused = Number.isFinite(lastUsedMs) ? lastUsedMs < cutoff : false;
+    const stale = repoMissing || unused;
+    const stats = await dirStats(child, FULL_BUDGET);
+    const reason = repoMissing
+      ? "repo gone"
+      : (unused ? `unused ${maxAgeDays}d+` : "active");
+
+    if (stale) {
+      result.reclaimable_bytes += stats.size;
+      if (apply) {
+        await fs.rm(child, { recursive: true, force: true });
+        result.removed += 1;
+      }
+    }
+
+    result.stores.push({
+      name,
+      size_bytes: stats.size,
+      git_remote: typeof meta.git_remote === "string" ? meta.git_remote : null,
+      git_common_dir: commonDir,
+      last_used_at: typeof meta.last_used_at === "string" ? meta.last_used_at : null,
+      repo_missing: repoMissing,
+      stale,
+      reason,
+    });
+  }
+
+  result.stores.sort((left, right) => right.size_bytes - left.size_bytes || left.name.localeCompare(right.name));
+  return result;
 }
