@@ -5,7 +5,7 @@ Paste this into Claude Code (or any coding agent with shell access) inside the t
 ```text
 Set up Agentify in this repository.
 
-1. Ensure prerequisites: Node.js 20+ and git. Install agentify if missing:
+1. Ensure prerequisites: Node.js 22+ and git. Install agentify if missing:
    curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
    (equivalent: npm install -g github:ixigo/agentify)
 2. From the repo root, run: agentify install --json
