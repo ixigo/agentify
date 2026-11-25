@@ -44,7 +44,7 @@ Dollar figures Agentify shows are API-equivalent estimates, not your bill.
 curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
 
 cd /path/to/your/repo
-agentify install            # guidance + hooks + MCP registration + index
+agentify install            # guidance + hooks + index (MCP for CC/Codex is opt-in: --mcp)
 agentify status             # what is wired
 agentify uninstall          # removes only Agentify's managed blocks and hooks
 ```

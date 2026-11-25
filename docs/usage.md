@@ -657,6 +657,8 @@ hooks:
   preCommit: true     # managed git hooks (agentify hooks install)
   postMerge: true
   prePush: false      # opt-in: cross-vendor review of outgoing commits
+install:
+  mcp: false          # opt-in: register the MCP server for Claude Code/Codex on install
 cleanup:
   keepRuns: 20
   maxRunAgeDays: 14
@@ -674,9 +676,12 @@ agentify serve       # stdio MCP server; register it in your client
 ```
 
 ```bash
-# Claude Code (as an alternative or complement to hooks)
+# Claude Code (as an alternative or complement to hooks; opt-in)
 claude mcp add agentify -- agentify serve
+# or let install do it: agentify install --mcp
 ```
+
+For Claude Code and Codex the MCP server is **not** registered by default — their lifecycle hooks already call the same tools, so registration there is opt-in (`agentify install --mcp`, or `install.mcp: true` in `.agentify.yaml`). A Codex build with no hooks support is still registered automatically, because its guidance mode has no other channel for the tools. MCP remains the default integration path for every MCP-only agent.
 
 The server exposes eight tools, all backed by the same store and index the hooks use: `ctx_load` (session digest), `ctx_note` (record a note or decision), `ctx_match` (context related to a described task), `ctx_decisions` (read the decision log by topic before re-proposing a direction that may already be settled), `ctx_handoff` (write a handoff summary at the end of a long task), `query` (structural queries), `risk` (blast radius), `test_select` (impact-aware test selection). Tool descriptions teach the client when to call each, so an MCP-connected agent gets the whole workflow — load context at start, check decisions before relitigating them, note decisions, select tests before finishing, hand off at the end — without any hook support. The server is bundled with the CLI, holds no protocol session state between calls, and serves both legacy 2025-era clients and MCP `2026-07-28` clients. Modern clients get `server/discover`, per-request metadata validation, deterministic cacheable tool lists, and spec-shaped results; existing clients keep the initialization flow they already use.
 
@@ -729,11 +734,11 @@ Both paths honor `agentify ctx pause`. A session may use the repository root or 
 What it does, in order:
 
 1. **Detect** installed provider CLIs (Claude Code, Codex) and whether each is authenticated.
-2. **Register the Agentify MCP server** with each installed provider, by editing that provider's own config file directly (never by shelling out to `claude mcp add` / `codex mcp add`):
+2. **Wire guidance and hooks** for the installed providers (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
+3. **Register the Agentify MCP server — opt-in for Claude Code and Codex.** Lifecycle hooks already cover those agents, so by default install does **not** register the server for them; pass `--mcp` (or set `install.mcp: true` in `.agentify.yaml`) to register it anyway. A Codex build with no hooks support is the exception — it is registered automatically, because guidance mode has no other channel for the tools. When a provider is registered, install edits that provider's own config file directly (never by shelling out to `claude mcp add` / `codex mcp add`):
    - Claude Code → `~/.claude.json`, a `stdio` entry under `mcpServers.agentify`.
    - Codex → `~/.codex/config.toml`, a `[mcp_servers.agentify]` table.
-   Registration is **idempotent** (a byte-identical entry is a no-op), **backs up** the config to a timestamped copy before any change, and **preserves every unrelated key**. Running twice yields exactly one registration.
-3. **Wire guidance and hooks** for the installed providers (`CLAUDE.md` / `AGENTS.md`, Claude Code lifecycle hooks).
+   Registration is **idempotent** (a byte-identical entry is a no-op), **backs up** the config to a timestamped copy before any change, and **preserves every unrelated key**. Running twice yields exactly one registration. MCP stays fully supported via `agentify serve` and remains the default integration path for MCP-only agents.
 4. **Keep new Agentify-owned project files local** through the managed `.gitignore` block. Mixed-ownership paths are ignored only when this run creates them, and exact project-skill directories are added individually. `CLAUDE.md`, `AGENTS.md`, and `.gitignore` remain visible. Existing tracked files stay tracked; `ctx share` is the explicit opt-in that re-includes `notes.jsonl`.
 5. **Build the structural index** (`agentify scan` under the hood) so `query` / `risk` / `test_select` work immediately.
 6. **Show a first-run win**: the digest of recent local sessions (hot files, unresolved failed commands) when there is history, or a setup audit of your global provider config on a repo with no Agentify history yet.
@@ -741,9 +746,10 @@ What it does, in order:
 Flags:
 
 ```bash
-agentify install                       # detect everything present, register, index, show the win
-agentify install --provider claude     # force a provider (registers even if that CLI is absent)
-agentify install --skip-mcp            # guidance + hooks only; no MCP registration
+agentify install                       # detect everything present, wire guidance + hooks, index, show the win
+agentify install --provider claude     # force a provider (even if that CLI is absent)
+agentify install --mcp                 # opt in to MCP registration for Claude Code/Codex
+agentify install --skip-mcp            # skip MCP registration entirely (incl. the hookless-Codex fallback)
 agentify install --no-index            # skip the structural index build
 agentify install --no-progress         # suppress the interactive progress display
 agentify install --global              # global-scope guidance (no project baseline)
@@ -757,7 +763,7 @@ completed line with elapsed time for each phase. The display is TTY-only and can
 be disabled with `--no-progress`; JSON stdout remains a single clean payload and
 records the same durations in `timings`.
 
-A provider that is installed but **not authenticated** produces a warning and the install continues — the MCP registration is written regardless (auth is a separate concern), and the receipt prints the login command to run when you are ready.
+A provider that is installed but **not authenticated** produces a warning and the install continues — when that provider is being registered, the MCP registration is written regardless (auth is a separate concern), and the receipt prints the login command to run when you are ready.
 
 **ACP client registration is not part of install yet.** The `agentify acp` proxy is available, while the receipt reports registration as unavailable and does not claim an editor config was changed.
 
@@ -767,7 +773,8 @@ A provider that is installed but **not authenticated** produces a warning and th
 | --- | --- |
 | MCP registration, Claude Code | `claude mcp add --scope user agentify -- agentify serve` (matches the user-scoped `~/.claude.json` entry the automated path writes; Claude's default scope is project-local) |
 | MCP registration, Codex | `codex mcp add agentify -- agentify serve`, or add to `~/.codex/config.toml`:<br>`[mcp_servers.agentify]`<br>`command = "agentify"`<br>`args = ["serve"]` |
-| Guidance + hooks | `agentify install --skip-mcp` |
+| Guidance + hooks only (the default for Claude Code/Codex) | `agentify install` (add `--skip-mcp` to also skip the hookless-Codex MCP fallback) |
+| Register MCP for Claude Code/Codex | `agentify install --mcp`, or `install.mcp: true` in `.agentify.yaml` |
 | Structural index | `agentify scan` |
 | First-run win, later | `agentify ctx load` (session digest); `agentify analyze --include-config` (setup audit) |
 | Confirm what is registered | `claude mcp list`; inspect `~/.codex/config.toml`; `agentify status` reports MCP registration state |

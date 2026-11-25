@@ -143,6 +143,10 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   const dryRun = config.dryRun === true;
   const isGlobal = options.global === true;
   const skipMcp = options.skipMcp === true;
+  // MCP registration for Claude Code and Codex is opt-in (#397). This flag opts
+  // every registrable provider back in; without it only a hookless Codex (which
+  // has no other channel for the context tools) is registered by default.
+  const mcpOptIn = options.mcp === true;
   const buildIndex = options.buildIndex !== false;
   const progress = createInstallProgress(options.onProgress, options.now);
 
@@ -171,24 +175,11 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   const requested = Array.isArray(options.providers) && options.providers.length ? options.providers : null;
   const integrationProviders = requested
     || (installedProviders.length ? installedProviders.map((info) => info.provider) : ["claude"]);
-  const mcpProviders = (requested
-    ? requested.filter((provider) => MCP_REGISTRABLE_PROVIDERS.includes(provider))
-    : installedProviders.map((info) => info.provider));
 
-  // Auth warnings are phrased against what this run actually registers: only a
-  // provider that is in the MCP set (and not skipped) gets the "still
-  // registered" reassurance; others just get a heads-up to log in.
-  const willRegister = new Set(skipMcp ? [] : mcpProviders);
+  // The MCP registration set and the auth warnings that reference it are computed
+  // after the integrations loop below, because whether a Codex install gets MCP
+  // by default depends on its resolved hooks/guidance mode.
   const warnings = [];
-  for (const info of providerInfos) {
-    if (info.installed && info.auth.state === "missing") {
-      const step = info.auth.next_step || `${info.provider} login`;
-      const suffix = willRegister.has(info.provider)
-        ? "Agentify was still registered (auth is separate) — "
-        : "";
-      warnings.push(`${info.provider} is installed but not authenticated (${info.auth.detail || "login required"}). ${suffix}run \`${step}\` when ready.`);
-    }
-  }
 
   // `wrote` records only paths that actually changed on disk, so the receipt
   // is an accurate record rather than an aspirational list.
@@ -244,7 +235,17 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
   const integrations = [];
   progress.start("integrations", dryRun ? "Previewing guidance and hooks" : "Wiring guidance and hooks");
   for (const provider of integrationProviders) {
-    const integration = await installIntegration(root, { provider, global: isGlobal, homeDir, dryRun });
+    // codexHooks/codexProbe/env are injectable seams for the Codex hooks probe
+    // (undefined falls through to the real `codex --help` probe).
+    const integration = await installIntegration(root, {
+      provider,
+      global: isGlobal,
+      homeDir,
+      dryRun,
+      codexHooks: options.codexHooks,
+      codexProbe: options.codexProbe,
+      env: options.env,
+    });
     integrations.push(integration);
     if (!dryRun) {
       if (integration.memory?.changed) {
@@ -293,6 +294,37 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
     `Guidance and hooks ${dryRun ? "previewed" : "ready"} for ${integrationProviders.join(", ")}`,
   );
 
+  // MCP registration for Claude Code and Codex is opt-in (#397): lifecycle hooks
+  // already cover both, so install no longer registers the server for them by
+  // default. The one exception is a Codex build with no hooks support — guidance
+  // mode has no other automatic channel for the context tools, so it still gets
+  // MCP registered. `--mcp` / install.mcp opts every registrable provider back
+  // in. MCP stays fully supported (`agentify serve`) and remains the integration
+  // path for MCP-only agents.
+  const mcpCandidates = requested
+    ? requested.filter((provider) => MCP_REGISTRABLE_PROVIDERS.includes(provider))
+    : installedProviders.map((info) => info.provider);
+  const codexGuidanceOnly = integrations.some(
+    (integration) => integration.provider === "codex" && integration.mode === "guidance",
+  );
+  const mcpProviders = mcpCandidates.filter(
+    (provider) => mcpOptIn || (provider === "codex" && codexGuidanceOnly),
+  );
+
+  // Auth warnings are phrased against what this run actually registers: only a
+  // provider that is in the MCP set (and not skipped) gets the "still
+  // registered" reassurance; others just get a heads-up to log in.
+  const willRegister = new Set(skipMcp ? [] : mcpProviders);
+  for (const info of providerInfos) {
+    if (info.installed && info.auth.state === "missing") {
+      const step = info.auth.next_step || `${info.provider} login`;
+      const suffix = willRegister.has(info.provider)
+        ? "Agentify was still registered (auth is separate) — "
+        : "";
+      warnings.push(`${info.provider} is installed but not authenticated (${info.auth.detail || "login required"}). ${suffix}run \`${step}\` when ready.`);
+    }
+  }
+
   const registrations = [];
   progress.start(
     "mcp",
@@ -319,7 +351,9 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       : registrationIssues.length > 0
         ? "MCP registration finished with issues"
         : registrations.length === 0
-          ? "No installed provider needed MCP registration"
+          ? (mcpOptIn
+            ? "No installed provider needed MCP registration"
+            : "MCP registration is opt-in for Claude Code and Codex — not registered")
           : `MCP registration ${dryRun ? "previewed" : "ready"} for ${registrations.map((item) => item.provider).join(", ")}`,
   );
 
@@ -423,6 +457,7 @@ export async function runOneCommandInstall(root, config = {}, options = {}) {
       alias: MCP_SERVER_ALIAS,
       home_dir: homeDir,
       skipped: skipMcp,
+      opt_in: mcpOptIn,
       registrations,
     },
     index,

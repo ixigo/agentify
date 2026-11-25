@@ -34,14 +34,14 @@ Then wire a repo (or your home config):
 agentify install --provider all      # Claude Code + Codex, one repo-owned store
 agentify install --provider claude   # or a single harness
 agentify install --global            # global guidance instead of per-repo files
-agentify install --skip-mcp          # guidance + hooks only
+agentify install --mcp               # also register the MCP server for Claude Code/Codex
 agentify install --no-index          # skip the structural index build
 agentify scan                        # build the index later
 ```
 
 Install and uninstall are surgical: they only touch content between `<!-- agentify:begin -->` / `<!-- agentify:end -->` markers, Agentify-managed hook entries, and Agentify's generated `.claude/hooks/plan-to-html.mjs`. Your own CLAUDE.md content and hooks are preserved.
 
-`agentify install` also detects installed provider CLIs, registers the MCP server with each (idempotent, config backed up, unrelated keys preserved), keeps new Agentify-owned files local through a managed `.gitignore` block, and prints a receipt with per-phase timings. A provider that is installed but unauthenticated warns and continues. ACP client registration is not part of install yet. Every automated step has a manual equivalent — see [usage.md](./usage.md#one-command-install-registration-index-and-a-first-run-win).
+`agentify install` detects installed provider CLIs, wires guidance and hooks, keeps new Agentify-owned files local through a managed `.gitignore` block, and prints a receipt with per-phase timings. It does **not** register the MCP server for Claude Code or Codex by default — lifecycle hooks already cover them — so registration there is opt-in with `--mcp` (or `install.mcp: true` in `.agentify.yaml`); a Codex build with no hooks support is still registered, since guidance mode has no other channel for the tools. MCP stays fully supported (`agentify serve`) and remains the path for MCP-only agents. A provider that is installed but unauthenticated warns and continues. ACP client registration is not part of install yet. Every automated step has a manual equivalent — see [usage.md](./usage.md#one-command-install-registration-index-and-a-first-run-win).
 
 ## Command reference
 
@@ -115,11 +115,11 @@ All commands accept `--json` for machine-readable output — which is how agents
 
 ## Beyond Claude Code and Codex
 
-Hooks are Claude Code-specific and `AGENTS.md` guidance is best-effort. Every other agent — Cursor, Zed, Windsurf, Gemini CLI, Claude Desktop — reaches the same capabilities over [MCP](https://modelcontextprotocol.io):
+Hooks are Claude Code-specific and `AGENTS.md` guidance is best-effort. Every other agent — Cursor, Zed, Windsurf, Gemini CLI, Claude Desktop — reaches the same capabilities over [MCP](https://modelcontextprotocol.io). MCP is the default integration path for those MCP-only agents; for Claude Code and Codex it is opt-in (`agentify install --mcp`), since their hooks already cover the same tools:
 
 ```bash
 agentify serve                            # stdio MCP server, run from the repo root
-claude mcp add agentify -- agentify serve  # Claude Code, as an alternative to hooks
+claude mcp add agentify -- agentify serve  # Claude Code, as an alternative to hooks (opt-in)
 ```
 
 Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions`, `ctx_handoff`, plus `query`, `risk`, and `test_select`. The server supports both legacy 2025-era clients and the stateless MCP `2026-07-28` protocol.
