@@ -1,205 +1,141 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · GitLab workflow</title>
-  <meta name="description" content="The prebuilt GitLab agent workflow — from board to draft MR with the glab CLI. gitlab-triage, grill-me, glab-autopilot, issue-killer, worktree-autopilot, pr-creator, commit-creator.">
-  <link rel="stylesheet" href="command-style.css">
-  <style>
-    .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .flow-step { position: relative; }
-    .flow-step .step-no {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 22px; height: 22px; margin-right: 8px;
-      color: var(--bg); background: var(--accent); border-radius: 0;
-      font: 700 11px/1 var(--mono); vertical-align: middle;
-    }
-    @media (max-width: 900px) { .flow-grid { grid-template-columns: minmax(0, 1fr); } }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Board to MR · GitLab · Agentify</title>
+  <meta name="description" content="Opt a GitLab issue in on the board and the agent triages it, picks it up, implements it in an isolated worktree, and opens a draft merge request with the glab CLI.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
-      <nav class="topnav" aria-label="Primary navigation">
-        <a href="../index.html">Home</a>
-        <a href="analyze.html">Analyze</a>
-        <a href="config.html">Config</a>
-        <a href="usage.html">Usage</a>
+<body data-root="../" data-page="guides">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead">
+      <span class="crumb"><a href="../index.html">Home</a> / Guides / Board to MR</span>
+      <h1>From the board to a draft MR, hands-off.</h1>
+      <p>Install the workflow once. After that you opt an issue in on GitLab, and the agent triages it, picks it up, implements it in an isolated worktree, and opens a draft merge request — all driven through the <code>glab</code> CLI.</p>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Platform">
+      <a href="workflow-gh.html">GitHub</a>
+      <a href="workflow-glab.html" aria-current="page">GitLab</a>
+      <a href="workflow-azure.html">Azure DevOps</a>
+    </div>
+
+    <div class="guide">
+      <aside class="gnav" aria-label="Guides">
+        <span class="eyebrow">Guides</span>
+        <a href="migrate.html">Switch tools</a>
+        <a href="workflow-gh.html" aria-current="page">Board to PR</a>
+        <a href="config.html">Tune it</a>
+        <a href="analyze.html">See your usage</a>
         <a href="../skill-catalog.html">Skills</a>
-      </nav>
-      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
-    </div>
-  </header>
-
-  <header>
-    <div class="container hero-grid">
-      <div>
-        <span class="eyebrow">GitLab workflow</span>
-        <h1>From board to draft MR — the agent drives <span class="accent">the whole loop.</span></h1>
-        <p class="lede">One bundle wires GitLab Issues to isolated worktrees and draft merge requests, all orchestrated with the <code>glab</code> CLI. Opt in an issue, and the agent triages, picks it up, implements in isolation, and raises a draft MR.</p>
-        <div class="cta-row">
-          <a class="cta cta-primary" href="#flow">the flow</a>
-          <a class="cta cta-secondary" href="../skill-catalog.html">skill catalog</a>
-        </div>
-        <div class="hero-meta">
-          <span>cli <code>glab</code></span>
-          <span>opt-in label <code>agentify-ready</code></span>
-          <span>output <code>draft MR</code></span>
-        </div>
-      </div>
-      <aside class="terminal" aria-label="GitLab workflow quick start">
-        <div class="terminal-top">
-          <span>quick start</span>
-          <span>glab</span>
-        </div>
-<pre><span class="c"># install the CLI + wire up the repo</span>
-<span class="a">curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash</span>
-<span class="a">agentify install</span>
-
-<span class="c"># install the platform workflow (auto-detects from the git remote)</span>
-<span class="a">agentify workflow install</span>          <span class="c"># or: agentify workflow install glab</span></pre>
       </aside>
-    </div>
-  </header>
 
-  <main>
-    <section class="shell" id="flow">
-      <div class="container">
-        <span class="section-label">the flow</span>
-        <h2>Six moves from <span class="accent">issue to draft MR.</span></h2>
-        <p class="section-lede">Each step is a skill in the bundle. GitLab projects keep their own label taxonomy; the workflow prefers existing labels and only touches issues you have opted in.</p>
+      <div class="gsteps">
+        <div class="gstep">
+          <span class="n">One-time setup</span>
+          <h3>Install the GitLab workflow</h3>
+          <p>From inside the repo, <code>agentify workflow install</code> detects GitLab from your git remote and lays down the skill bundle. You need the <code>glab</code> CLI installed and signed in first — the workflow checks <code>glab auth status</code> and <code>glab repo view</code> before it touches anything.</p>
+<pre class="block"><span class="d"># install the glab CLI, then sign in</span>
+glab auth login
 
-        <div class="flow-grid">
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">1</span>triage the board</span>
-            <h3>gitlab-triage</h3>
-            <p>Runs issues through a conservative state machine — <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, <code>wontfix</code> — preferring existing project labels over inventing new ones. Confirms the repo with <code>glab repo view</code> before any mutation. Opting in means <code>ready-for-agent</code> (plus <code>agentify-ready</code> for fan-out). New issues are shaped first: the <strong>grill-me</strong> skill interviews you one question at a time until the requirement is concrete, then files it with <code>glab issue create</code>.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">2</span>pick up an item</span>
-            <h3>glab-autopilot</h3>
-            <p>Resolves the GitLab context with <code>glab</code>: confirms <code>glab auth status</code> and <code>glab repo view</code>, selects the target issue or MR (explicit number, URL, <code>latest</code>, or <code>first</code>), and turns <code>glab issue view</code> into an execution checklist.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">3</span>implement in isolation</span>
-            <h3>worktree-autopilot</h3>
-            <p>Creates a fresh branch and <code>git worktree</code> off the correct base, implements the smallest viable change there, and verifies it with the repo's own formatting, linting, type checks, and tests. Commits with a conventional message and leaves the original checkout untouched.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">4</span>fan out in parallel</span>
-            <h3>issue-killer</h3>
-            <p>When several issues are opted in, launches one tmux pane and one worktree per issue via <code>glab issue list --label agentify-ready</code>, each running an agent that opens a draft MR. Supervise them all with <code>tmux attach -t issue-killer</code>.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">5</span>raise a draft MR</span>
-            <h3>pr-creator</h3>
-            <p>Validates <code>glab</code> and auth, confirms base/source branch, title, and body, then creates a <strong>draft</strong> merge request with <code>glab mr create --draft</code> and returns the link. Never opens a non-draft MR unless you explicitly ask.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">6</span>carry context across sessions</span>
-            <h3>agentify ctx</h3>
-            <p>Fan-outs and handoffs are recorded with <code>agentify ctx note</code> so a later session knows what is in flight. Every worktree gets its own <code>.agentify/</code> store, so notes and tracking stay per-checkout.</p>
-          </div>
+<span class="d"># from the repo: auto-detects GitLab from the remote</span>
+agentify workflow install          <span class="d"># or: agentify workflow install glab</span></pre>
+          <div class="install"><span id="glab-install">agentify workflow install</span><button class="copy" type="button" data-copy="glab-install">Copy</button></div>
         </div>
-      </div>
-    </section>
 
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">bundle</span>
-        <h2>What <span class="accent">workflow install glab</span> lays down.</h2>
-        <p class="section-lede">Seven skills, installed together and templated for your provider.</p>
-
-        <div class="artifact-list">
-          <div class="artifact"><strong>gitlab-triage</strong><span>Conservative label/state management for issues.</span></div>
-          <div class="artifact"><strong>grill-me</strong><span>Interviews you until a new item is concrete, then files it with <code>glab issue create</code>.</span></div>
-          <div class="artifact"><strong>glab-autopilot</strong><span>Resolves GitLab issue/MR context with <code>glab</code>.</span></div>
-          <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in issues.</span></div>
-          <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>
-          <div class="artifact"><strong>pr-creator</strong><span>Draft MR creation with prerequisite checks.</span></div>
-          <div class="artifact"><strong>commit-creator</strong><span>Focused, Conventional-Commit staging and messages.</span></div>
+        <div class="prose">
+          <h2>What your agent does on its own</h2>
+          <p>Four moves take a shaped issue to a draft MR. You only do the first — opt the issue in. Each move is a skill in the bundle; the agent runs them in order.</p>
         </div>
-      </div>
-    </section>
 
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">platform cli</span>
-        <h2>Readiness and <span class="accent">board queries.</span></h2>
-        <p class="section-lede">The workflow confirms the toolchain and the repo before it touches anything on GitLab.</p>
-        <aside class="terminal" aria-label="GitLab CLI commands">
-          <div class="terminal-top">
-            <span>glab</span>
-            <span>readiness · board</span>
-          </div>
-<pre><span class="c"># readiness</span>
-<span class="a">glab auth status</span>
-<span class="a">glab repo view</span>
+        <div class="gstep">
+          <span class="n">01 · Triage</span>
+          <h3>Opt an issue in</h3>
+          <p><strong>gitlab-triage</strong> manages the board conservatively — it prefers your project's existing labels over inventing new ones and confirms the repo with <code>glab repo view</code> before any change. Opting in means moving an issue to <code>ready-for-agent</code>; add <code>agentify-ready</code> when you want several picked up at once. A rough issue gets shaped first — <strong>grill-me</strong> asks one question at a time until it is concrete, then files it with <code>glab issue create</code>.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">02 · Pick it up</span>
+          <h3>Load the issue as a checklist</h3>
+          <p><strong>glab-autopilot</strong> confirms <code>glab auth status</code> and <code>glab repo view</code>, selects the target (an issue number, URL, <code>latest</code>, or <code>first</code>), and turns <code>glab issue view</code> into an execution checklist. All GitLab reads and writes stay here.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">03 · Implement</span>
+          <h3>Work in an isolated worktree</h3>
+          <p><strong>worktree-autopilot</strong> cuts a fresh branch and <code>git worktree</code> off the right base, makes the smallest change that fixes the issue, and verifies it with the repo's own formatting, linting, type checks, and tests. It commits with a conventional message and leaves your checkout untouched.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">04 · Raise it</span>
+          <h3>Open a draft MR</h3>
+          <p><strong>pr-creator</strong> re-checks <code>glab</code> and auth, confirms the base and source branch, title, and body, then opens a <strong>draft</strong> merge request with <code>glab mr create --draft</code> and hands back the link. Nothing is marked ready for review unless you ask.</p>
+        </div>
 
-<span class="c"># the opted-in board</span>
-<span class="a">glab issue list --label agentify-ready --output json | head -c 20000</span>
+        <div class="callout"><b>You never invoke it by name.</b> You don't type skill names or call a command per step. You describe what you want — "triage the board", "pick up that issue", "open the MR" — and the matching skill activates from its description. Opt the issue in; the agent takes it from there.</div>
 
-<span class="c"># load one issue as a checklist</span>
+        <div class="prose">
+          <h2>A day with the workflow</h2>
+          <p>A bug lands on the board. You spend a minute on it; the agent spends the rest.</p>
+          <ol>
+            <li>Someone files a vague report. You run a grilling pass until it is concrete, then move it to <code>ready-for-agent</code> using your project's label.</li>
+            <li>You say "pick up the ready issue." The agent loads it, branches into a worktree, implements and verifies the fix.</li>
+            <li>It opens a draft MR and drops the link in the thread. You review, nudge, and mark it ready when you're happy.</li>
+          </ol>
+        </div>
+
+        <details><summary>What the bundle installs</summary><p>Seven skills, templated for your provider: <code>gitlab-triage</code> (conservative label/state management), <code>grill-me</code> (shape a new issue, then file it with <code>glab issue create</code>), <code>glab-autopilot</code> (resolve issue/MR context with <code>glab</code>), <code>issue-killer</code> (fan opted-in issues out to parallel tmux worktrees), <code>worktree-autopilot</code> (isolated implement, verify, commit), <code>pr-creator</code> (draft MR with prerequisite checks), and <code>commit-creator</code> (focused, conventional commits).</p></details>
+        <details><summary>Run several at once</summary><p>When more than one issue is opted in, <strong>issue-killer</strong> launches one tmux pane and one worktree per issue from <code>glab issue list --label agentify-ready</code>, each agent opening its own draft MR. Watch them with <code>tmux attach -t issue-killer</code>. Hand-offs are recorded with <code>agentify ctx note</code>, and every worktree gets its own <code>.agentify/</code> store, so notes stay per-checkout.</p></details>
+        <details><summary>Labels on GitLab</summary><p>GitLab projects usually carry their own label taxonomy, so the workflow prefers existing labels over creating new ones — if an equivalent is missing it reports it and asks rather than inventing one. The states it maps onto are <code>needs-triage</code>, <code>needs-info</code>, <code>ready-for-agent</code>, <code>ready-for-human</code>, and <code>wontfix</code>, with the <code>agentify-ready</code> label as the fan-out selector for running several in parallel.</p></details>
+        <details><summary>Push options and guardrails</summary><p>Draft by default: nothing is marked ready for review automatically, and non-draft merge requests happen only when you ask. No force-push, no rewriting shared history, and no closing issues or merging MRs on your behalf. Labels are never created without approval, issues are chosen by the opt-in label or explicit numbers, and every triage comment posted to GitLab carries <code>&gt; <em>This was generated by AI during triage.</em></code> at the top.</p></details>
+        <details><summary>Board queries you can run</summary>
+<pre class="block"><span class="d"># readiness</span>
+glab auth status
+glab repo view
+
+<span class="d"># the opted-in board</span>
+glab issue list --label agentify-ready --output json | head -c 20000
+
+<span class="d"># load one issue as a checklist</span>
 glab issue view &lt;number&gt; --output json</pre>
-        </aside>
+        </details>
+        <details><summary>If something's off</summary><p>“Unknown command: workflow” — update Agentify with the installer and open a new terminal. No platform detected — the remote isn't GitLab, or there's no <code>origin</code>; pass it explicitly with <code>agentify workflow install glab</code>. <code>glab</code> not found — install the GitLab CLI and run <code>glab auth login</code>, then re-run the install.</p></details>
+
+        <div class="next"><a href="migrate.html">← Switch tools</a><a href="config.html">Next guide: Tune it →</a></div>
       </div>
-    </section>
-
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">guardrails</span>
-        <h2>Conservative <span class="accent">by default.</span></h2>
-
-        <div class="safety-grid">
-          <div class="safety-card">
-            <span class="tag">opt-in only</span>
-            <p>Issues are selected by an opt-in label or explicit URLs/IDs — never arbitrary open issues. One worktree per issue, never shared.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">draft MRs</span>
-            <p>Agents open draft merge requests by default (<code>glab mr create --draft</code>). Nothing is marked ready for review automatically.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">no force / merge</span>
-            <p>No force-push, no rewriting shared history, and no closing issues or merging MRs unless you explicitly ask. Labels are never created without approval.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">ai disclaimer</span>
-            <p>Every triage comment posted to GitLab carries <code>&gt; <em>This was generated by AI during triage.</em></code> at the top of the body.</p>
-          </div>
-        </div>
-
-        <nav class="page-nav" aria-label="Workflow pagination">
-          <a class="nav-btn prev" href="workflow-gh.html">
-            <span class="nav-dir">gh</span>
-            <span class="nav-title">GitHub workflow</span>
-          </a>
-          <a class="nav-btn next" href="workflow-azure.html">
-            <span class="nav-dir">azure</span>
-            <span class="nav-title">Azure DevOps workflow</span>
-          </a>
-        </nav>
-      </div>
-    </section>
-  </main>
-
-  <section class="poster">
-    <div class="container">
-      <div class="poster-kicker">agentify workflow install glab</div>
-      <h2>From board to draft MR, automatically.</h2>
-      <a class="poster-cta" href="workflow-azure.html">See the Azure DevOps workflow <span class="mono">↗</span></a>
     </div>
-  </section>
 
-  <footer class="site-footer">
-    <div class="container">
-      <span class="foot-brand">AGENTIFY</span>
-      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
-    </div>
-  </footer>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
 
-  <script src="site.js"></script>
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
 </body>
 </html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Reference · Agentify</title>
+  <meta name="description" content="Every Agentify command in one searchable list, with the ones your agent runs automatically marked.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
+</head>
+<body data-root="../" data-page="reference">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead"><span class="crumb"><a href="../index.html">Home</a> / Reference</span><h1>Every command.</h1><p>Your agent runs most of these on its own. Every command takes <code>--json</code>.</p>
+      <label class="search" for="refq"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" fill="none"/></svg><input id="refq" type="search" placeholder="Filter commands, e.g. risk or worktree" autocomplete="off" data-slash><kbd>/</kbd></label>
+      <div class="chips" role="group" aria-label="Filter by group">
+        <button class="fchip" type="button" data-group="Memory" aria-pressed="false">Memory</button>
+        <button class="fchip" type="button" data-group="Checks" aria-pressed="false">Checks</button>
+        <button class="fchip" type="button" data-group="Routing" aria-pressed="false">Routing</button>
+        <button class="fchip" type="button" data-group="Index" aria-pressed="false">Index</button>
+        <button class="fchip" type="button" data-group="Setup" aria-pressed="false">Setup</button>
+        <button class="fchip" type="button" data-group="Guides" aria-pressed="false">Guides</button>
+      </div>
+    </div>
+    <div id="refList"></div>
+    <div class="next"><a href="usage.html">← How it works</a><a href="https://github.com/ixigo/agentify/blob/main/docs/README.md">Full docs on GitHub ↗</a></div>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
+
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
+</body>
+</html>
