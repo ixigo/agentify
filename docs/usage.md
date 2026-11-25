@@ -2,6 +2,28 @@
 
 Agentify is installed once per repo (or once globally) and is then driven by your coding agent. This guide covers the human-facing setup and the small set of commands you might run yourself.
 
+## Subscription requirement
+
+Use Agentify only if your coding agents run on a **subscription plan**:
+
+| Agent | Supported plans | Sign in with |
+| --- | --- | --- |
+| Claude Code | Pro, Max, Team, Enterprise | `claude` then `/login` (Claude account) |
+| Codex | ChatGPT Plus, Pro, Business, Enterprise | `codex login` (ChatGPT account) |
+
+`agentify delegate` and `agentify review` launch extra non-interactive model runs. On a
+plan they count against usage you already pay for; on pay-per-token API keys each one is billed,
+and Agentify is not designed or tuned for that. Routing therefore optimizes for which model does a
+task best and fastest, not for per-token price.
+
+Check before you start:
+
+- `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are **not** exported in your shell. Headless `claude -p` runs
+  (which `delegate` uses) bill an exported API key instead of your plan.
+- `codex login status` reports a ChatGPT sign-in, not an API key.
+- Dollar amounts in `agentify models`, delegation logs, and `agentify analyze` are API-equivalent
+  list-price estimates used for ceilings and comparisons, never your actual bill.
+
 ## Install
 
 For moving existing conversations without setting up repo tracking, see
@@ -481,6 +503,9 @@ models:
 Existing `.agentify.yaml` files written by `agentify install` pin `heavy` to `model: opus`; change it to `fable` (or delete the route to inherit the default) to move the heavy route to the Fable line.
 
 ### Budgets
+
+On a subscription plan (the [supported setup](#subscription-requirement)) these ceilings act as
+runaway guards on turns and wall-clock; the dollar figures are API-equivalent estimates, not spend.
 
 Every route carries a hard per-run ceiling — dollars, agent turns, and wall-clock — so no Agentify-initiated paid run is ever unbounded. Claude delegations receive `--max-budget-usd`/`--max-turns` natively (plus `--no-session-persistence` for one-shot runs); providers without an in-flight dollar stop (Codex) are covered by the pre-run rolling check and the timeout — `agentify models` shows which limits each route can enforce natively. Cross-vendor fallback keeps the original ceiling; it never resets or raises the budget. Invalid budgets fail before any provider process starts.
 

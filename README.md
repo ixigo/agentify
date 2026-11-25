@@ -26,6 +26,18 @@ Agentify keeps durable working context — decisions, notes, session summaries, 
 
 It does not replay a provider's hidden conversation state or copy private chain-of-thought. It carries forward explicit, compact project evidence that should survive the switch.
 
+## Before you install: use a subscription, not API billing
+
+Agentify is built for agents signed in on a **subscription plan** — Claude Pro, Max, Team, or
+Enterprise for Claude Code, and ChatGPT Plus, Pro, Business, or Enterprise for Codex. `delegate`
+and `review` start extra model runs on your behalf; on a plan those draw on usage you
+already pay for, on pay-per-token API keys every one of them is billed.
+
+**Use Agentify only if your agent CLIs are on a subscription.** Sign in with `claude` (`/login`)
+and `codex login`, and make sure `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` are not exported in the
+shell you work from: headless `claude -p` runs use an exported API key over your plan login.
+Dollar figures Agentify shows are API-equivalent estimates, not your bill.
+
 ## Install
 
 ```bash

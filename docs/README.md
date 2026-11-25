@@ -128,6 +128,11 @@ Exposed tools: `ctx_load`, `ctx_note`, `ctx_match`, `ctx_decisions`, `ctx_handof
 
 ## Model routing
 
+> **Subscription plans only.** Routing assumes Claude Code and Codex are signed in on a plan
+> (Claude Pro/Max/Team/Enterprise, ChatGPT Plus/Pro/Business/Enterprise), so routes are chosen
+> for task fit and speed, not per-token price. Don't run Agentify against pay-per-token API keys.
+> See [subscription requirement](./usage.md#subscription-requirement).
+
 Install writes a routing table into `.agentify.yaml` so the agent shells work out instead of doing everything inline:
 
 | Kind | Default route | Used for |
@@ -138,7 +143,7 @@ Install writes a routing table into `.agentify.yaml` so the agent shells work ou
 | `review` | Codex (CLI default model) | Independent post-change review by a different vendor |
 | `research` | Claude Haiku | Fast exploration, summarization, doc lookups |
 
-Defaults use version-independent aliases so they don't rot, and Codex's pinned tier models are kept current from the installed CLI's own ranked catalog (GPT-6 Astra is the frontier tier as of September 2026) — see [capability tiers](./usage.md#capability-tiers-and-the-provider-catalog). A missing CLI falls back to the other vendor **at the same capability tier**, so it never silently upgrades a review to frontier pricing. Gemini CLI and OpenCode are opt-in providers and never join default routes until the repo enables them. Routing profiles (`cost`, `balanced`, `performance`) choose inside the hard budget ceilings, never widening them, and feed only on locally recorded `agentify eval` runs — recommendations never rewrite your config. Every delegation is logged with duration, tokens, and cost. Routes, tiers, fallback chains, and budgets: [usage.md](./usage.md#model-routing).
+Defaults use version-independent aliases so they don't rot, and Codex's pinned tier models are kept current from the installed CLI's own ranked catalog (GPT-6 Astra is the frontier tier as of September 2026) — see [capability tiers](./usage.md#capability-tiers-and-the-provider-catalog). A missing CLI falls back to the other vendor **at the same capability tier**, so it never silently upgrades a review to a heavier model. Gemini CLI and OpenCode are opt-in providers and never join default routes until the repo enables them. Routing profiles (`cost`, `balanced`, `performance`) choose inside the hard budget ceilings, never widening them, and feed only on locally recorded `agentify eval` runs — recommendations never rewrite your config. Every delegation is logged with duration, tokens, and cost. Routes, tiers, fallback chains, and budgets: [usage.md](./usage.md#model-routing).
 
 ## Value report
 
