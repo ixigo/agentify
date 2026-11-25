@@ -2,273 +2,101 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · Usage guide</title>
-  <meta name="description" content="How and when to use each Agentify capability: persistent context, failure memory, impact-aware tests, cross-vendor review, decision log, MCP tools, ACP sessions, and usage stats.">
-  <link rel="stylesheet" href="command-style.css">
-  <style>
-    .why-block { margin-top: 14px; }
-    .why-block .tag { margin-bottom: 8px; }
-    .evidence-note {
-      margin: 18px 0 0; padding: 14px 18px;
-      border: 1px dashed var(--rule); border-radius: 0;
-      color: var(--muted); font-size: 13.5px;
-    }
-    .usage-section h3 { margin-top: 26px; }
-    .usage-section pre { margin-top: 12px; }
-    .usage-section p { max-width: 72ch; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>How it works · Agentify</title>
+  <meta name="description" content="What Agentify does on its own in a Claude Code or Codex session: loads context, tracks work, flags repeat failures, checks changes and writes a handoff.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
 </head>
-<body>
-  <header class="topbar" aria-label="Site header">
-    <div class="topbar-inner">
-      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
-      <nav class="topnav" aria-label="Primary navigation">
-        <a href="../index.html">Home</a>
-        <a href="analyze.html">Analyze</a>
-        <a href="config.html">Config</a>
-        <a href="usage.html" aria-current="page">Usage</a>
-        <a href="migrate.html">Migrate</a>
-        <a href="../skill-catalog.html">Skills</a>
-      </nav>
-      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
+<body data-root="../" data-page="how">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead"><span class="crumb"><a href="../index.html">Home</a> / How it works</span><h1>A session, start to finish.</h1><p>Hooks in Claude Code and Codex call Agentify at five moments. You don't run anything; it's all in <code>.agentify/</code> as plain JSONL if you want to look.</p></div>
+    <p class="crumb" style="margin-top:-0.2rem">The sessions shown are illustrative.</p>
+    <div class="timeline">
+      <div class="tl" id="how-start"><span class="dot">01</span><div class="txt"><span class="eyebrow">Session start</span><h3>Loads what matters</h3><p>Notes, decisions and hot files that match the task are injected, chosen within a token budget so a long note never crowds out the task.</p></div>
+        <div class="mini"><span class="ln k">## Agentify context (relevant to this task)</span><span class="ln"><span class="b">[decision]</span> ADR-42: fixed 30s retry delay</span><span class="ln d">3 of 214 notes · 412 tokens</span></div></div>
+      <div class="tl"><span class="dot">02</span><div class="txt"><span class="eyebrow">While it works</span><h3>Tracks edits and commands</h3><p>Every edit and command is recorded. Files that keep coming up become hot files for next time.</p></div>
+        <div class="mini"><span class="ln d">edit  src/worker/retry.js</span><span class="ln d">exec  npm test (exit 0)</span><span class="ln g">tracked · 0 model calls</span></div></div>
+      <div class="tl"><span class="dot">03</span><div class="txt"><span class="eyebrow">Before a rerun</span><h3>Flags repeat failures</h3><p>When the agent is about to run a command that failed before, it sees the earlier error first.</p></div>
+        <div class="mini"><span class="ln"><span class="d">$</span> npm test -- --runInBand</span><span class="ln w">⚠ failed last session · ERR_SOCKET_TIMEOUT</span></div></div>
+      <div class="tl"><span class="dot">04</span><div class="txt"><span class="eyebrow">Before “done”</span><h3>Checks its own change</h3><p>The agent runs <code>risk</code> for the blast radius and <code>test --since</code> for only the affected tests.</p></div>
+        <div class="mini"><span class="ln"><span class="d">$</span> agentify risk --since main</span><span class="ln b">3 files · 2 callers · suggested: test/retry.test.js</span></div></div>
+      <div class="tl"><span class="dot">05</span><div class="txt"><span class="eyebrow">Session end</span><h3>Writes a handoff</h3><p>A short summary built from what was tracked, so the next session starts warm. No model call.</p></div>
+        <div class="mini"><span class="ln d">handoff · 6 edits, 1 decision, 1 failure avoided</span><span class="ln g">written · 0 model calls</span></div></div>
     </div>
-  </header>
-
-  <header aria-label="Usage guide introduction">
-    <div class="container hero-grid">
-      <div>
-        <span class="eyebrow">Usage guide</span>
-        <h1>Every capability, with <span class="accent">when, why, and how.</span></h1>
-        <p class="lede">Agentify is installed once and then driven by your agent. This page explains what each capability does, when it earns its keep, and how to use it — <strong>every terminal output shown was captured from a real run</strong> in a small payment-service demo repo. The review findings are Codex's actual words; the costs are the provider's actual numbers.</p>
-      </div>
-      <aside class="terminal panel">
-        <div class="terminal-top"><span>setup — once per repo</span><span>~10s</span></div>
-        <pre><span class="c"># install the CLI</span>
-curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash
-
-<span class="c"># wire up the repo (hooks + guidance)</span>
-cd /path/to/your/repo
-<span class="a">agentify install</span>
-<span class="a">agentify scan</span>       <span class="c"># structural index: powers query/risk/test</span>
-
-<span class="c"># Codex or both</span>
-agentify install --provider codex
-agentify install --provider all</pre>
-      </aside>
-    </div>
-  </header>
-
-  <main>
-    <section class="shell usage-section" id="migrate">
-      <div class="container">
-        <span class="section-label">session migration</span>
-        <h2>Continue your Codex threads in Claude.</h2>
-        <p>Select a project folder and its subfolders with <code>agentify migrate /path/to/project --open</code>. The <a href="migrate.html">migration usage guide</a> covers installation, authentication, previews, Desktop opening, and reverse migration.</p>
+    <section class="sec">
+      <div class="sec-head"><span class="eyebrow">When you want to</span><h2>Things you can run yourself</h2><p>Your agent runs most of these. They're here when you want a look or a nudge.</p></div>
+      <div class="yours">
+        <div class="cmdcard"><code>agentify ctx decision "chose X over Y because Z"</code><p>Record a decision that should outlive the session.</p></div>
+        <div class="cmdcard"><code>agentify delegate review --diff main</code><p>Get a second opinion from the other vendor.</p></div>
+        <div class="cmdcard"><code>agentify stats</code><p>See how often Agentify ran on this machine and what it did.</p></div>
       </div>
     </section>
-    <section class="shell usage-section" id="context">
-      <div class="container">
-        <span class="section-label">persistent context</span>
-        <h2>Sessions that <span class="accent">remember.</span></h2>
-        <p><strong>Why:</strong> a raw agent session starts from zero — it re-reads the codebase, re-derives conventions, and re-asks questions a previous session already answered. Agentify tracks what every session did (file edits, commands, notes) and gives the next session a digest.</p>
-        <p><strong>How:</strong> automatic once installed. Hooks record activity; each prompt you type is matched against the store and only <em>related</em> context is injected. You occasionally leave notes:</p>
-        <pre><span class="a">agentify ctx note</span> "payment idempotency key logic lives in src/pay/retry.js — never regenerate per attempt"
-<span class="a">agentify ctx load</span>       <span class="c"># see exactly what the agent sees</span></pre>
-        <p><strong>What the next session sees</strong> (real digest from the demo repo):</p>
-        <pre>## Agentify context (from previous sessions)
+    <section class="sec" id="routing">
+      <div class="sec-head"><span class="eyebrow">Model routing</span><h2>The right model for each job</h2><p><code>agentify install</code> writes a routing table to <code>.agentify.yaml</code>. Your agent hands work out instead of doing everything itself.</p></div>
+      <div class="tw"><table>
+        <thead><tr><th>Kind</th><th>Default</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>quick</code></th><td>Claude Haiku</td><td class="mu">Small edits, mechanical changes, quick questions</td></tr>
+          <tr><th scope="row"><code>implement</code></th><td>Claude Sonnet</td><td class="mu">Standard features and multi-file refactors</td></tr>
+          <tr><th scope="row"><code>heavy</code></th><td>Claude Fable</td><td class="mu">Architecture, deep debugging, high-risk changes</td></tr>
+          <tr><th scope="row"><code>review</code></th><td>Codex</td><td class="mu">An independent review from the other vendor</td></tr>
+          <tr><th scope="row"><code>research</code></th><td>Claude Haiku</td><td class="mu">Exploration, summaries, doc lookups</td></tr>
+        </tbody></table></div>
+      <details><summary>What if a CLI is missing or logged out?</summary><p>Each run checks the provider first. If it isn't ready, Agentify falls back to the other vendor at the same capability tier, so a review never silently jumps to a bigger model. Every route has hard limits on turns, time and estimated cost.</p></details>
+      <details><summary>Change the routes</summary><p>Edit <code>models.routes</code> in <code>.agentify.yaml</code>, or see <a href="config.html">Tune it</a>. <code>agentify models</code> shows the current table and which CLIs are ready.</p></details>
+    </section>
 
-### Decisions on record (query with `agentify ctx decisions "&lt;topic&gt;"`)
-- [2026-07-07] [decision] chose idempotency keys stored client-side over server-side
-  dedup because the gateway retries before our server sees the request
-
-### Notes left for this session
-- [2026-07-07] payment idempotency key logic lives in src/pay/retry.js — never regenerate per attempt
-- [2026-07-07] legacy card vault code is in src/pay/vault-legacy.js, do not touch without
-  compliance <span class="w">— STALE? references missing path(s): src/pay/vault-legacy.js; verify before trusting</span>
-
-### Commands that failed and were not retried successfully
-- [2026-07-07] `npm run migrate` (exit 1) — error: relation "orders" already exists</pre>
-        <p><strong>When to intervene:</strong> almost never. <code>agentify ctx pause</code> for scratch work, <code>agentify ctx clear</code> to archive and reset, <code>AGENTIFY_CTX=off</code> for one clean session. Matching is BM25-ranked with light stemming — "payment <em>retries</em>" finds the <em>retry</em> module's notes — and injected items dedupe per session, so a CSS question pulls nothing.</p>
+    <section class="sec" id="other-agents">
+      <div class="sec-head"><span class="eyebrow">Beyond Claude Code and Codex</span><h2>Other agents can use it too</h2></div>
+      <div class="cards">
+        <div class="card"><span class="eyebrow">MCP</span><h3>Any MCP-capable agent</h3><p>Run <code>agentify serve</code>, or <code>agentify install --mcp</code> to register it. Tools: <code>ctx_load</code>, <code>ctx_note</code>, <code>ctx_match</code>, <code>ctx_decisions</code>, <code>ctx_handoff</code>, <code>query</code>, <code>risk</code>, <code>test_select</code>.</p></div>
+        <div class="card"><span class="eyebrow">Opt-in</span><h3>Why MCP is off by default</h3><p>Hooks already cover Claude Code and Codex, so install doesn't register MCP for them unless you ask. A Codex build without hooks still gets it.</p></div>
+        <div class="card"><span class="eyebrow">ACP</span><h3>Full agent sessions</h3><p><code>agentify acp --provider codex</code> sits between an ACP client and the agent and forwards messages unchanged. Context injection and capture are opt-in.</p></div>
       </div>
     </section>
 
-    <section class="shell usage-section" id="failure-memory">
-      <div class="container">
-        <span class="section-label">failure memory</span>
-        <h2>Dead ends stay <span class="accent">dead.</span></h2>
-        <p><strong>Why:</strong> agents retry commands that failed sessions ago, verbatim, and burn the same minutes and tokens rediscovering the same wall. Nothing in a raw agent remembers <em>results</em> across sessions.</p>
-        <p><strong>How:</strong> automatic. Bash results are tracked with exit codes; when the agent is about to rerun the exact command that failed in a previous session, a <code>PreToolUse</code> hook injects a warning before it executes (real output):</p>
-        <pre>Agentify: this exact command failed in a previous session (2026-07-07) (exit 1):
-error: relation "orders" already exists. If the underlying cause was not fixed
-since, try a different approach instead of retrying it as-is.</pre>
-        <p><strong>When it matters most:</strong> expensive commands — migrations, deploys, long suites — where a doomed retry costs real time. One later success clears the failure; warnings dedupe per session and never fire for failures the current session already saw. Manual check: <code>agentify ctx precheck "&lt;command&gt;"</code>.</p>
+    <section class="sec">
+      <div class="sec-head"><span class="eyebrow">Your data</span><h2>Local, plain, removable</h2></div>
+      <div class="cards">
+        <div class="card"><h3>Plain JSONL</h3><p>Everything lives in <code>.agentify/</code>. Notes and decisions are shared across every worktree of the repo.</p></div>
+        <div class="card"><h3>No server</h3><p>No daemon and no account. Agentify itself only goes online for the opt-in <code>version --check</code>; delegated runs use your provider CLIs.</p></div>
+        <div class="card"><h3>Pause or remove</h3><p><code>agentify ctx pause</code> stops tracking; <code>agentify uninstall</code> removes only what Agentify added.</p></div>
       </div>
+      <div class="next"><a href="../index.html">← Home</a><a href="proof.html">Next: the proof →</a></div>
     </section>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
 
-    <section class="shell usage-section" id="test">
-      <div class="container">
-        <span class="section-label">impact-aware tests</span>
-        <h2>Run the tests the change <span class="accent">actually touches.</span></h2>
-        <p><strong>Why:</strong> agents default to the full suite after every change because they can't tell which tests matter. On a multi-minute suite that's the slowest part of the loop.</p>
-        <p><strong>How:</strong> <code>agentify test</code> walks the import graph in the structural index from your changed files to the tests that exercise them. Real run — a repo with two test files where only <code>src/pay/retry.js</code> changed:</p>
-        <pre><span class="a">$ agentify test</span>
-Selected tests: 1 file(s) from 1 changed file(s)
-- test/retry.test.js (imports changed code)
-Run:
-- node --test test/retry.test.js
-
-<span class="a">$ agentify test --run</span>     <span class="c"># executed; test/dash.test.js was never run</span>
-ℹ pass 1
-Selected tests passed.</pre>
-        <p><strong>When to use:</strong> the guidance block teaches the agent to run <code>agentify test --since &lt;ref&gt; --run</code> before finishing a change. Selection reasons are explicit (changed / imports changed code / covers a changed file), <code>node --test</code> runners are invoked directly while jest/vitest/mocha get file filters appended, and when no related tests exist it says so and recommends the full suite — silence is never treated as coverage. Requires <code>agentify scan</code>.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="review">
-      <div class="container">
-        <span class="section-label">cross-vendor review</span>
-        <h2>A second vendor's eyes, <span class="accent">before the push.</span></h2>
-        <p><strong>Why:</strong> the model that wrote the code reviews it with the same blind spots. A different vendor's model catches different things — and pre-push is cheaper than PR review.</p>
-        <p><strong>How:</strong> <code>agentify review --diff &lt;ref&gt;</code> any time, or opt in with <code>hooks.prePush: true</code> + <code>agentify hooks install</code> to run it on every <code>git push</code>. This is Codex's unedited review of a commit that added <code>ts: Date.now()</code> to a retry payload:</p>
-        <pre><span class="a">$ agentify review --diff HEAD~1</span>
-cross-vendor review by codex — diff since HEAD~1
-
-**Findings**
-- Medium: src/pay/retry.js now adds `ts: Date.now()` to the retry return value.
-  This makes retryPayment(2, "k1") non-deterministic and changes the public shape
-  from { attempt, key } to { attempt, key, ts }. For payment retry/idempotency
-  code, that is risky: callers that serialize, compare, dedupe, cache, or sign
-  the retry payload can now see different values for the same attempt/key.</pre>
-        <p><strong>When to enable the hook:</strong> repos where a second opinion is worth a few seconds and cents per push. It's advisory — findings print, the push proceeds regardless, and it stays silent when there's nothing to review. It's opt-in (default off) precisely because it costs real time and tokens.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="decisions">
-      <div class="container">
-        <span class="section-label">decision log</span>
-        <h2>"Why did we choose X" gets an <span class="accent">answer, not a debate.</span></h2>
-        <p><strong>Why:</strong> settled trade-offs get relitigated by every new session — and by agents happy to "improve" a choice they know nothing about.</p>
-        <p><strong>How:</strong></p>
-        <pre><span class="a">agentify ctx decision</span> "chose idempotency keys stored client-side over server-side dedup
-  because the gateway retries before our server sees the request"
-
-<span class="a">$ agentify ctx decisions</span> "why client side idempotency keys"
-Decisions matching "why client side idempotency keys":
-- [2026-07-07] chose idempotency keys stored client-side over server-side dedup
-  because the gateway retries before our server sees the request</pre>
-        <p><strong>When to record one:</strong> any choice a future session could plausibly reverse without context — library picks, storage formats, API shapes, rejected alternatives. Decisions get their own digest section, are staleness-checked like notes, and with <code>agentify ctx share</code> the committed notes file becomes a lightweight, queryable team ADR log.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="stats">
-      <div class="container">
-        <span class="section-label">usage stats</span>
-        <h2>Routing you can <span class="accent">audit.</span></h2>
-        <p><strong>Why:</strong> model routing (cheap work → cheap models, reviews → the other vendor) only pays off if you can see it working.</p>
-        <p><strong>How:</strong> every <code>agentify delegate</code> run is logged locally with duration, tokens, and cost — the provider's real numbers where its CLI reports them, labeled ~4 chars/token estimates otherwise. Real output after one Haiku research call and one Codex review:</p>
-        <pre><span class="a">$ agentify stats</span>
-Agentify stats — last 30 day(s)
-
-Delegations:
-- total: 2 run(s), 50.1k in / 530 out, cost $0.0212 (1/2 reported)
-
-By kind:
-- research: 1 run(s), 49.9k in / 301 out, cost $0.0212
-- review:   1 run(s), 199 in / 229 out, cost n/a
-
-By model:
-- claude/haiku: 1 run(s), 49.9k in / 301 out, cost $0.0212
-- codex:        1 run(s), 199 in / 229 out, cost n/a
-
-Note: token counts for 1 run(s) are estimates (~4 chars/token); the provider
-CLI reported no usage.</pre>
-        <p><strong>When to look:</strong> <code>agentify stats --days 7</code> in retro; failures and cross-vendor fallbacks are counted per bucket, so a route whose CLI keeps falling back stands out immediately.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="mcp">
-      <div class="container">
-        <span class="section-label">mcp server</span>
-        <h2>Not just Claude Code and Codex — <span class="accent">anything MCP.</span></h2>
-        <p><strong>Why:</strong> hooks are Claude Code-specific and <code>AGENTS.md</code> guidance is best-effort. MCP tool-calling is reliable and works in Cursor, Zed, Windsurf, Claude Desktop, Gemini CLI — anywhere.</p>
-        <p><strong>How:</strong> register <code>agentify serve</code> as a stdio MCP server in your client. Real tool list from a live session:</p>
-        <pre><span class="a">$ claude mcp add agentify -- agentify serve</span>   <span class="c"># or your client's equivalent</span>
-
-tools: ctx_load, ctx_note, ctx_match, query, risk, test_select, ctx_decisions, ctx_handoff</pre>
-        <p><strong>When to use hooks vs MCP:</strong> in Claude Code prefer hooks (automatic tracking, free per-prompt injection); use MCP everywhere else. Both together is fine. The server is bundled with the CLI, keeps no protocol session state between calls, and serves legacy 2025-era clients alongside stateless MCP <code>2026-07-28</code> clients with discovery, request validation, and cacheable tool lists.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="acp">
-      <div class="container">
-        <span class="section-label">acp proxy</span>
-        <h2>The whole agent session, <span class="accent">not just tools.</span></h2>
-        <p><strong>Why:</strong> MCP adds Agentify tools to an existing agent. ACP is the editor-to-agent transport, so Agentify can sit between an ACP-capable client and Claude or Codex, carry the full session, inject prior context, and capture what the agent changes.</p>
-        <p><strong>How:</strong> install a downstream adapter, then configure the ACP client to launch Agentify from the repository root:</p>
-        <pre tabindex="0"><code><span class="c"># Codex adapter</span>
-npm install -g @agentclientprotocol/codex-acp
-<span class="a">agentify acp --provider codex</span>
-
-<span class="c"># opt in through .agentify.yaml</span>
-context:
-  acpInjection: relevant  <span class="c"># off | relevant | digest</span>
-  acpCapture: auto        <span class="c"># off | auto | all | compare</span></code></pre>
-        <p><strong>What the epic adds:</strong> transparent byte-for-byte proxying, token-budgeted context on the first user turn, and observation-only capture of edits, commands, failures, and outcomes. <code>auto</code> writes directly for hookless Codex sessions; Claude's hooks remain the main writer and the proxy uses a diagnostic side-log, avoiding duplicate events.</p>
-        <p><strong>Safety:</strong> both features default to <code>off</code>, honor <code>ctx pause</code>, and accept only the repository root or a real subdirectory. Symlink escapes cannot receive or write this repo's context. Client registration remains manual; <code>agentify install</code> does not claim to edit editor-specific ACP config.</p>
-      </div>
-    </section>
-
-    <section class="shell usage-section" id="reference">
-      <div class="container">
-        <span class="section-label">reference</span>
-        <h2>The rest of the <span class="accent">toolbox.</span></h2>
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">index</div>
-            <p><code>agentify scan</code> builds the SQLite structural index; <code>query search|def|refs|callers|impacts|owner|deps|changed</code> answer structural questions; <code>risk --since &lt;ref&gt;</code> scores blast radius and recommends regression tests.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">delegate</div>
-            <p><code>agentify delegate quick|implement|heavy|review|research "task"</code> shells work to the routed model (Haiku / Sonnet / Opus / Codex by default). Read-only unless <code>--write</code>. <code>agentify models</code> shows the table.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">team</div>
-            <p><code>agentify ctx share</code> makes <code>notes.jsonl</code> committable — notes and decisions become team memory. Events, summaries, and handoffs always stay local.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">control</div>
-            <p><code>ctx pause|resume|clear</code> for a clean slate, <code>AGENTIFY_CTX=off</code> for one session, <code>context.injection: digest|off</code> in <code>.agentify.yaml</code> to change injection.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">workflows</div>
-            <p><code>agentify workflow install</code> auto-detects <a href="workflow-gh.html">GitHub</a>, <a href="workflow-glab.html">GitLab</a>, or <a href="workflow-azure.html">Azure DevOps</a> and installs the board-to-draft-PR skill bundle.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">undo</div>
-            <p><code>agentify uninstall</code> removes exactly what install added — the marker-delimited block and Agentify's own hook entries. Your config survives.</p>
-          </div>
-        </div>
-        <p class="evidence-note">Evidence methodology: outputs on this page were produced by running the released CLI against a small payment-service fixture repo (two modules, two test files, a seeded failing migration). The Codex review and Haiku research call are real provider CLI invocations; nothing was hand-written or paraphrased. The full command reference lives in the <a href="https://github.com/ixigo/agentify/blob/main/docs/usage.md">Markdown usage guide</a>.</p>
-      </div>
-    </section>
-  </main>
-
-  <section class="poster">
-    <div class="container">
-      <div class="poster-kicker">agentify install &amp;&amp; agentify scan</div>
-      <h2>Every capability, driven by your agent.</h2>
-      <a class="poster-cta" href="config.html">Configure Agentify <span class="mono">↗</span></a>
-    </div>
-  </section>
-
-  <footer class="site-footer">
-    <div class="container">
-      <span class="foot-brand">AGENTIFY</span>
-      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
-    </div>
-  </footer>
-
-  <script src="site.js"></script>
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
 </body>
 </html>

@@ -1,158 +1,103 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · Skill command</title>
-  <meta name="description" content="agentify skill — list and install built-in skills. Verified against src/main.js dispatch and src/core/skills.js.">
-  <link rel="stylesheet" href="command-style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>The skill command · Agentify</title>
+  <meta name="description" content="agentify skill — list the built-in skills and install the ones you want. Scopes, providers, aliases and dry-run, verified against the CLI.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
-      <nav class="topnav" aria-label="Primary navigation">
-        <a href="../index.html">Home</a>
-        <a href="analyze.html">Analyze</a>
-        <a href="config.html">Config</a>
-        <a href="usage.html">Usage</a>
-        <a href="../skill-catalog.html">Skills</a>
-      </nav>
-      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
+<body data-root="../" data-page="guides">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead">
+      <span class="crumb"><a href="../index.html">Home</a> / Guides / Skill command</span>
+      <h1>The <code>skill</code> command.</h1>
+      <p>Two moves: <code>list</code> shows every built-in skill, and <code>install</code> writes the ones you want onto disk for your agent. Browse them first in the <a href="../skill-catalog.html">skill catalog</a>.</p>
     </div>
-  </header>
 
-  <header>
-    <div class="container hero-grid">
-      <div>
-        <span class="eyebrow">agentify skill</span>
-        <h1>List and install <span class="accent">built-in skills.</span></h1>
-        <p class="lede">Two subcommands: <code>list</code> and <code>install</code>. Dispatched in <code>src/main.js</code>; implemented in <code>src/core/skills.js</code>.</p>
-        <div class="cta-row">
-          <a class="cta cta-primary" href="#subcommands">subcommands</a>
-          <a class="cta cta-secondary" href="../skill-catalog.html">skill catalog</a>
-        </div>
-        <div class="hero-meta">
-          <span>module <code>src/core/skills.js</code></span>
-          <span>scopes <code>project</code> · <code>user</code></span>
-          <span>install target <code>all</code> or named skill</span>
-        </div>
-      </div>
-      <aside class="terminal" aria-label="Skill quick start">
-        <div class="terminal-top">
-          <span>skill quick start</span>
-          <span>2 subcommands</span>
-        </div>
-<pre><span class="c"># list built-in skills, providers, aliases</span>
-<span class="a">agentify skill list --json</span>
-
-<span class="c"># install a single skill at project scope</span>
-agentify skill install caveman --provider codex --scope project
-agentify skill install glab-autopilot --provider codex --scope project
-agentify skill install ado-autopilot --provider codex --scope project
-agentify skill install figma-ui-build --provider codex --scope project
-agentify skill install ui-screenshot-eval --provider codex --scope project
-
-<span class="c"># install everything for a provider</span>
-agentify skill install all --provider claude --scope user
-
-<span class="c"># preview without writing</span>
-agentify skill install all --provider codex --dry-run</pre>
+    <div class="guide">
+      <aside class="gnav" aria-label="Guides">
+        <span class="eyebrow">Guides</span>
+        <a href="migrate.html">Switch tools</a>
+        <a href="workflow-gh.html">Board to PR</a>
+        <a href="config.html">Tune it</a>
+        <a href="analyze.html">See your usage</a>
+        <a href="../skill-catalog.html" aria-current="page">Skills</a>
       </aside>
-    </div>
-  </header>
 
-  <main>
-    <section class="shell" id="subcommands">
-      <div class="container">
-        <span class="section-label">subcommands</span>
-        <h2>Two moves: <span class="accent">list and install.</span></h2>
+      <div class="gsteps">
+        <div class="gstep"><span class="n">List</span><h3>See what's available</h3><p>Prints every built-in skill with its supported providers (<code>codex</code>, <code>claude</code>, <code>gemini</code>, <code>opencode</code>), any aliases and a one-line description. Add <code>--json</code> for the full record.</p><div class="install"><span id="s1">agentify skill list</span><button class="copy" type="button" data-copy="s1">Copy</button></div></div>
 
-        <div class="move-grid">
-          <div class="move">
-            <span class="tag">inspect</span>
-            <h3>skill list</h3>
-            <p><strong>Dispatch:</strong> <code>src/main.js:787</code> · <code>listBuiltinSkills()</code>.</p>
-            <p><strong>Flags:</strong> <code>--root</code>, <code>--json</code>.</p>
-            <p>Returns built-in skill names, provider compatibility, and aliases. With <code>--json</code> emits the full record.</p>
-            <span class="cmd">agentify skill list</span>
-          </div>
-          <div class="move">
-            <span class="tag">install</span>
-            <h3>skill install &lt;name|all&gt;</h3>
-            <p><strong>Dispatch:</strong> <code>src/main.js:803</code> · <code>installBuiltinSkill(root, { name, provider, scope, force, dryRun, defaultProvider })</code>.</p>
-            <p><strong>Flags:</strong> <code>--provider &lt;value&gt;</code>, <code>--scope &lt;project|user&gt;</code> (default project), <code>--force</code>, <code>--dry-run</code>, <code>--root</code>, <code>--json</code>.</p>
-            <p><strong>Writes:</strong> skill files into <code>.agentify/skills/&lt;scope&gt;/&lt;provider&gt;/</code> for project scope, or the user-level skills directory.</p>
-            <span class="cmd">agentify skill install all --provider codex --scope project</span>
-            <span class="cmd">agentify skill install gitlab-triage --provider codex --scope project</span>
-            <span class="cmd">agentify skill install azure-devops-triage --provider codex --scope project</span>
-            <span class="cmd">agentify skill install figma-ui-build --provider codex --scope project</span>
-          </div>
+        <div class="gstep"><span class="n">Install</span><h3>Put one on disk, or all of them</h3><p>Pass a skill name or <code>all</code>. Names resolve through aliases, so <code>ado</code> installs <code>ado-autopilot</code> and prints the resolution. Scope defaults to <code>project</code>.</p><div class="install"><span id="s2">agentify skill install tdd</span><button class="copy" type="button" data-copy="s2">Copy</button></div></div>
+
+        <div class="gstep"><span class="n">--provider</span><h3>Pick the agent</h3><p>One of <code>codex</code>, <code>claude</code>, <code>gemini</code>, <code>opencode</code>, or <code>all</code>. Leave it off and Agentify uses the <code>defaultProvider</code> from your config. Files land in that provider's folder.</p><div class="install"><span id="s3">agentify skill install qa --provider claude</span><button class="copy" type="button" data-copy="s3">Copy</button></div></div>
+
+        <div class="gstep"><span class="n">--scope</span><h3>Repo or user</h3><p><code>project</code> (the default) writes into the repo, so teammates pick up the same skills. <code>user</code> installs into your per-user skills directory and stays out of source control.</p><div class="install"><span id="s4">agentify skill install qa --scope user</span><button class="copy" type="button" data-copy="s4">Copy</button></div></div>
+
+        <div class="callout"><b>Skills are opt-in.</b> Nothing is written until you run <code>install</code>. During a session the catalog is matched to your plain requests automatically — installing just makes a skill travel with the repo or your account.</div>
+
+        <div class="prose">
+          <h2>Examples</h2>
+          <p>Every flag below is accepted by <code>skill list</code> and <code>skill install</code>; <code>--json</code> and <code>--root</code> work on both.</p>
         </div>
+<pre class="block"><span class="d"># see every built-in skill, its providers and aliases</span>
+agentify skill list
+<span class="d"># machine-readable output</span>
+agentify skill list --json
+<span class="d"># install one skill at project scope (the default)</span>
+agentify skill install tdd
+<span class="d"># choose provider and scope explicitly</span>
+agentify skill install pr-creator --provider claude --scope user
+<span class="d"># install every built-in for a provider</span>
+agentify skill install all --provider codex
+<span class="d"># overwrite a skill that is already installed</span>
+agentify skill install tdd --force
+<span class="d"># preview the writes without touching disk</span>
+agentify skill install all --provider codex --dry-run</pre>
+
+        <div class="prose"><h2>Edge cases</h2></div>
+        <details><summary>A skill is already installed</summary><p>By default an existing skill file is left untouched and reported as skipped. Pass <code>--force</code> to overwrite it with the current built-in version.</p></details>
+        <details><summary>Try it without writing</summary><p><code>--dry-run</code> resolves the planned provider, scope and target paths and reports them without touching disk — useful as a CI pre-flight before committing a skill set.</p></details>
+        <details><summary>Short names and aliases</summary><p>Many skills carry aliases (for example <code>ado</code> for <code>ado-autopilot</code>, <code>glab-triage</code> for <code>gitlab-triage</code>). Install resolves them and prints <code>Resolved alias &lt;requested&gt; -&gt; &lt;name&gt;</code>. Run <code>agentify skill list</code> to see each skill's aliases.</p></details>
+        <details><summary>Where files land</summary><p>At <code>project</code> scope, skills are written under the repo: <code>.codex/skills</code>, <code>.claude/skills</code>, <code>.gemini/skills</code> or <code>.opencode/skills</code>, depending on the provider. At <code>user</code> scope they go to that provider's per-user skills directory in your home folder.</p></details>
+
+        <div class="next"><a href="../index.html">← Home</a><a href="../skill-catalog.html">Browse the skill catalog →</a></div>
       </div>
-    </section>
-
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">decision points</span>
-        <h2>Pick the scope and <span class="accent">provider.</span></h2>
-
-        <div class="campaign">
-          <div class="campaign-row">
-            <div class="key">scope</div>
-            <p><code>project</code> writes into the repo so teammates pick up the same skills. <code>user</code> installs to the per-user skill directory and stays out of source control.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">provider</div>
-            <p>Skills are templated per-provider. Pass <code>--provider</code> to target one provider or rely on <code>defaultProvider</code> from <code>.agentify.yaml</code>.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">GitLab</div>
-            <p>Use <code>glab-autopilot</code> and <code>gitlab-triage</code> for GitLab issue and MR workflows. Verify <code>glab auth status</code> and <code>glab repo view</code> in the target repo first.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">Azure</div>
-            <p>Use <code>ado-autopilot</code> and <code>azure-devops-triage</code> for Azure Boards and Azure Repos workflows. Verify <code>az extension show --name azure-devops</code>, <code>az account show</code>, and <code>az devops configure --list</code>.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">force</div>
-            <p><code>--force</code> overwrites an existing installed file. Without it, an existing file is preserved and a skip is reported.</p>
-          </div>
-          <div class="campaign-row">
-            <div class="key">dry-run</div>
-            <p>Resolves the planned writes (paths, providers, scope) without touching disk; ideal for CI pre-flight.</p>
-          </div>
-        </div>
-
-        <nav class="page-nav" aria-label="Command pagination">
-          <a class="nav-btn prev" href="../index.html">
-            <span class="nav-dir">home</span>
-            <span class="nav-title">Agentify overview</span>
-          </a>
-          <a class="nav-btn next" href="../skill-catalog.html">
-            <span class="nav-dir">catalog</span>
-            <span class="nav-title">All built-in skills</span>
-          </a>
-        </nav>
-      </div>
-    </section>
-  </main>
-
-  <section class="poster">
-    <div class="container">
-      <div class="poster-kicker">agentify skill install all --provider codex</div>
-      <h2>List and install built-in skills.</h2>
-      <a class="poster-cta" href="../skill-catalog.html">Browse the skill catalog <span class="mono">↗</span></a>
     </div>
-  </section>
 
-  <footer class="site-footer">
-    <div class="container">
-      <span class="foot-brand">AGENTIFY</span>
-      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
-    </div>
-  </footer>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
 
-  <script src="site.js"></script>
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
 </body>
 </html>

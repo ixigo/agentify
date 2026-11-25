@@ -1,213 +1,144 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · Azure DevOps workflow</title>
-  <meta name="description" content="The prebuilt Azure DevOps agent workflow — from board to draft PR with the az CLI. azure-devops-triage, grill-me, ado-autopilot, issue-killer, worktree-autopilot, pr-convention-learner, pr-creator, commit-creator.">
-  <link rel="stylesheet" href="command-style.css">
-  <style>
-    .flow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .flow-step { position: relative; }
-    .flow-step .step-no {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 22px; height: 22px; margin-right: 8px;
-      color: var(--bg); background: var(--accent); border-radius: 0;
-      font: 700 11px/1 var(--mono); vertical-align: middle;
-    }
-    @media (max-width: 900px) { .flow-grid { grid-template-columns: minmax(0, 1fr); } }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Board to PR · Azure DevOps · Agentify</title>
+  <meta name="description" content="Opt an Azure Boards work item in and the agent triages it, picks it up, implements it in an isolated worktree, checks reviewer conventions, and opens a draft PR with the az CLI.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="../index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
-      <nav class="topnav" aria-label="Primary navigation">
-        <a href="../index.html">Home</a>
-        <a href="analyze.html">Analyze</a>
-        <a href="config.html">Config</a>
-        <a href="usage.html">Usage</a>
+<body data-root="../" data-page="guides">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead">
+      <span class="crumb"><a href="../index.html">Home</a> / Guides / Board to PR</span>
+      <h1>From the board to a draft PR, hands-off.</h1>
+      <p>Install the workflow once. After that you opt a work item in on Azure Boards, and the agent triages it, picks it up, implements it in an isolated worktree, checks reviewer conventions, and opens a draft Azure Repos pull request — all driven through the <code>az</code> CLI.</p>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Platform">
+      <a href="workflow-gh.html">GitHub</a>
+      <a href="workflow-glab.html">GitLab</a>
+      <a href="workflow-azure.html" aria-current="page">Azure DevOps</a>
+    </div>
+
+    <div class="guide">
+      <aside class="gnav" aria-label="Guides">
+        <span class="eyebrow">Guides</span>
+        <a href="migrate.html">Switch tools</a>
+        <a href="workflow-gh.html" aria-current="page">Board to PR</a>
+        <a href="config.html">Tune it</a>
+        <a href="analyze.html">See your usage</a>
         <a href="../skill-catalog.html">Skills</a>
-      </nav>
-      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
-    </div>
-  </header>
-
-  <header>
-    <div class="container hero-grid">
-      <div>
-        <span class="eyebrow">Azure DevOps workflow</span>
-        <h1>From board to draft PR — the agent drives <span class="accent">the whole loop.</span></h1>
-        <p class="lede">One bundle wires Azure Boards work items to isolated worktrees and draft Azure Repos pull requests, all orchestrated with the <code>az</code> CLI. Opt in a work item, and the agent triages, picks it up, implements in isolation, checks reviewer conventions, and raises a draft PR.</p>
-        <div class="cta-row">
-          <a class="cta cta-primary" href="#flow">the flow</a>
-          <a class="cta cta-secondary" href="../skill-catalog.html">skill catalog</a>
-        </div>
-        <div class="hero-meta">
-          <span>cli <code>az</code> + azure-devops ext</span>
-          <span>opt-in tag <code>agentify-ready</code></span>
-          <span>output <code>draft PR</code></span>
-        </div>
-      </div>
-      <aside class="terminal" aria-label="Azure DevOps workflow quick start">
-        <div class="terminal-top">
-          <span>quick start</span>
-          <span>azure</span>
-        </div>
-<pre><span class="c"># install the CLI + wire up the repo</span>
-<span class="a">curl -fsSL https://raw.githubusercontent.com/ixigo/agentify/main/install.sh | bash</span>
-<span class="a">agentify install</span>
-
-<span class="c"># install the platform workflow (auto-detects from the git remote)</span>
-<span class="a">agentify workflow install</span>          <span class="c"># or: agentify workflow install azure</span></pre>
       </aside>
-    </div>
-  </header>
 
-  <main>
-    <section class="shell" id="flow">
-      <div class="container">
-        <span class="section-label">the flow</span>
-        <h2>Board to draft PR, <span class="accent">step by step.</span></h2>
-        <p class="section-lede">Each step is a skill in the bundle. Azure Boards process templates vary, so the workflow inspects fields first and mutates only what you approve.</p>
+      <div class="gsteps">
+        <div class="gstep">
+          <span class="n">One-time setup</span>
+          <h3>Install the Azure DevOps workflow</h3>
+          <p>From inside the repo, <code>agentify workflow install</code> detects Azure DevOps from your git remote and lays down the skill bundle. You need the <code>az</code> CLI with the <code>azure-devops</code> extension and an active sign-in first — the workflow checks the extension and <code>az account show</code> before it touches anything.</p>
+<pre class="block"><span class="d"># add the azure-devops extension, then sign in</span>
+az extension add --name azure-devops
+az login
 
-        <div class="flow-grid">
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">1</span>triage the board</span>
-            <h3>azure-devops-triage</h3>
-            <p>Inspects work-item fields, comments, states, and tags with <code>az</code>, then recommends changes by default. Maps GitHub-style states to whatever active states the process template uses (<code>New</code>, <code>Active</code>, <code>To Do</code>, <code>Committed</code>), and opts an item in with the <code>agentify-ready</code> tag when the project uses tags. New work items are shaped first: the <strong>grill-me</strong> skill interviews you one question at a time until the requirement is concrete, then files it with <code>az boards work-item create</code>.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">2</span>pick up an item</span>
-            <h3>ado-autopilot</h3>
-            <p>Resolves org, project, and repository from the Azure Repos remote or <code>az devops configure</code> defaults, then loads the work item with <code>az boards work-item show --id &lt;id&gt;</code> (or the PR with <code>az repos pr show</code>) and turns it into an execution checklist.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">3</span>implement in isolation</span>
-            <h3>worktree-autopilot</h3>
-            <p>Creates a fresh branch and <code>git worktree</code> off the correct base, implements the smallest viable change there, and verifies it with the repo's own formatting, linting, type checks, and tests. Commits with a conventional message and leaves the original checkout untouched.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">4</span>fan out in parallel</span>
-            <h3>issue-killer</h3>
-            <p>When several work items are opted in, launches one tmux pane and one worktree per item from an <code>az boards query --wiql</code> tag filter, each running an agent that opens a draft PR. Supervise them all with <code>tmux attach -t issue-killer</code>.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">5</span>check reviewer conventions</span>
-            <h3>pr-convention-learner</h3>
-            <p>Before the PR goes up, scans the changed files against the repo's accumulated <code>.conventions/conventions.md</code> and flags violations — <code>must-fix</code> for high-confidence rules, <code>consider</code> for the rest — so the agent fixes recurring review nits ahead of time.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">6</span>raise a draft PR</span>
-            <h3>pr-creator</h3>
-            <p>Validates <code>az</code>, the azure-devops extension, and sign-in, confirms base/source branch, title, and body, then creates a <strong>draft</strong> PR with <code>az repos pr create --draft true</code> and returns the link. Never opens a non-draft PR unless you explicitly ask.</p>
-          </div>
-          <div class="move flow-step">
-            <span class="tag"><span class="step-no">7</span>carry context across sessions</span>
-            <h3>agentify ctx</h3>
-            <p>Fan-outs and handoffs are recorded with <code>agentify ctx note</code> so a later session knows what is in flight. Every worktree gets its own <code>.agentify/</code> store, so notes and tracking stay per-checkout.</p>
-          </div>
+<span class="d"># from the repo: auto-detects Azure DevOps from the remote</span>
+agentify workflow install          <span class="d"># or: agentify workflow install azure</span></pre>
+          <div class="install"><span id="az-install">agentify workflow install</span><button class="copy" type="button" data-copy="az-install">Copy</button></div>
         </div>
-      </div>
-    </section>
 
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">bundle</span>
-        <h2>What <span class="accent">workflow install azure</span> lays down.</h2>
-        <p class="section-lede">Eight skills, installed together and templated for your provider.</p>
-
-        <div class="artifact-list">
-          <div class="artifact"><strong>azure-devops-triage</strong><span>Inspects Azure Boards fields, states, and tags.</span></div>
-          <div class="artifact"><strong>grill-me</strong><span>Interviews you until a new item is concrete, then files it with <code>az boards work-item create</code>.</span></div>
-          <div class="artifact"><strong>ado-autopilot</strong><span>Resolves work item / PR context with <code>az</code>.</span></div>
-          <div class="artifact"><strong>issue-killer</strong><span>Parallel tmux panes + worktrees for opted-in items.</span></div>
-          <div class="artifact"><strong>worktree-autopilot</strong><span>Isolated implement, verify, commit.</span></div>
-          <div class="artifact"><strong>pr-convention-learner</strong><span>Pre-PR check against learned reviewer conventions.</span></div>
-          <div class="artifact"><strong>pr-creator</strong><span>Draft PR creation with prerequisite checks.</span></div>
-          <div class="artifact"><strong>commit-creator</strong><span>Focused, Conventional-Commit staging and messages.</span></div>
+        <div class="prose">
+          <h2>What your agent does on its own</h2>
+          <p>Four moves take a shaped work item to a draft PR. You only do the first — opt the item in. Each move is a skill in the bundle; the agent runs them in order.</p>
         </div>
-      </div>
-    </section>
 
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">platform cli</span>
-        <h2>Readiness and <span class="accent">board queries.</span></h2>
-        <p class="section-lede">The workflow confirms the extension and sign-in before it touches anything on Azure DevOps.</p>
-        <aside class="terminal" aria-label="Azure DevOps CLI commands">
-          <div class="terminal-top">
-            <span>az</span>
-            <span>readiness · board</span>
-          </div>
-<pre><span class="c"># readiness</span>
-<span class="a">az extension show --name azure-devops</span>
-<span class="a">az account show</span>
-<span class="a">az devops configure --list</span>
+        <div class="gstep">
+          <span class="n">01 · Triage</span>
+          <h3>Opt a work item in</h3>
+          <p><strong>azure-devops-triage</strong> inspects work-item fields, comments, states, and tags with <code>az</code>, then recommends changes rather than assuming them — Azure Boards process templates vary. It maps the opt-in state onto whatever active state your template uses (<code>New</code>, <code>Active</code>, <code>To Do</code>, <code>Committed</code>), and tags an item with <code>agentify-ready</code> only when your project already uses tags. A rough item gets shaped first — <strong>grill-me</strong> asks one question at a time until it is concrete, then files it with <code>az boards work-item create</code>.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">02 · Pick it up</span>
+          <h3>Load the work item as a checklist</h3>
+          <p><strong>ado-autopilot</strong> resolves org, project, and repository from the Azure Repos remote or <code>az devops configure</code> defaults, loads the item with <code>az boards work-item show --id &lt;id&gt;</code> (or a PR with <code>az repos pr show</code>), and turns it into an execution checklist.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">03 · Implement</span>
+          <h3>Work in an isolated worktree</h3>
+          <p><strong>worktree-autopilot</strong> cuts a fresh branch and <code>git worktree</code> off the right base, makes the smallest change that fixes the item, and verifies it with the repo's own formatting, linting, type checks, and tests. It commits with a conventional message and leaves your checkout untouched.</p>
+        </div>
+        <div class="gstep">
+          <span class="n">04 · Raise it</span>
+          <h3>Check conventions, then open a draft PR</h3>
+          <p>First <strong>pr-convention-learner</strong> scans the changed files against the repo's accumulated <code>.conventions/conventions.md</code> and flags violations — <code>must-fix</code> for high-confidence rules, <code>consider</code> for the rest — so recurring review nits get fixed ahead of time. Then <strong>pr-creator</strong> re-checks <code>az</code>, the <code>azure-devops</code> extension, and sign-in, confirms the base and source branch, title, and body, and opens a <strong>draft</strong> PR with <code>az repos pr create --draft true</code>. Nothing is marked ready for review unless you ask.</p>
+        </div>
 
-<span class="c"># the opted-in board</span>
-<span class="a">az boards query --wiql "SELECT [System.Id], [System.Title] FROM WorkItems \
-  WHERE [System.Tags] CONTAINS 'agentify-ready' AND [System.State] = 'New'" -o json</span>
+        <div class="callout"><b>You never invoke it by name.</b> You don't type skill names or call a command per step. You describe what you want — "triage the board", "pick up that work item", "open the PR" — and the matching skill activates from its description. Opt the item in; the agent takes it from there.</div>
 
-<span class="c"># load one work item as a checklist</span>
+        <div class="prose">
+          <h2>A day with the workflow</h2>
+          <p>A bug lands on the board. You spend a minute on it; the agent spends the rest.</p>
+          <ol>
+            <li>Someone files a vague work item. You run a grilling pass until it is concrete, then move it to an active state (and tag it <code>agentify-ready</code> if your project uses tags).</li>
+            <li>You say "pick up the ready item." The agent loads it, branches into a worktree, implements and verifies the fix.</li>
+            <li>It checks the changes against learned conventions, opens a draft PR, and drops the link in the thread. You review, nudge, and mark it ready when you're happy.</li>
+          </ol>
+        </div>
+
+        <details><summary>What the bundle installs</summary><p>Eight skills, templated for your provider: <code>azure-devops-triage</code> (inspect Boards fields, states, and tags), <code>grill-me</code> (shape a new item, then file it with <code>az boards work-item create</code>), <code>ado-autopilot</code> (resolve work item/PR context with <code>az</code>), <code>issue-killer</code> (fan opted-in items out to parallel tmux worktrees), <code>worktree-autopilot</code> (isolated implement, verify, commit), <code>pr-convention-learner</code> (pre-PR check against learned reviewer conventions), <code>pr-creator</code> (draft PR with prerequisite checks), and <code>commit-creator</code> (focused, conventional commits).</p></details>
+        <details><summary>Run several at once</summary><p>When more than one work item is opted in, <strong>issue-killer</strong> launches one tmux pane and one worktree per item from an <code>az boards query --wiql</code> tag filter, each agent opening its own draft PR. Watch them with <code>tmux attach -t issue-killer</code>. Hand-offs are recorded with <code>agentify ctx note</code>, and every worktree gets its own <code>.agentify/</code> store, so notes stay per-checkout.</p></details>
+        <details><summary>States and tags on Azure Boards</summary><p>Process templates differ, so the workflow recommends changes after inspecting existing field values — never assumed — and preserves existing tags. The opt-in "ready" state maps onto an active, non-terminal state such as <code>New</code>, <code>Active</code>, <code>To Do</code>, or <code>Committed</code>, and the <code>agentify-ready</code> tag is used only when the project already works with tags or you ask for it.</p></details>
+        <details><summary>Push options and guardrails</summary><p>Draft by default: nothing is marked ready for review automatically, and non-draft PRs happen only when you ask. No force-push, and no closing work items, completing PRs, bypassing policies, or mutating state on your behalf. Work items are chosen by the opt-in tag or explicit IDs, PATs are never stored in skill files or commits, and every triage comment carries an AI-generated disclaimer at the top.</p></details>
+        <details><summary>Board queries you can run</summary>
+<pre class="block"><span class="d"># readiness</span>
+az extension show --name azure-devops
+az account show
+az devops configure --list
+
+<span class="d"># the opted-in board</span>
+az boards query --wiql "SELECT [System.Id], [System.Title] FROM WorkItems \
+  WHERE [System.Tags] CONTAINS 'agentify-ready' AND [System.State] = 'New'" -o json
+
+<span class="d"># load one work item as a checklist</span>
 az boards work-item show --id &lt;id&gt;</pre>
-        </aside>
+        </details>
+        <details><summary>If something's off</summary><p>“Unknown command: workflow” — update Agentify with the installer and open a new terminal. No platform detected — the remote isn't Azure DevOps, or there's no <code>origin</code>; pass it explicitly with <code>agentify workflow install azure</code>. Extension missing — run <code>az extension add --name azure-devops</code> and <code>az login</code>, then re-run the install.</p></details>
+
+        <div class="next"><a href="migrate.html">← Switch tools</a><a href="config.html">Next guide: Tune it →</a></div>
       </div>
-    </section>
-
-    <section class="shell">
-      <div class="container">
-        <span class="section-label">guardrails</span>
-        <h2>Conservative <span class="accent">by default.</span></h2>
-
-        <div class="safety-grid">
-          <div class="safety-card">
-            <span class="tag">opt-in only</span>
-            <p>Work items are selected by an opt-in tag or explicit URLs/IDs — never arbitrary open items. One worktree per item, never shared.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">draft PRs</span>
-            <p>Agents open draft PRs by default (<code>az repos pr create --draft true</code>). Nothing is marked ready for review automatically.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">no force / merge</span>
-            <p>No force-push, and no closing work items, completing PRs, bypassing policies, or mutating state unless you explicitly ask. PATs are never stored in skill files or commits.</p>
-          </div>
-          <div class="safety-card">
-            <span class="tag">inspect first</span>
-            <p>Process templates vary, so states are recommended after inspecting existing field values — never assumed — and existing tags are preserved.</p>
-          </div>
-        </div>
-
-        <nav class="page-nav" aria-label="Workflow pagination">
-          <a class="nav-btn prev" href="workflow-glab.html">
-            <span class="nav-dir">glab</span>
-            <span class="nav-title">GitLab workflow</span>
-          </a>
-          <a class="nav-btn next" href="workflow-gh.html">
-            <span class="nav-dir">gh</span>
-            <span class="nav-title">GitHub workflow</span>
-          </a>
-        </nav>
-      </div>
-    </section>
-  </main>
-
-  <section class="poster">
-    <div class="container">
-      <div class="poster-kicker">agentify workflow install azure</div>
-      <h2>From board to draft PR, automatically.</h2>
-      <a class="poster-cta" href="workflow-gh.html">See the GitHub workflow <span class="mono">↗</span></a>
     </div>
-  </section>
 
-  <footer class="site-footer">
-    <div class="container">
-      <span class="foot-brand">AGENTIFY</span>
-      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
-    </div>
-  </footer>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
 
-  <script src="site.js"></script>
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
 </body>
 </html>

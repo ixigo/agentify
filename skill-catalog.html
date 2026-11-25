@@ -2,1126 +2,383 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentify · Skill Catalog</title>
-  <meta name="description" content="A terse index of Agentify skills.">
-  <style>
-
-    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
-
-    :root {
-      color-scheme: dark;
-
-      /* Modernist tokens — GitHub-dark theme */
-      --color-bg: #0d1117;
-      --color-surface: #161b22;
-      --color-text: #e6edf3;
-      --color-accent: #58a6ff;
-      --color-accent-2: #7ee787;
-      --color-warn: #d29922;
-      --color-divider: #30363d;
-      --color-neutral-100:#161b22; --color-neutral-200:#21262d; --color-neutral-300:#30363d;
-      --color-neutral-400:#484f58; --color-neutral-500:#6e7681; --color-neutral-600:#8b949e;
-      --color-neutral-700:#b1bac4; --color-neutral-800:#c9d1d9; --color-neutral-900:#e6edf3;
-      --color-accent-100:#0b1f3a; --color-accent-200:#0d2d5e; --color-accent-300:#10418a;
-      --color-accent-400:#1f6feb; --color-accent-500:#58a6ff; --color-accent-600:#79c0ff;
-      --color-accent-700:#7ee787; --color-accent-800:#a5d6ff; --color-accent-900:#cae8ff;
-      --term-bg:#010409;
-      --radius:0px;
-      --shadow-sm: 0 1px 2px color-mix(in srgb,#2d2b2b 14%,transparent);
-      --shadow-md: 0 3px 10px color-mix(in srgb,#2d2b2b 16%,transparent);
-      --shadow-lg: 0 12px 32px color-mix(in srgb,#2d2b2b 22%,transparent);
-
-      --font-heading: "Archivo", system-ui, sans-serif;
-      --font-body: "Archivo", system-ui, sans-serif;
-      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --sans: "Archivo", system-ui, sans-serif;
-
-      /* semantic aliases mapped to Modernist palette */
-      --bg: var(--color-bg);
-      --surface: var(--color-surface);
-      --ink: var(--color-text);
-      --muted: var(--color-neutral-600);
-      --faint: var(--color-neutral-500);
-      --rule: var(--color-divider);
-      --hair: color-mix(in srgb, var(--color-text) 4%, transparent);
-      --accent: var(--color-accent);
-      --accent-dim: var(--color-accent-100);
-      --hl: color-mix(in srgb, var(--color-text) 4%, transparent);
-      --term-ink: #e6edf3;
-      --term-prompt: #7ee787;
-      --max: 980px;
-    }
-
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      color: var(--ink);
-      background: var(--bg);
-      font-family: var(--font-body);
-      font-size: 15px;
-      line-height: 1.55;
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-    }
-
-    main, header, footer { position: relative; z-index: 1; }
-
-    a { color: var(--color-accent-700); text-decoration: underline; text-decoration-color: var(--color-divider); text-underline-offset: 3px; }
-    a:hover { color: var(--accent); text-decoration-color: var(--accent); }
-
-    :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-    ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
-
-    main, header, footer {
-      width: min(var(--max), calc(100vw - 32px));
-      margin: 0 auto;
-    }
-
-    header {
-      padding: 72px 0 36px;
-      border-bottom: 2px solid var(--color-divider);
-    }
-
-    .brand {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 40px;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .brand b {
-      color: var(--ink);
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .brand b::before {
-      content: "";
-      display: inline-block;
-      width: 9px;
-      height: 9px;
-      background: var(--accent);
-      border-radius: 0;
-    }
-
-    .ver {
-      padding: 4px 8px;
-      border: 1px solid var(--color-divider);
-      border-radius: 0;
-      letter-spacing: 0.08em;
-    }
-
-    h1 {
-      margin: 0 0 12px;
-      font: 800 clamp(2.6rem, 6vw, 4rem)/1.05 var(--font-heading);
-      letter-spacing: -0.015em;
-      color: var(--ink);
-    }
-
-    h1 .accent { color: var(--accent); }
-
-    .tag {
-      margin: 0 0 28px;
-      max-width: 60ch;
-      color: var(--muted);
-      font: 400 1rem/1.6 var(--font-body);
-      letter-spacing: -0.005em;
-    }
-
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 24px;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    .meta span { display: inline-flex; align-items: center; gap: 8px; }
-    .meta span::before {
-      content: "";
-      width: 5px;
-      height: 5px;
-      background: var(--accent);
-    }
-    .meta code {
-      padding: 1px 6px;
-      background: var(--color-surface);
-      color: var(--ink);
-      text-transform: none;
-      letter-spacing: 0;
-      font-family: var(--mono);
-      font-size: 11px;
-    }
-
-    .req {
-      margin: 36px 0 0;
-      padding: 14px 16px;
-      background: var(--surface);
-      border: 1px solid var(--color-divider);
-      border-left: 2px solid var(--color-accent);
-      border-radius: 0;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .req b {
-      color: var(--color-accent-700);
-      font: 700 11px/1 var(--font-heading);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      margin-right: 8px;
-    }
-    .req code {
-      padding: 1px 6px;
-      background: var(--color-surface);
-      color: var(--color-accent-700);
-      border-radius: 0;
-      font-family: var(--mono);
-      font-size: 12px;
-    }
-
-    .toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      margin: 0;
-      padding: 14px 0;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      background: color-mix(in srgb, var(--bg) 90%, transparent);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 2px solid var(--color-divider);
-    }
-
-    .search {
-      flex: 1;
-      min-width: 0;
-      padding: 9px 12px 9px 30px;
-      color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--color-divider);
-      border-radius: 0;
-      font: 500 13px/1.2 var(--mono);
-      transition: border-color 100ms, box-shadow 100ms;
-    }
-
-    .search-wrap {
-      flex: 1;
-      position: relative;
-    }
-
-    .search-wrap::before {
-      content: "⌕";
-      position: absolute;
-      left: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--faint);
-      font-size: 14px;
-      pointer-events: none;
-    }
-
-    .search:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
-    }
-
-    .btn {
-      padding: 9px 12px;
-      color: var(--ink);
-      background: transparent;
-      border: 1px solid var(--color-divider);
-      border-radius: 0;
-      font: 600 11px/1 var(--mono);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 100ms;
-    }
-
-    .btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-      background: var(--color-accent-100);
-    }
-
-    main { padding-bottom: 80px; }
-
-    .cat {
-      margin-top: 44px;
-      scroll-margin-top: 80px;
-    }
-
-    .cat-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid var(--color-divider);
-    }
-
-    .cat-head h2 {
-      margin: 0;
-      font: 800 1.05rem/1.12 var(--font-heading);
-      letter-spacing: -0.015em;
-      display: inline-flex;
-      align-items: baseline;
-      gap: 12px;
-    }
-
-    .cat-head h2::before {
-      content: attr(data-num);
-      color: var(--accent);
-      font: 700 11px/1 var(--mono);
-      letter-spacing: 0.08em;
-    }
-
-    .cat-head .count {
-      font-size: 11px;
-      color: var(--faint);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .cat-desc {
-      margin: 10px 0 14px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .skill {
-      border: 1px solid transparent;
-      border-bottom: 1px solid var(--color-divider);
-      transition: border-color 100ms, background 100ms;
-    }
-
-    .skill:last-child { border-bottom: 1px solid var(--color-divider); }
-
-    .skill:hover { background: var(--hl); }
-    .skill[open] {
-      background: var(--surface);
-      border: 1px solid var(--color-divider);
-      border-radius: 0;
-      margin: 4px 0;
-    }
-
-    summary {
-      display: grid;
-      grid-template-columns: 220px 1fr auto;
-      gap: 20px;
-      align-items: center;
-      padding: 12px 14px;
-      cursor: pointer;
-      list-style: none;
-    }
-
-    summary::-webkit-details-marker { display: none; }
-
-    .name {
-      font-weight: 600;
-      color: var(--ink);
-      font-size: 13px;
-      transition: color 100ms;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .name::before {
-      content: "▸";
-      color: var(--accent);
-      font-size: 9px;
-      transition: transform 120ms;
-    }
-
-    .desc { color: var(--muted); font-size: 13px; }
-
-    .arrow {
-      color: var(--faint);
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .arrow::after { content: "open"; }
-
-    details[open] .name::before { transform: rotate(90deg); }
-    details[open] .name { color: var(--accent); }
-    details[open] .arrow { color: var(--accent); }
-    details[open] .arrow::after { content: "close"; }
-
-    .body {
-      padding: 4px 14px 20px 234px;
-      display: grid;
-      gap: 12px;
-      font-size: 13px;
-      border-top: 2px solid var(--color-divider);
-      margin-top: 0;
-      padding-top: 16px;
-    }
-
-    .body .row {
-      display: grid;
-      grid-template-columns: 72px 1fr;
-      gap: 16px;
-      color: var(--muted);
-      align-items: start;
-    }
-
-    .body .row b {
-      color: var(--color-neutral-700);
-      font: 700 10px/1 var(--font-heading);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      padding-top: 3px;
-    }
-
-    .body .row p { margin: 0; line-height: 1.6; }
-    .body .row p.invoke {
-      color: var(--color-accent-700);
-      font-family: var(--mono);
-      font-size: 12px;
-      padding: 6px 10px;
-      background: var(--color-surface);
-      border-radius: 0;
-      border: 1px solid var(--color-divider);
-      display: inline-block;
-    }
-    .body .row p code {
-      padding: 1px 6px;
-      background: var(--color-surface);
-      border-radius: 0;
-      font-family: var(--mono);
-      font-size: 12px;
-      color: var(--color-accent-700);
-    }
-
-    .install {
-      padding: 10px 12px;
-      background: var(--term-bg);
-      color: var(--term-ink);
-      border: 2px solid var(--color-text);
-      border-radius: 0;
-      font-family: var(--mono);
-      font-size: 12px;
-      overflow-x: auto;
-      white-space: nowrap;
-      position: relative;
-    }
-
-    .install::before {
-      content: "$";
-      color: var(--term-prompt);
-      margin-right: 8px;
-      font-weight: 700;
-    }
-
-    .tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .t {
-      padding: 3px 8px;
-      color: var(--color-neutral-800);
-      background: var(--color-neutral-100);
-      border: 1px solid var(--color-divider);
-      border-radius: 0;
-      font-family: var(--mono);
-      font-size: 10.5px;
-      letter-spacing: 0.02em;
-    }
-
-    .empty {
-      display: none;
-      padding: 32px 0;
-      color: var(--muted);
-      text-align: center;
-      font-size: 13px;
-    }
-
-    .more {
-      margin-top: 56px;
-      padding: 24px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 24px;
-      align-items: center;
-      background: var(--surface);
-      border: 2px solid var(--color-text);
-      border-radius: 0;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .more::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%;
-      height: 4px;
-      background: var(--accent);
-    }
-
-    .more-label {
-      display: inline-block;
-      margin-bottom: 10px;
-      padding: 3px 8px;
-      color: var(--color-accent-800);
-      background: var(--color-accent-100);
-      border: 1px solid var(--color-accent);
-      border-radius: 0;
-      font: 700 10px/1 var(--font-heading);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }
-
-    .more h3 {
-      margin: 0 0 8px;
-      font: 800 1.4rem/1.12 var(--font-heading);
-      letter-spacing: -0.015em;
-      color: var(--ink);
-    }
-
-    .more p {
-      margin: 0;
-      max-width: 60ch;
-      color: var(--muted);
-      font: 400 13.5px/1.6 var(--font-body);
-    }
-
-    .more p code {
-      padding: 1px 6px;
-      background: var(--color-surface);
-      color: var(--color-accent-700);
-      border-radius: 0;
-      font-family: var(--mono);
-      font-size: 12px;
-    }
-
-    .more-cta {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 11px 16px;
-      color: var(--color-bg);
-      background: var(--accent);
-      border: 1px solid var(--accent);
-      border-radius: 0;
-      font: 600 12px/1 var(--mono);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      text-decoration: none;
-      transition: background 100ms;
-    }
-
-    .more-cta:hover {
-      color: var(--color-bg);
-      background: var(--color-accent-600);
-      border-color: var(--color-accent-600);
-      text-decoration: none;
-    }
-
-    .more-cta:active {
-      background: var(--color-accent-700);
-      border-color: var(--color-accent-700);
-    }
-
-    .more-cta::after {
-      content: "→";
-      transition: transform 120ms;
-    }
-
-    .more-cta:hover::after { transform: translate(3px, 0); }
-
-    @media (max-width: 720px) {
-      .more { grid-template-columns: 1fr; padding: 20px; }
-    }
-
-    footer {
-      margin-top: 60px;
-      padding: 28px 0 80px;
-      border-top: 2px solid var(--color-divider);
-      color: var(--faint);
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      text-transform: uppercase;
-    }
-
-    @media (max-width: 720px) {
-      summary { grid-template-columns: 1fr auto; padding: 12px; }
-      .desc { grid-column: 1 / -1; font-size: 12px; }
-      .body { padding: 14px 12px 18px; }
-      .body .row { grid-template-columns: 1fr; gap: 4px; }
-      header { padding-top: 48px; }
-    }
-
-    /* ══════════════════════════════════════════════════════════════════
-       Homepage-matching chrome — top bar, poster, footer.
-       Ported from pages/command-style.css so this page reads as one site.
-       ══════════════════════════════════════════════════════════════════ */
-
-    /* — top bar — */
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: 0;
-      background: var(--color-bg);
-      border-bottom: 2px solid var(--color-text);
-    }
-    .topbar-inner {
-      width: min(var(--max), 100vw);
-      max-width: 100vw;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      padding: 14px 16px;
-    }
-    .topbar .brand {
-      display: inline-flex;
-      align-items: baseline;
-      gap: 10px;
-      margin: 0;
-      color: var(--color-text);
-      font: 800 19px/1 var(--font-heading);
-      letter-spacing: -0.02em;
-      text-transform: none;
-      text-decoration: none;
-    }
-    .topbar .brand::before { display: none; }
-    .topbar .brand-tag {
-      font: 500 11px/1 var(--mono);
-      letter-spacing: 0.06em;
-      color: var(--color-accent-700);
-    }
-    .topnav {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 22px;
-      font: 500 13px/1 var(--font-body);
-      text-transform: none;
-      letter-spacing: 0;
-    }
-    .topnav a { color: var(--color-text); text-decoration: none; }
-    .topnav a:hover,
-    .topnav a[aria-current="page"] { color: var(--color-accent); }
-    .gh-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 8px 14px;
-      background: var(--color-text);
-      color: var(--color-bg);
-      font: 600 12px/1 var(--font-heading);
-      letter-spacing: 0.02em;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .gh-btn:hover { background: var(--color-accent); color: var(--color-bg); text-decoration: none; }
-    .gh-btn .mono { font-family: var(--mono); font-weight: 700; }
-
-    /* — closing poster — */
-    .poster {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      background: var(--color-accent);
-      color: var(--color-bg);
-      padding: 56px 0 52px;
-    }
-    .poster .container { width: min(var(--max), calc(100vw - 32px)); margin: 0 auto; padding: 0 16px; }
-    .poster .poster-kicker {
-      font: 700 11px/1 var(--mono);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      opacity: 0.85;
-      margin: 0 0 18px;
-    }
-    .poster h2 {
-      color: var(--color-bg);
-      max-width: 20ch;
-      margin: 0 0 24px;
-      font: 800 clamp(2rem, 4.5vw, 2.9rem)/1.03 var(--font-heading);
-      letter-spacing: -0.02em;
-    }
-    .poster .poster-cta {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 13px 22px;
-      background: var(--color-bg);
-      color: var(--color-text);
-      font: 700 14px/1 var(--font-heading);
-      letter-spacing: 0.01em;
-      text-decoration: none;
-    }
-    .poster .poster-cta:hover { color: var(--color-text); background: var(--color-neutral-100); text-decoration: none; }
-    .poster .poster-cta .mono { font-family: var(--mono); }
-
-    /* — homepage-style footer — */
-    footer.site-footer {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-      padding: 0;
-      display: block;
-      border-top: 2px solid var(--color-text);
-      color: var(--color-neutral-600);
-      font-size: 12px;
-      letter-spacing: 0;
-      text-transform: none;
-    }
-    footer.site-footer .container {
-      width: min(var(--max), calc(100vw - 32px));
-      margin: 0 auto;
-      padding: 36px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .site-footer .foot-brand { font: 700 13px/1 var(--font-heading); letter-spacing: 0.02em; color: var(--color-text); }
-    .site-footer .foot-tag { font: 400 12px/1 var(--mono); color: var(--color-neutral-600); }
-
-    @media (max-width: 760px) {
-      .topnav { display: none; }
-      .topbar-inner { gap: 12px; }
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Skills · Agentify</title>
+  <meta name="description" content="Every built-in Agentify skill, matched to plain requests automatically. Filter by name, task or category and copy one install line.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="pages/bento.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="index.html">AGENTIFY<span class="brand-tag">v0.3</span></a>
-      <nav class="topnav" aria-label="Primary navigation">
-        <a href="index.html">Home</a>
-        <a href="pages/analyze.html">Analyze</a>
-        <a href="pages/config.html">Config</a>
-        <a href="pages/usage.html">Usage</a>
+<body data-root="" data-page="guides">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="pages/usage.html" data-page="how">How it works</a>
+      <a href="pages/proof.html" data-page="proof">Proof</a>
+      <a href="pages/migrate.html" data-page="guides">Guides</a>
+      <a href="pages/reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead">
+      <span class="crumb"><a href="index.html">Home</a> / Guides / Skills</span>
+      <h1>Skills your agent picks up on its own.</h1>
+      <p>Describe the task in plain words and Agentify matches the right skill for you — no need to name it. Want one ready up front? Install it by name.</p>
+    </div>
+
+    <div class="guide">
+      <aside class="gnav" aria-label="Guides">
+        <span class="eyebrow">Guides</span>
+        <a href="pages/migrate.html">Switch tools</a>
+        <a href="pages/workflow-gh.html">Board to PR</a>
+        <a href="pages/config.html">Tune it</a>
+        <a href="pages/analyze.html">See your usage</a>
         <a href="skill-catalog.html" aria-current="page">Skills</a>
-      </nav>
-      <a class="gh-btn" href="https://github.com/ixigo/agentify"><span class="mono">↗</span> GitHub</a>
-    </div>
-  </header>
+      </aside>
 
-  <header>
-    <h1>Skills, <span class="accent">not stacks.</span></h1>
-    <p class="tag">A terse index of reusable agent skills for daily engineering work — planning, repo context, issues, PRs, validation, handoffs.</p>
-    <div class="meta">
-      <span>install <code>codex</code> · <code>claude-code</code></span>
-      <span><a href="https://github.com/ixigo/agentify">ixigo/agentify</a></span>
-    </div>
-    <p class="req"><b>Prereqs</b>GitHub CLI for issue/PR skills (<code>gh --version</code> → <code>gh auth login</code>). GitLab CLI for GitLab skills (<code>glab auth status</code> → <code>glab repo view</code>). Atlassian CLI for <code>jira</code> (<code>acli jira workitem --help</code>).</p>
-  </header>
+      <div class="gsteps">
+        <div class="install"><span id="howto">agentify skill install &lt;name&gt;</span><button class="copy" type="button" data-copy="howto">Copy</button></div>
 
-  <main>
-    <section class="toolbar">
-      <div class="search-wrap">
-        <input id="search" class="search" type="search" placeholder="filter — name, tag, outcome" aria-label="Filter skills">
+        <div class="search">
+          <input id="skq" type="search" data-slash placeholder="Filter skills — name, task or tag" aria-label="Filter skills" aria-controls="cards">
+          <kbd>/</kbd>
+        </div>
+
+        <div class="chips" id="chips" role="group" aria-label="Filter by category"></div>
+
+        <div class="cards" id="cards" aria-live="polite"></div>
+        <p class="empty" id="empty" hidden>No skill matches that filter. Try a shorter word.</p>
+
+        <div class="callout"><b>Skills are opt-in.</b> The catalog is matched automatically during a session; installing writes a skill into <code>.codex/skills</code> or <code>.claude/skills</code> so it travels with the repo. See the <a href="pages/skill.html">skill command guide</a> for scopes and providers.</div>
       </div>
-      <button id="openAll" class="btn" type="button">expand</button>
-      <button id="closeAll" class="btn" type="button">collapse</button>
-    </section>
-
-    <section id="catalog" aria-live="polite"></section>
-    <p id="empty" class="empty">no match.</p>
-
-    <aside class="more" aria-label="More than skills">
-      <div>
-        <span class="more-label">beta · there's more</span>
-        <h3>This catalog is the tip of Agentify.</h3>
-        <p>Beyond skills, Agentify prepares repos, routes context, manages sessions, validates readiness, and runs end-to-end agent workflows. The platform is in <b>beta</b> — pitch it to your team, try it on a real repo, and tell us where it breaks.</p>
-      </div>
-      <a class="more-cta" href="https://github.com/ixigo/agentify">check agentify</a>
-    </aside>
-  </main>
-
-  <section class="poster">
-    <div class="container">
-      <div class="poster-kicker">agentify skill install all --provider claude</div>
-      <h2>A catalog the agent matches to plain requests.</h2>
-      <a class="poster-cta" href="https://github.com/ixigo/agentify">github.com/ixigo/agentify <span class="mono">↗</span></a>
     </div>
-  </section>
 
-  <footer class="site-footer">
-    <div class="container">
-      <span class="foot-brand">AGENTIFY</span>
-      <span class="foot-tag">MIT · Switch agents. Keep the repo's working memory.</span>
-    </div>
-  </footer>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
 
-  <script>
-    const categories = [
-      { id: "daily", title: "Daily execution", desc: "Intent → validated local change.",
-        skills: ["auto-pilot", "worktree-autopilot", "issue-killer", "commit-creator"] },
-      { id: "host", title: "Host workflows", desc: "The same board-to-branch flow on GitHub, GitLab, Azure DevOps, and Jira.",
-        skills: ["gh-autopilot", "github-triage", "glab-autopilot", "gitlab-triage", "ado-autopilot", "azure-devops-triage", "jira"] },
-      { id: "pr", title: "PR & delivery", desc: "Open, review, and replicate pull requests.",
-        skills: ["pr-creator", "pr-convention-learner", "copy-pr"] },
-      { id: "plan", title: "Planning & design", desc: "Pressure-test the plan before code.",
-        skills: ["grill-me", "to-issues", "design-an-interface"] },
-      { id: "arch", title: "Architecture & domain", desc: "Boundaries, language, system shape.",
-        skills: ["improve-codebase-architecture", "domain-model", "ubiquitous-language", "copy-mode"] },
-      { id: "qa", title: "Quality & testing", desc: "Tests, QA passes, local guardrails.",
-        skills: ["tdd", "qa", "setup-pre-commit", "git-guardrails-claude-code"] },
-      { id: "ui", title: "Frontend & UI", desc: "Design-to-code and visual verification.",
-        skills: ["figma-ui-build", "ui-screenshot-eval"] },
-      { id: "org", title: "Org workflows", desc: "Workplace-specific — these assume ConfirmTkt/ixigo repos and tooling.",
-        skills: ["migrate-php-to-astro-iui", "find-goals-per-quarter"] },
-      { id: "agent", title: "Agent authoring", desc: "Extend and shape the agent itself.",
-        skills: ["write-a-skill", "caveman"] }
-    ];
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="pages/bento.js"></script>
+<script>
+// Skill catalog: page-specific data + filtering. bento.js handles copy, palette, menu and the "/" shortcut.
+(function () {
+  "use strict";
+  var CATS = [
+    { id: "daily", t: "Daily execution", badge: "blue" },
+    { id: "host", t: "Host workflows", badge: "teal" },
+    { id: "pr", t: "PR & delivery", badge: "amber" },
+    { id: "plan", t: "Planning & design", badge: "blue" },
+    { id: "arch", t: "Architecture & domain", badge: "teal" },
+    { id: "qa", t: "Quality & testing", badge: "amber" },
+    { id: "ui", t: "Frontend & UI", badge: "blue" },
+    { id: "org", t: "Org workflows", badge: "teal" },
+    { id: "agent", t: "Agent authoring", badge: "amber" }
+  ];
+  var CAT = {};
+  CATS.forEach(function (c) { CAT[c.id] = c; });
 
-    const needs = {
-      "ado-autopilot": "<code>az</code>, Azure DevOps extension, org/project defaults",
-      "auto-pilot": "git repo, project commands, edit + validation perms",
-      "azure-devops-triage": "<code>az boards</code> access + work item ID/URL",
-      "caveman": "level: lite / full / ultra / wenyan",
-      "commit-creator": "git, completed changes, stage + commit perms",
-      "copy-mode": "repo read, write to docs/architecture.md, prd.md, summary.md",
-      "copy-pr": "git + host CLI auth (gh / ADO)",
-      "design-an-interface": "repo context, parallel agent capacity",
-      "domain-model": "plan/conversation context, optional CONTEXT.md / ADRs",
-      "find-goals-per-quarter": "<code>acli</code> + <code>az</code> authenticated, Azure DevOps extension, org/project defaults, Node 22",
-      "gh-autopilot": "<code>gh</code> authenticated + repo/issue context",
-      "glab-autopilot": "<code>glab</code> authenticated + repo/issue/MR context",
-      "git-guardrails-claude-code": "Claude Code hooks, edit local hook config",
-      "github-triage": "<code>gh</code> with read + label + create",
-      "gitlab-triage": "<code>glab</code> with issue read + notes + label perms",
-      "grill-me": "rough plan; <code>gh</code> if filing issues",
-      "improve-codebase-architecture": "repo read, time to inspect modules + tests",
-      "issue-killer": "<code>gh</code>, tmux, worktree support, explicit opt-in",
-      "jira": "<code>acli</code> authenticated; <code>acli jira workitem --help</code>",
-      "migrate-php-to-astro-iui": "legacy PHP/AMP source, target Astro app, runnable route, Node 22, existing IUI/design-system components",
-      "pr-convention-learner": "ADO PR access + configured CLI/auth",
-      "pr-creator": "git, pushed branch, host CLI (<code>gh</code>/<code>glab</code>/ADO)",
-      "qa": "<code>gh</code> if filing as issues",
-      "setup-pre-commit": "package manager + perms for Husky/lint-staged",
-      "tdd": "test command + perms to add tests",
-      "to-issues": "plan/spec/PRD + <code>gh</code>",
-      "ubiquitous-language": "domain context + write <code>UBIQUITOUS_LANGUAGE.md</code>",
-      "ui-screenshot-eval": "frontend app URL, Playwright, screenshot/Figma reference or before/after target",
-      "figma-ui-build": "Figma node URL, user-provided node picture, FIGMA_TOKEN for uncached metadata, local route or Storybook target",
-      "worktree-autopilot": "git worktree / Worktrunk, clean state, commit perms",
-      "write-a-skill": "workflow, target folder, write <code>SKILL.md</code>",
-    };
+  // Every skill, with its real data preserved from the prior catalog.
+  // short = one-line description · needs = prerequisites · when/why/helps/invoke/tags feed search.
+  var SKILLS = [
+    { name: "auto-pilot", cat: "daily",
+      short: "Discover, implement, validate, commit — minimal back-and-forth.",
+      needs: "git repo, project commands, edit + validation perms",
+      when: "Goal is clear enough for the agent to inspect the repo, infer the missing details, and finish without repeated prompting.",
+      why: "Turns vague execution requests into a complete loop: discover, plan, edit, test, iterate, summarize.",
+      helps: "Reduces handholding for routine implementation; keeps changes scoped to repository evidence.",
+      invoke: "implement <goal>", tags: ["autonomous", "validation"] },
+    { name: "worktree-autopilot", cat: "daily",
+      short: "Implement in a fresh isolated worktree; return merge-back commands.",
+      needs: "git worktree / Worktrunk, clean state, commit perms",
+      when: "Autonomous implementation should happen away from the current checkout.",
+      why: "Isolated worktrees reduce risk when local changes or parallel tasks exist.",
+      helps: "Creates worktree, implements, validates, commits, reports merge.",
+      invoke: "worktree <goal>", tags: ["worktree", "validation"] },
+    { name: "issue-killer", cat: "daily",
+      short: "Launch opted-in issues into supervised tmux + worktrees.",
+      needs: "gh, tmux, worktree support, explicit opt-in",
+      when: "Several GitHub issues should be worked in parallel by Codex or Claude agents.",
+      why: "Parallel issue execution needs isolation, supervision, and clear PR outputs.",
+      helps: "Starts tmux panes with separate worktrees and PR-oriented agent prompts.",
+      invoke: "kill-issues #1 #2 #3", tags: ["github", "parallel"] },
+    { name: "commit-creator", cat: "daily",
+      short: "Focused Conventional Commits with intentional staging.",
+      needs: "git, completed changes, stage + commit perms",
+      when: "After a scoped change is complete and you want clean staging plus a strong commit message.",
+      why: "Good commits are easier to review, revert, and understand later.",
+      helps: "Stages intentionally, avoids unrelated changes, writes a clear conventional message.",
+      invoke: "commit", tags: ["git", "commits"] },
 
-    const skills = [
-      { name: "auto-pilot",
-        short: "Discover, implement, validate, commit — minimal back-and-forth.",
-        when: "Goal is clear enough for the agent to inspect the repo, infer the missing details, and finish without repeated prompting.",
-        why: "Turns vague execution requests into a complete loop: discover → plan → edit → test → iterate → summarize.",
-        helps: "Reduces handholding for routine implementation; keeps changes scoped to repository evidence.",
-        invoke: "implement &lt;goal&gt; — agent reads repo, plans, edits, validates, commits.",
-        tags: ["autonomous", "validation"] },
-      { name: "ado-autopilot",
-        short: "Azure Boards and Azure Repos orchestration via <code>az</code>.",
-        when: "Azure DevOps work item or PR context should drive execution, review, or PR creation.",
-        why: "ADO work needs org/project/repo detection and auth checks before mutations are safe.",
-        helps: "Resolves work items and PRs, checks CLI context, then hands code changes to worktree automation.",
-        invoke: "ado &lt;work-item|PR-url&gt; — resolves context, builds checklist, routes implementation.",
-        tags: ["ado", "az-cli"] },
-      { name: "azure-devops-triage",
-        short: "Inspect and prepare Azure Boards work items.",
-        when: "ADO work items need field, tag, state, or readiness triage before implementation.",
-        why: "Azure Boards process templates vary, so state changes need conservative recommendations.",
-        helps: "Reads standard System fields, comments, and tags; recommends updates without assuming a template.",
-        invoke: "ado-triage &lt;id|url&gt; — summarizes readiness and recommended changes.",
-        tags: ["ado", "triage"] },
-      { name: "caveman",
-        short: "Ultra-compressed technical prose output.",
-        when: "Output needs to be short, dense, and still technically exact.",
-        why: "Long agent responses waste review time and tokens during routine engineering loops.",
-        helps: "Cuts response volume while preserving commands, file names, risks, decisions.",
-        invoke: "caveman &lt;lite|full|ultra|wenyan&gt; — sets density level for the next reply.",
-        tags: ["communication", "tokens"] },
-      { name: "commit-creator",
-        short: "Focused Conventional Commits with intentional staging.",
-        when: "After a scoped change is complete and you want clean staging plus a strong commit message.",
-        why: "Good commits are easier to review, revert, and understand later.",
-        helps: "Stages intentionally, avoids unrelated changes, writes a clear conventional message.",
-        invoke: "commit — agent inspects diff, picks files, drafts the message.",
-        tags: ["git", "commits"] },
-      { name: "copy-mode",
-        short: "Write architecture, PRD, summary handoff docs.",
-        when: "Another agent needs enough repo context to implement without rediscovering everything.",
-        why: "Agent handoffs fail when architecture, conventions, and goals stay implicit.",
-        helps: "Creates durable docs explaining system shape and the next implementation target.",
-        invoke: "writes <code>docs/architecture.md</code>, <code>prd.md</code>, <code>summary.md</code>.",
-        tags: ["handoff", "docs"] },
-      { name: "copy-pr",
-        short: "Reproduce a GitHub/ADO PR locally — branch, validate, commit.",
-        when: "Need to bring an external PR's diff onto your branch and validate it locally.",
-        why: "Manual PR copying is error-prone across remotes, branches, and review state.",
-        helps: "Automates branch setup, diff fetch, validation, commit, push.",
-        invoke: "copy-pr &lt;url&gt; — branches, applies, validates, commits.",
-        tags: ["github", "ado"] },
-      { name: "design-an-interface",
-        short: "Explore module/API designs in parallel.",
-        when: "API shape, module boundary, or interface contract is still unsettled.",
-        why: "First designs reflect local bias; parallel alternatives expose better tradeoffs.",
-        helps: "Compares multiple options before committing code to one abstraction.",
-        invoke: "design &lt;module&gt; — spawns parallel agents, returns a tradeoff table.",
-        tags: ["design", "api"] },
-      { name: "domain-model",
-        short: "Stress-test plan against domain language and ADRs.",
-        when: "Terminology, business concepts, or documented decisions could affect the implementation.",
-        why: "Misnamed concepts spread fast and make future changes harder.",
-        helps: "Sharpens language, flags ambiguity, updates domain docs as decisions settle.",
-        invoke: "review-domain &lt;plan&gt; — checks plan against CONTEXT.md / ADRs.",
-        tags: ["ddd", "docs"] },
-      { name: "gh-autopilot",
-        short: "Issue, PR, review, comment, label flows via <code>gh</code> CLI.",
-        when: "GitHub issue handling, PR creation, review comments, labels, or code changes driven by GitHub context.",
-        why: "GitHub work needs authenticated CLI context before code changes or status updates are safe.",
-        helps: "Uses <code>gh</code> to inspect live state, then routes isolated implementation when needed.",
-        invoke: "gh &lt;intent&gt; — e.g. <code>gh fix #42</code> or <code>gh review PR-7</code>.",
-        tags: ["github", "gh-cli"] },
-      { name: "glab-autopilot",
-        short: "Issue, MR, review, comment, label flows via <code>glab</code> CLI.",
-        when: "GitLab issue handling, draft MR creation, review comments, labels, or code changes driven by GitLab context.",
-        why: "GitLab work needs authenticated CLI and repo context before mutations are safe.",
-        helps: "Uses <code>glab</code> to inspect live state, then routes isolated implementation when needed.",
-        invoke: "glab &lt;intent&gt; — e.g. <code>glab fix #42</code> or <code>glab review !7</code>.",
-        tags: ["gitlab", "glab-cli"] },
-      { name: "git-guardrails-claude-code",
-        short: "Claude Code hooks that block dangerous git commands.",
-        when: "Repo needs local protection from accidental push, reset, clean, or destructive branch commands.",
-        why: "One unsafe git command can erase work or publish changes before review.",
-        helps: "Adds command-level guardrails before destructive operations execute.",
-        invoke: "install-guardrails — wires PreToolUse hooks into local settings.",
-        tags: ["git", "safety"] },
-      { name: "github-triage",
-        short: "Triage issues via labels and workflow states.",
-        when: "Incoming bug reports, feature requests, or issues that need labeling and prep for an agent.",
-        why: "Untriaged issues are hard to pick up and easy to misunderstand.",
-        helps: "Turns rough reports into labeled, actionable GitHub work items.",
-        invoke: "triage — agent walks open issues and applies labels + state.",
-        tags: ["github", "triage"] },
-      { name: "gitlab-triage",
-        short: "Triage GitLab issues via conservative labels and notes.",
-        when: "Incoming GitLab issues need classification, prior triage review, or prep for an agent or human.",
-        why: "GitLab projects often have custom labels, so state changes need careful mapping.",
-        helps: "Inspects issues and notes, recommends state/category labels, and applies approved changes.",
-        invoke: "gitlab-triage #42 — reads issue + notes, recommends labels, posts approved notes.",
-        tags: ["gitlab", "triage"] },
-      { name: "ui-screenshot-eval",
-        short: "Playwright screenshots around a stable UI anchor.",
-        when: "Frontend UI work needs before/after evidence, scoped element screenshots, or matching against a screenshot or Figma reference.",
-        why: "Visual tasks drift when the changed UI has no stable selector and review only happens by memory.",
-        helps: "Adds a semantic <code>data-testid</code>, captures full-page and element screenshots, and loops until the scoped UI materially matches the reference.",
-        invoke: "ui-eval &lt;route&gt; &lt;reference&gt; — captures baseline, edits UI, captures after, reviews gaps.",
-        tags: ["playwright", "visual"] },
-      { name: "figma-ui-build",
-        short: "Build a local UI from a Figma node and validate it.",
-        when: "A frontend task starts from a Figma node URL and a supplied node picture, then needs codebase-aware implementation plus screenshot comparison.",
-        why: "Figma-to-code work needs both design metadata and local component conventions before visual eval is useful.",
-        helps: "Uses cached Figma node metadata plus the supplied picture, ranks matching local components, writes an implementation plan, then hands off to ui-screenshot-eval.",
-        invoke: "figma-ui-build &lt;figma-url&gt; + node picture - prepares artifacts, implements with local patterns, then runs visual eval.",
-        tags: ["figma", "frontend", "visual"] },
-      { name: "migrate-php-to-astro-iui",
-        short: "Migrate legacy PHP/AMP pages into Astro + IUI.",
-        when: "A ConfirmTkt page in <code>UI/Website</code> should move into <code>seo-pages</code> without losing route behavior, SEO content, or visual structure.",
-        why: "Line-by-line ports preserve legacy coupling, duplicate CSS, and client-heavy behavior instead of using Astro and the current design system.",
-        helps: "Inventories the PHP contract, maps it to existing IUI and brand components, builds server-first Astro, then loops through SEO, accessibility, visual, build, and Lighthouse gates.",
-        invoke: "migrate-php-to-astro-iui &lt;php-file&gt; &lt;target-route&gt; — inventories, maps, implements, validates, and iterates.",
-        tags: ["astro", "migration", "seo"] },
-      { name: "grill-me",
-        short: "Interrogate a plan until it becomes executable.",
-        when: "Feature, design, or refactor plan has hidden assumptions or weak requirements.",
-        why: "Hard questions before implementation are cheaper than rework after code lands.",
-        helps: "Extracts decisions, builds an execution plan, optionally opens GitHub issues.",
-        invoke: "grill &lt;topic&gt; — Q&amp;A loop, then writes plan + issues.",
-        tags: ["planning", "requirements"] },
-      { name: "improve-codebase-architecture",
-        short: "Find structural improvements for testability and change.",
-        when: "You want refactor opportunities, clearer module boundaries, or a more AI-navigable codebase.",
-        why: "Architecture debt compounds when shallow modules and coupled concepts stay hidden.",
-        helps: "Surfaces evidence-backed refactor targets and explains why they matter.",
-        invoke: "explore-architecture — agent walks modules, returns ranked targets.",
-        tags: ["architecture", "refactor"] },
-      { name: "issue-killer",
-        short: "Launch opted-in issues into supervised tmux + worktrees.",
-        when: "Several GitHub issues should be worked in parallel by Codex or Claude agents.",
-        why: "Parallel issue execution needs isolation, supervision, and clear PR outputs.",
-        helps: "Starts tmux panes with separate worktrees and PR-oriented agent prompts.",
-        invoke: "kill-issues #1 #2 #3 — opens panes per issue with draft PR target.",
-        tags: ["github", "parallel"] },
-      { name: "jira",
-        short: "Manage Jira work items via Atlassian <code>acli</code>.",
-        when: "Assigned Jira tasks, daily todo triage, ticket updates, status transitions, or new work items.",
-        why: "Jira mutations are live ops — need explicit keys, statuses, and narrow scope.",
-        helps: "Builds safe <code>acli jira workitem</code> flows for create / edit / transition / pickup.",
-        invoke: "jira &lt;intent&gt; — e.g. <code>jira pickup</code>, <code>jira transition KEY-1 In Progress</code>.",
-        tags: ["jira", "acli"] },
-      { name: "find-goals-per-quarter",
-        short: "Reconstruct a quarter of shipped work from Jira + Azure DevOps.",
-        when: "\"What did I ship last quarter?\" — self-review input, quarterly goals, or a 3-month work summary.",
-        why: "The record is split across Jira and Azure Repos, and memory reconstructs it as vague activity instead of cited outcomes.",
-        helps: "Reads assigned tickets via <code>acli</code> and authored PRs via <code>az</code>, matches keys in PR titles/branches, groups evidence into goal themes by epic / component / repo, and reports what it could not link.",
-        invoke: "find-goals-per-quarter [--quarter 2026-Q2] — read-only; writes artifacts under <code>.agentify/quarter-goals/</code>.",
-        tags: ["jira", "azure-devops", "review"] },
-      { name: "pr-convention-learner",
-        short: "Learn ADO PR review conventions and apply them locally.",
-        when: "ADO PR comments, reviewer feedback, convention extraction, or pre-PR checks.",
-        why: "Repeated review comments should become local conventions, not tribal memory.",
-        helps: "Fetches ADO PR context, fixes feedback, updates per-repo convention files.",
-        invoke: "learn-conventions &lt;PR-url&gt; — extracts rules, writes them locally.",
-        tags: ["ado", "review"] },
-      { name: "pr-creator",
-        short: "Draft PRs for GitHub, GitLab, or ADO.",
-        when: "After validation when a branch should become a draft PR.",
-        why: "PR creation differs across hosts and should verify CLI auth first.",
-        helps: "Checks prerequisites, creates the PR, returns the link with concise summary.",
-        invoke: "open-pr — detects host, drafts title/body, creates PR.",
-        tags: ["pr", "multi-host"] },
-      { name: "qa",
-        short: "Conversational bug reports → GitHub issues.",
-        when: "QA sessions where the user reports bugs or rough observations conversationally.",
-        why: "Bug reports need codebase context and reproduction notes to become fixable.",
-        helps: "Explores the repo in the background and files issue-ready reports.",
-        invoke: "qa — listens for bugs, files them with repo context.",
-        tags: ["qa", "bugs"] },
-      { name: "setup-pre-commit",
-        short: "Husky + lint-staged + format/type/test gates.",
-        when: "A repo needs commit-time quality gates.",
-        why: "Fast local checks prevent avoidable lint, format, type, and test failures from reaching review.",
-        helps: "Installs and configures pre-commit tooling for the current repo stack.",
-        invoke: "setup-precommit — adds Husky, lint-staged, hook config.",
-        tags: ["quality", "hooks"] },
-      { name: "tdd",
-        short: "Red → green → refactor for features and fixes.",
-        when: "User asks for test-first development, integration tests, or a TDD fix plan.",
-        why: "Tests anchor behavior before implementation choices harden.",
-        helps: "Drives a disciplined loop: failing test → minimal fix → refactor → repeat.",
-        invoke: "tdd &lt;goal&gt; — writes failing test first, then implements.",
-        tags: ["tests", "tdd"] },
-      { name: "to-issues",
-        short: "Break plans into independently grabbable GitHub issues.",
-        when: "A PRD, plan, or spec should become implementation tickets.",
-        why: "Good issue slices let agents work independently without collisions.",
-        helps: "Creates tracer-bullet vertical slices with clear deliverables and boundaries.",
-        invoke: "to-issues &lt;plan|file&gt; — emits a list of grabbable issues.",
-        tags: ["github", "planning"] },
-      { name: "ubiquitous-language",
-        short: "Extract and maintain a DDD glossary.",
-        when: "Terms, concepts, or domain names need clarification and standardization.",
-        why: "Inconsistent language causes bugs, duplicate abstractions, and confused discussions.",
-        helps: "Creates or updates <code>UBIQUITOUS_LANGUAGE.md</code> with canonical terms.",
-        invoke: "language — extracts terms from conversation/code → glossary.",
-        tags: ["ddd", "glossary"] },
-      { name: "worktree-autopilot",
-        short: "Implement in fresh isolated worktree; return merge-back commands.",
-        when: "Autonomous implementation should happen away from the current checkout.",
-        why: "Isolated worktrees reduce risk when local changes or parallel tasks exist.",
-        helps: "Creates worktree → implements → validates → commits → reports merge.",
-        invoke: "worktree &lt;goal&gt; — runs full loop in a new worktree.",
-        tags: ["worktree", "validation"] },
-      { name: "write-a-skill",
-        short: "Author new agent skills with proper structure.",
-        when: "A repeated workflow should become a reusable skill.",
-        why: "Skills make agent behavior durable instead of relying on one-off prompts.",
-        helps: "Guides progressive disclosure, metadata, bundled resources, validation.",
-        invoke: "new-skill &lt;name&gt; — scaffolds <code>SKILL.md</code> + resources.",
-        tags: ["skills", "authoring"] }
-    ];
+    { name: "gh-autopilot", cat: "host",
+      short: "Issue, PR, review, comment, label flows via gh CLI.",
+      needs: "gh authenticated + repo/issue context",
+      when: "GitHub issue handling, PR creation, review comments, labels, or code changes driven by GitHub context.",
+      why: "GitHub work needs authenticated CLI context before code changes or status updates are safe.",
+      helps: "Uses gh to inspect live state, then routes isolated implementation when needed.",
+      invoke: "gh <intent>", tags: ["github", "gh-cli"] },
+    { name: "github-triage", cat: "host",
+      short: "Triage issues via labels and workflow states.",
+      needs: "gh with read + label + create",
+      when: "Incoming bug reports, feature requests, or issues that need labeling and prep for an agent.",
+      why: "Untriaged issues are hard to pick up and easy to misunderstand.",
+      helps: "Turns rough reports into labeled, actionable GitHub work items.",
+      invoke: "triage", tags: ["github", "triage"] },
+    { name: "glab-autopilot", cat: "host",
+      short: "Issue, MR, review, comment, label flows via glab CLI.",
+      needs: "glab authenticated + repo/issue/MR context",
+      when: "GitLab issue handling, draft MR creation, review comments, labels, or code changes driven by GitLab context.",
+      why: "GitLab work needs authenticated CLI and repo context before mutations are safe.",
+      helps: "Uses glab to inspect live state, then routes isolated implementation when needed.",
+      invoke: "glab <intent>", tags: ["gitlab", "glab-cli"] },
+    { name: "gitlab-triage", cat: "host",
+      short: "Triage GitLab issues via conservative labels and notes.",
+      needs: "glab with issue read + notes + label perms",
+      when: "Incoming GitLab issues need classification, prior triage review, or prep for an agent or human.",
+      why: "GitLab projects often have custom labels, so state changes need careful mapping.",
+      helps: "Inspects issues and notes, recommends state/category labels, and applies approved changes.",
+      invoke: "gitlab-triage #42", tags: ["gitlab", "triage"] },
+    { name: "ado-autopilot", cat: "host",
+      short: "Azure Boards and Azure Repos orchestration via az.",
+      needs: "az, Azure DevOps extension, org/project defaults",
+      when: "Azure DevOps work item or PR context should drive execution, review, or PR creation.",
+      why: "ADO work needs org/project/repo detection and auth checks before mutations are safe.",
+      helps: "Resolves work items and PRs, checks CLI context, then hands code changes to worktree automation.",
+      invoke: "ado <work-item|PR-url>", tags: ["ado", "az-cli"] },
+    { name: "azure-devops-triage", cat: "host",
+      short: "Inspect and prepare Azure Boards work items.",
+      needs: "az boards access + work item ID/URL",
+      when: "ADO work items need field, tag, state, or readiness triage before implementation.",
+      why: "Azure Boards process templates vary, so state changes need conservative recommendations.",
+      helps: "Reads standard System fields, comments, and tags; recommends updates without assuming a template.",
+      invoke: "ado-triage <id|url>", tags: ["ado", "triage"] },
+    { name: "jira", cat: "host",
+      short: "Manage Jira work items via Atlassian acli.",
+      needs: "acli authenticated; acli jira workitem --help",
+      when: "Assigned Jira tasks, daily todo triage, ticket updates, status transitions, or new work items.",
+      why: "Jira mutations are live ops — need explicit keys, statuses, and narrow scope.",
+      helps: "Builds safe acli jira workitem flows for create, edit, transition, pickup.",
+      invoke: "jira <intent>", tags: ["jira", "acli"] },
 
-    const catalog = document.querySelector("#catalog");
-    const empty = document.querySelector("#empty");
-    const search = document.querySelector("#search");
-    const openAll = document.querySelector("#openAll");
-    const closeAll = document.querySelector("#closeAll");
+    { name: "pr-creator", cat: "pr",
+      short: "Draft PRs for GitHub, GitLab, or ADO.",
+      needs: "git, pushed branch, host CLI (gh/glab/ADO)",
+      when: "After validation when a branch should become a draft PR.",
+      why: "PR creation differs across hosts and should verify CLI auth first.",
+      helps: "Checks prerequisites, creates the PR, returns the link with a concise summary.",
+      invoke: "open-pr", tags: ["pr", "multi-host"] },
+    { name: "pr-convention-learner", cat: "pr",
+      short: "Learn ADO PR review conventions and apply them locally.",
+      needs: "ADO PR access + configured CLI/auth",
+      when: "ADO PR comments, reviewer feedback, convention extraction, or pre-PR checks.",
+      why: "Repeated review comments should become local conventions, not tribal memory.",
+      helps: "Fetches ADO PR context, fixes feedback, updates per-repo convention files.",
+      invoke: "learn-conventions <PR-url>", tags: ["ado", "review"] },
+    { name: "copy-pr", cat: "pr",
+      short: "Reproduce a GitHub/ADO PR locally — branch, validate, commit.",
+      needs: "git + host CLI auth (gh / ADO)",
+      when: "Need to bring an external PR's diff onto your branch and validate it locally.",
+      why: "Manual PR copying is error-prone across remotes, branches, and review state.",
+      helps: "Automates branch setup, diff fetch, validation, commit, push.",
+      invoke: "copy-pr <url>", tags: ["github", "ado"] },
 
-    function skillRow(s) {
-      const need = needs[s.name] || "files, creds, local tools as required";
-      const cmd = `gh skill install ixigo/agentify skills/${s.name}`;
-      const tags = s.tags.map(t => `<span class="t">${t}</span>`).join("");
-      const blob = [s.name, s.short, need, cmd, s.when, s.why, s.helps, s.invoke, s.tags.join(" ")].join(" ").toLowerCase();
-      return `
-        <details class="skill" data-search="${blob}">
-          <summary>
-            <span class="name">${s.name}</span>
-            <span class="desc">${s.short}</span>
-            <span class="arrow"></span>
-          </summary>
-          <div class="body">
-            <div class="install">${cmd}</div>
-            <div class="row"><b>when</b><p>${s.when}</p></div>
-            <div class="row"><b>why</b><p>${s.why}</p></div>
-            <div class="row"><b>does</b><p>${s.helps}</p></div>
-            <div class="row"><b>invoke</b><p class="invoke">${s.invoke}</p></div>
-            <div class="row"><b>needs</b><p>${need}</p></div>
-            <div class="row"><b>tags</b><div class="tags">${tags}</div></div>
-          </div>
-        </details>`;
-    }
+    { name: "grill-me", cat: "plan",
+      short: "Interrogate a plan until it becomes executable.",
+      needs: "rough plan; gh if filing issues",
+      when: "Feature, design, or refactor plan has hidden assumptions or weak requirements.",
+      why: "Hard questions before implementation are cheaper than rework after code lands.",
+      helps: "Extracts decisions, builds an execution plan, optionally opens GitHub issues.",
+      invoke: "grill <topic>", tags: ["planning", "requirements"] },
+    { name: "to-issues", cat: "plan",
+      short: "Break plans into independently grabbable GitHub issues.",
+      needs: "plan/spec/PRD + gh",
+      when: "A PRD, plan, or spec should become implementation tickets.",
+      why: "Good issue slices let agents work independently without collisions.",
+      helps: "Creates tracer-bullet vertical slices with clear deliverables and boundaries.",
+      invoke: "to-issues <plan|file>", tags: ["github", "planning"] },
+    { name: "design-an-interface", cat: "plan",
+      short: "Explore module/API designs in parallel.",
+      needs: "repo context, parallel agent capacity",
+      when: "API shape, module boundary, or interface contract is still unsettled.",
+      why: "First designs reflect local bias; parallel alternatives expose better tradeoffs.",
+      helps: "Compares multiple options before committing code to one abstraction.",
+      invoke: "design <module>", tags: ["design", "api"] },
 
-    function render() {
-      const byName = new Map(skills.map(s => [s.name, s]));
-      catalog.innerHTML = categories.map((c, i) => {
-        const items = c.skills.map(n => byName.get(n)).filter(Boolean);
-        const num = String(i + 1).padStart(2, "0");
-        return `
-          <section class="cat" id="${c.id}" data-cat>
-            <div class="cat-head">
-              <h2 data-num="${num}">${c.title}</h2>
-              <span class="count">${String(items.length).padStart(2, "0")} skills</span>
-            </div>
-            <p class="cat-desc">${c.desc}</p>
-            <div>${items.map(skillRow).join("")}</div>
-          </section>`;
-      }).join("");
-    }
+    { name: "improve-codebase-architecture", cat: "arch",
+      short: "Find structural improvements for testability and change.",
+      needs: "repo read, time to inspect modules + tests",
+      when: "You want refactor opportunities, clearer module boundaries, or a more AI-navigable codebase.",
+      why: "Architecture debt compounds when shallow modules and coupled concepts stay hidden.",
+      helps: "Surfaces evidence-backed refactor targets and explains why they matter.",
+      invoke: "explore-architecture", tags: ["architecture", "refactor"] },
+    { name: "domain-model", cat: "arch",
+      short: "Stress-test a plan against domain language and ADRs.",
+      needs: "plan/conversation context, optional CONTEXT.md / ADRs",
+      when: "Terminology, business concepts, or documented decisions could affect the implementation.",
+      why: "Misnamed concepts spread fast and make future changes harder.",
+      helps: "Sharpens language, flags ambiguity, updates domain docs as decisions settle.",
+      invoke: "review-domain <plan>", tags: ["ddd", "docs"] },
+    { name: "ubiquitous-language", cat: "arch",
+      short: "Extract and maintain a DDD glossary.",
+      needs: "domain context + write UBIQUITOUS_LANGUAGE.md",
+      when: "Terms, concepts, or domain names need clarification and standardization.",
+      why: "Inconsistent language causes bugs, duplicate abstractions, and confused discussions.",
+      helps: "Creates or updates UBIQUITOUS_LANGUAGE.md with canonical terms.",
+      invoke: "language", tags: ["ddd", "glossary"] },
+    { name: "copy-mode", cat: "arch",
+      short: "Write architecture, PRD, and summary handoff docs.",
+      needs: "repo read, write to docs/architecture.md, prd.md, summary.md",
+      when: "Another agent needs enough repo context to implement without rediscovering everything.",
+      why: "Agent handoffs fail when architecture, conventions, and goals stay implicit.",
+      helps: "Creates durable docs explaining system shape and the next implementation target.",
+      invoke: "writes docs/architecture.md, prd.md, summary.md", tags: ["handoff", "docs"] },
 
-    function applyFilter() {
-      const q = search.value.trim().toLowerCase();
-      let visible = 0;
-      document.querySelectorAll(".skill").forEach(el => {
-        const ok = !q || el.dataset.search.includes(q);
-        el.hidden = !ok;
-        if (ok) visible++;
-      });
-      document.querySelectorAll("[data-cat]").forEach(el => {
-        el.hidden = !el.querySelector(".skill:not([hidden])");
-      });
-      empty.style.display = visible ? "none" : "block";
-    }
+    { name: "tdd", cat: "qa",
+      short: "Red, green, refactor for features and fixes.",
+      needs: "test command + perms to add tests",
+      when: "User asks for test-first development, integration tests, or a TDD fix plan.",
+      why: "Tests anchor behavior before implementation choices harden.",
+      helps: "Drives a disciplined loop: failing test, minimal fix, refactor, repeat.",
+      invoke: "tdd <goal>", tags: ["tests", "tdd"] },
+    { name: "qa", cat: "qa",
+      short: "Conversational bug reports become GitHub issues.",
+      needs: "gh if filing as issues",
+      when: "QA sessions where the user reports bugs or rough observations conversationally.",
+      why: "Bug reports need codebase context and reproduction notes to become fixable.",
+      helps: "Explores the repo in the background and files issue-ready reports.",
+      invoke: "qa", tags: ["qa", "bugs"] },
+    { name: "setup-pre-commit", cat: "qa",
+      short: "Husky + lint-staged + format/type/test gates.",
+      needs: "package manager + perms for Husky/lint-staged",
+      when: "A repo needs commit-time quality gates.",
+      why: "Fast local checks prevent avoidable lint, format, type, and test failures from reaching review.",
+      helps: "Installs and configures pre-commit tooling for the current repo stack.",
+      invoke: "setup-precommit", tags: ["quality", "hooks"] },
+    { name: "git-guardrails-claude-code", cat: "qa",
+      short: "Claude Code hooks that block dangerous git commands.",
+      needs: "Claude Code hooks, edit local hook config",
+      when: "Repo needs local protection from accidental push, reset, clean, or destructive branch commands.",
+      why: "One unsafe git command can erase work or publish changes before review.",
+      helps: "Adds command-level guardrails before destructive operations execute.",
+      invoke: "install-guardrails", tags: ["git", "safety"] },
 
-    render();
-    search.addEventListener("input", applyFilter);
-    openAll.addEventListener("click", () => document.querySelectorAll(".skill:not([hidden])").forEach(s => s.open = true));
-    closeAll.addEventListener("click", () => document.querySelectorAll(".skill").forEach(s => s.open = false));
-  </script>
+    { name: "figma-ui-build", cat: "ui",
+      short: "Build a local UI from a Figma node and validate it.",
+      needs: "Figma node URL, user-provided node picture, FIGMA_TOKEN for uncached metadata, local route or Storybook target",
+      when: "A frontend task starts from a Figma node URL and a supplied node picture, then needs codebase-aware implementation plus screenshot comparison.",
+      why: "Figma-to-code work needs both design metadata and local component conventions before visual eval is useful.",
+      helps: "Uses cached Figma node metadata plus the supplied picture, ranks matching local components, writes a plan, then hands off to ui-screenshot-eval.",
+      invoke: "figma-ui-build <figma-url> + node picture", tags: ["figma", "frontend", "visual"] },
+    { name: "ui-screenshot-eval", cat: "ui",
+      short: "Playwright screenshots around a stable UI anchor.",
+      needs: "frontend app URL, Playwright, screenshot/Figma reference or before/after target",
+      when: "Frontend UI work needs before/after evidence, scoped element screenshots, or matching against a screenshot or Figma reference.",
+      why: "Visual tasks drift when the changed UI has no stable selector and review only happens by memory.",
+      helps: "Adds a semantic data-testid, captures full-page and element screenshots, and loops until the scoped UI materially matches the reference.",
+      invoke: "ui-eval <route> <reference>", tags: ["playwright", "visual"] },
+
+    { name: "migrate-php-to-astro-iui", cat: "org",
+      short: "Migrate legacy PHP/AMP pages into Astro + IUI.",
+      needs: "legacy PHP/AMP source, target Astro app, runnable route, Node 22, existing IUI/design-system components",
+      when: "A ConfirmTkt page in UI/Website should move into seo-pages without losing route behavior, SEO content, or visual structure.",
+      why: "Line-by-line ports preserve legacy coupling, duplicate CSS, and client-heavy behavior instead of using Astro and the current design system.",
+      helps: "Inventories the PHP contract, maps it to existing IUI and brand components, builds server-first Astro, then loops through SEO, accessibility, visual, build, and Lighthouse gates.",
+      invoke: "migrate-php-to-astro-iui <php-file> <target-route>", tags: ["astro", "migration", "seo"] },
+    { name: "find-goals-per-quarter", cat: "org",
+      short: "Reconstruct a quarter of shipped work from Jira + Azure DevOps.",
+      needs: "acli + az authenticated, Azure DevOps extension, org/project defaults, Node 22",
+      when: "\"What did I ship last quarter?\" — self-review input, quarterly goals, or a 3-month work summary.",
+      why: "The record is split across Jira and Azure Repos, and memory reconstructs it as vague activity instead of cited outcomes.",
+      helps: "Reads assigned tickets via acli and authored PRs via az, matches keys in PR titles/branches, groups evidence into goal themes, and reports what it could not link.",
+      invoke: "find-goals-per-quarter [--quarter 2026-Q2]", tags: ["jira", "azure-devops", "review"] },
+
+    { name: "write-a-skill", cat: "agent",
+      short: "Author new agent skills with proper structure.",
+      needs: "workflow, target folder, write SKILL.md",
+      when: "A repeated workflow should become a reusable skill.",
+      why: "Skills make agent behavior durable instead of relying on one-off prompts.",
+      helps: "Guides progressive disclosure, metadata, bundled resources, validation.",
+      invoke: "new-skill <name>", tags: ["skills", "authoring"] },
+    { name: "caveman", cat: "agent",
+      short: "Ultra-compressed technical prose output.",
+      needs: "level: lite / full / ultra / wenyan",
+      when: "Output needs to be short, dense, and still technically exact.",
+      why: "Long agent responses waste review time and tokens during routine engineering loops.",
+      helps: "Cuts response volume while preserving commands, file names, risks, decisions.",
+      invoke: "caveman <lite|full|ultra|wenyan>", tags: ["communication", "tokens"] }
+  ];
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  var cardsEl = document.getElementById("cards");
+  var chipsEl = document.getElementById("chips");
+  var qEl = document.getElementById("skq");
+  var emptyEl = document.getElementById("empty");
+  var activeCat = "";
+
+  function card(s) {
+    var c = CAT[s.cat];
+    var id = "sk-" + s.name;
+    var cmd = "agentify skill install " + s.name;
+    var blob = [s.name, s.short, s.needs, s.when, s.why, s.helps, s.invoke, (s.tags || []).join(" "), c.t].join(" ").toLowerCase();
+    return '<article class="card" data-cat="' + s.cat + '" data-search="' + esc(blob) + '">'
+      + '<span class="badge ' + c.badge + '">' + esc(c.t) + '</span>'
+      + '<h3>' + esc(s.name) + '</h3>'
+      + '<p>' + esc(s.short) + '</p>'
+      + '<p class="need"><span class="eyebrow">Needs</span> ' + esc(s.needs) + '</p>'
+      + '<div class="install"><span id="' + id + '">' + esc(cmd) + '</span><button class="copy" type="button" data-copy="' + id + '">Copy</button></div>'
+      + '</article>';
+  }
+
+  // chips: All + one per category
+  chipsEl.innerHTML = '<button class="fchip" type="button" data-cat="" aria-pressed="true">All</button>'
+    + CATS.map(function (c) { return '<button class="fchip" type="button" data-cat="' + c.id + '" aria-pressed="false">' + esc(c.t) + '</button>'; }).join("");
+
+  // cards in category order so related skills cluster
+  cardsEl.innerHTML = SKILLS.slice().sort(function (a, b) {
+    return CATS.findIndex(function (c) { return c.id === a.cat; }) - CATS.findIndex(function (c) { return c.id === b.cat; });
+  }).map(card).join("");
+
+  function apply() {
+    var q = qEl.value.trim().toLowerCase();
+    var vis = 0;
+    cardsEl.querySelectorAll(".card").forEach(function (el) {
+      var okCat = !activeCat || el.getAttribute("data-cat") === activeCat;
+      var okQ = !q || el.getAttribute("data-search").indexOf(q) >= 0;
+      var show = okCat && okQ;
+      el.hidden = !show;
+      if (show) vis++;
+    });
+    emptyEl.hidden = vis > 0;
+  }
+
+  qEl.addEventListener("input", apply);
+  chipsEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".fchip"); if (!b) return;
+    activeCat = b.getAttribute("data-cat");
+    chipsEl.querySelectorAll(".fchip").forEach(function (o) {
+      o.setAttribute("aria-pressed", o.getAttribute("data-cat") === activeCat ? "true" : "false");
+    });
+    apply();
+  });
+  apply();
+})();
+</script>
 </body>
 </html>

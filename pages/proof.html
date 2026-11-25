@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Proof · Agentify</title>
+  <meta name="description" content="Paired evals with committed receipts: Agentify vs plain agents, Serena, and a hand-kept CLAUDE.md, including the results that don't flatter us.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="bento.css">
+</head>
+<body data-root="../" data-page="proof">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav gut" id="nav">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><span class="logo" aria-hidden="true"></span>Agentify</a>
+    <nav class="links" aria-label="Main">
+      <a href="usage.html" data-page="how">How it works</a>
+      <a href="proof.html" data-page="proof">Proof</a>
+      <a href="migrate.html" data-page="guides">Guides</a>
+      <a href="reference.html" data-page="reference">Reference</a>
+      <a href="https://github.com/ixigo/agentify">GitHub</a>
+    </nav>
+    <div class="spacer"></div>
+    <button class="kbtn" type="button" id="openPal" aria-label="Search (Ctrl K)"><span>Search</span><kbd id="kbdHint">Ctrl K</kbd></button>
+    <a class="cta" href="../index.html#install">Install</a>
+    <button class="menu" type="button" id="menuBtn" aria-expanded="false">Menu</button>
+  </div>
+</header>
+
+<main class="view gut" id="main">
+  <div class="wrap">
+    <div class="phead"><span class="crumb"><a href="../index.html">Home</a> / Proof</span><h1>What we measured, in plain words.</h1><p>Paired evals in containers: same model, same task, same budget. The only difference is the memory layer. We publish the results that don't flatter us too.</p></div>
+    <div class="sec" style="padding-top:1.5rem">
+      <div class="camp"><div><span class="eyebrow">Aug 2026 · five task families · 180 trials</span><h3>Memory beats no memory, clearly</h3><p>On tasks where a past decision matters, plain agents kept reintroducing a regression that had already been recorded. Agentify didn't. 28 paired wins, 0 losses.</p><span class="verdict">Winner · p = 7.5×10⁻⁹</span></div>
+        <div class="bars"><div class="bar"><span>Agentify</span><b><i style="width:97.7%"></i></b><span>84/86</span></div><div class="bar base"><span>Plain agent</span><b><i style="width:65.1%"></i></b><span>56/86</span></div></div></div>
+      <div class="camp"><div><span class="eyebrow">Aug 2026 · 300-note store</span><h3>Finding one note among 300 works</h3><p>With 300 notes in memory, the one the task needs still surfaces. 18 paired wins, 0 losses against no memory.</p><span class="verdict">Decisive vs plain · p = 8×10⁻⁶</span></div>
+        <div class="bars"><div class="bar"><span>Agentify</span><b><i style="width:74%"></i></b><span>20/27</span></div><div class="bar base"><span>Plain agent</span><b><i style="width:7.4%"></i></b><span>2/27</span></div></div></div>
+      <div class="camp"><div><span class="eyebrow">Aug 2026 · head-to-head · 4 arms</span><h3>Ahead of plain and Serena</h3><p>Against a plain agent and the Serena code-intelligence MCP with the same knowledge. A hand-kept CLAUDE.md scored 37/40, a statistical tie.</p><span class="verdict">Strong vs plain and Serena</span></div>
+        <div class="bars"><div class="bar"><span>Agentify</span><b><i style="width:90%"></i></b><span>36/40</span></div><div class="bar base"><span>Serena MCP</span><b><i style="width:67.5%"></i></b><span>27/40</span></div><div class="bar base"><span>Plain agent</span><b><i style="width:65%"></i></b><span>26/40</span></div></div></div>
+      <div class="camp"><div><span class="eyebrow">Nov 2026 · injection format · 180 trials</span><h3>Format doesn't matter much; memory does</h3><p>We tested whether the way notes are delivered changes results. It doesn't, by any significant margin. Stuffing a whole store into CLAUDE.md ran out of turns on the hardest task.</p><span class="verdict tie-v">No difference · published</span></div>
+        <div class="bars"><div class="bar"><span>Pinned notes</span><b><i style="width:80%"></i></b><span>36/45</span></div><div class="bar"><span>Full notes</span><b><i style="width:77.8%"></i></b><span>35/45</span></div><div class="bar base"><span>Whole store</span><b><i style="width:71.1%"></i></b><span>32/45</span></div><div class="bar"><span>Digest</span><b><i style="width:68.9%"></i></b><span>31/45</span></div></div></div>
+      <div class="tie"><span class="ic">=</span><div><h3>The honest headline</h3><p>Memory versus no memory is a large, repeatable win. Agentify versus a CLAUDE.md you maintain by hand is a tie on results; Agentify's edge is that it builds, trims and shares that memory for you.</p></div></div>
+      <div class="method">
+        <div><h3>Paired, not averaged</h3><p>Each task runs with and without Agentify; we count wins and losses on the same task.</p></div>
+        <div><h3>Rules set first</h3><p>The verdict rule is written down before any trial runs.</p></div>
+        <div><h3>Receipts in the repo</h3><p>Raw runs live in <code>evals/results/</code>, and CI re-checks every number.</p></div>
+      </div>
+    </div>
+    <div class="next"><a href="usage.html">← How it works</a><a href="https://github.com/ixigo/agentify/blob/main/docs/benchmarks.md">Full tables and corrections log ↗</a></div>
+    <footer><span>Agentify · <a href="https://github.com/ixigo/agentify">github.com/ixigo/agentify</a> · MIT</span><span>For Claude Code and Codex on a subscription plan</span></footer>
+  </div>
+</main>
+
+<div class="pal-back" id="palBack" hidden>
+  <div class="pal" role="dialog" aria-modal="true" aria-label="Search">
+    <input id="palIn" type="text" placeholder="Jump to a page or command…" autocomplete="off" aria-controls="palList">
+    <ul id="palList" role="listbox"></ul>
+    <div class="foot"><span>↑↓ move</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<script src="bento.js"></script>
+</body>
+</html>

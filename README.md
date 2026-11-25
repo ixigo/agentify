@@ -19,7 +19,11 @@
 > **Switch agents. Keep the repo's working memory.**
 
 <p align="center">
-  <img src="./assets/agentify-demo.gif" alt="Agentify demo: record a decision and a note, load them in a new session, query impact, score risk, and select only the affected tests" width="900" />
+  <a href="https://youtu.be/s1txFMSDjcU" title="Watch: Agentify in 40 seconds">
+    <img src="https://i.ytimg.com/vi/s1txFMSDjcU/maxresdefault.jpg" alt="Watch: Agentify in 40 seconds. Install once, then your agent handles it" width="900" />
+  </a>
+  <br>
+  <sub>▶ <a href="https://youtu.be/s1txFMSDjcU">Watch the 40-second explainer</a> · <a href="https://ixigo.github.io/agentify/">Website</a></sub>
 </p>
 
 Agentify keeps durable working context — decisions, notes, session summaries, command failures, hot files — with the repository instead of inside one agent harness. Install it once and the agent drives it: Claude Code and Codex through lifecycle hooks (Codex falls back to installed guidance on versions without hooks), everything else over MCP.
@@ -64,6 +68,10 @@ agentify install
 4. **Session ends** — a short extractive handoff is written from tracked evidence, at zero model cost.
 
 No daemon, no database server, no per-command wrapping.
+
+<p align="center">
+  <img src="./assets/agentify-demo.gif" alt="Agentify demo: record a decision and a note, load them in a new session, query impact, score risk, and select only the affected tests" width="900" />
+</p>
 
 ## Commands you'll actually type
 
