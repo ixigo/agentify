@@ -43,6 +43,7 @@ test("runOneCommandInstall warns and continues when a provider is unauthenticate
   const result = await runOneCommandInstall(root, {}, {
     homeDir: home,
     buildIndex: false,
+    mcp: true,
     detect: fakeDetect({
       claude: { available: true, version: "1.4.0", auth: { state: "missing", detail: "login required", next_step: "claude auth login" } },
       codex: { available: false },
@@ -61,6 +62,81 @@ test("runOneCommandInstall warns and continues when a provider is unauthenticate
   assert.equal(result.mcp.registrations.some((item) => item.provider === "codex"), false);
 });
 
+test("runOneCommandInstall does not register MCP for Claude Code by default (#397 opt-in)", async () => {
+  const root = await tmpDir("agentify-install-optout-");
+  const home = await tmpDir("agentify-install-optout-home-");
+
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
+  });
+
+  // Hooks are wired, but the MCP server is not registered for Claude Code.
+  assert.equal(result.mcp.opt_in, false);
+  assert.equal(result.mcp.registrations.length, 0);
+  assert.equal(result.integrations[0].provider, "claude");
+  assert.equal(result.integrations[0].settings.changed, true);
+  // No provider config was written.
+  await assert.rejects(() => fs.access(path.join(home, ".claude.json")));
+});
+
+test("runOneCommandInstall registers MCP for Claude Code when opted in (#397)", async () => {
+  const root = await tmpDir("agentify-install-optin-");
+  const home = await tmpDir("agentify-install-optin-home-");
+
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    mcp: true,
+    detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
+  });
+
+  assert.equal(result.mcp.opt_in, true);
+  const claudeMcp = result.mcp.registrations.find((item) => item.provider === "claude");
+  assert.equal(claudeMcp.registered, true);
+  assert.equal(claudeMcp.changed, true);
+  const claudeJson = JSON.parse(await fs.readFile(path.join(home, ".claude.json"), "utf8"));
+  assert.deepEqual(claudeJson.mcpServers.agentify, { type: "stdio", command: "agentify", args: ["serve"] });
+});
+
+test("runOneCommandInstall still registers MCP for a hookless Codex by default (#397)", async () => {
+  const root = await tmpDir("agentify-install-codex-guidance-");
+  const home = await tmpDir("agentify-install-codex-guidance-home-");
+
+  // A Codex build with no lifecycle hooks (guidance mode) has no other channel
+  // for the context tools, so MCP registration stays on even without --mcp.
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    codexHooks: false,
+    detect: fakeDetect({ claude: { available: false }, codex: { available: true, version: "0.40.0", auth: { state: "ready" } } }),
+  });
+
+  assert.equal(result.mcp.opt_in, false);
+  assert.equal(result.integrations[0].mode, "guidance");
+  const codexMcp = result.mcp.registrations.find((item) => item.provider === "codex");
+  assert.equal(codexMcp.registered, true);
+  assert.equal(codexMcp.path, path.join(home, ".codex", "config.toml"));
+});
+
+test("runOneCommandInstall does not register MCP for a hooks-capable Codex by default (#397)", async () => {
+  const root = await tmpDir("agentify-install-codex-hooks-");
+  const home = await tmpDir("agentify-install-codex-hooks-home-");
+
+  // Codex with lifecycle hooks is covered like Claude Code: no default MCP.
+  const result = await runOneCommandInstall(root, {}, {
+    homeDir: home,
+    buildIndex: false,
+    codexHooks: true,
+    detect: fakeDetect({ claude: { available: false }, codex: { available: true, version: "1.0.0", auth: { state: "ready" } } }),
+  });
+
+  assert.equal(result.integrations[0].mode, "hooks");
+  assert.equal(result.mcp.registrations.length, 0);
+  await assert.rejects(() => fs.access(path.join(home, ".codex", "config.toml")));
+});
+
 test("runOneCommandInstall is idempotent and reports a receipt", async () => {
   const root = await tmpDir("agentify-install-idem-");
   const home = await tmpDir("agentify-install-idem-home-");
@@ -69,7 +145,7 @@ test("runOneCommandInstall is idempotent and reports a receipt", async () => {
     codex: { available: false },
   });
 
-  const first = await runOneCommandInstall(root, {}, { homeDir: home, buildIndex: false, detect });
+  const first = await runOneCommandInstall(root, {}, { homeDir: home, buildIndex: false, mcp: true, detect });
   assert.equal(first.command, "install");
   assert.equal(first.mcp.registrations[0].changed, true);
   // Receipt surfaces what was detected, written, and read.
@@ -79,7 +155,7 @@ test("runOneCommandInstall is idempotent and reports a receipt", async () => {
   // ACP is reported as unavailable rather than assumed present.
   assert.equal(first.acp.supported, false);
 
-  const second = await runOneCommandInstall(root, {}, { homeDir: home, buildIndex: false, detect });
+  const second = await runOneCommandInstall(root, {}, { homeDir: home, buildIndex: false, mcp: true, detect });
   assert.equal(second.mcp.registrations[0].changed, false);
   assert.equal(second.mcp.registrations[0].action, "unchanged");
   assert.equal(second.integrations[0].memory.changed, false);
@@ -167,6 +243,7 @@ test("runOneCommandInstall reports ok:false when a registration cannot complete"
   const result = await runOneCommandInstall(root, {}, {
     homeDir: home,
     buildIndex: false,
+    mcp: true,
     detect: fakeDetect({
       claude: { available: true, version: "1.4.0", auth: { state: "ready" } },
       codex: { available: false },
@@ -191,6 +268,7 @@ test("runOneCommandInstall dry-run previews without writing or claiming registra
   const result = await runOneCommandInstall(root, { dryRun: true }, {
     homeDir: home,
     buildIndex: false,
+    mcp: true,
     detect: fakeDetect({ claude: { available: true, version: "1.4.0", auth: { state: "ready" } }, codex: { available: false } }),
     onProgress: (event) => progress.push(event),
   });

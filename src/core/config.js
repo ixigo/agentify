@@ -32,6 +32,17 @@ const DEFAULT_CONFIG = {
     // Opt-in: cross-vendor review of outgoing commits at push time.
     prePush: false,
   },
+  install: {
+    // `agentify install` MCP registration for Claude Code and Codex is opt-in
+    // (#397): lifecycle hooks already cover them, so the Agentify MCP server is
+    // not registered for those agents by default. Set true (or pass
+    // `agentify install --mcp`) to register it for them anyway. A Codex build
+    // with no lifecycle hooks still gets MCP registered regardless, since its
+    // guidance mode has no other automatic channel for the context tools. MCP
+    // stays fully supported via `agentify serve` and remains the integration
+    // path for MCP-only agents.
+    mcp: false,
+  },
   runtime: {
     store: "local",
     sharedStorePath: null,
@@ -258,6 +269,7 @@ export async function writeDefaultConfig(root, config, { dryRun = false } = {}) 
     toolchain: config.toolchain,
     index: config.index,
     hooks: normalizeConfig(config).hooks,
+    install: config.install,
     runtime: config.runtime,
     // Pin the default profile explicitly in new configs so the routing
     // policy is visible and versionable from day one.

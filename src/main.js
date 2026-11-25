@@ -220,7 +220,11 @@ function renderInstallReceipt(result, config) {
   if (result.mcp.skipped) {
     log(`  ${dim("skipped (--skip-mcp)")}`);
   } else if (result.mcp.registrations.length === 0) {
-    log(`  ${dim("no installed provider to register — pass --provider claude|codex to force")}`);
+    if (result.mcp.opt_in) {
+      log(`  ${dim("no installed provider to register — pass --provider claude|codex to force")}`);
+    } else {
+      log(`  ${dim("opt-in — hooks cover Claude Code and Codex; pass --mcp to register the MCP server for them")}`);
+    }
   } else {
     for (const registration of result.mcp.registrations) {
       log(`  ${bold(registration.provider)} → ${dim(registration.path)}: ${renderMcpAction(registration)}`);
@@ -293,6 +297,10 @@ async function runInstall(root, config, args) {
   const homeDir = args.home ? path.resolve(String(args.home)) : os.homedir();
   const requestedProviders = args.provider ? resolveIntegrationProviders(args.provider) : null;
   const skipMcp = args.skipMcp === true || args.noMcp === true;
+  // MCP registration for Claude Code and Codex is opt-in (#397): --mcp on the
+  // command line or install.mcp in .agentify.yaml. A hookless Codex is still
+  // registered by default regardless (see runOneCommandInstall).
+  const mcpOptIn = args.mcp === true || config.install?.mcp === true;
   const buildIndex = args.noIndex !== true;
   const suppressProgress = args.noProgress === true || config._suppressProgress === true;
   const loader = suppressProgress ? createStatusLoader({ enabled: false }) : createStatusLoader();
@@ -319,6 +327,7 @@ async function runInstall(root, config, args) {
       global: isGlobal,
       providers: requestedProviders,
       skipMcp,
+      mcp: mcpOptIn,
       buildIndex,
       onProgress,
     });
@@ -462,7 +471,7 @@ async function runStatus(root, config, args) {
       : "registered (a table Agentify did not author — edit ~/.codex/config.toml, then rerun install)";
     const mcpState = entry.registered
       ? (entry.current ? green("registered") : yellow(staleNote))
-      : dim("not registered");
+      : dim("not registered (opt-in)");
     log(`${bold(entry.provider)}: MCP server ${mcpState}`);
   }
   log(`Context: ${bold(String(context.event_count))} event(s), ${bold(String(context.note_count))} note(s)`);

@@ -34,12 +34,13 @@ const COMMANDS = [
       flag("--output", { valueKind: "path", description: "New migration archive directory" }),
     ],
   }),
-  command("install", "Detect providers, register the MCP server, wire guidance, build the index", {
+  command("install", "Detect providers, wire guidance and hooks, build the index (MCP registration is opt-in)", {
     aliases: ["init"],
     flags: [
       flag("--global", { description: "Install into ~/.claude or ~/.codex instead of the project" }),
       flag("--provider", { values: ["claude", "codex", "all"], description: "Force a provider instead of auto-detecting" }),
-      flag("--skip-mcp", { description: "Skip MCP server registration (guidance + hooks only)" }),
+      flag("--mcp", { description: "Register the MCP server for Claude Code/Codex (opt-in; hooks cover them by default)" }),
+      flag("--skip-mcp", { description: "Skip MCP registration entirely (including the hookless-Codex fallback)" }),
       flag("--no-index", { description: "Skip building the structural index" }),
       flag("--no-progress", { description: "Suppress interactive install progress" }),
       flag("--home", { description: "Home dir for MCP registration (default: your home)" }),
