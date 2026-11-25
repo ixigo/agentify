@@ -42,6 +42,7 @@ The arms that recur below:
 | 2026-08-20 | First competitor head-to-head, 4 arms | stuffing 37/40, agentify 36/40, serena 27/40, plain 26/40 | **No difference detected** vs stuffing; strong vs plain/serena |
 | 2026-08-21 | Five-family downshift, 180 trials | agentify 84/86 vs 56/86 | **Winner** (28/0, p = 7.5e-9) + per-cell target met |
 | 2026-08-21 | Store-size ladder, 135 trials | stuffing 24/27 vs agentify 20/27 vs plain 2/27 | **No difference detected** vs stuffing; decisive vs plain |
+| 2026-11-25 | Injection-format ablation, 180 trials | agentify 31/45, full-note 35/45, persist 36/45, stuffing 32/45 | **Null on format**; the ladder's stuffing edge did not reproduce |
 
 ### 2026-07-14 — first paired Harbor nightly
 
@@ -159,10 +160,73 @@ explanations: each scenario's needle rank is measured at every rung and is never
 300 notes than at 10, and **every** real note survives the token budget.
 Agentify receives exactly the right knowledge and converts it less often on
 one of three scenarios. Live hypotheses: injection **format** (compact digest
-vs full notes re-read every turn) or noise at 9 attempts per scenario.
+vs full notes re-read every turn) or noise at 9 attempts per scenario — both
+**settled by the 2026-11-25 injection-format ablation below** (format: null;
+the gap itself did not reproduce at equal, retrieved knowledge).
 
 Roadmap consequence: **store size does not justify semantic-retrieval work** —
 BM25 is not the bottleneck here. Receipts: `harbor-20260821-storeladder`.
+
+### 2026-11-25 — injection-format ablation (the null, confirmed)
+
+The ladder left two live explanations for its point-estimate gap: injection
+**format/position**, or noise. This campaign decomposed format at equal
+knowledge on the same store300 tasks — every arm seeded the identical 300-note
+fixture, every arm's needle retrieved (verified token-free before launch;
+`retrieval-diagnostic.md`). Four arms, 180 trials, `claude-haiku-4-5`, ~$12,
+**0 harness errors**. Pre-registration — hypotheses, arms, n, the paired
+sign-test verdict rule, and the harness/exclusion rules — was committed
+*before any trial ran* (`PREREGISTRATION.md`).
+
+- `agentify` — the baseline: a budgeted matched digest injected once at the prompt.
+- `full-note` (`fullnote-claude`) — the same pipeline with the injection token
+  budget lifted, so nothing is trimmed.
+- `persist` (`persist-claude`) — the same selection pinned into `CLAUDE.md`,
+  present on every turn, hook injection off.
+- `memorybank-claude` — the whole store stuffed into `CLAUDE.md`, the ceiling.
+
+**Pooled over three scenarios (n = 45 per arm):**
+
+| arm | passes | Wilson 95% |
+| --- | --- | --- |
+| persist | **36/45 (80.0%)** | 66.2–89.1% |
+| full-note | **35/45 (77.8%)** | 63.7–87.5% |
+| memorybank-claude | 32/45 (71.1%) | 56.6–82.3% |
+| agentify | 31/45 (68.9%) | 54.3–80.5% |
+
+Pre-registered paired sign test **vs stuffing** (discordant pairs): agentify
+7/8 (p = 1.0), full-note 7/4 (p = 0.55), persist 8/4 (p = 0.39) — **no arm
+differs from the memory bank**. No format arm beats the baseline either
+(full-note vs agentify p = 0.45, persist vs agentify p = 0.23). The
+format/position hypothesis is **retired, not shipped** (pre-registered Rule 2):
+nothing changed in the product.
+
+**The deficit itself did not reproduce.** On the retry-schedule separator — the
+one scenario that carried the ladder's whole gap — the result inverts:
+
+| arm | retry-schedule (n = 21) |
+| --- | --- |
+| full-note | 13/21 (61.9%) |
+| persist | 12/21 (57.1%) |
+| agentify | 9/21 (42.9%) |
+| memorybank-claude | **8/21 (38.1%)** |
+
+`agentify` vs stuffing is 7/6 discordant (p = 1.0), and stuffing is the
+**weakest** arm here. The cause is mechanical and now measured: the current
+fixtures (dataset 1.2.0, regenerated since the ladder's 1.1.0) make the
+retry-schedule delay needle retrievable from the verbatim instruction — the
+selector returns both the lane note **and** ADR-42 (the exact `1s,1s,2s,3s,5s`
+schedule) — so injection delivers the full answer, and the only differentiator
+left, the 16-turn cap, cuts *against* the memory bank: its whole-store
+`CLAUDE.md` is ~520k cache-read tokens per turn, and several stuffing attempts
+exhausted the cap (`error_max_turns`, scored as fails per the pre-registered
+rule) — the context tax made physical. The two control scenarios sit at
+ceiling for every arm (cache 12/12 all arms; webhook 10–12/12). Sign tests and
+intervals regenerate from the receipts via `analysis.mjs`.
+
+Roadmap consequence: **injection format is not the lever** — at equal, retrieved
+knowledge the four deliveries are statistically indistinguishable, so there is
+no format change to ship. Receipts: `harbor-20261125-injection-format`.
 
 ## What we claim, and what we don't
 
@@ -179,10 +243,16 @@ against Serena, which was given the same seeded knowledge in its own native
 not about having a memory layer at all, and it belongs in its own row.
 
 **Not supported.** That Agentify beats a hand-maintained `CLAUDE.md` memory
-bank. Two independent campaigns detected no significant difference at small
-and medium store sizes, with point estimates favouring the memory bank, at
-similar cost. Equivalence is not claimed either — no non-inferiority test has
-been run. That is published, not buried.
+bank. Three independent campaigns detected no significant difference: the
+2026-08-20 head-to-head and the 2026-08-21 store ladder, whose point estimates
+favoured the memory bank, and the 2026-11-25 injection-format ablation at equal
+knowledge, whose point estimates slightly favoured the Agentify arms (with
+stuffing the weakest arm on the one hard scenario, where its whole-store context
+ran into the turn cap). Across all three the paired sign test is
+non-significant, so the honest summary is **no detected difference either
+way** — not an Agentify win, and not the memory bank's. Equivalence is not
+claimed either; no non-inferiority test has been run. That is published, not
+buried.
 
 **Never claimed.** Leaderboard standing. This is Agentify's own 38-task
 context benchmark on our own hardware; every campaign discloses its scope,
@@ -210,6 +280,7 @@ benchmark whose corrections are invisible is not evidence.
 
 ```bash
 node evals/results/verify.mjs              # rebuild every committed receipt and diff it
+node evals/results/harbor-20261125-injection-format/analysis.mjs  # paired sign tests + Wilson CIs from the run dirs
 node evals/harbor/tools/diagnose-injection.mjs   # token-free retrieval/completeness check
 agentify eval harbor validate              # dataset schema + answer-leak checks, token-free
 agentify eval harbor plan --suite <name>   # worst-case spend before any paid run

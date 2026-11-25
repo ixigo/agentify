@@ -1,0 +1,468 @@
+{
+  "schema": "eval-run-v1",
+  "ts": "2026-11-25T08:21:18.038136Z",
+  "run_id": "20261125-084908-6b5367",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "2026-11-25__13-27-58",
+    "imported_at": "2026-11-25T08:49:08.540Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.2.0"
+    },
+    "agents": [
+      "memorybank-claude",
+      "fullnote-claude",
+      "persist-claude",
+      "agentify-claude"
+    ]
+  },
+  "agentify_version": "0.5.0",
+  "claude_version": null,
+  "plan": {
+    "task": {
+      "id": "recall-retry-schedule-store300",
+      "model": "claude-haiku-4-5-20251001",
+      "difficulty": "hard",
+      "category": "decision-recall",
+      "phases": null,
+      "profile": null,
+      "max_budget_usd": 0.7,
+      "forbidden_paths": []
+    },
+    "task_path": null,
+    "base_sha": null,
+    "arms": [
+      "memorybank-claude",
+      "fullnote-claude",
+      "persist-claude",
+      "agentify"
+    ],
+    "repeat": 21,
+    "max_spend_usd": 58.8,
+    "order": [
+      {
+        "attempt_id": "memorybank-claude-1",
+        "arm": "memorybank-claude",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "fullnote-claude-1",
+        "arm": "fullnote-claude",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "persist-claude-1",
+        "arm": "persist-claude",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "memorybank-claude-2",
+        "arm": "memorybank-claude",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "fullnote-claude-2",
+        "arm": "fullnote-claude",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "agentify-1",
+        "arm": "agentify",
+        "repeat_index": 1
+      },
+      {
+        "attempt_id": "agentify-2",
+        "arm": "agentify",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "memorybank-claude-3",
+        "arm": "memorybank-claude",
+        "repeat_index": 3
+      },
+      {
+        "attempt_id": "fullnote-claude-3",
+        "arm": "fullnote-claude",
+        "repeat_index": 3
+      },
+      {
+        "attempt_id": "agentify-3",
+        "arm": "agentify",
+        "repeat_index": 3
+      },
+      {
+        "attempt_id": "persist-claude-2",
+        "arm": "persist-claude",
+        "repeat_index": 2
+      },
+      {
+        "attempt_id": "agentify-4",
+        "arm": "agentify",
+        "repeat_index": 4
+      },
+      {
+        "attempt_id": "fullnote-claude-4",
+        "arm": "fullnote-claude",
+        "repeat_index": 4
+      },
+      {
+        "attempt_id": "persist-claude-3",
+        "arm": "persist-claude",
+        "repeat_index": 3
+      },
+      {
+        "attempt_id": "fullnote-claude-5",
+        "arm": "fullnote-claude",
+        "repeat_index": 5
+      },
+      {
+        "attempt_id": "agentify-5",
+        "arm": "agentify",
+        "repeat_index": 5
+      },
+      {
+        "attempt_id": "agentify-6",
+        "arm": "agentify",
+        "repeat_index": 6
+      },
+      {
+        "attempt_id": "agentify-7",
+        "arm": "agentify",
+        "repeat_index": 7
+      },
+      {
+        "attempt_id": "memorybank-claude-4",
+        "arm": "memorybank-claude",
+        "repeat_index": 4
+      },
+      {
+        "attempt_id": "memorybank-claude-5",
+        "arm": "memorybank-claude",
+        "repeat_index": 5
+      },
+      {
+        "attempt_id": "agentify-8",
+        "arm": "agentify",
+        "repeat_index": 8
+      },
+      {
+        "attempt_id": "fullnote-claude-6",
+        "arm": "fullnote-claude",
+        "repeat_index": 6
+      },
+      {
+        "attempt_id": "memorybank-claude-6",
+        "arm": "memorybank-claude",
+        "repeat_index": 6
+      },
+      {
+        "attempt_id": "fullnote-claude-7",
+        "arm": "fullnote-claude",
+        "repeat_index": 7
+      },
+      {
+        "attempt_id": "fullnote-claude-8",
+        "arm": "fullnote-claude",
+        "repeat_index": 8
+      },
+      {
+        "attempt_id": "persist-claude-4",
+        "arm": "persist-claude",
+        "repeat_index": 4
+      },
+      {
+        "attempt_id": "agentify-9",
+        "arm": "agentify",
+        "repeat_index": 9
+      },
+      {
+        "attempt_id": "fullnote-claude-9",
+        "arm": "fullnote-claude",
+        "repeat_index": 9
+      },
+      {
+        "attempt_id": "agentify-10",
+        "arm": "agentify",
+        "repeat_index": 10
+      },
+      {
+        "attempt_id": "memorybank-claude-7",
+        "arm": "memorybank-claude",
+        "repeat_index": 7
+      },
+      {
+        "attempt_id": "agentify-11",
+        "arm": "agentify",
+        "repeat_index": 11
+      },
+      {
+        "attempt_id": "agentify-12",
+        "arm": "agentify",
+        "repeat_index": 12
+      },
+      {
+        "attempt_id": "persist-claude-5",
+        "arm": "persist-claude",
+        "repeat_index": 5
+      },
+      {
+        "attempt_id": "agentify-13",
+        "arm": "agentify",
+        "repeat_index": 13
+      },
+      {
+        "attempt_id": "fullnote-claude-10",
+        "arm": "fullnote-claude",
+        "repeat_index": 10
+      },
+      {
+        "attempt_id": "persist-claude-6",
+        "arm": "persist-claude",
+        "repeat_index": 6
+      },
+      {
+        "attempt_id": "persist-claude-7",
+        "arm": "persist-claude",
+        "repeat_index": 7
+      },
+      {
+        "attempt_id": "memorybank-claude-8",
+        "arm": "memorybank-claude",
+        "repeat_index": 8
+      },
+      {
+        "attempt_id": "memorybank-claude-9",
+        "arm": "memorybank-claude",
+        "repeat_index": 9
+      },
+      {
+        "attempt_id": "persist-claude-8",
+        "arm": "persist-claude",
+        "repeat_index": 8
+      },
+      {
+        "attempt_id": "fullnote-claude-11",
+        "arm": "fullnote-claude",
+        "repeat_index": 11
+      },
+      {
+        "attempt_id": "persist-claude-9",
+        "arm": "persist-claude",
+        "repeat_index": 9
+      },
+      {
+        "attempt_id": "fullnote-claude-12",
+        "arm": "fullnote-claude",
+        "repeat_index": 12
+      },
+      {
+        "attempt_id": "memorybank-claude-10",
+        "arm": "memorybank-claude",
+        "repeat_index": 10
+      },
+      {
+        "attempt_id": "agentify-14",
+        "arm": "agentify",
+        "repeat_index": 14
+      },
+      {
+        "attempt_id": "persist-claude-10",
+        "arm": "persist-claude",
+        "repeat_index": 10
+      },
+      {
+        "attempt_id": "persist-claude-11",
+        "arm": "persist-claude",
+        "repeat_index": 11
+      },
+      {
+        "attempt_id": "memorybank-claude-11",
+        "arm": "memorybank-claude",
+        "repeat_index": 11
+      },
+      {
+        "attempt_id": "fullnote-claude-13",
+        "arm": "fullnote-claude",
+        "repeat_index": 13
+      },
+      {
+        "attempt_id": "persist-claude-12",
+        "arm": "persist-claude",
+        "repeat_index": 12
+      },
+      {
+        "attempt_id": "memorybank-claude-12",
+        "arm": "memorybank-claude",
+        "repeat_index": 12
+      },
+      {
+        "attempt_id": "agentify-15",
+        "arm": "agentify",
+        "repeat_index": 15
+      },
+      {
+        "attempt_id": "agentify-16",
+        "arm": "agentify",
+        "repeat_index": 16
+      },
+      {
+        "attempt_id": "persist-claude-13",
+        "arm": "persist-claude",
+        "repeat_index": 13
+      },
+      {
+        "attempt_id": "memorybank-claude-13",
+        "arm": "memorybank-claude",
+        "repeat_index": 13
+      },
+      {
+        "attempt_id": "persist-claude-14",
+        "arm": "persist-claude",
+        "repeat_index": 14
+      },
+      {
+        "attempt_id": "agentify-17",
+        "arm": "agentify",
+        "repeat_index": 17
+      },
+      {
+        "attempt_id": "memorybank-claude-14",
+        "arm": "memorybank-claude",
+        "repeat_index": 14
+      },
+      {
+        "attempt_id": "fullnote-claude-14",
+        "arm": "fullnote-claude",
+        "repeat_index": 14
+      },
+      {
+        "attempt_id": "memorybank-claude-15",
+        "arm": "memorybank-claude",
+        "repeat_index": 15
+      },
+      {
+        "attempt_id": "memorybank-claude-16",
+        "arm": "memorybank-claude",
+        "repeat_index": 16
+      },
+      {
+        "attempt_id": "persist-claude-15",
+        "arm": "persist-claude",
+        "repeat_index": 15
+      },
+      {
+        "attempt_id": "agentify-18",
+        "arm": "agentify",
+        "repeat_index": 18
+      },
+      {
+        "attempt_id": "fullnote-claude-15",
+        "arm": "fullnote-claude",
+        "repeat_index": 15
+      },
+      {
+        "attempt_id": "agentify-19",
+        "arm": "agentify",
+        "repeat_index": 19
+      },
+      {
+        "attempt_id": "fullnote-claude-16",
+        "arm": "fullnote-claude",
+        "repeat_index": 16
+      },
+      {
+        "attempt_id": "memorybank-claude-17",
+        "arm": "memorybank-claude",
+        "repeat_index": 17
+      },
+      {
+        "attempt_id": "memorybank-claude-18",
+        "arm": "memorybank-claude",
+        "repeat_index": 18
+      },
+      {
+        "attempt_id": "agentify-20",
+        "arm": "agentify",
+        "repeat_index": 20
+      },
+      {
+        "attempt_id": "persist-claude-16",
+        "arm": "persist-claude",
+        "repeat_index": 16
+      },
+      {
+        "attempt_id": "fullnote-claude-17",
+        "arm": "fullnote-claude",
+        "repeat_index": 17
+      },
+      {
+        "attempt_id": "persist-claude-17",
+        "arm": "persist-claude",
+        "repeat_index": 17
+      },
+      {
+        "attempt_id": "fullnote-claude-18",
+        "arm": "fullnote-claude",
+        "repeat_index": 18
+      },
+      {
+        "attempt_id": "agentify-21",
+        "arm": "agentify",
+        "repeat_index": 21
+      },
+      {
+        "attempt_id": "persist-claude-18",
+        "arm": "persist-claude",
+        "repeat_index": 18
+      },
+      {
+        "attempt_id": "persist-claude-19",
+        "arm": "persist-claude",
+        "repeat_index": 19
+      },
+      {
+        "attempt_id": "persist-claude-20",
+        "arm": "persist-claude",
+        "repeat_index": 20
+      },
+      {
+        "attempt_id": "fullnote-claude-19",
+        "arm": "fullnote-claude",
+        "repeat_index": 19
+      },
+      {
+        "attempt_id": "memorybank-claude-19",
+        "arm": "memorybank-claude",
+        "repeat_index": 19
+      },
+      {
+        "attempt_id": "memorybank-claude-20",
+        "arm": "memorybank-claude",
+        "repeat_index": 20
+      },
+      {
+        "attempt_id": "fullnote-claude-20",
+        "arm": "fullnote-claude",
+        "repeat_index": 20
+      },
+      {
+        "attempt_id": "memorybank-claude-21",
+        "arm": "memorybank-claude",
+        "repeat_index": 21
+      },
+      {
+        "attempt_id": "persist-claude-21",
+        "arm": "persist-claude",
+        "repeat_index": 21
+      },
+      {
+        "attempt_id": "fullnote-claude-21",
+        "arm": "fullnote-claude",
+        "repeat_index": 21
+      }
+    ]
+  }
+}

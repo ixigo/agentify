@@ -6,6 +6,64 @@
     "name": "agentify-context-bench",
     "version": "1.2.0"
   },
-  "notes": "PRE-REGISTRATION PLACEHOLDER — committed before any trial ran, alongside PREREGISTRATION.md and retrieval-diagnostic.md on branch eval/400-injection-format. The `jobs` map is intentionally empty until the paid runs land; the receipts commit replaces this file with the imported run set and published aggregates. See PREREGISTRATION.md for arms, n, primary metric, and the pre-registered sign-test verdict rule.",
-  "jobs": {}
+  "notes": "Injection-FORMAT ablation (#400), the follow-up the 2026-08-21 store-size ladder's null result demanded: at EQUAL knowledge, is the ladder's point-estimate edge for CLAUDE.md stuffing over Agentify's budgeted injection a matter of injection FORMAT/position, or noise? Pre-registration (hypotheses, arms, n, primary metric, sign-test verdict rule, harness_error rules) is in PREREGISTRATION.md, committed before any trial ran; the paired sign tests and Wilson intervals are reproducible from these run dirs by analysis.mjs. Four arms, knowledge held equal (same 300-note fixture seeded in every arm, every arm's needle retrieved — see retrieval-diagnostic.md): agentify (baseline relevant-mode matched digest, injected once at the prompt); fullnote-claude (same pipeline, injection token budget lifted so nothing is trimmed); persist-claude (the same selection pinned into CLAUDE.md, present every turn, hook injection off); memorybank-claude (the whole store stuffed into CLAUDE.md, the reference ceiling). Two jobs, 180 trials, 0 non-gradeable / 0 harness errors, ~$12 reported spend, agentify@0.5.0 (github:ixigo/agentify#abb425e) on claude-haiku-4-5 via subscription OAuth: (A) 2026-11-25__13-27-58 — the deep rung, recall-retry-schedule-store300 only, 21 attempts per arm (84 trials), where the ladder's gap concentrated; (B) 2026-11-25__14-18-53 — the two control scenarios (avoid-cache-regression, recall-webhook-signature), 12 attempts per arm per task (96 trials). RESULT: NULL on injection format, AND the motivating gap does not reproduce. Pooled n=45/arm: agentify 31/45 (68.9%, Wilson 54.3-80.5), fullnote-claude 35/45 (77.8%, 63.7-87.5), persist-claude 36/45 (80.0%, 66.2-89.1), memorybank-claude 32/45 (71.1%, 56.6-82.3). Primary pre-registered comparison (paired sign test vs memorybank, discordant pairs): agentify 7/8 p=1.0, fullnote-claude 7/4 p=0.55, persist-claude 8/4 p=0.39 — NO arm differs from stuffing. On the retry-schedule separator (n=21): agentify 9, fullnote-claude 13, persist-claude 12, memorybank-claude 8; agentify vs memorybank 7/6 discordant p=1.0 — the ladder's stuffing edge is GONE, and memorybank is numerically the WEAKEST arm there (its ~520k cache-read-tokens/turn whole-store CLAUDE.md drives it into the 16-turn cap: mean turns highest, several error_max_turns scored as fails per the pre-registered rule). No format arm significantly beats the baseline (fullnote vs agentify p=0.45, persist vs agentify p=0.23), so the FORMAT/position hypothesis is retired, not shipped (pre-registered Rule 2). The two control scenarios sit at ceiling for every arm (cache 12/12 all arms; webhook agentify/fullnote 10/12, persist/memorybank 12/12). WHY the ladder gap vanished: current fixtures (dataset 1.2.0, regenerated since the ladder's 1.1.0) make every scenario's needle retrievable from the verbatim instruction — on retry-schedule the selector now returns BOTH the lane note (#c2901335, rank 1) and the delay-schedule note (ADR-42 #72c2540c, rank 2), so injection delivers the full answer and the only differentiator left, the turn cap, cuts against the bloated stuffing arm. The public claim stays 'memory vs no memory'. No product change: no format closed a gap because at equal knowledge there is no gap to close here.",
+  "jobs": {
+    "2026-11-25__13-27-58": {
+      "runs": [
+        "20261125-084908-6b5367"
+      ],
+      "published": {
+        "where": [
+          "docs/benchmarks.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 9,
+            "attempts": 21
+          },
+          "fullnote-claude": {
+            "passes": 13,
+            "attempts": 21
+          },
+          "persist-claude": {
+            "passes": 12,
+            "attempts": 21
+          },
+          "memorybank-claude": {
+            "passes": 8,
+            "attempts": 21
+          }
+        }
+      }
+    },
+    "2026-11-25__14-18-53": {
+      "runs": [
+        "20261125-094928-5fb417",
+        "20261125-094928-19aae2"
+      ],
+      "published": {
+        "where": [
+          "docs/benchmarks.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 22,
+            "attempts": 24
+          },
+          "fullnote-claude": {
+            "passes": 22,
+            "attempts": 24
+          },
+          "persist-claude": {
+            "passes": 24,
+            "attempts": 24
+          },
+          "memorybank-claude": {
+            "passes": 24,
+            "attempts": 24
+          }
+        }
+      }
+    }
+  }
 }

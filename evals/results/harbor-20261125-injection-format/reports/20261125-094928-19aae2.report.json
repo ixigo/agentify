@@ -1,0 +1,2629 @@
+{
+  "schema": "eval-report-v2",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20261125-094928-19aae2",
+  "run_ts": "2026-11-25T09:09:23.094799Z",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "2026-11-25__14-18-53",
+    "imported_at": "2026-11-25T09:49:28.379Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.2.0"
+    },
+    "agents": [
+      "memorybank-claude",
+      "fullnote-claude",
+      "agentify-claude",
+      "persist-claude"
+    ]
+  },
+  "artifacts_root": ".agentify/evals/runs/20261125-094928-19aae2",
+  "task": {
+    "id": "recall-webhook-signature-store300",
+    "prompt_sha256": null,
+    "fingerprint_sha256": "c45d31136350e676001f7a10a2e7bb630eecd2cc1871322411adcbc3d448e0b5",
+    "base_sha": null,
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": null,
+    "category": "decision-recall",
+    "phases": null,
+    "max_budget_usd": 0.7,
+    "max_turns": null,
+    "timeout_seconds": null,
+    "forbidden_paths": [],
+    "arms": [
+      "memorybank-claude",
+      "fullnote-claude",
+      "agentify",
+      "persist-claude"
+    ],
+    "repeat": 12
+  },
+  "versions": {
+    "agentify": "0.5.0",
+    "claude": null,
+    "harbor": "0.18.0"
+  },
+  "completeness": {
+    "planned_attempts": 48,
+    "completed_attempts": 48,
+    "partial": false,
+    "paired": true,
+    "underpowered": false,
+    "min_attempts_per_arm": 5,
+    "labels": []
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 12,
+      "passes": 10,
+      "failures": 2,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0.8333,
+      "pass_rate_ci95": {
+        "low": 0.552,
+        "high": 0.953
+      },
+      "cost": {
+        "reported_usd": 0.86675,
+        "reported_attempts": 12,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.072229,
+        "per_pass_usd": 0.086675,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 103097,
+        "cache_read": 4249271,
+        "cache_write": 0,
+        "output": 47381,
+        "usage_reported_attempts": 12,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 42766,
+        "provider_p95_ms": 61968,
+        "provider_mean_ms": 46085,
+        "total_mean_ms": 80120
+      },
+      "turns": {
+        "mean": 14.92,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 12
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "grader_failed": 2
+      },
+      "stop_reasons": {
+        "ok": 12
+      }
+    },
+    "fullnote-claude": {
+      "attempts": 12,
+      "passes": 10,
+      "failures": 2,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 0.8333,
+      "pass_rate_ci95": {
+        "low": 0.552,
+        "high": 0.953
+      },
+      "cost": {
+        "reported_usd": 0.800246,
+        "reported_attempts": 12,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.066687,
+        "per_pass_usd": 0.080025,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 88481,
+        "cache_read": 4072172,
+        "cache_write": 0,
+        "output": 43461,
+        "usage_reported_attempts": 12,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 37074,
+        "provider_p95_ms": 57730,
+        "provider_mean_ms": 42521,
+        "total_mean_ms": 75061
+      },
+      "turns": {
+        "mean": 14.17,
+        "max": 19,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 12
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {
+        "grader_failed": 2
+      },
+      "stop_reasons": {
+        "ok": 12
+      }
+    },
+    "memorybank-claude": {
+      "attempts": 12,
+      "passes": 12,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.7575,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.895775,
+        "reported_attempts": 12,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.074648,
+        "per_pass_usd": 0.074648,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 84547,
+        "cache_read": 5083584,
+        "cache_write": 0,
+        "output": 43909,
+        "usage_reported_attempts": 12,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 34638,
+        "provider_p95_ms": 67132,
+        "provider_mean_ms": 40105,
+        "total_mean_ms": 59945
+      },
+      "turns": {
+        "mean": 14,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 12
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 12
+      }
+    },
+    "persist-claude": {
+      "attempts": 12,
+      "passes": 12,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 0,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.7575,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.777969,
+        "reported_attempts": 12,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.064831,
+        "per_pass_usd": 0.064831,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 82333,
+        "cache_read": 3992861,
+        "cache_write": 0,
+        "output": 43047,
+        "usage_reported_attempts": 12,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 38227,
+        "provider_p95_ms": 60989,
+        "provider_mean_ms": 40820,
+        "total_mean_ms": 71953
+      },
+      "turns": {
+        "mean": 13.5,
+        "max": 18,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 12
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 12
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "fullnote-claude",
+      "pairs": 12,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9",
+        "repeat-10",
+        "repeat-11",
+        "repeat-12"
+      ],
+      "pass_rate_delta": 0,
+      "discordant": {
+        "agentify_only_pass": 2,
+        "baseline_only_pass": 2
+      },
+      "sign_test_p": 1,
+      "cost_per_pass_delta_usd": 0.00665,
+      "provider_p95_delta_ms": 4238
+    },
+    {
+      "baseline": "memorybank-claude",
+      "pairs": 12,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9",
+        "repeat-10",
+        "repeat-11",
+        "repeat-12"
+      ],
+      "pass_rate_delta": -0.1667,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 2
+      },
+      "sign_test_p": 0.5,
+      "cost_per_pass_delta_usd": 0.012027,
+      "provider_p95_delta_ms": -5164
+    },
+    {
+      "baseline": "persist-claude",
+      "pairs": 12,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-2",
+        "repeat-3",
+        "repeat-4",
+        "repeat-5",
+        "repeat-6",
+        "repeat-7",
+        "repeat-8",
+        "repeat-9",
+        "repeat-10",
+        "repeat-11",
+        "repeat-12"
+      ],
+      "pass_rate_delta": -0.1667,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 2
+      },
+      "sign_test_p": 0.5,
+      "cost_per_pass_delta_usd": 0.021844,
+      "provider_p95_delta_ms": 979
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "fullnote-claude",
+        "paired_attempts": 12,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.086675,
+          "baseline_usd": 0.080025
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      },
+      {
+        "baseline": "memorybank-claude",
+        "paired_attempts": 12,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.086675,
+          "baseline_usd": 0.074648
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      },
+      {
+        "baseline": "persist-claude",
+        "paired_attempts": 12,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.086675,
+          "baseline_usd": 0.064831
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 0.8333,
+        "cost_per_pass_usd": 0.086675,
+        "total_reported_usd": 0.86675,
+        "passes": 10,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "fullnote-claude",
+        "pass_rate": 0.8333,
+        "cost_per_pass_usd": 0.080025,
+        "total_reported_usd": 0.800246,
+        "passes": 10,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "memorybank-claude",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.074648,
+        "total_reported_usd": 0.895775,
+        "passes": 12,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "persist-claude",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.064831,
+        "total_reported_usd": 0.777969,
+        "passes": 12,
+        "costed": true,
+        "on_frontier": true
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": true,
+    "reason": "no winner declared: pass-rate confidence intervals overlap"
+  },
+  "context_metrics": null,
+  "attempts": [
+    {
+      "attempt_id": "memorybank-claude-1",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34638,
+      "duration_ms": 54248,
+      "cost_usd": 0.0793702,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5603,
+        "cache_read_tokens": 536332,
+        "cache_write_tokens": 0,
+        "output_tokens": 2932
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-2",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33705,
+      "duration_ms": 52497,
+      "cost_usd": 0.0625111,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3873,
+        "cache_read_tokens": 395921,
+        "cache_write_tokens": 0,
+        "output_tokens": 3054
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-1",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 48370,
+      "duration_ms": 77043,
+      "cost_usd": 0.08188880000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8020,
+        "cache_read_tokens": 447448,
+        "cache_write_tokens": 0,
+        "output_tokens": 4247
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37666,
+      "duration_ms": 74096,
+      "cost_usd": 0.05584730000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4479,
+        "cache_read_tokens": 311813,
+        "cache_write_tokens": 0,
+        "output_tokens": 3161
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-1",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 38227,
+      "duration_ms": 67260,
+      "cost_usd": 0.06010470000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4883,
+        "cache_read_tokens": 340337,
+        "cache_write_tokens": 0,
+        "output_tokens": 3282
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-3",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 15,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 50621,
+      "duration_ms": 74559,
+      "cost_usd": 0.0776001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 7011,
+        "cache_read_tokens": 406851,
+        "cache_write_tokens": 0,
+        "output_tokens": 4598
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-2",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34134,
+      "duration_ms": 63183,
+      "cost_usd": 0.056854299999999997,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4499,
+        "cache_read_tokens": 337913,
+        "cache_write_tokens": 0,
+        "output_tokens": 2834
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-3",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 29118,
+      "duration_ms": 57901,
+      "cost_usd": 0.0531273,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4579,
+        "cache_read_tokens": 284633,
+        "cache_write_tokens": 0,
+        "output_tokens": 3119
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-2",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37074,
+      "duration_ms": 65505,
+      "cost_usd": 0.05595300000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4560,
+        "cache_read_tokens": 311650,
+        "cache_write_tokens": 0,
+        "output_tokens": 3153
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-4",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 44580,
+      "duration_ms": 73744,
+      "cost_usd": 0.0633563,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5174,
+        "cache_read_tokens": 344083,
+        "cache_write_tokens": 0,
+        "output_tokens": 3741
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-5",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33926,
+      "duration_ms": 62303,
+      "cost_usd": 0.054768,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4535,
+        "cache_read_tokens": 309100,
+        "cache_write_tokens": 0,
+        "output_tokens": 2977
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-6",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 40107,
+      "duration_ms": 74582,
+      "cost_usd": 0.0509942,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4697,
+        "cache_read_tokens": 235132,
+        "cache_write_tokens": 0,
+        "output_tokens": 3632
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-3",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 57730,
+      "duration_ms": 96789,
+      "cost_usd": 0.09224760000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 11176,
+        "cache_read_tokens": 455766,
+        "cache_write_tokens": 0,
+        "output_tokens": 4890
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 38195,
+      "duration_ms": 76874,
+      "cost_usd": 0.08497800000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 14042,
+        "cache_read_tokens": 423330,
+        "cache_write_tokens": 0,
+        "output_tokens": 2938
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-7",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 44403,
+      "duration_ms": 72505,
+      "cost_usd": 0.0823639,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10302,
+        "cache_read_tokens": 430609,
+        "cache_write_tokens": 0,
+        "output_tokens": 3766
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-4",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33993,
+      "duration_ms": 52719,
+      "cost_usd": 0.056868,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4068,
+        "cache_read_tokens": 333280,
+        "cache_write_tokens": 0,
+        "output_tokens": 3097
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-5",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 46514,
+      "duration_ms": 69783,
+      "cost_usd": 0.10636920000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 22453,
+        "cache_read_tokens": 392602,
+        "cache_write_tokens": 0,
+        "output_tokens": 4460
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-8",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34226,
+      "duration_ms": 73900,
+      "cost_usd": 0.047405699999999995,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4253,
+        "cache_read_tokens": 234577,
+        "cache_write_tokens": 0,
+        "output_tokens": 3103
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 61968,
+      "duration_ms": 93525,
+      "cost_usd": 0.08899120000000002,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10607,
+        "cache_read_tokens": 411502,
+        "cache_write_tokens": 0,
+        "output_tokens": 5350
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-4",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 55662,
+      "duration_ms": 92368,
+      "cost_usd": 0.07714300000000002,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8893,
+        "cache_read_tokens": 359340,
+        "cache_write_tokens": 0,
+        "output_tokens": 4706
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-4",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 4,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 41411,
+      "duration_ms": 79938,
+      "cost_usd": 0.0542003,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4875,
+        "cache_read_tokens": 261563,
+        "cache_write_tokens": 0,
+        "output_tokens": 3675
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-9",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34733,
+      "duration_ms": 70527,
+      "cost_usd": 0.0549276,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9329,
+        "cache_read_tokens": 203196,
+        "cache_write_tokens": 0,
+        "output_tokens": 3203
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-5",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 34918,
+      "duration_ms": 63555,
+      "cost_usd": 0.061798900000000004,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8464,
+        "cache_read_tokens": 306529,
+        "cache_write_tokens": 0,
+        "output_tokens": 2863
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-6",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 43558,
+      "duration_ms": 62662,
+      "cost_usd": 0.0713758,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5249,
+        "cache_read_tokens": 405548,
+        "cache_write_tokens": 0,
+        "output_tokens": 4084
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-10",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 10,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 18,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 48965,
+      "duration_ms": 78851,
+      "cost_usd": 0.0801592,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9249,
+        "cache_read_tokens": 409692,
+        "cache_write_tokens": 0,
+        "output_tokens": 4163
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-5",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 5,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 10,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 32253,
+      "duration_ms": 63225,
+      "cost_usd": 0.0429546,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4053,
+        "cache_read_tokens": 205986,
+        "cache_write_tokens": 0,
+        "output_tokens": 2863
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-6",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 45437,
+      "duration_ms": 89207,
+      "cost_usd": 0.0621253,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 7881,
+        "cache_read_tokens": 265263,
+        "cache_write_tokens": 0,
+        "output_tokens": 3984
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-11",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 11,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 60989,
+      "duration_ms": 89697,
+      "cost_usd": 0.1020493,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 14836,
+        "cache_read_tokens": 462633,
+        "cache_write_tokens": 0,
+        "output_tokens": 5249
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-6",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 6,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 30147,
+      "duration_ms": 68893,
+      "cost_usd": 0.06064130000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 12428,
+        "cache_read_tokens": 224383,
+        "cache_write_tokens": 0,
+        "output_tokens": 2684
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-7",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 12,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 32622,
+      "duration_ms": 61370,
+      "cost_usd": 0.05422009999999999,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4858,
+        "cache_read_tokens": 311311,
+        "cache_write_tokens": 0,
+        "output_tokens": 2694
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-7",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 58450,
+      "duration_ms": 88001,
+      "cost_usd": 0.092581,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 11047,
+        "cache_read_tokens": 457450,
+        "cache_write_tokens": 0,
+        "output_tokens": 4975
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-8",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 54105,
+      "duration_ms": 91537,
+      "cost_usd": 0.09214750000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10845,
+        "cache_read_tokens": 463685,
+        "cache_write_tokens": 0,
+        "output_tokens": 4844
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-9",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 49230,
+      "duration_ms": 80931,
+      "cost_usd": 0.07505,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 10515,
+        "cache_read_tokens": 331990,
+        "cache_write_tokens": 0,
+        "output_tokens": 4184
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-8",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": false,
+      "failure_kind": "grader_failed",
+      "stop_reason": null,
+      "num_turns": 19,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 57367,
+      "duration_ms": 93692,
+      "cost_usd": 0.08286440000000002,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8572,
+        "cache_read_tokens": 413234,
+        "cache_write_tokens": 0,
+        "output_tokens": 4904
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "reward 0"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-9",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 47164,
+      "duration_ms": 75945,
+      "cost_usd": 0.07469669999999999,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6062,
+        "cache_read_tokens": 427237,
+        "cache_write_tokens": 0,
+        "output_tokens": 3996
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-10",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 10,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 54496,
+      "duration_ms": 84218,
+      "cost_usd": 0.0884994,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 9988,
+        "cache_read_tokens": 451644,
+        "cache_write_tokens": 0,
+        "output_tokens": 4698
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-7",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 7,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33464,
+      "duration_ms": 52684,
+      "cost_usd": 0.0668005,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4330,
+        "cache_read_tokens": 433355,
+        "cache_write_tokens": 0,
+        "output_tokens": 2982
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-8",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 8,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 67132,
+      "duration_ms": 86635,
+      "cost_usd": 0.1138632,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 12583,
+        "cache_read_tokens": 577732,
+        "cache_write_tokens": 0,
+        "output_tokens": 6211
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-10",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 10,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 11,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 33165,
+      "duration_ms": 64313,
+      "cost_usd": 0.045624899999999996,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4086,
+        "cache_read_tokens": 233209,
+        "cache_write_tokens": 0,
+        "output_tokens": 2841
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-11",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 11,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 36017,
+      "duration_ms": 72275,
+      "cost_usd": 0.05463040000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6260,
+        "cache_read_tokens": 263664,
+        "cache_write_tokens": 0,
+        "output_tokens": 3165
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-9",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 9,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 10,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 26892,
+      "duration_ms": 45655,
+      "cost_usd": 0.052426900000000005,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3692,
+        "cache_read_tokens": 327789,
+        "cache_write_tokens": 0,
+        "output_tokens": 2469
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-10",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 10,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 32325,
+      "duration_ms": 51253,
+      "cost_usd": 0.062305500000000014,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5172,
+        "cache_read_tokens": 369055,
+        "cache_write_tokens": 0,
+        "output_tokens": 3029
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-11",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 11,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 15,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37859,
+      "duration_ms": 56722,
+      "cost_usd": 0.07491120000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5588,
+        "cache_read_tokens": 470832,
+        "cache_write_tokens": 0,
+        "output_tokens": 3353
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "persist-claude-12",
+      "arm": "persist-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 12,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 15,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 46435,
+      "duration_ms": 78978,
+      "cost_usd": 0.0718586,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5997,
+        "cache_read_tokens": 400956,
+        "cache_write_tokens": 0,
+        "output_tokens": 3978
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "memorybank-claude-12",
+      "arm": "memorybank-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 12,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 13,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 40560,
+      "duration_ms": 59925,
+      "cost_usd": 0.07137369999999998,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 4925,
+        "cache_read_tokens": 434287,
+        "cache_write_tokens": 0,
+        "output_tokens": 3640
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "fullnote-claude-12",
+      "arm": "fullnote-claude",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 12,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 14,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 40013,
+      "duration_ms": 68979,
+      "cost_usd": 0.058537099999999995,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 5102,
+        "cache_read_tokens": 318401,
+        "cache_write_tokens": 0,
+        "output_tokens": 3318
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-11",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 11,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 16,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 42766,
+      "duration_ms": 73574,
+      "cost_usd": 0.0739534,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8566,
+        "cache_read_tokens": 398844,
+        "cache_write_tokens": 0,
+        "output_tokens": 3412
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-12",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 12,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 15,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 37038,
+      "duration_ms": 66319,
+      "cost_usd": 0.0554221,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 6199,
+        "cache_read_tokens": 266201,
+        "cache_write_tokens": 0,
+        "output_tokens": 3297
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    }
+  ]
+}
