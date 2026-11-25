@@ -1,0 +1,11 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20261125-injection-format",
+  "date": "2026-11-25",
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.2.0"
+  },
+  "notes": "PRE-REGISTRATION PLACEHOLDER — committed before any trial ran, alongside PREREGISTRATION.md and retrieval-diagnostic.md on branch eval/400-injection-format. The `jobs` map is intentionally empty until the paid runs land; the receipts commit replaces this file with the imported run set and published aggregates. See PREREGISTRATION.md for arms, n, primary metric, and the pre-registered sign-test verdict rule.",
+  "jobs": {}
+}

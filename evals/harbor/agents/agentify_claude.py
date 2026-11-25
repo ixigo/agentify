@@ -83,6 +83,14 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
     def name() -> str:
         return "agentify-claude"
 
+    # Injection seam for eval-only context ablations (injection-format campaign,
+    # #400): extra env spread into BOTH the seed and graded provider calls. The
+    # base returns {} so the baseline arm's invocation stays byte-identical to
+    # every prior campaign; a subclass flips, e.g., AGENTIFY_CTX_BUDGET without
+    # touching the committed workspace config.
+    def _extra_env(self) -> dict:
+        return {}
+
     @property
     def _claude_model(self) -> str:
         # Harbor model ids are provider-prefixed (anthropic/claude-...); the
@@ -162,6 +170,7 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             **auth,
             "AGENTIFY_PROFILE": self._profile,
             "AGENTIFY_CTX_SESSION": "harbor-seed",
+            **self._extra_env(),
         })
 
         # Phase B (graded recall) — every arm runs this; the verifier scores it.
@@ -183,6 +192,7 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             "AGENTIFY_PROFILE": self._profile,
             # Attempt telemetry must describe this graded trial only.
             "AGENTIFY_CTX_SESSION": "harbor-trial",
+            **self._extra_env(),
         })
 
     def populate_context_post_run(self, context) -> None:

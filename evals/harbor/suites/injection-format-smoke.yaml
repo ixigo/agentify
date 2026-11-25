@@ -1,0 +1,44 @@
+# Harbor job config: injection-FORMAT ablation — SMOKE (#400).
+#
+# 1 attempt per arm on the retry-schedule separator: catches harness errors
+# (image build, agentify install at the pinned github spec, the persist arm's
+# CLAUDE.md render step, the fullnote arm's budget env) on the cheapest possible
+# run before the 180-trial campaign. Not a result — too small to grade.
+#
+# 1 task x 4 arms x 1 attempt = 4 trials; ceiling 4 x $0.70 = $2.80.
+# Launch from evals/harbor/ with: harbor run -c suites/injection-format-smoke.yaml
+
+jobs_dir: jobs
+
+n_attempts: 1
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-retry-schedule-store300
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyFullNoteClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyPersistClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16

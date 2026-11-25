@@ -1,0 +1,55 @@
+# Harbor job config: injection-FORMAT ablation — control scenarios (#400).
+#
+# Companion to injection-format-deep.yaml. The retry-schedule separator gets its
+# own deep rung (n=21); this suite runs the two store300 scenarios that the
+# store-size ladder found Agentify already converts at or near the stuffing
+# ceiling (avoid-cache-regression 8/9 vs 9/9, recall-webhook-signature 9/9 vs
+# 9/9) as the controls that tell "format fixes the deficit" apart from "format
+# shifts every scenario". Same four arms, same cap, n=12 per arm per task.
+# Pre-registration: evals/results/harbor-20261125-injection-format/
+# PREREGISTRATION.md (committed before any trial ran).
+#
+# 2 tasks x 4 arms x 12 attempts = 96 trials; ceiling 96 x $0.70 = $67.20.
+# Expect roughly $7-8 actual at the ladder-deep $0.077/attempt rate — check the
+# plan ceiling, never this estimate, before launching:
+#   agentify eval harbor plan --suite injection-format
+# Launch from evals/harbor/ with: harbor run -c suites/injection-format.yaml
+#
+# Combined with the deep rung: 180 trials, retry-schedule n=21/arm, controls
+# n=12/arm.
+
+jobs_dir: jobs
+
+n_attempts: 12
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - avoid-cache-regression-store300
+      - recall-webhook-signature-store300
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyFullNoteClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyPersistClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16
