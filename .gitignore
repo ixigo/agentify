@@ -25,6 +25,7 @@ agentify-session-analysis.html
 /.guardrails
 /.claude/hooks/plan-to-html.mjs
 newdesign/
+/.codex/hooks.json
 # <<< agentify generated artifacts
 evals/harbor/jobs/
 evals/harbor/agents/__pycache__/
