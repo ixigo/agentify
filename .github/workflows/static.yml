@@ -40,7 +40,7 @@ jobs:
           cp index.html skill-catalog.html _site/
           cp -R pages _site/pages
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: '_site'
       - name: Deploy to GitHub Pages
