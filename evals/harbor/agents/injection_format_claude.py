@@ -74,7 +74,7 @@ class AgentifyFullNoteClaudeAgent(AgentifyClaudeAgent):
     def name() -> str:
         return "fullnote-claude"
 
-    def _extra_env(self) -> dict:
+    def _ablation_env(self) -> dict:
         # Lift the injection budget so the full matched set renders untrimmed.
         # resolveBudgetSettings reads AGENTIFY_CTX_BUDGET as the strongest
         # (env) override of max_injected_tokens.
@@ -109,13 +109,28 @@ class AgentifyPersistClaudeAgent(AgentifyClaudeAgent):
         # a persist arm with an empty block simply degrades toward plain, which
         # is measured honestly, never as a harness error. FORCE_COLOR=0 keeps
         # ANSI codes out of the committed file.
+        # Built by concatenation (not str.format): the shell brace group
+        # `{ ...; }` must reach the shell literally, and str.format would read
+        # those braces as replacement fields.
+        # Agentify's human (non --json) output goes to STDERR via ui.log, one
+        # log() call carrying the whole renderMatchDigest string (only its first
+        # line gets the "  > " prefix). So capture stderr, slice from the digest
+        # header to EOF, and strip that prefix — yielding the exact block the
+        # UserPromptSubmit hook would inject. The header guard means an empty or
+        # error-only stderr appends nothing (arm degrades toward plain, scored
+        # honestly).
         render_command = (
-            "cd /app"
-            " && agentify ctx match {prompt} --root /app > /tmp/agentify-match.txt 2>/dev/null || true"
-            " && if [ -s /tmp/agentify-match.txt ]"
-            " && ! grep -q 'No related context found' /tmp/agentify-match.txt; then"
+            "mkdir -p /logs/agent && cd /app"
+            " && agentify ctx match " + shlex.quote(instruction) + " --root /app"
+            " > /dev/null 2>/tmp/agentify-match.raw || true"
+            " && sed -n '/## Agentify context/,$p' /tmp/agentify-match.raw"
+            " | sed 's/^  > //' > /tmp/agentify-match.txt 2>/dev/null || true"
+            " && if [ -s /tmp/agentify-match.txt ]; then"
             " { printf '\\n'; cat /tmp/agentify-match.txt; printf '\\n'; } >> CLAUDE.md; fi"
-        ).format(prompt=shlex.quote(instruction))
+            # Provenance: the injected block is synced back via /logs/agent so a
+            # receipt can show exactly what this arm pinned into CLAUDE.md.
+            " && cp /tmp/agentify-match.txt /logs/agent/persist-injected.txt 2>/dev/null || true"
+        )
         await self.exec_as_agent(environment, render_command, env={
             **auth,
             "AGENTIFY_PROFILE": self._profile,
@@ -125,12 +140,15 @@ class AgentifyPersistClaudeAgent(AgentifyClaudeAgent):
 
         # Graded recall — identical to the base graded phase, with hook injection
         # suppressed so the persistent CLAUDE.md block is the sole delivery.
+        # `|| true`: the verifier grades the repo state, not Claude's exit code
+        # — turn/budget exhaustion is a graded fail, not a harness error (see the
+        # base AgentifyClaudeAgent.run for the full rationale).
         command = (
             "mkdir -p /logs/agent && cd /app"
             " && claude -p {instruction} --output-format json"
             " --model {model} --max-budget-usd {budget} --max-turns {turns}"
             " --no-session-persistence --permission-mode acceptEdits"
-            " > {trajectory}"
+            " > {trajectory} || true"
         ).format(
             instruction=shlex.quote(instruction),
             model=shlex.quote(self._claude_model),

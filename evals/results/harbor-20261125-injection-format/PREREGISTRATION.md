@@ -99,18 +99,25 @@ pair is mandatory regardless of significance.
    test does. No equivalence ("as good as stuffing") is claimed without a
    pre-declared non-inferiority margin, which this suite does not run.
 
-**Direction note / registered prediction.** A token-free diagnostic run before
-launch (`agentify ctx explain`, reproduced in `retrieval-diagnostic.md`)
-predicts a **null on both format arms**: on retry-schedule the delay-schedule
-needle (ADR-42, "Fibonacci delays 1s,1s,2s,3s,5s") scores 0 under BM25 — it
-shares only the common term "retry" with the prompt — so it is never a
-candidate at any budget, and neither lifting the budget (`fullnote-claude`) nor
-persisting the selection (`persist-claude`) can place knowledge the selector
-never picked. Only whole-store stuffing carries it. The two control scenarios
-retrieve their needle at rank 1 and should tie across all arms. Recording this
-prediction up front is what makes a confirming null informative rather than a
-fishing expedition; a surprise (a format arm that *does* close the gap) would be
-the shippable result under rule 1.
+**Direction note / registered prediction (corrected pre-trial).** A token-free
+diagnostic run before launch (`agentify ctx explain` on the **verbatim**
+`instruction.md`, reproduced in `retrieval-diagnostic.md`) shows that at current
+fixtures (dataset 1.2.0) Agentify's selector retrieves **every** answer-bearing
+needle on all three scenarios — including, on retry-schedule, BOTH the lane note
+(#c2901335, rank 1) and the delay-schedule note (ADR-42 #72c2540c, rank 2, score
+8.59), which the real instruction's "recovery queue / production worker" terms
+pull in. (An earlier draft of the diagnostic used a hand-paraphrase that dropped
+those terms, scored ADR-42 at 0, and wrongly predicted a retrieval-driven null;
+that error was caught before any trial was graded and is documented in
+`retrieval-diagnostic.md`.) The revised prediction: because the delivered
+knowledge is already correct and equal across `agentify`, `fullnote-claude`, and
+`persist-claude`, the two format arms should move outcomes **little** (no missing
+note for a bigger budget or a persistent copy to add). The live question is
+whether `memorybank-claude` still leads: its whole-store CLAUDE.md is ~520k
+cache-read tokens per turn and a smoke trial of it hit `error_max_turns` (17 >
+16, scored a fail), so stuffing's ladder edge may shrink or reverse here. This is
+a genuine open experiment; the verdict rule above is unchanged and decides it
+either way.
 
 ## 5. Validity: what counts as a trial, a fail, a harness_error
 
