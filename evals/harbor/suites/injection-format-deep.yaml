@@ -1,0 +1,61 @@
+# Harbor job config: injection-FORMAT ablation — DEEP rung (#400).
+#
+# The store-size ladder (2026-08-21) found Agentify's budgeted injection
+# (20/27) trailing CLAUDE.md stuffing (24/27) at 300-note stores, with the gap
+# concentrated in ONE scenario: recall-retry-schedule (3/9 vs 6/9). This suite
+# buys the power where the uncertainty lives — the retry-schedule store300 task
+# only, at n=21 per arm — to test WHY, at equal knowledge, injected memory
+# trails stuffing. Pre-registration: evals/results/harbor-20261125-injection-format/
+# PREREGISTRATION.md (committed before any trial ran).
+#
+# Four arms, same task / image / model / $0.70 cap / turn cap, varying ONLY how
+# the SAME committed fixture store reaches the model:
+#   - agentify         : baseline relevant-mode matched digest, injected once at
+#                        the prompt (the 20/27 arm, reproduced).
+#   - fullnote-claude  : the same pipeline with the injection token budget lifted
+#                        (AGENTIFY_CTX_BUDGET huge) — full notes, no trimming.
+#   - persist-claude   : Agentify's same per-task selection pinned into CLAUDE.md
+#                        so it is present on every turn (hook injection off).
+#   - memorybank-claude: the whole store stuffed verbatim into CLAUDE.md — the
+#                        reference ceiling we are chasing.
+#
+# 1 task x 4 arms x 21 attempts = 84 trials; ceiling 84 x $0.70 = $58.80. The
+# ladder-deep job averaged $0.077/attempt, so expect roughly $6-7 actual —
+# check the plan ceiling, never this estimate, before launching:
+#   agentify eval harbor plan --suite injection-format-deep
+# Launch from evals/harbor/ with: harbor run -c suites/injection-format-deep.yaml
+
+jobs_dir: jobs
+
+n_attempts: 21
+n_concurrent_trials: 2
+
+datasets:
+  - path: tasks
+    task_names:
+      - recall-retry-schedule-store300
+
+agents:
+  - import_path: agents.agentify_claude:AgentifyClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyFullNoteClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.injection_format_claude:AgentifyPersistClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      profile: balanced
+      max_budget_usd: 0.7
+      max_turns: 16
+  - import_path: agents.memorybank_claude:MemoryBankClaudeAgent
+    model_name: anthropic/claude-haiku-4-5-20251001
+    kwargs:
+      max_budget_usd: 0.7
+      max_turns: 16

@@ -43,6 +43,16 @@
       "name": "crossvendor-nomem",
       "kind": "installed",
       "import_path": "agents.agentify_transfer:CrossVendorNoMemoryAgent"
+    },
+    {
+      "name": "fullnote-claude",
+      "kind": "installed",
+      "import_path": "agents.injection_format_claude:AgentifyFullNoteClaudeAgent"
+    },
+    {
+      "name": "persist-claude",
+      "kind": "installed",
+      "import_path": "agents.injection_format_claude:AgentifyPersistClaudeAgent"
     }
   ],
   "tasks": [
@@ -637,6 +647,46 @@
         "agentify-claude",
         "memorybank-claude",
         "plain-claude"
+      ]
+    },
+    "injection-format-smoke": {
+      "tasks": [
+        "recall-retry-schedule-store300"
+      ],
+      "attempts": 1,
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "fullnote-claude",
+        "persist-claude",
+        "memorybank-claude"
+      ]
+    },
+    "injection-format-deep": {
+      "tasks": [
+        "recall-retry-schedule-store300"
+      ],
+      "attempts": 21,
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "fullnote-claude",
+        "persist-claude",
+        "memorybank-claude"
+      ]
+    },
+    "injection-format": {
+      "tasks": [
+        "avoid-cache-regression-store300",
+        "recall-webhook-signature-store300"
+      ],
+      "attempts": 12,
+      "agents": 4,
+      "agent_names": [
+        "agentify-claude",
+        "fullnote-claude",
+        "persist-claude",
+        "memorybank-claude"
       ]
     }
   }

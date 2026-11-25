@@ -83,6 +83,14 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
     def name() -> str:
         return "agentify-claude"
 
+    # Injection seam for eval-only context ablations (injection-format campaign,
+    # #400): extra env spread into BOTH the seed and graded provider calls. The
+    # base returns {} so the baseline arm's invocation stays byte-identical to
+    # every prior campaign; a subclass flips, e.g., AGENTIFY_CTX_BUDGET without
+    # touching the committed workspace config.
+    def _ablation_env(self) -> dict:
+        return {}
+
     @property
     def _claude_model(self) -> str:
         # Harbor model ids are provider-prefixed (anthropic/claude-...); the
@@ -162,15 +170,26 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             **auth,
             "AGENTIFY_PROFILE": self._profile,
             "AGENTIFY_CTX_SESSION": "harbor-seed",
+            **self._ablation_env(),
         })
 
         # Phase B (graded recall) — every arm runs this; the verifier scores it.
+        # `|| true`: the VERIFIER grades the repository's final state, not the
+        # provider's exit code. When Claude exhausts its turn or budget cap it
+        # writes an `is_error` result envelope AND exits non-zero
+        # (e.g. subtype=error_max_turns); without this the harness raises
+        # NonZeroAgentExitCodeError and ERRORS the trial out, excluding it. The
+        # pre-registered rule (#400) is that turn/budget exhaustion is a FAIL
+        # against the arm — a context-bloated arm that cannot finish in its cap
+        # is failing the task — so we let the verifier score whatever landed.
+        # A genuine infra/auth failure leaves no gradeable envelope and is
+        # reclassified as harness_error from the trajectory during analysis.
         command = (
             "mkdir -p /logs/agent && cd /app"
             " && claude -p {instruction} --output-format json"
             " --model {model} --max-budget-usd {budget} --max-turns {turns}"
             " --no-session-persistence --permission-mode acceptEdits"
-            " > {trajectory}"
+            " > {trajectory} || true"
         ).format(
             instruction=shlex.quote(instruction),
             model=shlex.quote(self._claude_model),
@@ -183,6 +202,7 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
             "AGENTIFY_PROFILE": self._profile,
             # Attempt telemetry must describe this graded trial only.
             "AGENTIFY_CTX_SESSION": "harbor-trial",
+            **self._ablation_env(),
         })
 
     def populate_context_post_run(self, context) -> None:
