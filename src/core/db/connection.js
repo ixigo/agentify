@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -19,7 +20,45 @@ const SNAPSHOT_FILE_MODE = 0o600;
 
 let driver = null;
 
+// Tri-state cache for the better-sqlite3 binding probe: null = not yet probed,
+// true = usable, false = must not be loaded in-process.
+let betterSqlite3Usable = null;
+
+// A mismatched native binding can abort the process with SIGSEGV on
+// `new Database()` instead of throwing — e.g. better-sqlite3 13's prebuilt
+// binary targets Node-API 10, which Node only supports from 22.14, so on an
+// older 22.x it segfaults (exit 139) before any JS error is raised. No
+// try/catch can recover from that, and it would take down `agentify install`
+// with it. So probe the binding once in a short-lived child process: a crash
+// there is observed as a non-zero exit, and the in-process open is skipped in
+// favour of the node:sqlite fallback. On the healthy path this costs a single
+// child spawn, cached for the rest of the process, and only on the index code
+// path (never on the file-based context/hook hot path).
+function isBetterSqlite3Usable() {
+  if (betterSqlite3Usable !== null) {
+    return betterSqlite3Usable;
+  }
+
+  try {
+    const entry = require.resolve("better-sqlite3");
+    const probe = `new (require(${JSON.stringify(entry)}))(":memory:").close()`;
+    const result = spawnSync(process.execPath, ["--no-warnings", "-e", probe], {
+      stdio: "ignore",
+      timeout: 10000,
+    });
+    betterSqlite3Usable = result.status === 0 && !result.error && !result.signal;
+  } catch {
+    // Not resolvable/installed: treat as unusable and let node:sqlite take over.
+    betterSqlite3Usable = false;
+  }
+
+  return betterSqlite3Usable;
+}
+
 function openWithBetterSqlite3(filename, options = {}) {
+  if (!isBetterSqlite3Usable()) {
+    throw new Error("better-sqlite3 native binding is not usable in this runtime");
+  }
   const BetterSqlite3 = require("better-sqlite3");
   return {
     name: "better-sqlite3",
