@@ -89,7 +89,7 @@ and continuing threads in Claude Desktop.
 
 ## Does it help?
 
-Measured, with committed receipts under `evals/results/` and CI that fails if the code stops reproducing them. Against the same agent with no memory layer the effect is large and consistent (28/0 discordant pairs, p = 7.5e-9 on a 180-trial matrix); against a hand-maintained `CLAUDE.md` memory bank holding the same knowledge, two campaigns found **no significant difference** — published rather than buried. No leaderboard claims.
+Measured, with committed receipts under `evals/results/` and CI that fails if the code stops reproducing them. Against the same agent with no memory layer the effect is large and consistent (28/0 discordant pairs, p = 7.5e-9 on a 180-trial matrix in August; re-run on v0.5.0 in November: 32/0, p = 4.7e-10); against a hand-maintained `CLAUDE.md` memory bank holding the same knowledge, two campaigns found **no significant difference** — published rather than buried. No leaderboard claims.
 
 Full tables, caveats, and the corrections log: **[docs/benchmarks.md](./docs/benchmarks.md)**.
 
