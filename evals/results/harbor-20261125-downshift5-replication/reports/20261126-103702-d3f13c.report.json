@@ -1,0 +1,547 @@
+{
+  "schema": "eval-report-v2",
+  "command": "eval",
+  "action": "report",
+  "run_id": "20261126-103702-d3f13c",
+  "run_ts": "2026-11-26T05:45:12.477006Z",
+  "harness": "harbor",
+  "harbor": {
+    "schema": "harbor-import-v1",
+    "job": "2026-11-25__23-05-12",
+    "imported_at": "2026-11-26T10:37:02.661Z",
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.2.0"
+    },
+    "agents": [
+      "agentify-claude",
+      "claude-code"
+    ]
+  },
+  "artifacts_root": ".agentify/evals/runs/20261126-103702-d3f13c",
+  "task": {
+    "id": "reject-stale-config-path",
+    "prompt_sha256": null,
+    "fingerprint_sha256": "7310cbf0235c101f3a34e6ccfb852f728dfd3517468c270cfe1ee29f417d3834",
+    "base_sha": null,
+    "model": "claude-haiku-4-5-20251001",
+    "effort": null,
+    "profile": null,
+    "category": "stale-context-rejection",
+    "phases": null,
+    "max_budget_usd": 0.35,
+    "max_turns": null,
+    "timeout_seconds": null,
+    "forbidden_paths": [],
+    "arms": [
+      "agentify",
+      "claude-code"
+    ],
+    "repeat": 3
+  },
+  "versions": {
+    "agentify": "0.5.0",
+    "claude": null,
+    "harbor": "0.18.0"
+  },
+  "completeness": {
+    "planned_attempts": 6,
+    "completed_attempts": 6,
+    "partial": false,
+    "paired": true,
+    "underpowered": true,
+    "min_attempts_per_arm": 5,
+    "labels": [
+      "underpowered"
+    ]
+  },
+  "arms": {
+    "agentify": {
+      "attempts": 2,
+      "passes": 2,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 1,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.3424,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.158356,
+        "reported_attempts": 2,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.079178,
+        "per_pass_usd": 0.079178,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 21001,
+        "cache_read": 791467,
+        "cache_write": 0,
+        "output": 7489,
+        "usage_reported_attempts": 2,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 46766,
+        "provider_p95_ms": 48279,
+        "provider_mean_ms": 47523,
+        "total_mean_ms": 82468
+      },
+      "turns": {
+        "mean": 17,
+        "max": 17,
+        "scope": "attempt"
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 2
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 2
+      }
+    },
+    "claude-code": {
+      "attempts": 2,
+      "passes": 2,
+      "failures": 0,
+      "invalid": 0,
+      "harness_errors": 1,
+      "pass_rate": 1,
+      "pass_rate_ci95": {
+        "low": 0.3424,
+        "high": 1
+      },
+      "cost": {
+        "reported_usd": 0.085889,
+        "reported_attempts": 2,
+        "unreported_attempts": 0,
+        "per_attempt_usd": 0.042944,
+        "per_pass_usd": 0.042944,
+        "non_gradeable_reported_usd": 0
+      },
+      "tokens": {
+        "fresh_input": 11476,
+        "cache_read": 453159,
+        "cache_write": 0,
+        "output": 3555,
+        "usage_reported_attempts": 2,
+        "usage_missing_attempts": 0
+      },
+      "latency": {
+        "provider_p50_ms": 20253,
+        "provider_p95_ms": 23757,
+        "provider_mean_ms": 22005,
+        "total_mean_ms": 84438
+      },
+      "turns": {
+        "mean": null,
+        "max": null,
+        "scope": null
+      },
+      "turns_to_first_edit": {
+        "mean": null,
+        "max": null,
+        "reported_attempts": 0,
+        "unreported_attempts": 2
+      },
+      "changed_files": {
+        "mean": 0,
+        "max": 0
+      },
+      "failure_breakdown": {},
+      "stop_reasons": {
+        "ok": 2
+      }
+    }
+  },
+  "paired": [
+    {
+      "baseline": "claude-code",
+      "pairs": 2,
+      "paired_sample_ids": [
+        "repeat-1",
+        "repeat-3"
+      ],
+      "pass_rate_delta": 0,
+      "discordant": {
+        "agentify_only_pass": 0,
+        "baseline_only_pass": 0
+      },
+      "sign_test_p": 1,
+      "cost_per_pass_delta_usd": 0.036234,
+      "provider_p95_delta_ms": 24522
+    }
+  ],
+  "economics": {
+    "source": "paired provider telemetry; phase B is the graded recall session",
+    "formulas": {
+      "rediscovery_avoided": "baseline phase-B total - agentify phase-B total (paired attempts with complete telemetry)",
+      "break_even": "ceil(incremental phase-A seed cost per pair / phase-B cost avoided per recall session)",
+      "repeated_failure_cost_avoided": "baseline phase-B spend where agentify passed and baseline failed on a prior-failure-avoidance task"
+    },
+    "comparisons": [
+      {
+        "baseline": "claude-code",
+        "paired_attempts": 2,
+        "multisession_pairs": 0,
+        "cost_per_pass": {
+          "agentify_usd": 0.079178,
+          "baseline_usd": 0.042944
+        },
+        "phase_b": {
+          "tokens": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "turns_to_first_edit": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          },
+          "cost_usd": {
+            "paired_attempts": 0,
+            "measured_pairs": 0,
+            "agentify_total": null,
+            "baseline_total": null,
+            "avoided": null,
+            "avoided_per_attempt": null,
+            "improved_pairs": 0,
+            "regressed_pairs": 0,
+            "tied_pairs": 0,
+            "sign_test_p": 1
+          }
+        },
+        "memory_investment": {
+          "paired_attempts": 0,
+          "measured_pairs": 0,
+          "agentify_seed_cost_usd": null,
+          "baseline_seed_cost_usd": null,
+          "incremental_seed_cost_usd": null,
+          "incremental_seed_cost_per_attempt_usd": null
+        },
+        "break_even": {
+          "status": "not_applicable",
+          "sessions": null,
+          "reason": "no paired two-phase attempts"
+        },
+        "repeated_failure_cost_avoided": {
+          "pairs": 0,
+          "costed_pairs": 0,
+          "turns_reported_pairs": 0,
+          "cost_avoided_usd": 0,
+          "reported_cost_usd": 0,
+          "turns_avoided": 0,
+          "reported_turns": 0
+        }
+      }
+    ]
+  },
+  "frontier": {
+    "points": [
+      {
+        "arm": "agentify",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.079178,
+        "total_reported_usd": 0.158356,
+        "passes": 2,
+        "costed": true,
+        "on_frontier": false
+      },
+      {
+        "arm": "claude-code",
+        "pass_rate": 1,
+        "cost_per_pass_usd": 0.042944,
+        "total_reported_usd": 0.085889,
+        "passes": 2,
+        "costed": true,
+        "on_frontier": true
+      }
+    ],
+    "marginal": []
+  },
+  "verdict": {
+    "winner": null,
+    "eligible": false,
+    "reason": "no winner declared: fewer than 5 attempts per arm"
+  },
+  "context_metrics": null,
+  "attempts": [
+    {
+      "attempt_id": "agentify-1",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 48279,
+      "duration_ms": 83018,
+      "cost_usd": 0.0820237,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 12435,
+        "cache_read_tokens": 380437,
+        "cache_write_tokens": 0,
+        "output_tokens": 3845
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "claude-code-1",
+      "arm": "claude-code",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 1,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": null,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 23757,
+      "duration_ms": 81867,
+      "cost_usd": 0.05076900000000001,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 7636,
+        "cache_read_tokens": 261560,
+        "cache_write_tokens": 0,
+        "output_tokens": 1886
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "claude-code-2",
+      "arm": "claude-code",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "error",
+      "pass": false,
+      "failure_kind": "harness_error",
+      "stop_reason": null,
+      "num_turns": null,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 371977,
+      "duration_ms": 371977,
+      "cost_usd": null,
+      "cost_source": "unreported",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": null,
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "no reward recorded"
+        }
+      ],
+      "error": "Agent setup timed out after 360.0 seconds",
+      "error_type": "AgentSetupTimeoutError",
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-2",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 2,
+      "status": "error",
+      "pass": false,
+      "failure_kind": "harness_error",
+      "stop_reason": null,
+      "num_turns": null,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 115591,
+      "duration_ms": 115591,
+      "cost_usd": null,
+      "cost_source": "unreported",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": null,
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": false,
+          "exit_code": 1,
+          "timed_out": false,
+          "output_tail": "no reward recorded"
+        }
+      ],
+      "error": "Command failed (exit 1): npm install -g --no-fund --no-audit @anthropic-ai/claude-code@2.1.208 github:ixigo/agentify#v0.5.0\nstdout: npm error code ECONNRESET\nnpm error network aborted\nnpm error network This is a problem related to network connectivity.\nnpm error network In most cases you are behind a proxy or have bad network settings.\nnpm error network\nnpm error network If you are behind a proxy, please make sure that the\nnpm error network 'proxy' config is set properly.  See: 'npm help config'\nnpm notice\nnpm notice New major version of npm available! 10.9.0 -> 12.2.3\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.3\nnpm notice To update run: npm install -g npm@12.2.3\nnpm notice\nnpm error A complete log of this run can be found in: /root/.npm/_logs/2026-11-25T18_45_21_404Z-debug-0.log\n\nstderr: None",
+      "error_type": "NonZeroAgentExitCodeError",
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "agentify-3",
+      "arm": "agentify",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": 17,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 46766,
+      "duration_ms": 81918,
+      "cost_usd": 0.076332,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 8566,
+        "cache_read_tokens": 411030,
+        "cache_write_tokens": 0,
+        "output_tokens": 3644
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    },
+    {
+      "attempt_id": "claude-code-3",
+      "arm": "claude-code",
+      "context_ablation": null,
+      "context_metrics": null,
+      "repeat_index": 3,
+      "status": "ok",
+      "pass": true,
+      "failure_kind": null,
+      "stop_reason": null,
+      "num_turns": null,
+      "turns_to_first_edit": null,
+      "provider_duration_ms": 20253,
+      "duration_ms": 87008,
+      "cost_usd": 0.0351199,
+      "cost_source": "provider",
+      "multisession": false,
+      "recall_cost_usd": null,
+      "seed_cost_usd": null,
+      "seed_num_turns": null,
+      "usage": {
+        "fresh_input_tokens": 3840,
+        "cache_read_tokens": 191599,
+        "cache_write_tokens": 0,
+        "output_tokens": 1669
+      },
+      "changed_paths": [],
+      "forbidden_violations": [],
+      "checks": [
+        {
+          "command": "harbor verifier",
+          "passed": true,
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": "reward 1"
+        }
+      ],
+      "artifacts": null,
+      "agentify_version": "0.5.0",
+      "claude_version": null
+    }
+  ]
+}

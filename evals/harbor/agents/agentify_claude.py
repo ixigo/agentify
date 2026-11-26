@@ -32,6 +32,16 @@ DEFAULT_CLAUDE_CODE_VERSION = os.environ.get("AGENTIFY_EVAL_CLAUDE_CODE_VERSION"
 # the npm registry under this name, point it at a git ref or tarball, e.g.
 # AGENTIFY_EVAL_AGENTIFY_SPEC="github:ixigo/agentify#<commit>".
 DEFAULT_AGENTIFY_SPEC = os.environ.get("AGENTIFY_EVAL_AGENTIFY_SPEC", "agentify@0.4.0")
+# Skip the install-time structural index build. Agentify v0.5.0 bumped
+# better-sqlite3 to ^13.2.0 (commit 1d98168); its prebuilt aarch64 binding
+# SIGSEGVs during the index build inside the task image, so a default
+# `agentify install` exits 139 before the graded model runs. The context-recall
+# path these suites measure is file-based (src/core/project-store.js) and never
+# touches better-sqlite3, so skipping the (benchmark-irrelevant) index build
+# lets the v0.5.0 product install and run unchanged. Opt-in via env so the
+# committed default stays byte-identical to prior campaigns. Recorded as a
+# deviation: evals/results/harbor-20261125-downshift5-replication/DEVIATIONS.md.
+INSTALL_NO_INDEX = os.environ.get("AGENTIFY_EVAL_INSTALL_NO_INDEX", "").strip().lower() not in ("", "0", "false")
 
 FIXTURES_PATH = "/opt/agentify-fixtures"
 # /logs/agent is synced back to the trial's agent/ directory on the host, so
@@ -133,9 +143,10 @@ class AgentifyClaudeAgent(BaseInstalledAgent):
         # then seed the fixtures as the repo's prior context. The fixtures are
         # baked into the shared image, so the plain claude-code arm runs the
         # identical image and simply never touches them.
+        install_flags = " --no-index" if INSTALL_NO_INDEX else ""
         await self.exec_as_agent(
             environment,
-            "cd /app && agentify install --provider claude"
+            f"cd /app && agentify install --provider claude{install_flags}"
             f" && if [ -d {FIXTURES_PATH} ]; then"
             " mkdir -p .agentify/context"
             f" && cp -R {FIXTURES_PATH}/. .agentify/context/; fi",

@@ -1,0 +1,160 @@
+{
+  "schema": "results-campaign-v1",
+  "campaign": "harbor-20261125-downshift5-replication",
+  "date": "2026-11-26",
+  "primary_job": "2026-11-26__12-18-47",
+  "dataset": {
+    "name": "agentify-context-bench",
+    "version": "1.2.0"
+  },
+  "notes": "Five-family downshift REPLICATION of the 2026-08-21 campaign (evals/results/harbor-20260821-downshift5), on agentify v0.5.0 (github:ixigo/agentify#v0.5.0) + dataset agentify-context-bench 1.2.0, subscription OAuth, Harbor 0.18.0, same committed suite evals/harbor/suites/downshift.yaml (15 tasks x 2 arms x 3 attempts x 2 rungs = 180 trials). Pre-registration (PREREGISTRATION.md) and DEVIATIONS.md were committed before any graded trial. THREE full 180-trial runs are committed here, not one: `harbor job resume` re-runs the ENTIRE suite fresh in a new job dir (it does not re-run only errored trials), which the operator learned mid-campaign (DEVIATIONS.md D7). A=2026-11-25__18-19-12 (original, conc 2) and B=2026-11-25__23-05-12 (resume#1, conc 2) each left 25 install/setup host-faults (chiefly the baseline claude-code arm's unpinned CDN download of claude-2.1.332 exceeding Harbor's 360s setup cap under load); C=2026-11-26__12-18-47 (resume#2, conc 1) completed all 180 with 0 harness errors. PRIMARY = C by the completeness rule (the only run where all 180 pre-registered trials are gradeable); the rule was fixed AFTER the runs, is outcome-independent (data completeness, not pass counts/p), and the #322 verdict is IDENTICAL across A, B and C, so the choice cannot change it. DEVIATION D6: agentify v0.5.0 bumped better-sqlite3 to ^13.2.0 (commit 1d98168); its prebuilt aarch64 binding SIGSEGVs during the install-time structural-index build, so a default `agentify install` exits 139 before the graded model runs. The downshift recall path is file-based (src/core/project-store.js) and never touches better-sqlite3, so the harness install was run with env-gated `--no-index` (AGENTIFY_EVAL_INSTALL_NO_INDEX=1); the v0.5.0 product source is byte-identical. RESULT: REPLICATED. Suite-level WINNER agentify (epic #322 rule, all three clauses) in every run, same direction as August, discordant spanning the SAME two families (avoid-unbounded-fanout + avoid-cache-regression; the other three tie). PRIMARY C pooled over 90 matched gradeable pairs: agentify 89/90 (98.9%, Wilson 94.0-99.8) vs claude-code 57/90 (63.3%, 53.0-72.5), discordant 32/0, exact sign p=4.65661e-10, Wilson separated; per-cell #317 target met in 4 cells (haiku easy/medium/hard 6/0 each p=0.03125, sonnet medium 6/0 p=0.03125). August 2026-08-21 was 84/86 vs 56/86, 28/0, p=7.45058e-9, #317 met in 2 cells. Side by side (pooled matched pairs, agentify vs claude-code, discordant, sign p): A 64/66 vs 39/66, 25/0, p=5.96046e-8; B 65/66 vs 43/66, 22/0, p=4.76837e-7; C 89/90 vs 57/90, 32/0, p=4.65661e-10. Dataset 1.2.0 fixtures (regenerated since August's 1.1.0) make more needles retrievable, a genuine confound recorded in DEVIATIONS.md; the hard/medium variants still strip the instruction hint so the memoryless baseline cannot recover the seeded decision, which is why the direction and significance replicate. Paired sign tests, Wilson intervals, the per-family and per-cell breakdown, and the all-three side-by-side regenerate from these run dirs via analysis.mjs; per-run receipts reproduce via evals/results/verify.mjs.",
+  "jobs": {
+    "2026-11-25__18-19-12": {
+      "runs": [
+        "20261126-103703-062cd1",
+        "20261126-103703-1a3d21",
+        "20261126-103703-2902a5",
+        "20261126-103703-380770",
+        "20261126-103703-3d963c",
+        "20261126-103703-3e3a23",
+        "20261126-103703-41841a",
+        "20261126-103703-489ccb",
+        "20261126-103703-4d6b62",
+        "20261126-103703-4ee0a5",
+        "20261126-103703-52b0ad",
+        "20261126-103703-590d72",
+        "20261126-103703-59e8c6",
+        "20261126-103703-650579",
+        "20261126-103703-7401d1",
+        "20261126-103703-753188",
+        "20261126-103703-888fd8",
+        "20261126-103703-9890c9",
+        "20261126-103703-abe06a",
+        "20261126-103703-b13098",
+        "20261126-103703-b29a8f",
+        "20261126-103703-bd371d",
+        "20261126-103703-c4007a",
+        "20261126-103703-cfcc2e",
+        "20261126-103703-e96457",
+        "20261126-103703-ebea2e",
+        "20261126-103703-efb569",
+        "20261126-103703-f836f6",
+        "20261126-103703-fce937",
+        "20261126-103703-fea262"
+      ],
+      "published": {
+        "where": [
+          "docs/benchmarks.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 85,
+            "attempts": 88
+          },
+          "claude-code": {
+            "passes": 39,
+            "attempts": 66
+          }
+        }
+      }
+    },
+    "2026-11-25__23-05-12": {
+      "runs": [
+        "20261126-103702-0419c6",
+        "20261126-103702-0fda1b",
+        "20261126-103702-105717",
+        "20261126-103702-116a5f",
+        "20261126-103702-1edc83",
+        "20261126-103702-201116",
+        "20261126-103702-36a090",
+        "20261126-103702-3c7bc9",
+        "20261126-103702-4acf98",
+        "20261126-103702-4eb721",
+        "20261126-103702-523618",
+        "20261126-103702-576429",
+        "20261126-103702-614911",
+        "20261126-103702-7ab1e2",
+        "20261126-103702-7e32b2",
+        "20261126-103702-81388e",
+        "20261126-103702-965c27",
+        "20261126-103702-9c6851",
+        "20261126-103702-a4de38",
+        "20261126-103702-b65765",
+        "20261126-103702-bf4125",
+        "20261126-103702-caf410",
+        "20261126-103702-cc7e56",
+        "20261126-103702-d11513",
+        "20261126-103702-d2aa50",
+        "20261126-103702-d3f13c",
+        "20261126-103702-ed15f1",
+        "20261126-103702-f48ee0",
+        "20261126-103702-f81fc2",
+        "20261126-103702-fcc005"
+      ],
+      "published": {
+        "where": [
+          "docs/benchmarks.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 88,
+            "attempts": 89
+          },
+          "claude-code": {
+            "passes": 43,
+            "attempts": 66
+          }
+        }
+      }
+    },
+    "2026-11-26__12-18-47": {
+      "runs": [
+        "20261126-103640-015f73",
+        "20261126-103640-0685f7",
+        "20261126-103640-12e74c",
+        "20261126-103640-1567da",
+        "20261126-103640-1748f9",
+        "20261126-103640-28e857",
+        "20261126-103640-30f2a9",
+        "20261126-103640-37af42",
+        "20261126-103640-418152",
+        "20261126-103640-4450bc",
+        "20261126-103640-448bce",
+        "20261126-103640-52ed5a",
+        "20261126-103640-53403b",
+        "20261126-103640-53a29a",
+        "20261126-103640-5edb0a",
+        "20261126-103640-7df542",
+        "20261126-103640-82c6b2",
+        "20261126-103640-88fdd1",
+        "20261126-103640-981453",
+        "20261126-103640-9f00c9",
+        "20261126-103640-ae1808",
+        "20261126-103640-d1fc94",
+        "20261126-103640-d2c3ef",
+        "20261126-103640-e49e9d",
+        "20261126-103640-e978f4",
+        "20261126-103640-ebb773",
+        "20261126-103640-f07cda",
+        "20261126-103640-f8453c",
+        "20261126-103640-fb99e0",
+        "20261126-103640-fd0d38"
+      ],
+      "published": {
+        "where": [
+          "docs/benchmarks.md"
+        ],
+        "arms": {
+          "agentify": {
+            "passes": 89,
+            "attempts": 90
+          },
+          "claude-code": {
+            "passes": 57,
+            "attempts": 90
+          }
+        }
+      }
+    }
+  }
+}

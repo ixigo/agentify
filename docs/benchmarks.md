@@ -43,6 +43,7 @@ The arms that recur below:
 | 2026-08-21 | Five-family downshift, 180 trials | agentify 84/86 vs 56/86 | **Winner** (28/0, p = 7.5e-9) + per-cell target met |
 | 2026-08-21 | Store-size ladder, 135 trials | stuffing 24/27 vs agentify 20/27 vs plain 2/27 | **No difference detected** vs stuffing; decisive vs plain |
 | 2026-11-25 | Injection-format ablation, 180 trials | agentify 31/45, full-note 35/45, persist 36/45, stuffing 32/45 | **Null on format**; the ladder's stuffing edge did not reproduce |
+| 2026-11-25 | Downshift **replication** on v0.5.0, 180 trials (×3 runs) | agentify 89/90 vs 57/90 | **Replicated** — Winner agentify (32/0, p = 4.7e-10) in all three runs |
 
 ### 2026-07-14 — first paired Harbor nightly
 
@@ -228,6 +229,56 @@ Roadmap consequence: **injection format is not the lever** — at equal, retriev
 knowledge the four deliveries are statistically indistinguishable, so there is
 no format change to ship. Receipts: `harbor-20261125-injection-format`.
 
+### 2026-11-25 — downshift replication on v0.5.0 (replicated)
+
+A pre-registered replication of the strongest result — the five-family downshift
+matrix — on the current release. Same committed suite (15 tasks × 2 arms × 3
+attempts × 2 rungs = 180 trials), same arms, caps, attempts, and the **same
+pre-registered #322 verdict rule**. The intended variable is the agentify version
+(0.4.0 → **0.5.0**, tag `v0.5.0`); the dataset also moved 1.1.0 → **1.2.0** (a
+genuine confound, recorded below). Pre-registration and deviations were committed
+before any graded trial (`PREREGISTRATION.md`, `DEVIATIONS.md`).
+
+**Result: replicated.** Suite-level **WINNER agentify** (all three clauses), same
+direction as August, discordant spanning the **same two families**
+(avoid-unbounded-fanout + avoid-cache-regression; the other three tie).
+
+> **Primary run** (`2026-11-26__12-18-47`), pooled over 90 matched gradeable
+> pairs: agentify **89/90 (98.9%)** vs plain claude-code **57/90 (63.3%)**,
+> discordant **32/0 spanning two families**, exact sign p = **4.66e-10**, Wilson
+> CIs separated (94.0–99.8% vs 53.0–72.5%). The per-cell #317 target is met in
+> **four** cells (haiku easy/medium/hard 6/0 each; sonnet medium 6/0) — up from
+> two in August.
+
+| campaign | agentify | claude-code | discordant | sign p | verdict |
+| --- | --- | --- | --- | --- | --- |
+| 2026-08-21 (v0.4.0, 1.1.0) | 84/86 (98%) | 56/86 (65%) | 28/0 | 7.45e-9 | Winner |
+| 2026-11-25 (v0.5.0, 1.2.0) | 89/90 (99%) | 57/90 (63%) | 32/0 | 4.66e-10 | **Winner** |
+
+**Three full runs, reported in full.** `harbor job resume` re-runs the whole
+suite fresh (not just failed trials), so the recovery of the original run's
+install-phase host-faults produced three complete 180-trial runs. The verdict is
+**identical across all three**, which is the guard against after-the-fact
+selection; the primary is the only run with zero excluded harness-errors (chosen
+by a completeness rule set after the runs — see `DEVIATIONS.md` D7):
+
+| run | pairs | agentify | claude-code | discordant | sign p | Winner? |
+| --- | --- | --- | --- | --- | --- | --- |
+| A original (conc 2) | 66 | 64/66 | 39/66 | 25/0 | 5.96e-8 | yes |
+| B resume #1 (conc 2) | 66 | 65/66 | 43/66 | 22/0 | 4.77e-7 | yes |
+| C resume #2 (conc 1, **primary**) | 90 | 89/90 | 57/90 | 32/0 | 4.66e-10 | yes |
+
+**Deviations (full list in `DEVIATIONS.md`).** (D6) v0.5.0 bumped
+`better-sqlite3` to 13, whose prebuilt aarch64 binding SIGSEGVs during the
+install-time index build; since the downshift recall path is file-based and
+never touches it, the harness install skipped that index build
+(`--no-index`, env-gated) — the v0.5.0 product source is byte-identical. (D2)
+dataset 1.2.0 fixtures make more needles retrievable than 1.1.0; the hard/medium
+variants still strip the instruction hint, so the memoryless baseline cannot
+recover the seeded decision and the direction replicates. (D7) the three-run
+situation and primary-selection rule above. Every number regenerates from the
+committed runs via `analysis.mjs`; receipts: `harbor-20261125-downshift5-replication`.
+
 ## What we claim, and what we don't
 
 **Supported today.** Against the same agent with **no memory layer**, durable
@@ -281,6 +332,7 @@ benchmark whose corrections are invisible is not evidence.
 ```bash
 node evals/results/verify.mjs              # rebuild every committed receipt and diff it
 node evals/results/harbor-20261125-injection-format/analysis.mjs  # paired sign tests + Wilson CIs from the run dirs
+node evals/results/harbor-20261125-downshift5-replication/analysis.mjs  # three-run replication side-by-side vs August
 node evals/harbor/tools/diagnose-injection.mjs   # token-free retrieval/completeness check
 agentify eval harbor validate              # dataset schema + answer-leak checks, token-free
 agentify eval harbor plan --suite <name>   # worst-case spend before any paid run
