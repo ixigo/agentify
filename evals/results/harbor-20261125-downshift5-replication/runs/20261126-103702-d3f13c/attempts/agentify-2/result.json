@@ -1,0 +1,67 @@
+{
+  "schema": "eval-attempt-v1",
+  "run_id": "20261126-103702-d3f13c",
+  "attempt_id": "agentify-2",
+  "arm": "agentify",
+  "base_arm": "agentify",
+  "context_ablation": null,
+  "repeat_index": 2,
+  "task_id": "reject-stale-config-path",
+  "difficulty": "easy",
+  "base_sha": null,
+  "harness": "harbor",
+  "harbor": {
+    "job": "2026-11-25__23-05-12",
+    "trial": "reject-stale-config-path__kxBxTBa",
+    "agent": "agentify-claude",
+    "agent_version": "unknown",
+    "reward": null,
+    "harbor_version": "0.18.0",
+    "dataset": {
+      "name": "agentify-context-bench",
+      "version": "1.2.0"
+    },
+    "category": "stale-context-rejection"
+  },
+  "agentify_version": "0.5.0",
+  "claude_version": null,
+  "model": "claude-haiku-4-5-20251001",
+  "effort": null,
+  "requested_profile": "balanced",
+  "resolved_profile": "balanced",
+  "limits": {
+    "max_budget_usd": 0.35,
+    "max_turns": null,
+    "timeout_seconds": null
+  },
+  "status": "error",
+  "error": "Command failed (exit 1): npm install -g --no-fund --no-audit @anthropic-ai/claude-code@2.1.208 github:ixigo/agentify#v0.5.0\nstdout: npm error code ECONNRESET\nnpm error network aborted\nnpm error network This is a problem related to network connectivity.\nnpm error network In most cases you are behind a proxy or have bad network settings.\nnpm error network\nnpm error network If you are behind a proxy, please make sure that the\nnpm error network 'proxy' config is set properly.  See: 'npm help config'\nnpm notice\nnpm notice New major version of npm available! 10.9.0 -> 12.2.3\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.3\nnpm notice To update run: npm install -g npm@12.2.3\nnpm notice\nnpm error A complete log of this run can be found in: /root/.npm/_logs/2026-11-25T18_45_21_404Z-debug-0.log\n\nstderr: None",
+  "error_type": "NonZeroAgentExitCodeError",
+  "provider": {
+    "exit_code": 1,
+    "timed_out": false,
+    "duration_ms": 115591,
+    "subtype": null,
+    "num_turns": null,
+    "resolved_model": "claude-haiku-4-5-20251001",
+    "cost_usd": null,
+    "usage": null
+  },
+  "grade": {
+    "pass": false,
+    "forbidden_violations": [],
+    "checks": [
+      {
+        "command": "harbor verifier",
+        "exit_code": 1,
+        "passed": false,
+        "timed_out": false,
+        "output_tail": "no reward recorded"
+      }
+    ],
+    "changed_paths": []
+  },
+  "pass": false,
+  "duration_ms": 115591,
+  "artifacts": null
+}
