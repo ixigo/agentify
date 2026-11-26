@@ -1,0 +1,66 @@
+name: arm64 install smoke
+
+# Regression guard for #427: better-sqlite3 13's prebuilt binary targets
+# Node-API 10, which Node only supports from 22.14, so on an older 22.x the
+# native binding segfaults (exit 139) on `new Database()` and takes down
+# `agentify install` while it builds the structural index. Native macOS and
+# amd64 Linux were unaffected, so the existing ubuntu-latest matrix never saw
+# it. This job reproduces a real user install (global npm install of the packed
+# tarball) on an arm64 Linux runner, pinned to the exact Node version from the
+# bug report, and asserts install + scan + query all work with the index built.
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  arm64-install-smoke:
+    name: arm64 Linux install + scan
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Pinned to the version from the #427 report: the oldest 22.x where
+          # the better-sqlite3 13 binding segfaults. This is the strongest guard
+          # against re-bumping sqlite past the engines floor (node >=22).
+          node-version: "22.12.0"
+
+      - name: Pack the CLI
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Install agentify globally (real user path)
+        run: npm install -g "$RUNNER_TEMP"/agentify-*.tgz
+
+      - name: Smoke test install + scan + query on a sample repo
+        run: |
+          set -euo pipefail
+          agentify --version
+          work="$RUNNER_TEMP/sample-repo"
+          mkdir -p "$work/src"
+          cd "$work"
+          git init -q
+          git config user.email smoke@example.com
+          git config user.name smoke
+          printf '{ "name": "sample", "version": "1.0.0", "type": "module" }\n' > package.json
+          printf 'export function addNumbers(a, b) { return a + b; }\n' > src/math.js
+          printf 'import { addNumbers } from "./math.js";\nconsole.log(addNumbers(2, 3));\n' > src/index.js
+          git add -A
+          git commit -qm init
+
+          # install must exit 0 AND build the index (not just survive).
+          agentify install --provider claude
+          test -f .agentify/index.db || { echo "index.db was not built"; exit 1; }
+
+          # scan and query must work against the built index.
+          agentify scan
+          agentify query search addNumbers --json | grep -q '"name": "addNumbers"'
+          echo "arm64 install smoke passed"
