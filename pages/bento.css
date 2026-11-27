@@ -210,6 +210,18 @@ tbody tr:last-child > * { border-bottom: 0; }
 tbody th { font-weight: 500; }
 .us { background: var(--blue-a); }
 .yes { color: var(--green); font-weight: 600; } .no { color: var(--red); font-weight: 600; } .mu { color: var(--muted); }
+@media (max-width: 640px) {
+  .tw.stack { overflow: visible; border: 0; background: none; }
+  .tw.stack table { min-width: 0; }
+  .tw.stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tw.stack tbody, .tw.stack tr, .tw.stack th, .tw.stack td { display: block; }
+  .tw.stack tr { border: 1px solid var(--line); border-radius: 14px; background: var(--glass); margin-bottom: 10px; overflow: hidden; }
+  .tw.stack tbody th { font-weight: 600; color: var(--ink); padding: 0.75rem 1rem 0.5rem; border-bottom: 1px solid var(--line); }
+  .tw.stack td { display: grid; grid-template-columns: minmax(7.5rem, 42%) 1fr; gap: 0.75rem; padding: 0.55rem 1rem; border-bottom: 1px solid var(--line); }
+  .tw.stack td::before { content: attr(data-label); color: var(--muted); font-weight: 500; }
+  .tw.stack td.us::before { color: var(--ink); }
+  .tw.stack tr > :last-child, .tw.stack tbody tr:last-child > :last-child { border-bottom: 0; }
+}
 
 /* fit + steps */
 .fit { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

@@ -170,16 +170,16 @@
 
     <section class="sec" id="home-compare">
       <div class="sec-head"><span class="eyebrow">Side by side</span><h2>Plain agent, hand-kept file, or Agentify</h2></div>
-      <div class="tw"><table>
+      <div class="tw stack"><table>
         <thead><tr><th></th><th>Plain Claude / Codex</th><th>Hand-kept CLAUDE.md</th><th class="us">Agentify</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Remembers across sessions</th><td class="no">No</td><td class="yes">Yes</td><td class="us yes">Yes</td></tr>
-          <tr><th scope="row">Who writes the memory</th><td class="mu">Nobody</td><td class="mu">You, by hand</td><td class="us">Captured as you work</td></tr>
-          <tr><th scope="row">What reaches the model</th><td class="mu">Nothing</td><td class="mu">The whole file, every turn</td><td class="us">Only notes that match the task</td></tr>
-          <tr><th scope="row">Flags repeated failures</th><td class="no">No</td><td class="no">No</td><td class="us yes">Yes</td></tr>
-          <tr><th scope="row">Claude Code + Codex + worktrees</th><td class="no">No</td><td class="mu">A file per place</td><td class="us yes">One store</td></tr>
-          <tr><th scope="row">Blast radius and affected tests</th><td class="no">No</td><td class="no">No</td><td class="us"><code>risk</code>, <code>test --since</code></td></tr>
-          <tr><th scope="row">Second-vendor review</th><td class="no">No</td><td class="no">No</td><td class="us"><code>delegate review</code></td></tr>
+          <tr><th scope="row">Remembers across sessions</th><td data-label="Plain Claude / Codex" class="no"><span>No</span></td><td data-label="Hand-kept CLAUDE.md" class="yes"><span>Yes</span></td><td data-label="Agentify" class="us yes"><span>Yes</span></td></tr>
+          <tr><th scope="row">Who writes the memory</th><td data-label="Plain Claude / Codex" class="mu"><span>Nobody</span></td><td data-label="Hand-kept CLAUDE.md" class="mu"><span>You, by hand</span></td><td data-label="Agentify" class="us"><span>Captured as you work</span></td></tr>
+          <tr><th scope="row">What reaches the model</th><td data-label="Plain Claude / Codex" class="mu"><span>Nothing</span></td><td data-label="Hand-kept CLAUDE.md" class="mu"><span>The whole file, every turn</span></td><td data-label="Agentify" class="us"><span>Only notes that match the task</span></td></tr>
+          <tr><th scope="row">Flags repeated failures</th><td data-label="Plain Claude / Codex" class="no"><span>No</span></td><td data-label="Hand-kept CLAUDE.md" class="no"><span>No</span></td><td data-label="Agentify" class="us yes"><span>Yes</span></td></tr>
+          <tr><th scope="row">Claude Code + Codex + worktrees</th><td data-label="Plain Claude / Codex" class="no"><span>No</span></td><td data-label="Hand-kept CLAUDE.md" class="mu"><span>A file per place</span></td><td data-label="Agentify" class="us yes"><span>One store</span></td></tr>
+          <tr><th scope="row">Blast radius and affected tests</th><td data-label="Plain Claude / Codex" class="no"><span>No</span></td><td data-label="Hand-kept CLAUDE.md" class="no"><span>No</span></td><td data-label="Agentify" class="us"><span><code>risk</code>, <code>test --since</code></span></td></tr>
+          <tr><th scope="row">Second-vendor review</th><td data-label="Plain Claude / Codex" class="no"><span>No</span></td><td data-label="Hand-kept CLAUDE.md" class="no"><span>No</span></td><td data-label="Agentify" class="us"><span><code>delegate review</code></span></td></tr>
         </tbody></table></div>
     </section>
 
