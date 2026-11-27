@@ -606,7 +606,7 @@ export function renderAnalysisHtml(report, options = {}) {
     .roast .roast-basis { color: var(--muted); font: 0.75rem var(--mono); margin-top: 10px; }
 
     /* tables */
-    .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 20px; }
+    .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; margin-top: 20px; }
     .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--glass); margin-top: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     caption { padding: 10px 12px 2px; color: var(--muted); text-align: left; font-size: 0.78rem; }
