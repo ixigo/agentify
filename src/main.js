@@ -65,6 +65,9 @@ import { describeModelRoutes, explainRoute, refreshModelCatalogIfNeeded, runDele
 import { defaultReadinessExec } from "./core/provider-readiness.js";
 import { classifyTaskIntent, loadRouteEvidence } from "./core/profiles.js";
 import { initEvalTask, listEvals, runEval } from "./core/eval.js";
+import { listLoops, loadLoopRun, runLoop } from "./core/loop.js";
+import { initLoopBrief } from "./core/loop-brief.js";
+import { LOOP_REPORT_FORMATS, buildLoopReport, renderLoopReport } from "./core/loop-report.js";
 import { importHarborJob, planHarborRun, validateHarborDataset } from "./core/harbor.js";
 import { importSwebenchJob, planSwebenchRun, validateSwebenchDataset } from "./core/swebench.js";
 import {
@@ -505,6 +508,36 @@ async function runStatus(root, config, args) {
       warn(`.agentify store is ${amount} (over the ${formatBytes(store.threshold_bytes)} threshold). `
         + "Review with 'agentify clean --artifacts' and 'agentify clean --dry-run'.");
     }
+  }
+}
+
+// `loop run --dry-run`: the full contract of an unattended run — what will be
+// built, what will judge it, what it may cost, and what it may not touch —
+// printed before anything is spawned or spent.
+function printLoopPlan(plan) {
+  const brief = plan.brief;
+  log(`Brief: ${bold(brief.id)}${plan.brief_path ? dim(` (${plan.brief_path})`) : dim(" (synthesized from CLI flags)")}`);
+  log(`Title: ${brief.title}`);
+  log(`Source: ${brief.source.kind}${brief.source.jira_key ? ` ${brief.source.jira_key}` : ""}${brief.source.figma_url ? ` ${brief.source.figma_url}` : ""}`);
+  if (brief.source.figma_images.length > 0) {
+    log(dim(`Design references: ${brief.source.figma_images.join(", ")}`));
+  }
+  log(`Base: ${plan.base_sha.slice(0, 12)} · route ${brief.route} · ${plan.candidates.length} candidate(s)`);
+  log("");
+  log(bold("Gates (in order, blocking failure short-circuits the rest):"));
+  for (const gate of plan.gates) {
+    log(`  ${gate.blocking ? "*" : " "} ${gate.id} ${dim(`[${gate.kind}]${gate.run ? ` ${gate.run}` : ""}`)}`);
+  }
+  for (const note of plan.inferred_gate_notes || []) {
+    log(dim(`  note: ${note}`));
+  }
+  log("");
+  log(`Ceilings: ${brief.limits.max_iterations} iteration(s) · $${brief.limits.iteration_budget_usd}/iteration to the agent · ${brief.limits.max_turns} turns · ${brief.limits.timeout_seconds}s`);
+  log(`Maximum possible spend: ${bold(`$${plan.max_spend_usd}`)} ${dim(`(${plan.candidates.length} candidate(s) x ${brief.limits.max_iterations} iteration(s) x $${plan.per_iteration_usd}, review gates included)`)}`);
+  log(`Never edited: ${dim(brief.forbidden_paths.join(", "))}`);
+  log(`Ship: ${brief.ship.commit ? "commit on pass" : "no commit"}${brief.ship.pr === "draft" ? " · push branch and open a draft PR" : " · no PR"}`);
+  if (plan.needs_server && !brief.serve) {
+    log(yellow("A gate needs a running app but the brief has no `serve` block; pass --serve \"<command>\" --serve-url <url> or those gates will fail."));
   }
 }
 
@@ -1294,6 +1327,135 @@ export async function runCli(argv, _runtime = {}) {
         }
 
         throw new Error("eval requires a subcommand: init, run, report, grid, compare, list, harbor, or swebench");
+      }
+
+      case "loop": {
+        if (subcommand === "init") {
+          const result = await initLoopBrief(root, args._[2] || "sample", config, {
+            dryRun: config.dryRun,
+            ui: args.ui === true,
+          });
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            success(`Loop brief ${config.dryRun ? "dry-run" : "created"}: ${path.relative(root, result.path)}`);
+            log(`Fill in the intent, replace the placeholder gate commands, then preview with ${dim(`agentify loop run ${result.brief.id} --dry-run`)}.`);
+          }
+          return;
+        }
+
+        if (subcommand === "list") {
+          const result = await listLoops(root, config);
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+            return;
+          }
+          if (result.briefs.length === 0) {
+            log("No loop briefs found. Create one with `agentify loop init <name>`, or run ad hoc with `agentify loop run --task \"...\"`.");
+          } else {
+            log(bold("Briefs:"));
+            for (const brief of result.briefs) {
+              log(brief.invalid
+                ? `- ${brief.path}: invalid (${brief.error})`
+                : `- ${bold(brief.id)} ${dim(`${brief.gates} gate(s), ${brief.candidates} candidate(s), $${brief.max_budget_usd}/candidate`)}${brief.title ? ` — ${brief.title}` : ""}`);
+            }
+          }
+          if (result.runs.length > 0) {
+            log("");
+            log(bold("Runs:"));
+            for (const run of result.runs.slice(0, 10)) {
+              log(`- ${bold(run.run_id)} ${run.brief_id ?? "?"} — ${run.outcome}${run.winner ? ` (${run.winner})` : ""} ${dim(`${run.candidates} candidate(s)${run.spend_usd !== null ? `, $${run.spend_usd}` : ""}`)}`);
+            }
+          }
+          return;
+        }
+
+        if (subcommand === "status" || subcommand === "report") {
+          const view = await loadLoopRun(root, config, args._[2]);
+          const report = buildLoopReport(view);
+          const format = subcommand === "status"
+            ? (config.json ? "json" : "text")
+            : String(args.format || (config.json ? "json" : "text")).toLowerCase();
+          if (!LOOP_REPORT_FORMATS.includes(format)) {
+            throw new Error(`loop report --format must be one of ${LOOP_REPORT_FORMATS.join(", ")}, got "${args.format}"`);
+          }
+          const rendered = renderLoopReport(report, format);
+          if (args.out) {
+            const outPath = path.resolve(root, String(args.out));
+            await fs.writeFile(outPath, rendered.endsWith("\n") ? rendered : `${rendered}\n`, "utf8");
+            if (!config.json) {
+              success(`Wrote ${format} report to ${path.relative(root, outPath)}`);
+            }
+            return;
+          }
+          if (format === "json") {
+            console.log(rendered);
+          } else {
+            log(rendered);
+          }
+          return;
+        }
+
+        if (subcommand === "run") {
+          const figmaImages = hasOwn(args, "figmaImage") ? [].concat(args.figmaImage).map(String) : [];
+          const acceptance = hasOwn(args, "acceptance") ? [].concat(args.acceptance).map(String) : [];
+          // A positional brief id is optional: `loop run --task "..."` and
+          // friends synthesize one. `--resume` needs neither.
+          const briefRef = args._[2] && !hasOwn(args, "resume") ? String(args._[2]) : null;
+          const serve = hasOwn(args, "serve")
+            ? {
+              command: String(args.serve),
+              url: String(args.serveUrl || "http://localhost:3000"),
+              ready_timeout_seconds: hasOwn(args, "serveTimeout") ? Number(args.serveTimeout) : 120,
+            }
+            : null;
+
+          const options = {
+            task: hasOwn(args, "task") ? String(args.task) : undefined,
+            jira: hasOwn(args, "jira") ? String(args.jira) : undefined,
+            figma: hasOwn(args, "figma") ? String(args.figma) : undefined,
+            figmaImages,
+            bug: hasOwn(args, "bug") ? String(args.bug) : undefined,
+            acceptance,
+            serve,
+            id: hasOwn(args, "id") ? String(args.id) : undefined,
+            route: hasOwn(args, "route") ? String(args.route) : undefined,
+            baseRef: hasOwn(args, "base") ? String(args.base) : undefined,
+            scope: hasOwn(args, "scope") ? String(args.scope) : undefined,
+            candidates: hasOwn(args, "candidates") ? Number(args.candidates) : undefined,
+            maxIterations: hasOwn(args, "maxIterations") ? Number(args.maxIterations) : undefined,
+            maxBudgetUsd: hasOwn(args, "maxBudgetUsd") ? Number(args.maxBudgetUsd) : undefined,
+            maxTurns: hasOwn(args, "maxTurns") ? Number(args.maxTurns) : undefined,
+            commit: args.noCommit === true ? false : undefined,
+            // `--pr` with no value means the common case: open a draft.
+            pr: hasOwn(args, "pr") ? (args.pr === true ? "draft" : String(args.pr)) : undefined,
+            keepWorktrees: args.keepWorktrees === true,
+            resume: hasOwn(args, "resume") ? String(args.resume) : undefined,
+            dryRun: config.dryRun === true,
+          };
+
+          const result = await runLoop(root, config, briefRef, options);
+          if (result.dry_run) {
+            if (config.json) {
+              console.log(JSON.stringify(result, null, 2));
+            } else {
+              printLoopPlan(result);
+            }
+            return;
+          }
+          if (config.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            const view = await loadLoopRun(root, config, result.run_id);
+            log(renderLoopReport(buildLoopReport(view), "text"));
+          }
+          if (result.outcome !== "passed") {
+            process.exitCode = 1;
+          }
+          return;
+        }
+
+        throw new Error("loop requires a subcommand: init, run, status, report, or list");
       }
 
       case "risk": {

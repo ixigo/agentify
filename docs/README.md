@@ -5,6 +5,7 @@ Start here for the detail the [root README](../README.md) deliberately leaves ou
 | Doc | What's in it |
 | --- | --- |
 | [usage.md](./usage.md) | The full guide: install, context tracking, token-budgeted injection, failure memory, decisions, index, routing, budgets, workflows, hooks, skills, MCP, ACP |
+| [loop.md](./loop.md) | The autonomous build loop: briefs, acceptance gates, ceilings, candidates, shipping |
 | [benchmarks.md](./benchmarks.md) | Every measured campaign, what is and isn't claimed, corrections log, how to reproduce |
 | [harbor.md](./harbor.md) | Harbor (Terminal-Bench 2.0) adapter and the portable 38-task dataset |
 | [swebench.md](./swebench.md) | SWE-bench Verified warm/cold protocol and contamination controls |
@@ -101,6 +102,17 @@ All commands accept `--json` for machine-readable output — which is how agents
 | `agentify eval init\|run\|report\|compare\|list` | Paired Agentify+Claude vs plain-Claude benchmarks with deterministic grading and CI regression gates |
 | `agentify eval harbor validate\|plan\|import` | Harbor adapter: token-free dataset validation, spend ceilings, result import ([harbor.md](./harbor.md)) |
 | `agentify eval swebench validate\|plan\|import` | SWE-bench Verified warm/cold adapter ([swebench.md](./swebench.md)) |
+
+### Autonomous loop
+
+| Command | What it does |
+| --- | --- |
+| `agentify loop run [brief]` | Implement a brief in an isolated worktree, gate it, iterate until the gates pass or a ceiling trips ([loop.md](./loop.md)) |
+| `agentify loop init <name> [--ui]` | Scaffold a committed brief with a gate ladder |
+| `agentify loop status\|report [run-id]` | The per-iteration gate ladder, as text, JSON, Markdown, or HTML |
+| `agentify loop list` | Briefs and past runs |
+
+Inputs: `--task`, `--bug`, `--jira <KEY>`, `--figma <url>`, `--figma-image <path>` (repeatable). `--dry-run` prints the gate ladder, the refusals, and the worst-case spend before anything is spawned. `--candidates N` races N differing implementations and keeps the best. Committing is on by default; `--pr draft` is opt-in.
 
 ### Workflows & serve
 

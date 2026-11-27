@@ -13,13 +13,14 @@ const DEFAULT_WINDOW_DAYS = 30;
 
 const TOP_LEVEL_COMMANDS = new Set([
   "acp", "analyze", "check", "clean", "completion", "ctx", "delegate",
-  "doctor", "eval", "help", "hooks", "install", "migrate", "models", "query",
+  "doctor", "eval", "help", "hooks", "install", "loop", "migrate", "models", "query",
   "review", "risk", "route", "scan", "serve", "skill", "stats", "status",
   "test", "uninstall", "up", "value", "version", "workflow",
 ]);
 
 const SUBCOMMANDS = new Map([
   ["completion", new Set(["bash", "fish", "values", "zsh"])],
+  ["loop", new Set(["init", "list", "report", "run", "status"])],
   ["ctx", new Set([
     "capture-report", "clear", "decision", "decisions", "explain", "handoff",
     "load", "match", "note", "pause", "precheck", "resume", "share",

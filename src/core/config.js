@@ -126,6 +126,12 @@ const DEFAULT_CONFIG = {
     // How many eval run artifact directories to retain under .agentify/evals.
     keepRuns: 20,
   },
+  loop: {
+    // Where committed loop briefs live, relative to the repo root.
+    briefsDir: "loops",
+    // How many loop run artifact directories to retain under .agentify/loop.
+    keepRuns: 20,
+  },
   cleanup: {
     keepRuns: 20,
     maxRunAgeDays: 14,

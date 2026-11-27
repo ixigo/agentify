@@ -159,6 +159,44 @@ const COMMANDS = [
       }),
     ],
   }),
+  command("loop", "Autonomous build loop: implement, gate, iterate, ship", {
+    subcommands: [
+      subcommand("init", "Scaffold a loop brief", {
+        flags: [flag("--ui", { description: "Include dev-server, Playwright, and visual gates in the scaffold" })],
+      }),
+      subcommand("run", "Run the loop against a brief or an ad-hoc task", {
+        flags: [
+          flag("--task", { valueKind: "text", description: "Implement this task (no brief file needed)" }),
+          flag("--jira", { valueKind: "text", description: "Build the brief from a Jira work item key via acli" }),
+          flag("--figma", { valueKind: "text", description: "Figma node URL to build from" }),
+          flag("--figma-image", { valueKind: "path", description: "Screenshot of the Figma node (repeatable)" }),
+          flag("--bug", { valueKind: "text", description: "Fix this defect (test-first)" }),
+          flag("--acceptance", { valueKind: "text", description: "Acceptance criterion (repeatable)" }),
+          flag("--candidates", { valueKind: "number", description: "Race N differing implementations and keep the best" }),
+          flag("--route", { values: ["quick", "implement", "heavy"], description: "Model route for the implement step" }),
+          flag("--max-iterations", { valueKind: "number", description: "Iteration ceiling per candidate" }),
+          flag("--max-budget-usd", { valueKind: "number", description: "Dollar ceiling per candidate" }),
+          flag("--max-turns", { valueKind: "number", description: "Agent-turn ceiling per iteration" }),
+          flag("--base", { valueKind: "text", description: "Base ref for the loop branch" }),
+          flag("--serve", { valueKind: "text", description: "Dev-server command for gates that need a running app" }),
+          flag("--serve-url", { valueKind: "text", description: "URL polled for dev-server readiness" }),
+          flag("--pr", { values: ["draft", "none"], description: "Push the branch and open a draft PR when the gates pass" }),
+          flag("--no-commit", { description: "Leave the passing branch uncommitted" }),
+          flag("--keep-worktrees", { description: "Keep losing candidate worktrees for inspection" }),
+          flag("--resume", { valueKind: "text", description: "Resume a run id, running only unfinished candidates" }),
+          flag("--dry-run", { description: "Print the plan, gates, and spend ceiling without running" }),
+        ],
+      }),
+      subcommand("status", "Show the gate ladder for a run (default: the latest)"),
+      subcommand("report", "Render a run report", {
+        flags: [
+          flag("--format", { values: ["text", "json", "md", "html"], description: "Report output format" }),
+          flag("--out", { valueKind: "path", description: "Write the report to a file" }),
+        ],
+      }),
+      subcommand("list", "List loop briefs and past runs"),
+    ],
+  }),
   command("workflow", "Prebuilt platform workflows", {
     aliases: ["workflows"],
     subcommands: [

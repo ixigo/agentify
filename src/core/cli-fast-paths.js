@@ -43,6 +43,7 @@ export async function printHelp() {
     `    ${c("route")}           ${d("Explain the routing decision for a task without running it: explain")}`,
     `    ${c("models")}          ${d("Show the model routing table, active profile, provider availability, and the provider model catalog: refresh")}`,
     `    ${c("eval")}            ${d("Paired Agentify+Claude vs plain-Claude benchmarks: init, run, report, compare, list")}`,
+    `    ${c("loop")}            ${d("Autonomous build loop: implement a brief in a worktree, gate it, iterate, ship: init, run, status, report, list")}`,
     `    ${c("workflow")}        ${d("Prebuilt platform workflows for GitHub, GitLab, and Azure DevOps: list, install")}`,
     `    ${c("scan")}            ${d("Build the SQLite repository index")}`,
     `    ${c("up")}              ${d("Run scan -> check")}`,

@@ -115,6 +115,12 @@ const BUILTIN_SKILLS = [
       "Manage Jira work items through Atlassian CLI `acli`, including picking up assigned tickets, daily to-do triage, transitioning statuses, editing summaries/descriptions/assignees/labels, updating the current ticket, and creating new Jira tasks or bugs.",
   },
   {
+    name: "loop-autopilot",
+    aliases: ["loop-iteration"],
+    description:
+      "Implement one graded iteration of an autonomous Agentify loop: read the brief and the previous gate failures, make the smallest change that turns the red gates green, and stop. The harness owns the loop, the ceilings, and shipping.",
+  },
+  {
     name: "migrate-php-to-astro-iui",
     aliases: ["php-to-astro", "astro-php-migration"],
     description:

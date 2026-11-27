@@ -74,6 +74,7 @@ No daemon, no database server, no per-command wrapping.
 | `agentify risk --since <ref>` | Blast radius + suggested regression tests |
 | `agentify test --since <ref> --run` | Run only the tests a change affects |
 | `agentify delegate <kind> "<task>"` | Shell work out to the model routed for it |
+| `agentify loop run --task "<task>"` | Build it in a worktree, gate it, iterate until the gates pass |
 | `agentify serve` | MCP server for any MCP-capable agent |
 | `agentify migrate /path/to/project --open` | Copy Codex threads from a folder and its subfolders into Claude Desktop (macOS) |
 | `agentify migrate --from chatgpt --input ./conversations.json --to claude-desktop` | Prepare ChatGPT conversations for Claude app’s Code tab |
@@ -101,6 +102,7 @@ Node.js 22+, Git, and Claude Code (automatic hooks) or Codex (guidance-driven). 
 
 - **[docs/README.md](./docs/README.md)** — command reference, integrations, and where everything else lives
 - [docs/usage.md](./docs/usage.md) — the full guide
+- [docs/loop.md](./docs/loop.md) — the autonomous build loop: gates, ceilings, candidates
 - [docs/benchmarks.md](./docs/benchmarks.md) — what has actually been measured
 
 ## Development

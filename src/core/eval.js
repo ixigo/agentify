@@ -31,6 +31,8 @@ import { PROFILE_NAMES } from "./profiles.js";
 import { ensureDir, exists, readJson, readText, writeJson, writeText } from "./fs.js";
 import { installIntegration, removeManagedBlock, stripManagedHooks } from "./integrations.js";
 import { detectDelegateProviders, parseClaudeJsonOutput } from "./models.js";
+import { matchesForbiddenPath } from "./globs.js";
+import { runProcess } from "./proc.js";
 import { matchAgentifyMcpTool } from "./session-analysis/agentify-tools.js";
 import { recordDelegation } from "./stats.js";
 import { redactSensitiveText } from "./redact.js";
@@ -458,24 +460,10 @@ function shuffled(items, random = Math.random) {
   return list;
 }
 
-// Match git-relative changed paths against manifest globs: `**` crosses
-// directory boundaries, `*` stays within one segment.
-export function matchesForbiddenPath(filePath, patterns) {
-  const normalized = String(filePath || "").replace(/\\/g, "/");
-  return (patterns || []).filter((pattern) => {
-    const source = String(pattern).replace(/\\/g, "/");
-    const regex = new RegExp(`^${source
-      .split(/(\*\*\/|\*\*|\*)/)
-      .map((part) => {
-        if (part === "**/") return "(?:.*/)?";
-        if (part === "**") return ".*";
-        if (part === "*") return "[^/]*";
-        return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      })
-      .join("")}$`);
-    return regex.test(normalized);
-  });
-}
+// Match git-relative changed paths against manifest globs. Shared with the loop
+// runner so both harnesses enforce identical refusals; re-exported here because
+// this module has always been its home for callers and tests.
+export { matchesForbiddenPath };
 
 // Build the full execution plan without touching the filesystem or starting
 // any process. Dry-run output is this plan verbatim.
@@ -566,53 +554,6 @@ function childEnv(arm, extraEnv = {}, contextAblation = null, profile = null, de
     env.AGENTIFY_CTX = "off";
   }
   return env;
-}
-
-// Keep only the newest bytes when a child floods stdout/stderr; the Claude
-// result envelope arrives last, so the tail is the part that matters.
-const MAX_CAPTURE_CHARS = 8 * 1024 * 1024;
-
-function appendCapped(buffer, chunk) {
-  const next = buffer + chunk;
-  return next.length > MAX_CAPTURE_CHARS ? next.slice(-MAX_CAPTURE_CHARS) : next;
-}
-
-function runProcess(command, args, { cwd, env, timeoutMs, shell = false }) {
-  return new Promise((resolve) => {
-    // detached puts the child in its own process group so a timeout kill
-    // reaches grandchildren (provider subprocesses, setup script pipelines).
-    const child = shell
-      ? spawn("sh", ["-c", command], { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true })
-      : spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) {
-        timedOut = true;
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
-      }
-    }, timeoutMs);
-    child.stdout.on("data", (chunk) => { stdout = appendCapped(stdout, chunk); });
-    child.stderr.on("data", (chunk) => { stderr = appendCapped(stderr, chunk); });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code: 127, stdout, stderr: `${stderr}\n${error.message}`.trim(), timedOut });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr, timedOut });
-    });
-  });
 }
 
 async function git(cwd, args, { allowFailure = false } = {}) {

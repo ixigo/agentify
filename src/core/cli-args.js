@@ -44,11 +44,15 @@ const BOOLEAN_FLAGS = new Set([
   "noMcp",
   "noIndex",
   "check",
+  // loop
+  "keepWorktrees",
+  "noCommit",
+  "ui",
 ]);
 
 // Flags that may appear multiple times; repeats accumulate into an array
 // instead of last-one-wins.
-const REPEATABLE_FLAGS = new Set(["failOn", "sourceRoot"]);
+const REPEATABLE_FLAGS = new Set(["failOn", "sourceRoot", "figmaImage", "acceptance"]);
 
 function toCamelCaseFlag(key) {
   return key.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
